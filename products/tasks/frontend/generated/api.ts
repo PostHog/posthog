@@ -46,6 +46,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
     TaskPresenceBeaconRequestApi,
@@ -711,14 +712,14 @@ export const getTasksCreateUrl = (projectId: string) => {
  */
 export const tasksCreate = async (
     projectId: string,
-    taskWriteApi?: TaskWriteApi,
+    taskCreateApi?: TaskCreateApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskWriteApi),
+        body: JSON.stringify(taskCreateApi),
     })
 }
 
@@ -1175,7 +1176,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (

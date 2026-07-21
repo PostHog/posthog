@@ -892,6 +892,20 @@ class ExternalDataSourceType(models.TextChoices):
     KONGKONNECT = "KongKonnect", "KongKonnect"
     KANDJI = "Kandji", "Kandji"
     AUTOMOX = "Automox", "Automox"
+    AUTUMN = "Autumn", "Autumn"
+    GETSTREAM = "GetStream", "GetStream"
+    OCTOLENS = "Octolens", "Octolens"
+    KAJABI = "Kajabi", "Kajabi"
+    SHOPWARE = "Shopware", "Shopware"
+    DUBSADO = "Dubsado", "Dubsado"
+    CAMPFIRE = "Campfire", "Campfire"
+    PROMPTWATCH = "PromptWatch", "PromptWatch"
+    CRISP = "Crisp", "Crisp"
+    KOMMO = "Kommo", "Kommo"
+    AXIOM = "Axiom", "Axiom"
+    PLIVO = "Plivo", "Plivo"
+    DATAFORSEO = "DataForSEO", "DataForSEO"
+    SLEEKPLAN = "Sleekplan", "Sleekplan"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

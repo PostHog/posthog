@@ -64,9 +64,34 @@ class TestOpenRouterSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["models", "activity"])
         assert {s.name for s in schemas} == {"models", "activity"}
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
+    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "404 Client Error"])
     def test_non_retryable_errors(self, expected_key):
         assert any(expected_key in key for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "raw_error,is_non_retryable",
+        [
+            # Real raise_for_status() strings carry the offset/limit query the org endpoints page with;
+            # the keys must still match them as a substring the way external_data_job.py classifies.
+            (
+                "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/organization/members?offset=0&limit=100",
+                True,
+            ),
+            (
+                "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/workspaces?offset=0&limit=100",
+                True,
+            ),
+            # A 404 on a catalog endpoint would be a real path bug, not a missing organization — it must
+            # stay retryable rather than be silently disabled.
+            ("404 Client Error: Not Found for url: https://openrouter.ai/api/v1/models", False),
+        ],
+    )
+    def test_404_classification(self, raw_error, is_non_retryable):
+        errors = self.source.get_non_retryable_errors()
+        matches = [msg for key, msg in errors.items() if key in raw_error]
+        assert bool(matches) is is_non_retryable
+        if is_non_retryable:
+            assert "organization" in (matches[0] or "").lower()
 
     def test_validate_credentials_invalid_key(self):
         with _patch_key_info(None):

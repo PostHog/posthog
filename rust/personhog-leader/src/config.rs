@@ -125,9 +125,50 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub warm_retry_max_backoff_ms: u64,
 
+    // ── Dirty index / changelog recovery ─────────────────────────
+    /// How often to poll the writer's committed offsets and prune dirty
+    /// index marks the writer has applied to PG. A tick costs one batched
+    /// OffsetFetch plus work proportional to the marks actually reclaimed
+    /// (the index is never scanned), so a short interval is cheap — and it
+    /// bounds how long an applied-but-unpruned mark keeps sending reads to
+    /// the changelog for state PG already has.
+    #[envconfig(default = "1")]
+    pub dirty_index_prune_interval_secs: u64,
+
+    /// Overall deadline for recovering one evicted dirty person from the
+    /// changelog, including transient-failure retries. A point read that
+    /// hasn't returned in a few seconds isn't going to, and each recovery
+    /// occupies a pooled consumer for its whole duration — a long deadline
+    /// amplifies a broker blip into pool exhaustion.
+    #[envconfig(default = "5")]
+    pub recovery_recv_timeout_secs: u64,
+
+    /// Number of pooled changelog-recovery consumers, bounding concurrent
+    /// recoveries the way a DB connection pool bounds queries. Each is a
+    /// full Kafka client (its own connections and background threads), but
+    /// even 16 is fewer than the per-partition consumers this pool
+    /// replaced. Under a benchmarked writer outage a pool of 4 queued
+    /// recoveries for ~10ms on average and tripled write p99; 16 zeroed
+    /// the queueing. The `personhog_leader_recovery_pool_wait_ms`
+    /// histogram shows when this is undersized.
+    #[envconfig(default = "16")]
+    pub recovery_pool_size: usize,
+
+    /// Soft bound on dirty index entries (~100 bytes each). The index
+    /// grows one mark per unique person written since the writer's
+    /// committed offset, so this bound is the memory runway a writer
+    /// outage gets before new-person writes shed with RESOURCE_EXHAUSTED.
+    /// The default (~1 GB worst case) buys hours at heavy churn.
+    #[envconfig(default = "10000000")]
+    pub dirty_index_max_entries: usize,
+
     // ── PG fallback ───────────────────────────────────────────────
-    /// Read-only Postgres URL for cache miss fallback. If empty, cache
-    /// misses return NotFound without querying PG.
+    /// Postgres URL for cache miss fallback. If empty, cache misses
+    /// return NotFound without querying PG. Must point at the primary:
+    /// the dirty index prunes a mark as soon as the writer's committed
+    /// offset shows the primary has the row, so reading an async replica
+    /// here would serve stale rows for unmarked persons and silently
+    /// break read-your-write. Leader reads are strong reads.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 

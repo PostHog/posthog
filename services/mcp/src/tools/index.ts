@@ -1,4 +1,5 @@
 import { hasScopes } from '@/lib/api'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
 import resolveResource from './agentPlatform/resolveResource'
@@ -37,6 +38,7 @@ import {
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
+import updatePathCleaning from './projects/updatePathCleaning'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
@@ -67,6 +69,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
+
+    'path-cleaning-rules-update': updatePathCleaning,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
@@ -155,5 +159,7 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+
+    return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }

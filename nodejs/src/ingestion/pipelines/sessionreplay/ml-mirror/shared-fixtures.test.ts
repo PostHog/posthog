@@ -6,8 +6,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 // Shared fixtures pin the addon's behavior through the FFI; the pure-Rust side of the same
-// fixtures is covered by rust/replay-anonymizer-node/tests/parity.rs.
-const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer-node/tests/fixtures')
+// fixtures is covered by rust/replay-anonymizer/tests/parity.rs.
+const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer/tests/fixtures')
 
 interface AllowSpec {
     text: string[]

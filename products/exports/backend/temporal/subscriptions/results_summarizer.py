@@ -230,15 +230,17 @@ def _fmt(value: float | int | None) -> str:
     return f"{value:,}"
 
 
-def _format_duration(seconds: float | int) -> str:
+def _format_duration(seconds: float | int, *, seconds_fixed: int = 0) -> str:
     """Human-readable duration matching the chart's Y-axis (humanFriendlyDuration):
     days+hours for >= 1 day, hours+minutes+seconds below that, e.g. "4d 4h" / "3h 45m 12s".
     """
     if seconds < 0:
-        return f"-{_format_duration(-seconds)}"
+        return f"-{_format_duration(-seconds, seconds_fixed=seconds_fixed)}"
     if seconds < 1:
         return f"{round(seconds * 1000)}ms" if seconds else "0s"
     if seconds < 60:
+        if seconds_fixed:
+            return f"{seconds:.{seconds_fixed}f}".rstrip("0").rstrip(".") + "s"
         return f"{int(seconds)}s"
 
     # Floor every unit to match the chart's humanFriendlyDuration; rounding the
@@ -255,6 +257,15 @@ def _format_duration(seconds: float | int) -> str:
             u for u in (f"{hours}h" if hours else "", f"{minutes}m" if minutes else "", f"{secs}s" if secs else "") if u
         ]
     return " ".join(units) or "0s"
+
+
+def _format_duration_nanoseconds(value: float | int) -> str:
+    absolute_value = abs(value)
+    if absolute_value < 1_000:
+        return f"{_fmt(value)}ns"
+    if absolute_value < 1_000_000:
+        return f"{_fmt(value / 1_000)}µs"
+    return _format_duration(value / 1_000_000_000, seconds_fixed=1)
 
 
 def _sanitize_axis_affix(affix: str) -> str:
@@ -302,6 +313,8 @@ def _fmt_value(value: float | int | None, value_format: dict[str, Any] | None) -
         formatted = _format_duration(value)
     elif axis_format == "duration_ms":
         formatted = _format_duration(value / 1000)
+    elif axis_format == "duration_ns":
+        formatted = _format_duration_nanoseconds(value)
     elif axis_format == "percentage":
         formatted = f"{_fmt(value)}%"
     elif axis_format == "percentage_scaled":

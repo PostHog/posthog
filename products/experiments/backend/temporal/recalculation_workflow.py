@@ -2,7 +2,7 @@ import asyncio
 from datetime import timedelta
 
 import temporalio.workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import Priority, RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -11,6 +11,9 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
+        RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
+        RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
+        RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
         RecalculationProgressUpdate,
     )
@@ -105,8 +108,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         temporalio.workflow.logger.info(f"running recalc {recalculation_id} with {len(metrics)} metrics")
 
         calc_retry_policy = RetryPolicy(
-            initial_interval=timedelta(seconds=5),
-            maximum_interval=timedelta(seconds=60),
+            initial_interval=timedelta(seconds=RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS),
+            backoff_coefficient=RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
+            maximum_interval=timedelta(seconds=RECALCULATION_RETRY_MAX_INTERVAL_SECONDS),
             maximum_attempts=MAX_METRIC_ATTEMPTS,
         )
         results = await asyncio.gather(
@@ -122,6 +126,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     ],
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
+                    # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
+                    # fairness support.
+                    priority=Priority(fairness_key=inputs.fairness_key),
                 )
                 for metric in metrics
             ],

@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from typing import cast
 
 from posthog.schema import (
@@ -10,12 +11,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.utils import relative_date_parse
 
 
@@ -40,53 +43,83 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
     query: SessionsTimelineQuery
     cached_response: CachedSessionsTimelineQueryResponse
 
+    @cached_property
+    def _use_new_events_schema(self) -> bool:
+        return use_new_events_schema(self.team.pk)
+
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
+            event_field_prefix = ["event_source"] if self._use_new_events_schema else []
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
-                    left=ast.Field(chain=["timestamp"]),
+                    left=ast.Field(chain=[*event_field_prefix, "timestamp"]),
                     right=ast.Constant(value=after),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["timestamp"]),
+                    left=ast.Field(chain=[*event_field_prefix, "timestamp"]),
                     right=ast.Constant(value=before),
                 ),
             ]
             if self.query.personId:
                 event_conditions.append(
                     ast.CompareOperation(
-                        left=ast.Field(chain=["person_id"]),
+                        left=ast.Field(chain=[*event_field_prefix, "person_id"]),
                         right=ast.Constant(value=self.query.personId),
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
-            select_query = parse_select(
-                """
-                SELECT
-                    uuid,
-                    person_id AS person_id,
-                    timestamp AS timestamp,
-                    event,
-                    properties,
-                    distinct_id,
-                    elements_chain,
-                    $session_id AS session_id,
-                    lagInFrame($session_id, 1) OVER (
-                        PARTITION BY person_id ORDER BY timestamp
-                    ) AS prev_session_id
-                FROM events
-                WHERE {event_conditions}
-                ORDER BY timestamp DESC
-                LIMIT {event_limit_with_more}""",
-                placeholders={
-                    "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
-                    "event_conditions": ast.And(exprs=event_conditions),
-                },
-            )
+            if self._use_new_events_schema:
+                select_query = parse_select(
+                    """
+                    SELECT
+                        event_source.uuid,
+                        event_source.person_id AS person_id,
+                        event_source.timestamp AS timestamp,
+                        event_source.event,
+                        toJSONString(event_source.properties) AS properties,
+                        event_source.distinct_id,
+                        event_source.elements_chain,
+                        event_source.$session_id AS session_id,
+                        lagInFrame(event_source.$session_id, 1) OVER (
+                            PARTITION BY event_source.person_id ORDER BY event_source.timestamp
+                        ) AS prev_session_id
+                    FROM events AS event_source
+                    WHERE {event_conditions}
+                    ORDER BY event_source.timestamp DESC
+                    LIMIT {event_limit_with_more}""",
+                    placeholders={
+                        "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                        "event_conditions": ast.And(exprs=event_conditions),
+                    },
+                )
+            else:
+                select_query = parse_select(
+                    """
+                    SELECT
+                        uuid,
+                        person_id AS person_id,
+                        timestamp AS timestamp,
+                        event,
+                        properties,
+                        distinct_id,
+                        elements_chain,
+                        $session_id AS session_id,
+                        lagInFrame($session_id, 1) OVER (
+                            PARTITION BY person_id ORDER BY timestamp
+                        ) AS prev_session_id
+                    FROM events
+                    WHERE {event_conditions}
+                    ORDER BY timestamp DESC
+                    LIMIT {event_limit_with_more}""",
+                    placeholders={
+                        "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                        "event_conditions": ast.And(exprs=event_conditions),
+                    },
+                )
         return cast(ast.SelectQuery, select_query)
 
     def to_query(self) -> ast.SelectQuery:
@@ -123,9 +156,48 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             )
         return cast(ast.SelectQuery, select_query)
 
-    def to_actors_query(self):
-        return parse_select(
-            """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
+    def to_actors_query(self) -> ast.SelectQuery:
+        after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
+        before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
+        event_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=after),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=before),
+            ),
+        ]
+        if self.query.personId:
+            event_conditions.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                    op=ast.CompareOperationOp.Eq,
+                )
+            )
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT DISTINCT person_id
+                FROM (
+                    SELECT person_id
+                    FROM events
+                    WHERE {event_conditions}
+                    ORDER BY timestamp DESC
+                    LIMIT {event_limit_with_more}
+                )
+                """,
+                placeholders={
+                    "event_conditions": ast.And(exprs=event_conditions),
+                    "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                },
+            ),
         )
 
     def _calculate(self) -> SessionsTimelineQueryResponse:
@@ -133,6 +205,11 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             query=self.to_query(),
             team=self.team,
             user=self.user,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                use_new_events_schema=self._use_new_events_schema,
+            ),
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,

@@ -13,7 +13,7 @@ from time import perf_counter
 from typing import Any
 
 from django.core.cache import cache
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
@@ -194,12 +194,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 except Exception:
                     logger.exception("llm_proxy_on_complete_callback_error")
 
-    def _create_streaming_response(self, stream: Generator[bytes]) -> StreamingHttpResponse:
+    def _create_streaming_response(self, stream: Generator[bytes]) -> HttpResponseBase:
         """Creates a properly configured SSE streaming response"""
         astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
         return sse_streaming_response(astream, endpoint="ai_observability_proxy")
 
-    def _handle_completion_request(self, request: Request) -> StreamingHttpResponse | Response:
+    def _handle_completion_request(self, request: Request) -> HttpResponseBase | Response:
         """Handler for completion requests using unified Client"""
         try:
             if not request.user or not request.user.is_authenticated:

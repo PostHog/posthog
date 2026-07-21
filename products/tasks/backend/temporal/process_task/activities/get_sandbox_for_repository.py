@@ -46,6 +46,7 @@ def _get_image_source_label(
     provider: str | None,
     resume_snapshot_external_id: str | None,
     snapshot: SandboxSnapshot | None,
+    custom_image_name: str | None = None,
 ) -> str:
     if resume_snapshot_external_id:
         return f"resume snapshot {resume_snapshot_external_id}"
@@ -53,6 +54,9 @@ def _get_image_source_label(
     if snapshot is not None:
         external_id = snapshot.external_id or str(snapshot.id)
         return f"repository snapshot {external_id}"
+
+    if custom_image_name:
+        return f"custom base image {custom_image_name}"
 
     if provider == "docker":
         return "local Docker sandbox image"
@@ -124,7 +128,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         snapshot_source = "none"
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
-        if has_repo and github_integration_id is not None:
+        # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
+        if has_repo and github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
@@ -249,11 +254,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
+        use_vm_sandbox = ctx.use_modal_vm_sandbox
+        custom_image_name = ctx.custom_image_name if use_vm_sandbox else None
         image_source_label = _get_image_source_label(
             has_repo=has_repo,
             provider=provider,
             resume_snapshot_external_id=resume_snapshot_ext_id,
             snapshot=snapshot if not resume_snapshot_ext_id else None,
+            custom_image_name=custom_image_name,
         )
 
         if resume_snapshot_ext_id:
@@ -267,7 +275,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            custom_image_name=custom_image_name,
+            vm_runtime=use_vm_sandbox,
             environment_variables=environment_variables,
             snapshot_external_id=resume_snapshot_ext_id,
             snapshot_kind=snapshot_kind,

@@ -1,4 +1,4 @@
-import { sqlEditorLogicType } from '../sqlEditorLogicType'
+import type { sqlEditorLogicType } from '../sqlEditorLogic'
 
 // Handlers for AI query suggestions
 

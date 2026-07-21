@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThinkificSource(ResumableSource[ThinkificSourceConfig, ThinkificResumeConfig]):
+    api_docs_url = "https://developers.thinkific.com/api/api-documentation"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.THINKIFIC

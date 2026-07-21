@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
+    api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

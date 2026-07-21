@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class FlexmailSource(ResumableSource[FlexmailSourceConfig, FlexmailResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://api.flexmail.eu/documentation/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.FLEXMAIL

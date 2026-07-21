@@ -140,11 +140,15 @@ async function updateSelfInTx(
     lockId: string,
     disposition: CyclotronV2BulkCreateAndCheckInInput['selfDisposition']
 ): Promise<void> {
+    // Deliberate self-checkins zero janitor_touch_count for the same reason the
+    // wrapJob dispositions do — the poison budget counts CONSECUTIVE stalls, so a
+    // healthy batch-resolve release must not leave a stale touch count behind.
     if (disposition.kind === 'ack') {
         const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1
+                 last_transition = NOW(), transition_count = transition_count + 1,
+                 janitor_touch_count = 0
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
         )
@@ -155,7 +159,8 @@ async function updateSelfInTx(
         const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1
+                 last_transition = NOW(), transition_count = transition_count + 1,
+                 janitor_touch_count = 0
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
         )
@@ -170,6 +175,7 @@ async function updateSelfInTx(
         `last_heartbeat = NULL`,
         `last_transition = NOW()`,
         `transition_count = transition_count + 1`,
+        `janitor_touch_count = 0`,
         `scheduled = $3`,
     ]
     const params: any[] = [jobId, lockId, scheduled]
@@ -421,7 +427,8 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                         last_transition = NOW(), transition_count = transition_count + 1,
+                         janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
@@ -432,7 +439,8 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                         last_transition = NOW(), transition_count = transition_count + 1,
+                         janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
@@ -449,6 +457,11 @@ export class CyclotronV2Worker {
                     `last_heartbeat = NULL`,
                     `last_transition = NOW()`,
                     `transition_count = transition_count + 1`,
+                    // A deliberate release means the worker is healthy, so the
+                    // poison budget counts CONSECUTIVE stalls — long-lived jobs
+                    // (e.g. wait_until_condition polls) don't accrue touches for
+                    // their whole life and get mistaken for poison pills.
+                    `janitor_touch_count = 0`,
                     `scheduled = $3`,
                 ]
                 const params: any[] = [row.id, lockId, scheduled]
@@ -501,7 +514,8 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1
+                         last_transition = NOW(), transition_count = transition_count + 1,
+                         janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )

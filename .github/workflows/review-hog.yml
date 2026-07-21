@@ -9,16 +9,19 @@
 # here — the only secret is the shared trigger token. Publishing happens server-side via the PostHog
 # GitHub App installation token.
 #
-# Safety: `pull_request` (not `pull_request_target`) means fork PRs receive no secrets, so they cannot
-# trigger; the `if:` also hard-gates forks; and applying the label needs write access.
+# Safety: `pull_request_target` always runs the base branch's version of this file, so a PR cannot
+# edit its own trigger, and it fires even when the PR has merge conflicts. It does expose secrets to
+# fork PRs, so the `if:` hard-gates forks — safe because this job never checks out or runs PR code.
 name: ReviewHog
 
+# Sanctioned use — no job checks out or runs PR code; see the Safety note above.
+# nosemgrep: github-actions-pull-request-target
 on:
-    pull_request:
+    pull_request_target:
         types: [labeled]
 
-# No GitHub permissions needed — the job only makes an outbound authenticated request; the review is
-# fetched and published server-side via the PostHog GitHub App installation token.
+# No GitHub permissions by default — the trigger job only makes an outbound authenticated request;
+# the review is fetched and published server-side via the PostHog GitHub App installation token.
 permissions: {}
 
 concurrency:
@@ -45,7 +48,7 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   if [ -z "$REVIEWHOG_TRIGGER_TOKEN" ]; then
-                    echo "::error::REVIEWHOG_TRIGGER_TOKEN secret is not set (or unavailable on a fork PR)." >&2
+                    echo "::error::REVIEWHOG_TRIGGER_TOKEN secret is not set." >&2
                     exit 1
                   fi
                   payload="$(jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" '{repo: $repo, pr_number: $pr}')"
@@ -57,3 +60,27 @@ jobs:
                     -H "Authorization: Bearer $REVIEWHOG_TRIGGER_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d "$payload"
+
+    # The trigger job skips bot-applied labels silently; explain why and strip the label so a
+    # human can re-add it deliberately.
+    bot-labeler-skip:
+        name: Explain skipped bot label
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        if: >-
+            github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+            && github.event.sender.type == 'Bot'
+            && github.event.label.name == 'reviewhog'
+        steps:
+            - name: Comment and strip label
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  set -euo pipefail
+                  gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+                    -f body="ReviewHog reviews start only when a human adds the \`reviewhog\` label, so this bot-applied label was removed. Re-add it yourself to start a review."
+                  gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/reviewhog"
