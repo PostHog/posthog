@@ -14,11 +14,14 @@ from posthog.models.user import User
 # resolution under test settings, where a local SANDBOX_PROVIDER env rejects DEBUG=False.
 import products.review_hog.backend.temporal.client  # noqa: F401
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.receivers import resolve_stamphog_acting_reviewer
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task, TaskRun
 
 # `_start_review` imports the client at call time, so the defining module is the patch target.
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+# `_start_stamphog_review` imports the facade at call time, so the facade module is the patch target.
+_STAMPHOG_QUEUE = "products.stamphog.backend.facade.api.queue_inbox_pr_review"
 _PR_URL = "https://github.com/posthog/posthog/pull/9"
 _HEAD_BRANCH = "posthog-code/fix-the-thing"
 
@@ -49,8 +52,11 @@ class TestInboxTrigger(BaseTest):
             content=json.dumps([{"github_login": login} for login in logins]),
         )
 
-    def _opt_in(self, user: User) -> None:
-        ReviewUserSettings.objects.for_team(self.team.id).create(team=self.team, user=user, review_inbox_prs=True)
+    def _opt_in(self, user: User, **flags: bool) -> None:
+        # No explicit flags means the classic ReviewHog inbox opt-in.
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team=self.team, user=user, **(flags or {"review_inbox_prs": True})
+        )
 
     def _task(
         self,
@@ -303,3 +309,79 @@ class TestInboxTrigger(BaseTest):
         self._record_output(self._run(self._task()), {"pr_url": _PR_URL})  # must not raise
 
         mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # (name, flags, expect_review_hog, expect_stamphog) — the two toggles on the one acting
+            # reviewer gate their reviews independently: neither may imply, block, or replace the other.
+            ("stamphog_only", {"stamphog_review_inbox_prs": True}, False, True),
+            ("both_toggles", {"review_inbox_prs": True, "stamphog_review_inbox_prs": True}, True, True),
+            ("review_hog_only", {"review_inbox_prs": True}, True, False),
+        ]
+    )
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_the_two_toggles_gate_their_reviews_independently(
+        self, _name, flags, expect_review_hog, expect_stamphog, mock_start, mock_queue
+    ) -> None:
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, **flags)
+        run = self._run(self._task())
+        self._record_output(run, {"pr_url": _PR_URL})
+
+        assert mock_start.called is expect_review_hog
+        if expect_stamphog:
+            mock_queue.assert_called_once_with(
+                team_id=self.team.id,
+                pr_url=_PR_URL,
+                acting_user_id=self.alice.id,
+                signal_report_id=str(self.signal_report.id),
+                task_run_id=str(run.id),
+            )
+        else:
+            mock_queue.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_leg_needs_a_pr_target(self, mock_start, mock_queue) -> None:
+        # A bare pushed branch reviews on the ReviewHog side (stored), but stamphog's verdict is a
+        # GitHub review — with no PR to post to, queueing a stamphog run would only burn a sandbox.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"head_branch": _HEAD_BRANCH})
+
+        mock_start.assert_called_once()
+        mock_queue.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE, side_effect=RuntimeError("broker down"))
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_queue_failure_never_raises_into_the_save_path(self, mock_start, mock_queue) -> None:
+        # Same contract as the ReviewHog leg: the Celery broker being down must cost a log line,
+        # not break the run's output save (and not take the ReviewHog review down with it).
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})  # must not raise
+
+        mock_queue.assert_called_once()
+        mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # (name, flags, expected) — the webhook-leg resolver must key on the STAMPHOG toggle:
+            # keying on review_inbox_prs would re-review for users who never opted into stamphog.
+            ("stamphog_toggle_on", {"stamphog_review_inbox_prs": True}, True),
+            ("only_review_hog_toggle_on", {"review_inbox_prs": True}, False),
+        ]
+    )
+    def test_resolve_stamphog_acting_reviewer_keys_on_the_stamphog_toggle(self, _name, flags, expected) -> None:
+        # The hook stamphog's webhook path calls before re-reviewing a self-driving PR on a later
+        # push — switching the toggle off mid-PR must stop new runs.
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, **flags)
+
+        resolved = resolve_stamphog_acting_reviewer(self.team.id, str(self.signal_report.id), None)
+
+        assert resolved == (self.alice.id if expected else None)

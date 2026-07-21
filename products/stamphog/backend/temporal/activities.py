@@ -228,7 +228,12 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     check_runs = client.get_check_runs(repo, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
+    # Inbox (self-driving) runs skip the author's merged-PR fetch: the author is the team's
+    # GitHub App machine user, so blame-based familiarity computed from its merged PRs would
+    # read as human trust context the engine's prompt takes seriously. No numbers → the engine
+    # leaves the familiarity signal absent, exactly like a failed fetch on a human PR.
+    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -438,6 +443,10 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         repo=repo,
         engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
         context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+        # The engine's self-driving carve-out (review a bot-authored draft) keys off this and
+        # ONLY this — it is set exclusively from the run's inbox provenance, which both trigger
+        # paths stamp only after positively linking the PR to a signals implementation run.
+        self_driving_review=bool(output.get("inbox_review")),
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())

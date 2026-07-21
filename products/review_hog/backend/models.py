@@ -274,6 +274,10 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
     `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
     cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
+    `stamphog_review_inbox_prs` is the same opt-in for hosted Stamphog (approve-first review with a
+    real GitHub approval) on those same inbox PRs — a deliberate cross-product preference this model
+    hosts so both toggles live on one row; it only takes effect for teams with a synced, enabled
+    StamphogRepoConfig covering the PR's repository.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -287,6 +291,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     urgency_threshold = models.CharField(
         max_length=20,

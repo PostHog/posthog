@@ -109,6 +109,52 @@ def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | 
     return _repo_config_to_dto(obj) if obj is not None else None
 
 
+def has_reviewable_repo_config(team_id: int) -> bool:
+    """Whether the team has at least one repo hosted reviews can actually run on (synced + enabled).
+
+    "Synced" means the config was bound through the authenticated sync flow: a non-blank
+    installation_id AND a connecting user (the principal the sandbox LLM credential is minted
+    under — reviews fail closed without one). Drives the Code review scene's Stamphog inbox
+    toggle: when this is false, the toggle has nothing to act on and renders disabled.
+    """
+    return (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+        .exists()
+    )
+
+
+def queue_inbox_pr_review(
+    *,
+    team_id: int,
+    pr_url: str,
+    acting_user_id: int,
+    signal_report_id: str,
+    task_run_id: str,
+) -> None:
+    """Queue the initial hosted Stamphog review of a self-driving inbox PR (fire-and-forget).
+
+    The programmatic entry for review_hog's inbox trigger: the caller has already resolved the
+    acting reviewer and checked their ``stamphog_review_inbox_prs`` toggle. Everything else —
+    resolving a synced+enabled repo config for the PR's repository (silent no-op without one),
+    fetching the PR, creating the run with inbox provenance, starting the workflow — happens in
+    a Celery task so the caller's save path never blocks on GitHub or the product DB.
+    """
+    # Deferred: the Celery task module drags the GitHub client and temporal client onto the
+    # import path, which must stay off this facade's light import surface (review_hog's API
+    # serializer imports it for has_reviewable_repo_config).
+    from products.stamphog.backend.tasks.tasks import process_inbox_pr_review  # noqa: PLC0415
+
+    process_inbox_pr_review.delay(
+        team_id=team_id,
+        pr_url=pr_url,
+        acting_user_id=acting_user_id,
+        signal_report_id=signal_report_id,
+        task_run_id=task_run_id,
+    )
+
+
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     obj = (
         ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
