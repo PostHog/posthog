@@ -426,6 +426,7 @@ the row lists both.
 | platform_sh                      | HTTP                        | requests                                                        | ✅                          |
 | plausible                        | HTTP                        | requests                                                        | ✅                          |
 | plivo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| plunk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
@@ -870,7 +871,6 @@ doesn't conflict with concurrent PRs.
 - pivotal_tracker
 - piwik
 - planetscale
-- plunk
 - pocket
 - podium
 - polygon
