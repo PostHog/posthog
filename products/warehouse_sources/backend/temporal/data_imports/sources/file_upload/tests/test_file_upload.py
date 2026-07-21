@@ -1,4 +1,5 @@
 import io
+import asyncio
 from contextlib import asynccontextmanager
 
 import pytest
@@ -99,14 +100,20 @@ class TestFileUploadSourceManager:
 
         return s3, fake_client
 
-    @pytest.mark.asyncio
-    async def test_reads_only_from_its_own_teams_prefix(self) -> None:
+    def test_reads_only_from_its_own_teams_prefix(self) -> None:
+        # Driven through asyncio.run in a sync test rather than as a bare pytest-asyncio coroutine:
+        # an event-loop test collected alongside the DB-backed suite can trip Django's
+        # close_old_connections and leave the shared connection closed for the next test.
         s3, fake_client = self._patched_s3(CSV_BYTES)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.file_upload.aget_s3_client",
-            fake_client,
-        ):
-            batches = [batch async for batch in self._manager(team_id=42).get_items()]
+
+        async def collect() -> list[pa.Table]:
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.file_upload.aget_s3_client",
+                fake_client,
+            ):
+                return [batch async for batch in self._manager(team_id=42).get_items()]
+
+        batches = asyncio.run(collect())
 
         s3.open_async.assert_awaited_once()
         opened_path = s3.open_async.await_args.args[0]
