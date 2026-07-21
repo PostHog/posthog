@@ -295,6 +295,20 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"loop-team:{loop.team_id}"])
 
+        # `fire_loop` checked enabled/deleted before this lock. Re-fetch the row under
+        # `select_for_update` and re-check now, so a pause/deactivation/soft-delete that lands after
+        # that pre-lock check can't slip one more run through: whichever of this fire and the
+        # deactivation grabs the row lock first, the other either sees the disabled row (and skips)
+        # or blocks until this fire commits, so deactivation's run-cancellation scan then sees the
+        # new run instead of racing past it. A run must never start under a just-deactivated
+        # owner's credentials (see loop_lifecycle._pause_loop_and_cancel_runs).
+        # `for_team`: fire_loop runs outside request/team scope (Temporal workflow, webhook), so the
+        # fail-closed default manager would raise without ambient team context.
+        locked_loop = Loop.objects.for_team(loop.team_id, canonical=True).select_for_update().filter(pk=loop.id).first()
+        if locked_loop is None or not locked_loop.enabled or locked_loop.deleted:
+            return _FireDecision(reason="disabled", created=False, is_replay=False)
+        loop = locked_loop
+
         existing = _existing_fire(loop, trigger, fire_key)
         if existing is not None:
             return _FireDecision(
