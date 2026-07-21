@@ -38,6 +38,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -64,6 +65,20 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+
+
+def _serialize_compare_rows(compare_rows: list | None) -> list[dict] | None:
+    """Serialize comparison-window rows for a response.
+
+    Preserves the difference between "comparison not requested" (`None`) and "comparison
+    requested but the window matched no spans" (`[]`). Collapsing the empty case to null
+    makes a successful comparison indistinguishable from one that never ran — the caller
+    reads it as the comparison being silently ignored.
+    """
+    if compare_rows is None:
+        return None
+    return [row.model_dump() for row in compare_rows]
+
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -743,6 +758,18 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except Exception as e:
             capture_exception(e)
 
+    def _parse_compare_filter(self, query_data: dict) -> CompareFilter | None:
+        """Parse an optional comparison window from the request body.
+
+        A malformed ``compareFilter`` raises (surfacing a 400), rather than being swallowed
+        into ``None`` — otherwise a caller that asked for a comparison gets a successful
+        response with ``compare: null`` and no hint that its filter was rejected.
+        """
+        compare_data = query_data.get("compareFilter")
+        if not compare_data:
+            return None
+        return self.get_model(compare_data, CompareFilter)
+
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
@@ -902,13 +929,26 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             else None
         )
 
-        response = run_count_query(
-            team=self.team,
-            date_range=date_range,
-            service_names=query_data.get("serviceNames", None),
-            status_codes=query_data.get("statusCodes", None),
-            filter_group=filter_group,
-        )
+        try:
+            response = run_count_query(
+                team=self.team,
+                date_range=date_range,
+                service_names=query_data.get("serviceNames", None),
+                status_codes=query_data.get("statusCodes", None),
+                filter_group=filter_group,
+            )
+        except CHQueryErrorTooManyBytes:
+            # The count is a bounded pre-flight; when it would scan past the byte cap we
+            # return an actionable 400 instead of surfacing an opaque 500 to the caller.
+            return Response(
+                {
+                    "detail": (
+                        "This count scans too much data to run as a pre-flight. Narrow the date "
+                        "range or add serviceNames, statusCodes, or filterGroup filters, then retry."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         report_user_action(
             request.user,
@@ -1113,13 +1153,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        compare_filter: CompareFilter | None = None
-        compare_data = query_data.get("compareFilter")
-        if compare_data:
-            try:
-                compare_filter = self.get_model(compare_data, CompareFilter)
-            except (ValidationError, ValueError, ParseError):
-                compare_filter = None
+        compare_filter = self._parse_compare_filter(query_data)
 
         # Bound the payload: default to a conservative page so agent/MCP callers don't pull the
         # full high-cardinality tail. Callers opt into more via `limit`/`offset`.
@@ -1141,7 +1175,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         results = list(response.results)
         has_more = len(results) > limit
         results = results[:limit]
-        compare_rows = list(response.compare)[:limit] if response.compare else None
+        # `None` when no comparison was requested, `[]` when it ran but matched no spans — keep them
+        # distinct so an empty baseline isn't reported as "comparison ignored".
+        compare_rows = list(response.compare)[:limit] if response.compare is not None else None
 
         self._report_usage(
             request,
@@ -1160,7 +1196,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response(
             {
                 "results": [row.model_dump() for row in results],
-                "compare": [row.model_dump() for row in compare_rows] if compare_rows is not None else None,
+                "compare": _serialize_compare_rows(compare_rows),
                 "has_more": has_more,
                 "next_offset": offset + limit if has_more else None,
             },
@@ -1197,13 +1233,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        compare_filter: CompareFilter | None = None
-        compare_data = query_data.get("compareFilter")
-        if compare_data:
-            try:
-                compare_filter = self.get_model(compare_data, CompareFilter)
-            except (ValidationError, ValueError, ParseError):
-                compare_filter = None
+        compare_filter = self._parse_compare_filter(query_data)
 
         response = run_tree_query(
             team=self.team,
@@ -1218,7 +1248,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response(
             {
                 "results": [row.model_dump() for row in response.results],
-                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+                "compare": _serialize_compare_rows(response.compare),
             },
             status=status.HTTP_200_OK,
         )
@@ -1274,13 +1304,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        compare_filter: CompareFilter | None = None
-        compare_data = query_data.get("compareFilter")
-        if compare_data:
-            try:
-                compare_filter = self.get_model(compare_data, CompareFilter)
-            except (ValidationError, ValueError, ParseError):
-                compare_filter = None
+        compare_filter = self._parse_compare_filter(query_data)
 
         response = run_attribute_breakdown_query(
             team=self.team,
@@ -1298,7 +1322,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response(
             {
                 "results": [row.model_dump() for row in response.results],
-                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+                "compare": _serialize_compare_rows(response.compare),
             },
             status=status.HTTP_200_OK,
         )
