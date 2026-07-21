@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailjetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailjet import (
+    MailjetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet import (
     MailjetResumeConfig,
     mailjet_source,

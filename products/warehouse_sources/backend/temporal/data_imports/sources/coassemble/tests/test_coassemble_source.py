@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoassembleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
+    CoassembleSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

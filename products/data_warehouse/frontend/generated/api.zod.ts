@@ -10,16 +10,16 @@
 import * as zod from 'zod'
 
 /**
- * Enable warehouse backfill for this environment with a dedicated set of tables.
+ * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a table name and records the environment's membership in the
- * organization's managed warehouse. Restricted to organization admins.
+ * Requires a schema name; records the project's membership both in duckgres and in the
+ * Django backfill state. Restricted to organization admins.
  */
-export const DataWarehouseEnableBackfillCreateBody = /* @__PURE__ */ zod.object({
-    table_name: zod
+export const DataWarehouseOnboardTeamCreateBody = /* @__PURE__ */ zod.object({
+    schema_name: zod
         .string()
         .describe(
-            "Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments."
+            "Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later."
         ),
 })
 
@@ -28,10 +28,10 @@ export const DataWarehouseEnableBackfillCreateBody = /* @__PURE__ */ zod.object(
  */
 export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
     database_name: zod.string().describe('Name for the new database'),
-    table_name: zod
+    schema_name: zod
         .string()
         .describe(
-            "Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables."
+            "Schema name for the provisioning project's data in the warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Cannot be changed later. Required — the first project gets its own schema, and other projects pick theirs when they join."
         ),
 })
 

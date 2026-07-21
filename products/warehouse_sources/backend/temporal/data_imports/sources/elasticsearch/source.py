@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     list_indices,
     validate_credentials as validate_elasticsearch_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElasticsearchSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
+    ElasticsearchSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

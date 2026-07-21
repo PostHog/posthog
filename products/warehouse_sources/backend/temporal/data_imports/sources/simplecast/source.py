@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SimpleCastSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplecast import (
+    SimpleCastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.settings import (
     DEFAULT_VERSION,
     ENDPOINTS,
