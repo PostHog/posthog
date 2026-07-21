@@ -392,7 +392,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 noticeDismissedThisSession: boolean,
                 activeSceneId: string | null,
                 liveEventCount: number,
-                hasReverseProxy: boolean | null
+                hasReverseProxy: boolean | null,
                 isProvisionedUser: boolean
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
