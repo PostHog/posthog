@@ -885,6 +885,17 @@ export const maxLogic = kea<maxLogicType>([
                     actions.startNewConversation()
                 }
 
+                // kea-router coerces numeric-looking URL params to numbers
+                const askPrompt = String(search.ask)
+
+                if (!values.dataProcessingAccepted) {
+                    // Without AI data-processing consent, askMax silently no-ops and the prompt is lost.
+                    // Prefill the composer instead so the deep-linked prompt stays visible and the user's
+                    // manual submit runs it (which surfaces the consent flow).
+                    actions.setQuestion(askPrompt)
+                    return
+                }
+
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
@@ -903,8 +914,7 @@ export const maxLogic = kea<maxLogicType>([
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
                     // Pass context directly to askMax to avoid timing issues
-                    // kea-router coerces numeric-looking URL params to numbers
-                    actions.askMax(String(search.ask), true, uiContext)
+                    actions.askMax(askPrompt, true, uiContext)
                 }, 100)
                 return
             }
