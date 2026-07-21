@@ -100,11 +100,17 @@ class TestAdRollSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_adroll_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "campaigns"
+        inputs.team_id = self.team_id
+        inputs.job_id = "job-1"
+        manager = mock.MagicMock()
 
-        self.source.source_for_pipeline(self.config, inputs)
+        self.source.source_for_pipeline(self.config, manager, inputs)
 
         mock_adroll_source.assert_called_once()
         kwargs = mock_adroll_source.call_args.kwargs
         assert kwargs["client_id"] == "cid"
         assert kwargs["personal_access_token"] == "pat"
         assert kwargs["endpoint"] == "campaigns"
+        assert kwargs["team_id"] == self.team_id
+        assert kwargs["job_id"] == "job-1"
+        assert kwargs["resumable_source_manager"] is manager

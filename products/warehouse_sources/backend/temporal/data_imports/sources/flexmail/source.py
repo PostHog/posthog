@@ -138,6 +138,7 @@ You can create a personal access token under **Settings → API → Personal acc
             account_id=config.account_id,
             personal_access_token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

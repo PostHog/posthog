@@ -99,13 +99,13 @@ class TestProductboardSource:
     @pytest.mark.parametrize(
         "probe_return, schema_name, expected_valid, expected_message",
         [
-            ((True, 200, None), None, True, None),
-            ((False, 401, "Unauthorized"), None, False, "Invalid Productboard access token"),
+            ((True, 200), None, True, None),
+            ((False, 401), None, False, "Invalid Productboard access token"),
             # 403 at source-create means a valid token that just lacks scope for the probe endpoint.
-            ((False, 403, "Forbidden"), None, True, None),
+            ((False, 403), None, True, None),
             # 403 on a specific schema means the user can't sync that endpoint.
-            ((False, 403, "Forbidden"), "notes", False, "Forbidden"),
-            ((False, 500, "Server error"), None, False, "Server error"),
+            ((False, 403), "notes", False, "Your access token is missing the required scope for this resource"),
+            ((False, 500), None, False, "Failed to validate Productboard credentials"),
         ],
     )
     @mock.patch(
@@ -144,6 +144,8 @@ class TestProductboardSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_productboard_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "notes"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2023-10-01T00:00:00Z"
         inputs.incremental_field = "updatedAt"
@@ -155,6 +157,8 @@ class TestProductboardSource:
         kwargs = mock_productboard_source.call_args.kwargs
         assert kwargs["access_token"] == "pb-token"
         assert kwargs["endpoint"] == "notes"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2023-10-01T00:00:00Z"

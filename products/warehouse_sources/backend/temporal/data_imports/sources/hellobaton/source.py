@@ -93,7 +93,7 @@ Generate an API key in Baton under the **API** section of your account settings.
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+            # 401/403 surface as a requests HTTPError when the REST client calls `raise_for_status()`.
             # Retrying can never fix a credential/permission problem, so fail the sync. Match the
             # stable status text, not the per-request path/query.
             "401 Client Error: Unauthorized": "Your Baton API key is invalid or has been revoked. Generate a new key in your Baton account settings, then reconnect.",
@@ -152,6 +152,8 @@ Generate an API key in Baton under the **API** section of your account settings.
             company=config.company,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Baton endpoint is full refresh
         )
