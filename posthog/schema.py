@@ -23059,10 +23059,6 @@ class QueryResponseAlternative104(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -23106,10 +23102,6 @@ class QueryResponseAlternative105(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -23152,10 +23144,6 @@ class QueryResponseAlternative106(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
@@ -23243,6 +23231,10 @@ class QueryResponseAlternative108(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -23286,6 +23278,10 @@ class QueryResponseAlternative109(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
         description=(
@@ -23328,6 +23324,10 @@ class QueryResponseAlternative110(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
     )
     warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
         default=None,
