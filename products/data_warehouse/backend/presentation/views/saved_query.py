@@ -440,7 +440,7 @@ class DataWarehouseSavedQuerySerializer(
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
-                    view.set_columns(view.get_columns())
+                    view.set_columns(view.get_columns(user=self.context["request"].user))
                 else:
                     columns = {
                         str(item[0]): {
@@ -581,7 +581,7 @@ class DataWarehouseSavedQuerySerializer(
                     # The columns will be inferred from the query
                     client_types = self.context["request"].data.get("types", [])
                     if len(client_types) == 0:
-                        view.set_columns(view.get_columns())
+                        view.set_columns(view.get_columns(user=self.context["request"].user))
                     else:
                         columns = {
                             str(item[0]): {
