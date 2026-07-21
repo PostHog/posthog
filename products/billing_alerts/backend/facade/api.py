@@ -135,7 +135,7 @@ def execution_team_for_organization(organization_id: UUID, preferred_team: Team 
 
 
 def visible_events_for_alert(alert: BillingAlertConfiguration) -> QuerySet[BillingAlertEvent]:
-    return BillingAlertEvent.objects.filter(alert=alert).order_by("-created_at")
+    return BillingAlertEvent.objects.filter(claim__alert=alert).select_related("claim").order_by("-created_at")
 
 
 def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> BillingAlertDispatchResult:
@@ -229,6 +229,13 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
     destination_data = cast(AlertDestinationData, data)
     validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
     destination_data["type"] = DestinationType(data["type"])
+    if destination_data["type"] == DestinationType.SLACK and not slack_integration_belongs_to_team(
+        integration_id=destination_data["slack_workspace_id"],
+        team_id=alert.execution_team_id,
+    ):
+        raise DRFValidationError(
+            {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
+        )
     with transaction.atomic():
         locked_alert = BillingAlertConfiguration.objects.select_for_update().get(
             pk=alert.pk,
@@ -257,12 +264,30 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
 
 
 def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[UUID]) -> None:
-    soft_delete_alert_destinations(
-        team_id=alert.execution_team_id,
-        alert_id=str(alert.id),
-        allowed_event_ids=BILLING_ALERT_EVENT_IDS,
-        hog_function_ids=hog_function_ids,
-    )
+    with transaction.atomic():
+        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(
+            pk=alert.pk,
+            organization_id=alert.organization_id,
+        )
+        soft_delete_alert_destinations(
+            team_id=locked_alert.execution_team_id,
+            alert_id=str(locked_alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+            hog_function_ids=hog_function_ids,
+        )
+
+
+def apply_destination_changes(
+    alert: BillingAlertConfiguration, *, request: Any, changes: dict[str, Any]
+) -> dict[str, list[list[UUID]]]:
+    """Apply complete destination-group changes inside the caller's configuration transaction."""
+    deleted = changes.get("delete", [])
+    created: list[list[UUID]] = []
+    for hog_function_ids in deleted:
+        delete_destination(alert, hog_function_ids)
+    for destination_data in changes.get("create", []):
+        created.append(create_destination(alert, request=request, data=destination_data))
+    return {"created": created, "deleted": deleted}
 
 
 __all__ = [
@@ -275,6 +300,7 @@ __all__ = [
     "BillingAlertExecutionTeamUnavailable",
     "EventKind",
     "apply_billing_alert_configuration_lifecycle",
+    "apply_destination_changes",
     "billing_alert_configuration_queryset",
     "create_destination",
     "delete_alert_and_destinations",

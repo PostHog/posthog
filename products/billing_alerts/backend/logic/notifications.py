@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.kafka_client.client import ProduceResult
@@ -21,6 +22,7 @@ from products.billing_alerts.backend.alert_destinations import (
 from products.billing_alerts.backend.logic.state_machine import (
     BillingAlertAlreadyEvaluated,
     BillingAlertCheck,
+    billing_alert_dispatch_guard,
     commit_billing_alert_check,
     prepare_billing_alert_check,
     prepare_billing_alert_failure,
@@ -128,21 +130,11 @@ def _enqueue(check: BillingAlertCheck) -> PendingBillingAlertDispatch:
         )
 
     event_name = EVENT_KIND_CONFIG[kind].event_id
-    destination_ids, has_configured_destinations = _destination_ids(event)
-    produce_result = None
-    if destination_ids or not has_configured_destinations:
-        produce_result = produce_alert_internal_event(
-            team_id=event.alert.execution_team_id,
-            event_name=event_name,
-            properties=_properties(event, check.now, consecutive_failures=check.outcome.consecutive_failures),
-            timestamp=check.now,
-            uuid=str(check.claim.delivery_uuid),
-        )
     return PendingBillingAlertDispatch(
         check=check,
         event_name=event_name,
-        destination_ids=destination_ids,
-        produce_result=produce_result,
+        destination_ids=[],
+        produce_result=None,
     )
 
 
@@ -187,31 +179,66 @@ def prepare_billing_alert_dispatch(
     )
 
 
-def flush_pending_billing_alert_dispatches(dispatches: list[PendingBillingAlertDispatch]) -> None:
-    """Flush one activity batch after all internal events have been produced."""
-    if any(dispatch.produce_result is not None for dispatch in dispatches):
-        flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+def commit_pending_billing_alert_dispatches(
+    dispatches: list[PendingBillingAlertDispatch],
+) -> list[tuple[BillingAlertEvent, int]]:
+    """Fence a batch, flush its internal events once, then persist every corresponding outcome."""
+    if not dispatches:
+        return []
+
+    with transaction.atomic():
+        # Acquire every alert and claim lock in a stable order. The outer transaction retains
+        # these locks through Kafka acknowledgement and lifecycle persistence.
+        for dispatch in sorted(dispatches, key=lambda item: str(item.check.alert.id)):
+            with billing_alert_dispatch_guard(dispatch.check):
+                pass
+
+        prepared: list[tuple[PendingBillingAlertDispatch, list[str], ProduceResult | None]] = []
+        for dispatch in dispatches:
+            destination_ids: list[str] = []
+            produce_result = None
+            if dispatch.event_name is not None:
+                destination_ids, has_configured_destinations = _destination_ids(dispatch.check.event)
+                if destination_ids or not has_configured_destinations:
+                    produce_result = produce_alert_internal_event(
+                        team_id=dispatch.check.event.alert.execution_team_id,
+                        event_name=dispatch.event_name,
+                        properties=_properties(
+                            dispatch.check.event,
+                            dispatch.check.now,
+                            consecutive_failures=dispatch.check.outcome.consecutive_failures,
+                        ),
+                        timestamp=dispatch.check.now,
+                        uuid=str(dispatch.check.claim.delivery_uuid),
+                    )
+            prepared.append((dispatch, destination_ids, produce_result))
+
+        if any(produce_result is not None for _, _, produce_result in prepared):
+            flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+
+        results: list[tuple[BillingAlertEvent, int]] = []
+        for dispatch, destination_ids, produce_result in prepared:
+            delivered = dispatch.event_name is None
+            if dispatch.event_name is not None and produce_result is not None:
+                delivered = alert_internal_event_delivered(
+                    produce_result,
+                    team_id=dispatch.check.event.alert.execution_team_id,
+                    alert_id=str(dispatch.check.event.alert_id),
+                    event_name=dispatch.event_name,
+                )
+            event = commit_billing_alert_check(
+                dispatch.check,
+                notification_delivered=delivered,
+                destination_ids=destination_ids,
+            )
+            results.append((event, len(destination_ids) if delivered else 0))
+        return results
 
 
 def commit_pending_billing_alert_dispatch(
     dispatch: PendingBillingAlertDispatch,
 ) -> tuple[BillingAlertEvent, int]:
-    """Resolve producer acknowledgement, then persist the corresponding lifecycle outcome."""
-    delivered = dispatch.event_name is None
-    if dispatch.event_name is not None and dispatch.produce_result is not None:
-        delivered = alert_internal_event_delivered(
-            dispatch.produce_result,
-            team_id=dispatch.check.event.alert.execution_team_id,
-            alert_id=str(dispatch.check.event.alert_id),
-            event_name=dispatch.event_name,
-        )
-
-    event = commit_billing_alert_check(
-        dispatch.check,
-        notification_delivered=delivered,
-        destination_ids=dispatch.destination_ids,
-    )
-    return event, len(dispatch.destination_ids) if delivered else 0
+    return commit_pending_billing_alert_dispatches([dispatch])[0]
 
 
 def evaluate_and_dispatch_billing_alert(
@@ -241,5 +268,4 @@ def evaluate_and_dispatch_billing_alert(
         if already_evaluated.event is None:
             raise
         return already_evaluated.event, 0
-    flush_pending_billing_alert_dispatches([dispatch])
     return commit_pending_billing_alert_dispatch(dispatch)

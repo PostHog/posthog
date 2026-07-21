@@ -5,8 +5,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.billing_alerts.backend.logic.notifications import evaluate_and_dispatch_billing_alert
+from products.billing_alerts.backend.logic.notifications import (
+    commit_pending_billing_alert_dispatch,
+    evaluate_and_dispatch_billing_alert,
+    prepare_billing_alert_dispatch,
+)
 from products.billing_alerts.backend.logic.state_machine import (
+    BillingAlertConfigurationChanged,
     BillingAlertEvaluationInProgress,
     commit_billing_alert_check,
     prepare_billing_alert_check,
@@ -179,6 +184,8 @@ class TestBillingAlertNotifications(BaseTest):
         assert event.kind == BillingAlertEvent.Kind.ERRORED
         assert event.state_after == BillingAlertConfiguration.State.FIRING
         assert event.notification_sent_at is None
+        assert event.error_message == "Billing alert evaluation failed."
+        assert "billing unavailable" not in event.error_message
 
     def test_failed_broken_delivery_keeps_alert_enabled_for_retry(self) -> None:
         alert = self._alert(consecutive_failures=4)
@@ -245,7 +252,7 @@ class TestBillingAlertNotifications(BaseTest):
         assert event.kind == BillingAlertEvent.Kind.CHECK
         produce.assert_not_called()
 
-    def test_stale_delivery_commit_preserves_concurrent_disable(self) -> None:
+    def test_stale_delivery_commit_is_fenced_after_concurrent_disable(self) -> None:
         alert = self._alert()
         check = prepare_billing_alert_check(
             alert,
@@ -260,14 +267,14 @@ class TestBillingAlertNotifications(BaseTest):
             updated_at=NOW,
         )
 
-        event = commit_billing_alert_check(check, notification_delivered=True)
+        with self.assertRaises(BillingAlertConfigurationChanged):
+            commit_billing_alert_check(check, notification_delivered=True)
 
         alert.refresh_from_db()
         assert alert.enabled is False
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.last_notified_at is None
-        assert event.state_after == BillingAlertConfiguration.State.NOT_FIRING
-        assert event.notification_sent_at == NOW
+        assert BillingAlertEvent.objects.filter(claim__alert=alert).exists() is False
 
     def test_stale_delivery_commit_preserves_concurrent_snooze(self) -> None:
         alert = self._alert()
@@ -285,7 +292,8 @@ class TestBillingAlertNotifications(BaseTest):
             updated_at=NOW,
         )
 
-        commit_billing_alert_check(check, notification_delivered=True)
+        with self.assertRaises(BillingAlertConfigurationChanged):
+            commit_billing_alert_check(check, notification_delivered=True)
 
         alert.refresh_from_db()
         assert alert.state == BillingAlertConfiguration.State.SNOOZED
@@ -307,12 +315,49 @@ class TestBillingAlertNotifications(BaseTest):
             updated_at=NOW,
         )
 
-        commit_billing_alert_check(check, notification_delivered=True)
+        with self.assertRaises(BillingAlertConfigurationChanged):
+            commit_billing_alert_check(check, notification_delivered=True)
 
         alert.refresh_from_db()
         assert alert.threshold_percentage == Decimal("75")
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.last_notified_at is None
+
+    def test_configuration_change_is_fenced_before_notification_production(self) -> None:
+        alert = self._alert()
+        self._destination(alert)
+        dispatch = prepare_billing_alert_dispatch(
+            alert,
+            now=NOW,
+            billing_response=_billing_response([60, 60, 100]),
+        )
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
+            configuration_revision=alert.configuration_revision + 1,
+            threshold_percentage=Decimal("75"),
+        )
+
+        with (
+            patch("products.billing_alerts.backend.logic.notifications.produce_alert_internal_event") as produce,
+            self.assertRaises(BillingAlertConfigurationChanged),
+        ):
+            commit_pending_billing_alert_dispatch(dispatch)
+
+        produce.assert_not_called()
+
+    def test_lease_takeover_fences_stale_worker_commit(self) -> None:
+        alert = self._alert()
+        check = prepare_billing_alert_check(
+            alert,
+            source=BillingAlertEvent.Source.SCHEDULED,
+            now=NOW,
+            billing_response=_billing_response([60, 60, 100]),
+        )
+        BillingAlertEvaluationClaim.objects.filter(pk=check.claim.pk).update(attempt_count=2)
+
+        with self.assertRaises(BillingAlertEvaluationInProgress):
+            commit_billing_alert_check(check, notification_delivered=True)
+
+        assert BillingAlertEvent.objects.filter(claim__alert=alert).exists() is False
 
     def test_retry_reuses_delivery_uuid_and_preserves_attempt_history(self) -> None:
         alert = self._alert()

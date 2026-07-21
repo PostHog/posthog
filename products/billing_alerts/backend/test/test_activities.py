@@ -10,7 +10,11 @@ from products.billing_alerts.backend.models import (
     BillingAlertEvaluationClaim,
     BillingAlertEvent,
 )
-from products.billing_alerts.backend.temporal.activities import _evaluate_billing_alerts, due_billing_alerts_q
+from products.billing_alerts.backend.temporal.activities import (
+    _evaluate_billing_alerts,
+    _group_key,
+    due_billing_alerts_q,
+)
 from products.billing_alerts.backend.temporal.types import EvaluateBillingAlertBatchActivityInputs
 
 
@@ -51,12 +55,15 @@ class TestBillingAlertActivities(BaseTest):
         failed_alert = self._alert(name="Spend alert")
         successful_alert = self._alert(
             name="Second spend alert",
-            baseline_window_days=3,
+            evaluation_delay_hours=7,
         )
-        mock_fetch_billing_data.side_effect = [
-            RuntimeError("billing unavailable"),
-            (_billing_response([60, 60, 100]), 12),
-        ]
+
+        def fetch_for_alert(alert, _organization, *, now):
+            if alert.id == failed_alert.id:
+                raise RuntimeError("billing unavailable")
+            return _billing_response([60, 60, 100]), 12
+
+        mock_fetch_billing_data.side_effect = fetch_for_alert
 
         with (
             patch(
@@ -77,13 +84,13 @@ class TestBillingAlertActivities(BaseTest):
 
         failed_alert.refresh_from_db()
         successful_alert.refresh_from_db()
-        failed_event = BillingAlertEvent.objects.get(alert=failed_alert)
-        successful_event = BillingAlertEvent.objects.get(alert=successful_alert)
+        failed_event = BillingAlertEvent.objects.get(claim__alert=failed_alert)
+        successful_event = BillingAlertEvent.objects.get(claim__alert=successful_alert)
 
         assert mock_fetch_billing_data.call_count == 2
         assert failed_event.kind == BillingAlertEvent.Kind.ERRORED
         assert failed_event.is_transient_error is True
-        assert "billing unavailable" in (failed_event.error_message or "")
+        assert failed_event.error_message == "Billing alert data fetch failed."
         assert failed_alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert successful_event.kind == BillingAlertEvent.Kind.FIRING
         assert successful_alert.state == BillingAlertConfiguration.State.FIRING
@@ -103,6 +110,13 @@ class TestBillingAlertActivities(BaseTest):
 
         assert alert_ids == {due.id, never_checked.id}
 
+    def test_group_key_separates_pending_evaluation_dates(self) -> None:
+        now = datetime(2026, 6, 23, 12, tzinfo=UTC)
+        first = self._alert(pending_evaluation_date=datetime(2026, 6, 21, tzinfo=UTC).date())
+        second = self._alert(pending_evaluation_date=datetime(2026, 6, 22, tzinfo=UTC).date())
+
+        assert _group_key(first, now) != _group_key(second, now)
+
     @freeze_time("2026-06-23T12:00:00Z")
     @patch("products.billing_alerts.backend.temporal.activities.fetch_billing_data")
     def test_retry_skips_alert_already_rescheduled_by_prior_attempt(self, mock_fetch_billing_data) -> None:
@@ -119,7 +133,6 @@ class TestBillingAlertActivities(BaseTest):
         alert = self._alert(next_check_at=now)
         BillingAlertEvaluationClaim.objects.create(
             alert=alert,
-            organization_id=alert.organization_id,
             evaluation_date=datetime(2026, 6, 22, tzinfo=UTC).date(),
             configuration_revision=alert.configuration_revision,
             status=BillingAlertEvaluationClaim.Status.COMPLETED,
@@ -135,14 +148,12 @@ class TestBillingAlertActivities(BaseTest):
 
     @freeze_time("2026-06-23T12:00:00Z")
     @patch("products.billing_alerts.backend.temporal.activities.fetch_billing_data")
-    @patch("products.billing_alerts.backend.temporal.activities.flush_pending_billing_alert_dispatches")
-    @patch("products.billing_alerts.backend.temporal.activities.commit_pending_billing_alert_dispatch")
+    @patch("products.billing_alerts.backend.temporal.activities.commit_pending_billing_alert_dispatches")
     @patch("products.billing_alerts.backend.temporal.activities.prepare_billing_alert_dispatch")
     def test_alert_preparation_failure_retries_the_activity(
         self,
         mock_prepare_dispatch,
         mock_commit_dispatch,
-        _mock_flush_dispatches,
         mock_fetch_billing_data,
     ) -> None:
         first = self._alert(name="First")
@@ -168,4 +179,4 @@ class TestBillingAlertActivities(BaseTest):
                 activity_attempt=1,
             )
 
-        assert BillingAlertEvent.objects.filter(alert=alert).exists() is False
+        assert BillingAlertEvent.objects.filter(claim__alert=alert).exists() is False

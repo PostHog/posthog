@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.models import DAILY_CHECK_INTERVAL_HOURS
 
 _DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
 _NOT_PROVIDED = object()
@@ -63,6 +64,11 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Billing data date evaluated by this event.",
     )
+    configuration_revision = serializers.IntegerField(
+        source="claim.configuration_revision",
+        read_only=True,
+        help_text="Configuration revision used for this evaluation.",
+    )
     period_start = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -106,6 +112,7 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
             "attempt_number",
             "created_at",
             "evaluation_date",
+            "configuration_revision",
             "period_start",
             "period_end",
             "metric",
@@ -128,6 +135,43 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
 class BillingAlertDestinationSummarySerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["slack", "webhook", "teams"])
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["slack", "webhook", "teams"], help_text="Destination type.")
+    slack_workspace_id = serializers.IntegerField(required=False)
+    slack_channel_id = serializers.CharField(required=False)
+    slack_channel_name = serializers.CharField(required=False, allow_blank=True)
+    webhook_url = serializers.URLField(required=False)
+
+    def validate(self, attrs: dict) -> dict:
+        destination_type = attrs["type"]
+        if destination_type == "slack":
+            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
+                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
+        elif destination_type in ("webhook", "teams"):
+            webhook_url = attrs.get("webhook_url")
+            if not webhook_url:
+                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
+            parsed_url = urlparse(webhook_url)
+            if parsed_url.scheme != "https" or not parsed_url.netloc:
+                raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
+            if destination_type == "teams" and not _is_microsoft_teams_webhook(webhook_url):
+                raise ValidationError({"webhook_url": "Enter a supported Microsoft Teams webhook URL."})
+        return attrs
+
+
+class BillingAlertDestinationChangesSerializer(serializers.Serializer):
+    create = BillingAlertDestinationCreateDataSerializer(many=True, required=False, default=list)
+    delete = serializers.ListField(
+        child=serializers.ListField(
+            child=serializers.UUIDField(),
+            min_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+            max_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+        ),
+        required=False,
+        default=list,
+    )
 
 
 class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -156,6 +200,10 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Billing metric evaluated by this alert. The first version supports spend only.",
     )
     currency = serializers.CharField(read_only=True, help_text="Server-controlled currency for spend values.")
+    configuration_revision = serializers.IntegerField(
+        read_only=True,
+        help_text="Revision incremented whenever evaluation behavior changes.",
+    )
     threshold_type = serializers.ChoiceField(
         choices=BillingAlertConfiguration.ThresholdType.choices,
         required=False,
@@ -185,9 +233,9 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     evaluation_delay_hours = serializers.IntegerField(required=False, min_value=0, max_value=72)
     state = serializers.ChoiceField(choices=BillingAlertConfiguration.State.choices, read_only=True)
     check_interval_hours = serializers.ChoiceField(
-        choices=[1, 2, 3, 4, 6, 8, 12, 24],
+        choices=[DAILY_CHECK_INTERVAL_HOURS],
         required=False,
-        help_text="Supported interval in hours between scheduled evaluations.",
+        help_text="Billing alerts evaluate one UTC billing date per day.",
     )
     cooldown_hours = serializers.IntegerField(required=False, min_value=0, max_value=24 * 30)
     snooze_until = serializers.DateTimeField(required=False, allow_null=True)
@@ -197,6 +245,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     consecutive_failures = serializers.IntegerField(read_only=True)
     destinations = serializers.SerializerMethodField(
         help_text="Notification destination groups configured for this alert, including their shared HogFunctions.",
+    )
+    destination_changes = BillingAlertDestinationChangesSerializer(
+        required=False,
+        write_only=True,
+        help_text="Destination groups to create or delete in the same transaction as this configuration write.",
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
@@ -214,6 +267,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "enabled",
             "metric",
             "currency",
+            "configuration_revision",
             "threshold_type",
             "threshold_percentage",
             "threshold_value",
@@ -229,6 +283,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "consecutive_failures",
             "destinations",
+            "destination_changes",
             "created_at",
             "updated_at",
         ]
@@ -293,9 +348,14 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> BillingAlertConfiguration:
+        destination_changes = validated_data.pop("destination_changes", None)
         with transaction.atomic():
             alert = super().create(validated_data)
             billing_alerts_api.initialize_billing_alert_lifecycle(alert)
+            if destination_changes:
+                billing_alerts_api.apply_destination_changes(
+                    alert, request=self.context["request"], changes=destination_changes
+                )
             return alert
 
     def update(
@@ -303,6 +363,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         instance: BillingAlertConfiguration,
         validated_data: dict[str, Any],
     ) -> BillingAlertConfiguration:
+        destination_changes = validated_data.pop("destination_changes", None)
         snooze_until = validated_data.get("snooze_until", _NOT_PROVIDED)
         evaluation_fields = {
             "threshold_type",
@@ -312,6 +373,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "baseline_window_days",
             "evaluation_delay_hours",
         }
+        revision_fields = evaluation_fields | {
+            "enabled",
+            "snooze_until",
+            "check_interval_hours",
+            "cooldown_hours",
+        }
         with transaction.atomic():
             locked = BillingAlertConfiguration.objects.select_for_update().get(
                 pk=instance.pk,
@@ -319,7 +386,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             )
             evaluation_changed = _any_field_changed(locked, validated_data, evaluation_fields)
             cadence_changed = _any_field_changed(locked, validated_data, {"check_interval_hours"})
-            configuration_changed = bool(validated_data)
+            configuration_changed = _any_field_changed(
+                locked,
+                validated_data,
+                revision_fields,
+            )
             enabled_change: bool | None = None
             if "enabled" in validated_data and validated_data["enabled"] != locked.enabled:
                 enabled_change = validated_data["enabled"]
@@ -338,55 +409,36 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                 configuration_changed=configuration_changed,
                 cadence_changed=cadence_changed,
             )
+            if destination_changes:
+                billing_alerts_api.apply_destination_changes(
+                    updated, request=self.context["request"], changes=destination_changes
+                )
             return updated
 
 
-class BillingAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["slack", "webhook", "teams"], help_text="Destination type.")
-    slack_workspace_id = serializers.IntegerField(
-        required=False,
-        help_text="Integration ID for the Slack workspace. Required when type=slack.",
-    )
-    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID. Required when type=slack.")
-    slack_channel_name = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Human-readable channel name for display.",
-    )
-    webhook_url = serializers.URLField(
-        required=False,
-        help_text="HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.",
-    )
-
+class BillingAlertCreateDestinationSerializer(BillingAlertDestinationCreateDataSerializer):
     def validate(self, attrs: dict) -> dict:
-        destination_type = attrs["type"]
-        if destination_type == "slack":
-            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
-                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
-            alert = self.context.get("alert")
-            if alert is not None and not billing_alerts_api.slack_integration_belongs_to_team(
+        attrs = super().validate(attrs)
+        alert = self.context.get("alert")
+        if (
+            attrs["type"] == "slack"
+            and alert is not None
+            and not billing_alerts_api.slack_integration_belongs_to_team(
                 integration_id=attrs["slack_workspace_id"],
                 team_id=alert.execution_team_id,
-            ):
-                raise ValidationError(
-                    {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
-                )
-        elif destination_type in ("webhook", "teams"):
-            webhook_url = attrs.get("webhook_url")
-            if not webhook_url:
-                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
-            parsed_url = urlparse(webhook_url)
-            if parsed_url.scheme != "https" or not parsed_url.netloc:
-                raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
-            if destination_type == "teams" and not _is_microsoft_teams_webhook(webhook_url):
-                raise ValidationError({"webhook_url": "Enter a supported Microsoft Teams webhook URL."})
+            )
+        ):
+            raise ValidationError(
+                {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
+            )
         return attrs
 
 
 class BillingAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
-        min_length=1,
+        min_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+        max_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 

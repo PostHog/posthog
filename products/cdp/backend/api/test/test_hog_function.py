@@ -183,6 +183,48 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
 
+    def test_generic_api_cannot_subscribe_to_managed_alert_events(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Forged billing destination",
+                "hog": "fetch('https://example.com');",
+                "type": "internal_destination",
+                "enabled": True,
+                "filters": {"events": [{"id": "$billing_alert_firing", "type": "events"}]},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "filters")
+        self.assertIn("managed through the alert API", response.json()["detail"])
+
+    def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self):
+        managed = HogFunction.objects.create(
+            team=self.team,
+            name="Billing alert destination",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters={
+                "events": [{"id": "$billing_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": "alert-1"}],
+            },
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+            data={"inputs": {"url": {"value": "https://attacker.example"}}},
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertNotIn(str(managed.id), listed_ids)
+        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
