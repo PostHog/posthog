@@ -13,8 +13,8 @@ from products.engineering_analytics.backend.presentation.views._base import (
 )
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
+from products.engineering_analytics.backend.presentation.views.suite_health import TestHealthActionsMixin
 from products.engineering_analytics.backend.presentation.views.teams import TeamActionsMixin
-from products.engineering_analytics.backend.presentation.views.test_health import TestHealthActionsMixin
 from products.engineering_analytics.backend.presentation.views.workflows import WorkflowActionsMixin
 
 
