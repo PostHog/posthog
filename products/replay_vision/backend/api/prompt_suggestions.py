@@ -402,10 +402,17 @@ class ReplayScannerPromptSuggestionViewSet(
         input_serializer = EvaluatePromptSuggestionRequestSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         session_limit = input_serializer.validated_data["session_limit"]
+        edited_config = input_serializer.validated_data.get("config")
         if suggestion.status != SuggestionStatus.PENDING:
             raise ValidationError("Only the current pending suggestion can be tested.")
         if not evaluation_supported(scanner):
             raise ValidationError("Testing isn't available for this scanner type.")
+        # A malformed edited config must be rejected before it charges credits on runs that can't succeed,
+        # matching the validation apply runs before it writes the config.
+        if edited_config is not None:
+            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), edited_config)
+            if message:
+                raise ValidationError(f"This config can't be tested: {message}")
         rated_count = self._rated_count(scanner)
         if rated_count == 0:
             raise ValidationError("Rate some results first. They are what the suggestion is tested against.")
@@ -440,7 +447,7 @@ class ReplayScannerPromptSuggestionViewSet(
                     suggestion_id=suggestion.id,
                     team_id=scanner.team_id,
                     session_limit=session_limit,
-                    config_override=input_serializer.validated_data.get("config"),
+                    config_override=edited_config,
                 ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,

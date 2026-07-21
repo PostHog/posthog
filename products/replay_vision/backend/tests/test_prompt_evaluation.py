@@ -443,6 +443,16 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         client.start_workflow.assert_awaited_once()
         self.assertEqual(client.start_workflow.await_args.args[1].config_override, edited)
 
+    def test_evaluate_rejects_invalid_edited_config_before_charging(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id), {"config": {"prompt": "x" * 20_001}}, format="json")
+
+        self.assertEqual(resp.status_code, 400)
+        client.start_workflow.assert_not_awaited()
+
     def test_evaluate_while_running_does_not_restart(self) -> None:
         self._create_rated()
         suggestion = self._create_pending_suggestion(
