@@ -4,9 +4,18 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cohorts.backend.parity.fold import fold_membership_changes, members, observed, parse_last_updated
+from products.cohorts.backend.parity.fold import (
+    LIVE_ORIGIN,
+    fold_membership_changes,
+    members,
+    observed,
+    parse_last_updated,
+    reconcile_completeness,
+)
 
 SINCE = datetime(2026, 7, 7, 19, 0, tzinfo=UTC)
+RUN_1 = "00000000-0000-0000-0000-000000000001"
+RUN_2 = "00000000-0000-0000-0000-000000000002"
 
 
 def _msg(status: str, ts: str, *, cohort_id: int | None = 10, person_id: str = "P1", team_id: int = 2) -> dict:
@@ -16,6 +25,24 @@ def _msg(status: str, ts: str, *, cohort_id: int | None = 10, person_id: str = "
         "person_id": person_id,
         "last_updated": ts,
         "status": status,
+    }
+
+
+def _marker(
+    partition: int,
+    *,
+    run_id: str = RUN_1,
+    cohort_id: int = 10,
+    team_id: int = 2,
+    ts: str = "2026-07-07 19:05:00.000001",
+) -> dict:
+    return {
+        "type": "reconcile_complete",
+        "team_id": team_id,
+        "cohort_id": cohort_id,
+        "partition": partition,
+        "run_id": run_id,
+        "last_updated": ts,
     }
 
 
@@ -85,6 +112,79 @@ class TestFold(SimpleTestCase):
         )
         self.assertEqual(members(state[10]), {"p2"})
         self.assertEqual(stats.dropped_wrong_team, 1)
+
+    def test_reconcile_marker_is_recorded_before_membership_validation(self) -> None:
+        state, stats = fold_membership_changes(
+            [
+                _marker(7),
+                _msg("entered", "2026-07-07 19:06:00.000001") | {"origin": "reconcile", "run_id": RUN_1},
+            ],
+            team_id=2,
+            since=SINCE,
+        )
+
+        self.assertEqual(stats.reconcile_markers, {(RUN_1, 10): {7}})
+        self.assertEqual(stats.dropped_malformed, 0)
+        self.assertEqual(stats.cohorts_seen, {10})
+        self.assertEqual(state[10]["p1"].origin, "reconcile")
+        self.assertEqual(state[10]["p1"].run_id, RUN_1)
+
+    def test_membership_provenance_follows_lww_and_counts_every_folded_origin(self) -> None:
+        state, stats = fold_membership_changes(
+            [
+                _msg("entered", "2026-07-07 19:01:00.000001", person_id="P1"),
+                _msg("entered", "2026-07-07 19:02:00.000001", person_id="P2") | {"origin": "seed", "run_id": RUN_1},
+                _msg("left", "2026-07-07 19:03:00.000001", person_id="P1") | {"origin": "reconcile", "run_id": RUN_2},
+            ],
+            team_id=2,
+            since=SINCE,
+        )
+
+        self.assertEqual(stats.folded_by_origin, {LIVE_ORIGIN: 1, "seed": 1, "reconcile": 1})
+        self.assertEqual(
+            (state[10]["p1"].status, state[10]["p1"].origin, state[10]["p1"].run_id), ("left", "reconcile", RUN_2)
+        )
+        self.assertEqual((state[10]["p2"].origin, state[10]["p2"].run_id), ("seed", RUN_1))
+
+    def test_reconcile_completeness_is_per_run_and_counts_distinct_partitions(self) -> None:
+        messages = [*(_marker(partition, run_id=RUN_2) for partition in range(64))]
+        messages.extend(_marker(partition, run_id=RUN_1) for partition in range(41))
+        messages.append(_marker(0, run_id=RUN_1))
+
+        _state, stats = fold_membership_changes(messages, team_id=2, since=SINCE)
+
+        completeness = reconcile_completeness(stats, cohort_id=10)
+        self.assertEqual(
+            [(run.run_id, run.partitions_seen, run.complete) for run in completeness],
+            [(RUN_1, 41, False), (RUN_2, 64, True)],
+        )
+        # Counts every accepted marker message, including the RUN_1 partition-0 duplicate — 106,
+        # not the 105 distinct partitions the completeness sets hold. Keeps the summary's
+        # folded + drops + markers == total accounting exact.
+        self.assertEqual(stats.reconcile_markers_recorded, 106)
+
+    @parameterized.expand(
+        [
+            ("bad_run_id", _marker(1, run_id="not-a-uuid"), 2, 1, 0),
+            ("out_of_range_partition", _marker(64), 2, 1, 0),
+            ("float_team_id", _marker(1) | {"team_id": 2.0}, 2, 1, 0),
+            ("boolean_team_id", _marker(1, team_id=True), 1, 1, 0),
+            ("before_since", _marker(1, ts="2026-07-07 18:59:59.999999"), 2, 0, 1),
+        ]
+    )
+    def test_invalid_or_stale_markers_cannot_certify_reconcile(
+        self,
+        _name: str,
+        marker: dict,
+        team_id: int,
+        expected_malformed: int,
+        expected_before_since: int,
+    ) -> None:
+        _state, stats = fold_membership_changes([marker], team_id=team_id, since=SINCE)
+
+        self.assertEqual(stats.reconcile_markers, {})
+        self.assertEqual(stats.dropped_malformed, expected_malformed)
+        self.assertEqual(stats.dropped_before_since, expected_before_since)
 
     @parameterized.expand(
         [

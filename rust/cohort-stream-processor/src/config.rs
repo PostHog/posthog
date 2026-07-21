@@ -243,6 +243,22 @@ pub struct Config {
     )]
     pub cohort_seed_watermark_idle_probe_interval_ms: u64,
 
+    /// Admit and drain reconcile controls and permit cross-partition membership-register transfer.
+    /// Local register writers and transfer receivers are always active. Default off for a
+    /// receiver-first rollout; enable promptly after every processor pod understands the additive
+    /// transfer payload and every downstream consumer tolerates completion markers. Until enabled,
+    /// a cross-partition merge carrying register rows retains its source offset for retry.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
+    pub cohort_seed_reconcile_enabled: bool,
+
+    /// Maximum Stage 2 rows one partition worker evaluates per reconcile tick.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_SCAN_PAGE", default = "256")]
+    pub cohort_seed_reconcile_scan_page: usize,
+
+    /// Cadence for routing one bounded reconcile-drain tick to each active partition worker.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
+    pub cohort_seed_reconcile_tick_interval_ms: u64,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -598,6 +614,10 @@ impl Config {
             .max(Duration::from_secs(1))
     }
 
+    pub fn reconcile_tick_interval(&self) -> Duration {
+        Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
+    }
+
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_interval_ms)
     }
@@ -636,11 +656,29 @@ impl Config {
     /// Refuse unsafe durability startup combinations. Pure (no I/O), so unit-testable without a broker.
     ///
     /// Guards:
+    /// - Reconcile scan and tick limits must be non-zero; a zero page would falsely certify an
+    ///   unscanned snapshot, while Tokio rejects a zero timer interval.
     /// - `checkpoint_enabled` requires `durable_restore_enabled`: without it the restored DB is wiped
     ///   on open, silently discarding the restore.
     /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
     ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
     pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.cohort_seed_reconcile_scan_page > 0,
+            "COHORT_SEED_RECONCILE_SCAN_PAGE must be greater than zero.",
+        );
+        ensure!(
+            self.cohort_seed_reconcile_tick_interval_ms > 0,
+            "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
+        );
+
+        if self.cohort_seed_reconcile_enabled && !self.cohort_seed_consumer_enabled {
+            warn!(
+                "COHORT_SEED_RECONCILE_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no reconcile \
+                 controls can be consumed; enable the seed consumer or turn reconcile off.",
+            );
+        }
+
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
@@ -967,6 +1005,9 @@ mod tests {
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
             cohort_seed_fence_margin_ms: 600_000,
             cohort_seed_watermark_idle_probe_interval_ms: 30_000,
+            cohort_seed_reconcile_enabled: false,
+            cohort_seed_reconcile_scan_page: 256,
+            cohort_seed_reconcile_tick_interval_ms: 2_000,
         }
     }
 
@@ -981,6 +1022,58 @@ mod tests {
             config.filter_catalog_refresh_jitter(),
             Duration::from_secs(60)
         );
+    }
+
+    #[test]
+    fn reconcile_knobs_default_dark_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(!defaults.cohort_seed_reconcile_enabled);
+        assert_eq!(defaults.cohort_seed_reconcile_scan_page, 256);
+        assert_eq!(
+            defaults.reconcile_tick_interval(),
+            Duration::from_millis(2_000)
+        );
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_SEED_RECONCILE_ENABLED", "true"),
+            ("COHORT_SEED_RECONCILE_SCAN_PAGE", "17"),
+            ("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", "345"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.cohort_seed_reconcile_enabled);
+        assert_eq!(config.cohort_seed_reconcile_scan_page, 17);
+        assert_eq!(config.reconcile_tick_interval(), Duration::from_millis(345));
+    }
+
+    #[test]
+    fn reconcile_startup_validation_rejects_zero_work_limits() {
+        let mut config = test_config();
+        config.cohort_seed_reconcile_scan_page = 0;
+        assert!(config
+            .validate_durability_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_RECONCILE_SCAN_PAGE"),);
+
+        config.cohort_seed_reconcile_scan_page = 1;
+        config.cohort_seed_reconcile_tick_interval_ms = 0;
+        assert!(config
+            .validate_durability_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    #[test]
+    fn reconcile_without_the_seed_consumer_warns_but_starts() {
+        let mut config = test_config();
+        config.cohort_seed_reconcile_enabled = true;
+        config.cohort_seed_consumer_enabled = false;
+
+        assert!(config.validate_durability_startup().is_ok());
     }
 
     #[test]
