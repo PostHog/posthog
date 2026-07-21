@@ -7,6 +7,7 @@ import structlog
 from celery import shared_task
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
@@ -241,9 +242,11 @@ def rebuild_signal_repository_activity(team_id: int, repository: str) -> None:
     """
     try:
         rebuild_repository_activity(team_id, repository)
-    except RepositoryCommitActivityError as exc:
+    except (RepositoryCommitActivityError, GitHubRateLimitError, GitHubEgressBudgetExhausted) as exc:
+        # Expected deferrals (integration gone, rate limit, shed by the egress limiter) —
+        # the map stays stale and the next enqueue retries.
         logger.warning(
-            "signals repository activity rebuild failed",
+            "signals repository activity rebuild deferred",
             team_id=team_id,
             repository=repository,
             error=str(exc),

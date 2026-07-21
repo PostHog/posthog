@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubCommitAttribution
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping import team_scope
@@ -200,6 +201,10 @@ def _commit_attributions_by_sha(team_id: int, repository: str) -> dict[str, GitH
     github = GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_activity_rebuild")
     if github is None:
         raise RuntimeError(f"No GitHub integration for team {team_id} can access {repository}")
+    # Sheddable: rebuilds are deferrable background work — the egress limiter drops BATCH
+    # calls first when the installation's shared budget runs hot, and a denied listing
+    # aborts the rebuild rather than writing a half-attributed map.
+    github.priority = Priority.BATCH
     since = timezone.now() - timedelta(days=ACTIVITY_WINDOW_DAYS)
     return {attribution.sha: attribution for attribution in github.list_commit_attributions(repository, since=since)}
 
