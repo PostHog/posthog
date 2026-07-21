@@ -58,11 +58,11 @@ export function TicketPreviewContent({ ticketId }: { ticketId: string }): JSX.El
                 <>
                     {hiddenCount > 0 && (
                         <div className="flex items-center gap-2 text-xs text-muted-alt">
-                            <div className="flex-1 border-t border-border" />
+                            <div className="flex-1 border-t border-primary" />
                             <span className="shrink-0">
                                 {hiddenCount} more {hiddenCount === 1 ? 'message' : 'messages'}
                             </span>
-                            <div className="flex-1 border-t border-border" />
+                            <div className="flex-1 border-t border-primary" />
                         </div>
                     )}
                     <TicketPreviewMessage message={preview.lastMessage} />
