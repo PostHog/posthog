@@ -569,6 +569,11 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" in prompt
         # The dedup nuances reach the emit-only variant too — not just the both-tools prompt.
         assert "ordering=-updated_at" in prompt
+        # Same for the dismissed-report guidance: the emit-only section is a separate constant,
+        # so it can lose the widened search or the untrusted-note boundary independently.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
         # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
         # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
         assert "relapse of a closed report" in prompt
@@ -591,6 +596,11 @@ class TestPromptBuilder(BaseTest):
         # An edit-only scout searches the inbox to find the report to update, so it needs the same
         # dedup nuance — else the default ordering hides the most recently updated match.
         assert "ordering=-updated_at" in prompt
+        # Same for the dismissed-report guidance: the edit-only section is a separate constant,
+        # so it can lose the widened search or the untrusted-note boundary independently.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
