@@ -31,7 +31,7 @@ const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 // valid sort field — e.g. an option that was renamed or removed. Passing it through to the
 // query fails the whole page, so anything unrecognized falls back to the default.
 export function isValidOrderBy(orderBy: unknown): orderBy is ErrorTrackingQueryOrderBy {
-    return typeof orderBy === 'string' && orderBy in ORDER_BY_OPTIONS
+    return typeof orderBy === 'string' && Object.hasOwn(ORDER_BY_OPTIONS, orderBy)
 }
 
 const DEFAULT_ORDER_DIRECTION = 'DESC'
