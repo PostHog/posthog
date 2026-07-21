@@ -2050,6 +2050,7 @@ class ExternalDataSourceType(StrEnum):
     TALLY = "Tally"
     NUNTLY = "Nuntly"
     FUSION_AUTH = "FusionAuth"
+    VTURB = "Vturb"
 
 
 class ExternalQueryErrorCode(StrEnum):
