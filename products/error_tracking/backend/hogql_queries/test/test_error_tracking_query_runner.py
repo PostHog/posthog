@@ -23,7 +23,6 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
-    ErrorTrackingOrderBy,
     ErrorTrackingQuery,
     EventPropertyFilter,
     FilterLogicalOperator,
@@ -38,10 +37,7 @@ from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
-    search_tokenizer,
-    validate_order_by,
-)
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -1042,20 +1038,3 @@ class TestSearchTokenizer(TestCase):
             with self.subTest(case=case):
                 tokens = search_tokenizer(case)
                 self.assertEqual(tokens, output)
-
-
-class TestValidateOrderBy(TestCase):
-    @parameterized.expand(
-        [
-            ("last_seen", ErrorTrackingOrderBy.LAST_SEEN),
-            ("first_seen", ErrorTrackingOrderBy.FIRST_SEEN),
-            ("occurrences", ErrorTrackingOrderBy.OCCURRENCES),
-            (ErrorTrackingOrderBy.USERS, ErrorTrackingOrderBy.USERS),
-            # Unknown values would reach ClickHouse as an invalid column, so they clamp.
-            ("revenue", ErrorTrackingOrderBy.LAST_SEEN),
-            ("", ErrorTrackingOrderBy.LAST_SEEN),
-            (None, ErrorTrackingOrderBy.LAST_SEEN),
-        ]
-    )
-    def test_validate_order_by(self, value, expected):
-        self.assertEqual(validate_order_by(value), expected)

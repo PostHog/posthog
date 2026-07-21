@@ -16,10 +16,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
-    validate_order_by,
-    validate_uuid_param,
-)
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 
 class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
@@ -35,7 +32,6 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         super().__init__(*args, **kwargs)
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.query.personId = validate_uuid_param(self.query.personId, "personId")
-        self.query.orderBy = validate_order_by(self.query.orderBy)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,

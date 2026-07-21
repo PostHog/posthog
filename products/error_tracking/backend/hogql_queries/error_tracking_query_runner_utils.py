@@ -5,25 +5,9 @@ from uuid import UUID
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.schema import ErrorTrackingOrderBy, ErrorTrackingQuery
+from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql import ast
-
-DEFAULT_ORDER_BY = ErrorTrackingOrderBy.LAST_SEEN
-
-
-def validate_order_by(value: ErrorTrackingOrderBy | str | None) -> ErrorTrackingOrderBy:
-    """Clamp orderBy to a known sort field, falling back to the default otherwise.
-
-    orderBy is injected directly into an ORDER BY field reference, so a value outside the
-    known set would reach ClickHouse as an unknown column and fail the query.
-    """
-    if value is None:
-        return DEFAULT_ORDER_BY
-    try:
-        return ErrorTrackingOrderBy(value)
-    except ValueError:
-        return DEFAULT_ORDER_BY
 
 
 @overload
