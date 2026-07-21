@@ -13,9 +13,10 @@ use crate::{
 #[derive(clap::Args, Clone)]
 pub struct Args {
     /// The directory to scan for native debug symbol files (e.g. target/release).
-    /// ELF executables, shared libraries, and `objcopy --only-keep-debug`
-    /// companions with debug info are uploaded, as are Apple `.dSYM` bundles
-    /// (macOS only — needs `dwarfdump` from Xcode); everything else is skipped.
+    /// ELF and Mach-O executables, shared libraries, and `objcopy
+    /// --only-keep-debug` companions with debug info are uploaded, as are Apple
+    /// `.dSYM` bundles (macOS only — needs `dwarfdump` from Xcode); everything
+    /// else is skipped.
     #[arg(short, long)]
     pub directory: PathBuf,
 
@@ -58,7 +59,7 @@ pub fn upload(args: &Args) -> Result<()> {
     report_problems(&report, &directory)?;
 
     info!(
-        "Found {} ELF debug file(s) and {} dSYM bundle(s)",
+        "Found {} native debug file(s) and {} dSYM bundle(s)",
         report.files.len(),
         report.dsym_bundles.len()
     );

@@ -159,6 +159,99 @@ fn classifies_elfs_without_debug_info_or_build_id() {
     assert!(posthog_cli::debug_symbols::report_problems(&report, dir.path()).is_ok());
 }
 
+/// Decompress a zstd-packed binary fixture into a scratch directory.
+fn unpack_fixture(name: &str, dir: &Path, as_name: &str) -> PathBuf {
+    let compressed = std::fs::read(fixtures_dir().join(name)).unwrap();
+    let target = dir.join(as_name);
+    std::fs::write(&target, zstd::decode_all(compressed.as_slice()).unwrap()).unwrap();
+    target
+}
+
+#[test]
+fn discovers_and_packages_macho_executables() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = unpack_fixture("test_go_binary_macho.zst", dir.path(), "gohello");
+
+    let report = discover(dir.path()).unwrap();
+    assert_eq!(
+        report.files.len(),
+        1,
+        "expected the Mach-O binary to be valid"
+    );
+    assert!(report.compressed_dwarf.is_empty());
+
+    // Mach-O chunk ids are the LC_UUID, uppercased to match the SDKs and
+    // `dsym upload` (elf_debug_id parses any object and reports the
+    // symbolic-cased id, which is lowercase).
+    let file = report.files.into_iter().next().unwrap();
+    assert_eq!(file.debug_id, elf_debug_id(&path).unwrap().to_uppercase());
+
+    // Packaged as an AppleDsym container with the thin Mach-O at `dwarf`.
+    let upload = file.into_upload(None, false).unwrap();
+    let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
+    assert_eq!(dwarf_magic(&unwrapped.data), [0xcf, 0xfa, 0xed, 0xfe]);
+}
+
+#[test]
+fn flags_compressed_dwarf_macho_with_guidance() {
+    let dir = tempfile::tempdir().unwrap();
+    unpack_fixture("test_go_binary_macho_zdebug.zst", dir.path(), "gohello");
+
+    // Go's default darwin build compresses DWARF (__zdebug sections), which
+    // symbolication can't read — classified separately so the guidance can
+    // name -compressdwarf=false, and never uploaded as a names-only set.
+    let report = discover(dir.path()).unwrap();
+    assert!(report.files.is_empty());
+    assert!(report.without_debug_info.is_empty());
+    assert_eq!(report.compressed_dwarf.len(), 1);
+
+    assert!(posthog_cli::debug_symbols::report_problems(&report, dir.path()).is_err());
+}
+
+#[test]
+fn discovers_fat_macho_slice() {
+    let dir = tempfile::tempdir().unwrap();
+    let thin_path = unpack_fixture("test_go_binary_macho.zst", dir.path(), "thin");
+    let thin = std::fs::read(&thin_path).unwrap();
+    std::fs::remove_file(&thin_path).unwrap();
+
+    // Wrap the thin binary in a universal (fat) container: fat_header + one
+    // fat_arch entry (big-endian), then the slice at an aligned offset, with
+    // cputype/cpusubtype copied from the thin header.
+    const SLICE_OFFSET: usize = 0x4000;
+    let mut fat = vec![0u8; SLICE_OFFSET + thin.len()];
+    fat[0..4].copy_from_slice(&0xcafebabe_u32.to_be_bytes());
+    fat[4..8].copy_from_slice(&1_u32.to_be_bytes());
+    fat[8..12].copy_from_slice(&u32::from_le_bytes(thin[4..8].try_into().unwrap()).to_be_bytes());
+    fat[12..16].copy_from_slice(&u32::from_le_bytes(thin[8..12].try_into().unwrap()).to_be_bytes());
+    fat[16..20].copy_from_slice(&(SLICE_OFFSET as u32).to_be_bytes());
+    fat[20..24].copy_from_slice(&(thin.len() as u32).to_be_bytes());
+    fat[24..28].copy_from_slice(&14_u32.to_be_bytes());
+    fat[SLICE_OFFSET..].copy_from_slice(&thin);
+    std::fs::write(dir.path().join("universal"), &fat).unwrap();
+
+    let report = discover(dir.path()).unwrap();
+    assert_eq!(report.files.len(), 1, "expected one candidate per slice");
+
+    // The upload carries the slice bytes, not the fat container: the server
+    // resolves one thin binary per chunk id.
+    let upload = report
+        .files
+        .into_iter()
+        .next()
+        .unwrap()
+        .into_upload(None, false)
+        .unwrap();
+    let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(unwrapped.data)).unwrap();
+    let mut dwarf = Vec::new();
+    zip.by_name("dwarf")
+        .unwrap()
+        .read_to_end(&mut dwarf)
+        .unwrap();
+    assert_eq!(dwarf, thin);
+}
+
 #[test]
 fn dsym_only_directory_is_uploadable() {
     // A directory with only a dSYM bundle (no ELF) used to be a hard error
@@ -182,7 +275,7 @@ fn empty_directory_errors_on_both_formats() {
     let err = report_problems(&report, dir.path()).unwrap_err();
     assert!(
         err.to_string()
-            .contains("No ELF files with debug info or dSYM bundles"),
+            .contains("No ELF or Mach-O files with debug info or dSYM bundles"),
         "got: {err}"
     );
 }
