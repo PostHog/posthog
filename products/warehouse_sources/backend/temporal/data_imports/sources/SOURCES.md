@@ -562,6 +562,7 @@ the row lists both.
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
 | zapier_supported_storage         | HTTP                        | requests                                                        | ✅                          |
+| zapsign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | zendesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell                     | HTTP                        | requests                                                        | ✅                          |
 | zenduty                          | HTTP                        | requests                                                        | ✅                          |
@@ -1001,7 +1002,6 @@ doesn't conflict with concurrent PRs.
 - yousign
 - youtube_analytics
 - youtube_data
-- zapsign
 - zellify
 - zendesk_sunshine
 - zenefits
