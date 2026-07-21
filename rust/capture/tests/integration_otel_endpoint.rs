@@ -12,6 +12,7 @@ use capture::event_restrictions::{
 };
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
+use capture::sinks::sink::{passthrough_record, PreparedRecord, Sink, SinkResult};
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
@@ -71,6 +72,28 @@ impl Event for CapturingSink {
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Sink for CapturingSink {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        let prepared = events
+            .iter()
+            .map(|event| passthrough_record(event, Vec::new()))
+            .collect();
+        self.events.lock().await.extend(events);
+        Ok(prepared)
+    }
+
+    async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
+        prepared
+            .into_iter()
+            .map(|record| SinkResult::ok(record.uuid))
+            .collect()
     }
 }
 

@@ -22,7 +22,8 @@ use crate::{
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
-    router, sinks,
+    router,
+    sinks::{self, fold_results},
     utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
@@ -391,11 +392,19 @@ pub async fn process_events(
         return Ok(());
     }
 
-    if events.len() == 1 {
-        sink.send(events[0].clone()).await?;
-    } else {
-        sink.send_batch(events).await?;
-    }
+    // Publish through the unified `Sink` (reached via the `Event: Sink`
+    // supertrait): `prepare` serializes + routes, `publish_batch` enqueues +
+    // drains. The per-event `SinkResult`s are folded back into today's
+    // whole-request response — first failure wins, identical `CaptureError`
+    // mapping — so the wire semantics match the former `send` / `send_batch`
+    // exactly; the per-event surface stays dormant until the v1 response model.
+    //
+    // The batch-size histogram is recorded up front (as the `Event` shim did)
+    // so the distribution reflects batches submitted, not only those that
+    // succeeded.
+    metrics::histogram!("capture_event_batch_size").record(events.len() as f64);
+    let prepared = sink.prepare(events).await?;
+    fold_results(sink.publish_batch(prepared).await)?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
 

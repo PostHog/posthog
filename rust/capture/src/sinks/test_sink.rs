@@ -10,6 +10,7 @@
 //!   the sink before wrapping in `Arc<dyn Event>`)
 
 use crate::api::CaptureError;
+use crate::sinks::sink::{passthrough_record, PreparedRecord, Sink, SinkResult};
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
@@ -40,5 +41,32 @@ impl Event for MockSink {
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
+    }
+}
+
+/// Sink-path capture. Callers that publish through the unified [`Sink`] (the
+/// analytics pipeline) land here instead of `send` / `send_batch`. The stamped
+/// `ProcessedEvent` metadata tests assert on is only available in `prepare`
+/// (`publish_batch` sees serialized `PreparedRecord`s), so capture happens
+/// there; `publish_batch` just acks every prepared record.
+#[async_trait]
+impl Sink for MockSink {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        let prepared = events
+            .iter()
+            .map(|event| passthrough_record(event, Vec::new()))
+            .collect();
+        self.events.lock().unwrap().extend(events);
+        Ok(prepared)
+    }
+
+    async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
+        prepared
+            .into_iter()
+            .map(|record| SinkResult::ok(record.uuid))
+            .collect()
     }
 }
