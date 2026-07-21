@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import (
     EXCHANGE_RATES_API_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
     ExchangeRatesApiSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

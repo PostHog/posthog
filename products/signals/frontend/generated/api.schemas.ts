@@ -196,6 +196,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+    readonly implementation_pr_merged: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -306,6 +308,36 @@ export interface SignalReportRefundResponseApi {
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
  * * `analytics` - analytics
+ * * `freshdesk` - freshdesk
+ * * `freshservice` - freshservice
+ * * `front` - front
+ * * `gorgias` - gorgias
+ * * `kustomer` - kustomer
+ * * `dixa` - dixa
+ * * `plain` - plain
+ * * `gitlab` - gitlab
+ * * `gitea` - gitea
+ * * `shortcut` - shortcut
+ * * `sentry` - sentry
+ * * `rollbar` - rollbar
+ * * `bugsnag` - bugsnag
+ * * `honeybadger` - honeybadger
+ * * `raygun` - raygun
+ * * `snyk` - snyk
+ * * `sonarqube` - sonarqube
+ * * `semgrep` - semgrep
+ * * `rapid7_insightvm` - rapid7_insightvm
+ * * `featurebase` - featurebase
+ * * `frill` - frill
+ * * `aha` - aha
+ * * `uservoice` - uservoice
+ * * `productboard` - productboard
+ * * `canny` - canny
+ * * `asknicely` - asknicely
+ * * `retently` - retently
+ * * `appfigures` - appfigures
+ * * `appfollow` - appfollow
+ * * `judgeme_reviews` - judgeme_reviews
  * * `engineering_analytics` - engineering_analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
@@ -326,6 +358,36 @@ export const SignalSourceProductApi = {
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
     EngineeringAnalytics: 'engineering_analytics',
 } as const
 
@@ -346,6 +408,8 @@ export const SignalSourceProductApi = {
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
  * * `anomaly_investigation` - anomaly_investigation
+ * * `feedback` - feedback
+ * * `review` - review
  * * `ci_flaky_check` - ci_flaky_check
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
@@ -369,6 +433,8 @@ export const SignalSourceTypeApi = {
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    Feedback: 'feedback',
+    Review: 'review',
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
@@ -691,6 +757,234 @@ export interface EngineeringAnalyticsCIDurationRegressionSignalExtraApi {
     window_days: number
 }
 
+export interface FreshdeskTicketSignalExtraApi {
+    status: string | null
+    priority: string | null
+    type: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface FreshserviceTicketSignalExtraApi {
+    status: string | null
+    priority: string | null
+    type: string | null
+    category: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface FrontConversationSignalExtraApi {
+    status: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface GorgiasTicketSignalExtraApi {
+    status: string | null
+    priority: string | null
+    channel: string | null
+    tags: unknown[]
+    created_datetime: string | null
+}
+
+export interface KustomerConversationSignalExtraApi {
+    status: string | null
+    priority: string | null
+    tags: unknown[]
+    createdAt: string | null
+}
+
+export interface DixaConversationSignalExtraApi {
+    status: string | null
+    channel: string | null
+    tags: unknown[]
+    created_at: string | null
+}
+
+export interface PlainThreadSignalExtraApi {
+    status: string | null
+    priority: string | null
+    labels: unknown[]
+    createdAt: string | null
+}
+
+export interface GitlabIssueSignalExtraApi {
+    state: string | null
+    labels: unknown[]
+    iid: string | null
+    project_id: string | null
+    created_at: string | null
+}
+
+export interface GiteaIssueSignalExtraApi {
+    state: string | null
+    labels: unknown[]
+    html_url: string | null
+    number: string | null
+    created_at: string | null
+}
+
+export interface ShortcutStorySignalExtraApi {
+    story_type: string | null
+    labels: unknown[]
+    workflow_state_id: string | null
+    created_at: string | null
+}
+
+export interface SentryIssueSignalExtraApi {
+    level: string | null
+    status: string | null
+    permalink: string | null
+    shortId: string | null
+    firstSeen: string | null
+}
+
+export interface RollbarItemSignalExtraApi {
+    level: string | null
+    status: string | null
+    environment: string | null
+    framework: string | null
+    last_occurrence_timestamp: string | null
+}
+
+export interface BugsnagErrorSignalExtraApi {
+    severity: string | null
+    status: string | null
+    context: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface HoneybadgerFaultSignalExtraApi {
+    environment: string | null
+    component: string | null
+    action: string | null
+    tags: unknown[]
+    url: string | null
+    created_at: string | null
+}
+
+export interface RaygunErrorGroupSignalExtraApi {
+    status: string | null
+    applicationUrl: string | null
+    lastOccurredAt: string | null
+    createdAt: string | null
+}
+
+export interface SnykScannerFindingSignalExtraApi {
+    effective_severity_level: string | null
+    status: string | null
+    type: string | null
+    created_at: string | null
+}
+
+export interface SonarqubeScannerFindingSignalExtraApi {
+    severity: string | null
+    type: string | null
+    status: string | null
+    component: string | null
+    rule: string | null
+    creationDate: string | null
+}
+
+export interface SemgrepScannerFindingSignalExtraApi {
+    severity: string | null
+    confidence: string | null
+    status: string | null
+    state: string | null
+    created_at: string | null
+}
+
+export interface Rapid7InsightvmScannerFindingSignalExtraApi {
+    severity: string | null
+    cvss_v3_score: string | null
+    published: string | null
+    added: string | null
+}
+
+export interface FeaturebaseFeedbackSignalExtraApi {
+    status: string | null
+    tags: unknown[]
+    upvotes: string | null
+    createdAt: string | null
+}
+
+export interface FrillFeedbackSignalExtraApi {
+    status: string | null
+    vote_count: string | null
+    topics: unknown[]
+    created_at: string | null
+}
+
+export interface AhaFeedbackSignalExtraApi {
+    workflow_status: string | null
+    score: string | null
+    votes: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface UservoiceFeedbackSignalExtraApi {
+    state: string | null
+    vote_count: string | null
+    category_name: string | null
+    created_at: string | null
+}
+
+export interface ProductboardFeedbackSignalExtraApi {
+    state: string | null
+    tags: unknown[]
+    displayUrl: string | null
+    createdAt: string | null
+}
+
+export interface CannyFeedbackSignalExtraApi {
+    status: string | null
+    tags: unknown[]
+    score: string | null
+    voteCount: string | null
+    url: string | null
+    created: string | null
+}
+
+export interface AsknicelyFeedbackSignalExtraApi {
+    score: string | null
+    status: string | null
+    question_type: string | null
+    segment: string | null
+    created: string | null
+}
+
+export interface RetentlyFeedbackSignalExtraApi {
+    score: string | null
+    ratingCategory: string | null
+    feedbackTopics: unknown[]
+    resolved: string | null
+    createdDate: string | null
+}
+
+export interface AppfiguresReviewSignalExtraApi {
+    stars: string | null
+    version: string | null
+    product: string | null
+    date: string | null
+}
+
+export interface AppfollowReviewSignalExtraApi {
+    rating: string | null
+    store: string | null
+    app_version: string | null
+    date: string | null
+}
+
+export interface JudgemeReviewsReviewSignalExtraApi {
+    rating: string | null
+    product_title: string | null
+    verified: string | null
+    created_at: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -712,6 +1006,36 @@ export type SignalExtraApi =
     | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
     | EngineeringAnalyticsCIDurationRegressionSignalExtraApi
+    | FreshdeskTicketSignalExtraApi
+    | FreshserviceTicketSignalExtraApi
+    | FrontConversationSignalExtraApi
+    | GorgiasTicketSignalExtraApi
+    | KustomerConversationSignalExtraApi
+    | DixaConversationSignalExtraApi
+    | PlainThreadSignalExtraApi
+    | GitlabIssueSignalExtraApi
+    | GiteaIssueSignalExtraApi
+    | ShortcutStorySignalExtraApi
+    | SentryIssueSignalExtraApi
+    | RollbarItemSignalExtraApi
+    | BugsnagErrorSignalExtraApi
+    | HoneybadgerFaultSignalExtraApi
+    | RaygunErrorGroupSignalExtraApi
+    | SnykScannerFindingSignalExtraApi
+    | SonarqubeScannerFindingSignalExtraApi
+    | SemgrepScannerFindingSignalExtraApi
+    | Rapid7InsightvmScannerFindingSignalExtraApi
+    | FeaturebaseFeedbackSignalExtraApi
+    | FrillFeedbackSignalExtraApi
+    | AhaFeedbackSignalExtraApi
+    | UservoiceFeedbackSignalExtraApi
+    | ProductboardFeedbackSignalExtraApi
+    | CannyFeedbackSignalExtraApi
+    | AsknicelyFeedbackSignalExtraApi
+    | RetentlyFeedbackSignalExtraApi
+    | AppfiguresReviewSignalExtraApi
+    | AppfollowReviewSignalExtraApi
+    | JudgemeReviewsReviewSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -766,6 +1090,36 @@ export interface SignalNodeApi {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `freshdesk` - freshdesk
+     * * `freshservice` - freshservice
+     * * `front` - front
+     * * `gorgias` - gorgias
+     * * `kustomer` - kustomer
+     * * `dixa` - dixa
+     * * `plain` - plain
+     * * `gitlab` - gitlab
+     * * `gitea` - gitea
+     * * `shortcut` - shortcut
+     * * `sentry` - sentry
+     * * `rollbar` - rollbar
+     * * `bugsnag` - bugsnag
+     * * `honeybadger` - honeybadger
+     * * `raygun` - raygun
+     * * `snyk` - snyk
+     * * `sonarqube` - sonarqube
+     * * `semgrep` - semgrep
+     * * `rapid7_insightvm` - rapid7_insightvm
+     * * `featurebase` - featurebase
+     * * `frill` - frill
+     * * `aha` - aha
+     * * `uservoice` - uservoice
+     * * `productboard` - productboard
+     * * `canny` - canny
+     * * `asknicely` - asknicely
+     * * `retently` - retently
+     * * `appfigures` - appfigures
+     * * `appfollow` - appfollow
+     * * `judgeme_reviews` - judgeme_reviews
      * * `engineering_analytics` - engineering_analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
@@ -786,6 +1140,8 @@ export interface SignalNodeApi {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `feedback` - feedback
+     * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression */
@@ -815,12 +1171,14 @@ export interface ReportSignalsResponseApi {
 /**
  * * `suppressed` - suppressed
  * * `potential` - potential
+ * * `resolved` - resolved
  */
 export type SignalReportStateEnumApi = (typeof SignalReportStateEnumApi)[keyof typeof SignalReportStateEnumApi]
 
 export const SignalReportStateEnumApi = {
     Suppressed: 'suppressed',
     Potential: 'potential',
+    Resolved: 'resolved',
 } as const
 
 /**
@@ -843,12 +1201,13 @@ export const DismissalReasonEnumApi = {
 } as const
 
 export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
      *
      * * `suppressed` - suppressed
-     * * `potential` - potential */
+     * * `potential` - potential
+     * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -1007,12 +1366,13 @@ export interface CommitDiffResponseApi {
 }
 
 export interface SignalReportBulkStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
      *
      * * `suppressed` - suppressed
-     * * `potential` - potential */
+     * * `potential` - potential
+     * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -2464,6 +2824,36 @@ export interface ForgetResponseApi {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  * * `analytics` - Product analytics
+ * * `freshdesk` - Freshdesk
+ * * `freshservice` - Freshservice
+ * * `front` - Front
+ * * `gorgias` - Gorgias
+ * * `kustomer` - Kustomer
+ * * `dixa` - Dixa
+ * * `plain` - Plain
+ * * `gitlab` - GitLab
+ * * `gitea` - Gitea
+ * * `shortcut` - Shortcut
+ * * `sentry` - Sentry
+ * * `rollbar` - Rollbar
+ * * `bugsnag` - Bugsnag
+ * * `honeybadger` - Honeybadger
+ * * `raygun` - Raygun
+ * * `snyk` - Snyk
+ * * `sonarqube` - SonarQube
+ * * `semgrep` - Semgrep
+ * * `rapid7_insightvm` - Rapid7 InsightVM
+ * * `featurebase` - Featurebase
+ * * `frill` - Frill
+ * * `aha` - Aha
+ * * `uservoice` - UserVoice
+ * * `productboard` - Productboard
+ * * `canny` - Canny
+ * * `asknicely` - AskNicely
+ * * `retently` - Retently
+ * * `appfigures` - Appfigures
+ * * `appfollow` - AppFollow
+ * * `judgeme_reviews` - Judge.me
  * * `engineering_analytics` - Engineering analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
@@ -2485,6 +2875,36 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
     EngineeringAnalytics: 'engineering_analytics',
 } as const
 
