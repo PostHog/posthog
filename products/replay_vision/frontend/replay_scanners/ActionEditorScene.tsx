@@ -409,6 +409,10 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
     const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
+    // Direction is only offered for the average score ("below a floor" is the natural quality alarm).
+    // A count threshold is always "at least" — "at most N matches" reads backwards from intent and is
+    // really a went-quiet alarm, so we don't expose it for counts (buildActionBody pins it to above).
+    const isAvg = actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore
 
     // Summarizer observations have no verdict/tags/score to threshold on, so the only sensible
     // alert is "every new summary" — no controls to show. The logic normalizes the form to
@@ -452,7 +456,17 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                         <LemonSelect
                             size="small"
                             value={actionForm.alert_metric}
-                            onChange={(value) => value && setActionFormValue('alert_metric', value)}
+                            onChange={(value) => {
+                                if (!value) {
+                                    return
+                                }
+                                setActionFormValue('alert_metric', value)
+                                // Count thresholds are always "at least" (the direction control is
+                                // hidden for them), so switching back to count clears any "at most".
+                                if (value === VisionAlertMetricEnumApi.Count) {
+                                    setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
+                                }
+                            }}
                             options={[
                                 { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
                                 { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
@@ -462,16 +476,20 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                     ) : (
                         <span className="text-sm">number of matches</span>
                     )}
-                    <LemonSelect
-                        size="small"
-                        value={actionForm.alert_direction}
-                        onChange={(value) => value && setActionFormValue('alert_direction', value)}
-                        options={[
-                            { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
-                            { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
-                        ]}
-                        data-attr="vision-action-alert-direction"
-                    />
+                    {isAvg ? (
+                        <LemonSelect
+                            size="small"
+                            value={actionForm.alert_direction}
+                            onChange={(value) => value && setActionFormValue('alert_direction', value)}
+                            options={[
+                                { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
+                                { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
+                            ]}
+                            data-attr="vision-action-alert-direction"
+                        />
+                    ) : (
+                        <span className="text-sm">is at least</span>
+                    )}
                     <LemonInput
                         type="number"
                         size="small"
