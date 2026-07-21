@@ -6,10 +6,21 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Cohorts',
+    scenes: {
+        CohortsStaffTools: {
+            import: () => import('./frontend/staff/CohortsStaffToolsScene'),
+            instanceLevel: true,
+            name: 'Cohorts staff tools',
+        },
+    },
+    routes: {
+        '/cohorts/staff': ['CohortsStaffTools', 'cohortsStaffTools'],
+    },
     urls: {
         cohort: (id: string | number): string => `/cohorts/${id}`,
         cohorts: (): string => '/cohorts',
         cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+        cohortsStaffTools: (cohortId?: number): string => `/cohorts/staff${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     },
     fileSystemTypes: {
         cohort: {

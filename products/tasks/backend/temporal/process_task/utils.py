@@ -97,6 +97,13 @@ RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
 
 
 CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
+    # GLM 5.2 is a Cloudflare-served model driven through the `claude` runtime adapter: the LLM
+    # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
+    # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
+    "@cf/zai-org/glm-5.2": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -361,23 +368,33 @@ GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
-def _mcp_token_issued_cache_key(run_id: str) -> str:
-    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
+    """Cache scope for marks describing a run's live sandbox.
 
-
-def mark_mcp_token_issued(run_id: str) -> None:
-    """Record that a fresh MCP token was issued to the sandbox for this run.
-
-    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
-    `should_refresh_mcp_token` returns True again past that window.
+    Keyed on the sandbox id so a replacement sandbox (fresh provision,
+    snapshot restore, workflow retry) starts unmarked — nothing ever needs
+    clearing. Falls back to the run id when state has no sandbox id yet.
     """
-    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    return (state or {}).get("sandbox_id") or run_id
 
 
-def should_refresh_mcp_token(run_id: str) -> bool:
-    """Return True if no MCP token has been issued for this run within the
-    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
+def _sandbox_mcp_session_cache_key(scope: str) -> str:
+    return f"tasks:sandbox-mcp-session:{scope}"
+
+
+def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
+    """Record whose OAuth token the sandbox's live MCP session holds.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
+    entry always reads as "must refresh".
+    """
+    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def get_sandbox_mcp_session_user(scope: str) -> int | None:
+    """User id the sandbox's MCP session was last bound to within the
+    freshness window, or None when unknown."""
+    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
 
 
 @dataclass(frozen=True)
@@ -643,6 +660,72 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
         github_integration.refresh_access_token()
 
     return github_integration.integration.access_token or None
+
+
+# Downscope for sandboxes that only gather evidence (commit history, PR metadata) and must not be
+# able to write anywhere. Every permission here must be one the PostHog GitHub App holds, or the
+# mint 422s: contents/metadata back `gh api repos/.../commits`, pull_requests backs PR lookups.
+READONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+}
+
+
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether `get_readonly_github_token` has a team-level integration to mint from.
+
+    Cheap preflight for callers that condition user-visible behavior (e.g. prompt guidance naming
+    `gh`) on the token actually being obtainable — the flag alone can't tell a team that never
+    connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
+    """
+    try:
+        return _resolve_mintable_team_integration(team_id) is not None
+    except Exception:
+        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
+        return False
+
+
+def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+    """The team-level integration a read-only mint may use, or None.
+
+    Refuses the resolver's org-owner personal-integration fallback (its installation can span
+    repos never connected to this team) and installations already marked permanently gone by a
+    prior failed mint — re-minting those storms GitHub with doomed calls until the customer
+    reconnects.
+    """
+    # Deferred to break a circular import — repo_selection.agent transitively imports the
+    # process-task workflow, which imports this module.
+    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
+
+    integration = resolve_team_github_integration(team_id)
+    if not isinstance(integration, GitHubIntegration) or integration.installation_unavailable():
+        return None
+    return integration
+
+
+def get_readonly_github_token(team_id: int) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+
+    Resolves the same integration the repo-selection agent would use for this team, then mints an
+    installation token downscoped to read-only permissions. Team-level installations only: the
+    resolver's org-owner fallback returns a *personal* integration whose installation can span
+    repositories never connected to this team, and an unpinned mint against it would read them
+    all — a scheduled scout must never widen its reach beyond what the team itself connected.
+    The scoped token is never persisted — the integration's cached token stays the
+    full-permission credential other flows share. Returns None (never raises) when the team has
+    no usable team-level integration or the mint fails: read access is an evidence-gathering
+    nicety, and its absence must not fail the run.
+    """
+    try:
+        integration = _resolve_mintable_team_integration(team_id)
+        if integration is None:
+            logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
+            return None
+        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+    except Exception:
+        logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
+        return None
 
 
 def get_user_github_token(github_user_integration_id: str) -> Optional[str]:

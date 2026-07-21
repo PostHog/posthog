@@ -88,8 +88,10 @@ def prepare_conversations_slack_update_record(
         if value is None:
             continue
 
-        if attr == "last_slack_activity" and isinstance(value, dt.datetime):
-            record[sf_field] = value.date().isoformat()
+        if isinstance(value, dt.datetime):
+            # last_slack_activity__c is a Date field in Salesforce; the newer
+            # datetime signals map to DateTime fields and keep full precision.
+            record[sf_field] = value.date().isoformat() if attr == "last_slack_activity" else value.isoformat()
             continue
 
         record[sf_field] = value
@@ -99,8 +101,9 @@ def prepare_conversations_slack_update_record(
 
 def _serialize_signals(signals: ConversationsSlackSignals) -> dict[str, Any]:
     serialized = dataclasses.asdict(signals)
-    if signals.last_slack_activity is not None:
-        serialized["last_slack_activity"] = signals.last_slack_activity.isoformat()
+    for attr, value in serialized.items():
+        if isinstance(value, dt.datetime):
+            serialized[attr] = value.isoformat()
     return serialized
 
 

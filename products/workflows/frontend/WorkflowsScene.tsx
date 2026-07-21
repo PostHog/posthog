@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors,
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -239,7 +239,12 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         ...(suppressionListEnabled
             ? [
                   {
-                      label: 'Suppression list',
+                      label: (
+                          <span className="inline-flex items-center gap-1.5">
+                              Suppression list
+                              <LemonTag type="completion">Beta</LemonTag>
+                          </span>
+                      ),
                       key: 'suppression' as const,
                       content: <SuppressionScene />,
                       link: urls.workflows('suppression'),

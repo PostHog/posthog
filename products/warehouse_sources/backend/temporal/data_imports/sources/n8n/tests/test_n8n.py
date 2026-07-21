@@ -1,16 +1,14 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
 
-import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n import (
     N8nResumeConfig,
-    N8nRetryableError,
     _build_url,
-    _fetch_page,
-    get_rows,
     hostname_of,
     n8n_source,
     normalize_host,
@@ -19,10 +17,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n im
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import ENDPOINTS, N8N_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n"
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
-# `_fetch_page` is wrapped by tenacity's @retry; call the underlying function directly so a
-# retryable status raises immediately instead of sleeping through the backoff schedule.
-_fetch_undecorated = _fetch_page.__wrapped__  # type: ignore[attr-defined]
+
+def _response(
+    items: list[dict[str, Any]] | None, *, next_cursor: str | None = None, drop_data: bool = False
+) -> Response:
+    body: dict[str, Any] = {"nextCursor": next_cursor}
+    if not drop_data:
+        body["data"] = items or []
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
 def _make_manager(resume_state: N8nResumeConfig | None = None) -> mock.MagicMock:
@@ -32,12 +40,30 @@ def _make_manager(resume_state: N8nResumeConfig | None = None) -> mock.MagicMock
     return manager
 
 
-def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    return resp
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock):
+    return n8n_source("https://n.example.com", "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestNormalizeHost:
@@ -106,114 +132,106 @@ class TestBuildUrl:
         assert url == "https://x/api/v1/workflows?limit=250&cursor=a+b%2Fc"
 
 
-class TestFetchPage:
-    @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
-    def test_retryable_statuses_raise_retryable_error(self, status_code):
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code=status_code)
-        with pytest.raises(N8nRetryableError):
-            _fetch_undecorated(session, "https://x", {}, mock.MagicMock())
-
-    @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
-    def test_client_errors_raise_for_status(self, status_code):
-        session = mock.MagicMock()
-        resp = _response({}, status_code=status_code)
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=resp)
-        session.get.return_value = resp
-        with pytest.raises(requests.HTTPError):
-            _fetch_undecorated(session, "https://x", {}, mock.MagicMock())
-
-    def test_non_dict_body_is_wrapped_in_data(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response([{"id": "1"}])
-        body = _fetch_undecorated(session, "https://x", {}, mock.MagicMock())
-        assert body == {"data": [{"id": "1"}]}
-
-
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_valid_credentials(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": [], "nextCursor": None})
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
         assert validate_credentials("https://myorg.app.n8n.cloud", "key") is True
-        url = mock_session.return_value.get.call_args.args[0]
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert url == "https://myorg.app.n8n.cloud/api/v1/workflows?limit=1"
-        assert headers["X-N8N-API-KEY"] == "key"
+        call = mock_session.return_value.get.call_args
+        assert call.args[0] == "https://myorg.app.n8n.cloud/api/v1/workflows?limit=1"
+        assert call.kwargs["headers"]["X-N8N-API-KEY"] == "key"
 
     @pytest.mark.parametrize("status_code", [401, 403, 500])
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_non_200_fails_validation(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = _response({}, status_code=status_code)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("https://myorg.app.n8n.cloud", "bad") is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_network_error_fails_validation(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("https://myorg.app.n8n.cloud", "key") is False
+
+    def test_invalid_url_fails_validation(self):
+        # A host that can't be normalized never reaches the network — just reports "not validated".
+        assert validate_credentials("ftp://nope", "key") is False
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_single_page_yields_and_stops(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": [{"id": "1"}, {"id": "2"}], "nextCursor": None})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_yields_and_stops(self, MockSession):
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "1"}, {"id": "2"}], next_cursor=None)])
 
         manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "key", "workflows", mock.MagicMock(), manager))
+        rows = _rows(_source("workflows", manager))
 
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2"]
+        assert [row["id"] for row in rows] == ["1", "2"]
         # A single page never advances the cursor, so no resume state is persisted.
         manager.save_state.assert_not_called()
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url.startswith("https://n.example.com/api/v1/workflows?")
-        assert "limit=250" in url
-        assert "excludePinnedData=true" in url
+        assert params[0]["limit"] == 250
+        assert params[0]["excludePinnedData"] == "true"
+        assert "cursor" not in params[0]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_and_saves_cursor_after_each_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"data": [{"id": "1"}], "nextCursor": "CURSOR_A"}),
-            _response({"data": [{"id": "2"}], "nextCursor": "CURSOR_B"}),
-            _response({"data": [{"id": "3"}], "nextCursor": None}),
-        ]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_saves_cursor_after_each_page(self, MockSession):
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response([{"id": "1"}], next_cursor="CURSOR_A"),
+                _response([{"id": "2"}], next_cursor="CURSOR_B"),
+                _response([{"id": "3"}], next_cursor=None),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "key", "tags", mock.MagicMock(), manager))
+        rows = _rows(_source("tags", manager))
 
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2", "3"]
+        assert [row["id"] for row in rows] == ["1", "2", "3"]
         # State saved once per page that has a following page (not for the last page).
         saved = [call.args[0].next_cursor for call in manager.save_state.call_args_list]
         assert saved == ["CURSOR_A", "CURSOR_B"]
         # The second request carries the cursor from the first page.
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert "cursor=CURSOR_A" in second_url
+        assert params[1]["cursor"] == "CURSOR_A"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_cursor(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": [{"id": "9"}], "nextCursor": None})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession):
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "9"}], next_cursor=None)])
 
         manager = _make_manager(N8nResumeConfig(next_cursor="SAVED"))
-        list(get_rows("https://n.example.com", "key", "workflows", mock.MagicMock(), manager))
+        _rows(_source("workflows", manager))
 
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "cursor=SAVED" in first_url
+        assert params[0]["cursor"] == "SAVED"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_still_terminates(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": [], "nextCursor": None})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_still_terminates(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([], next_cursor=None)])
 
         manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "key", "projects", mock.MagicMock(), manager))
+        rows = _rows(_source("projects", manager))
 
-        assert batches == []
+        assert rows == []
         manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_raises_loudly(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response(None, drop_data=True)])
+
+        # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _rows(_source("workflows", _make_manager()))
 
 
 class TestN8nSource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_primary_key_and_partitioning(self, endpoint):
         config = N8N_ENDPOINTS[endpoint]
-        response = n8n_source("https://n.example.com", "key", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -226,5 +244,5 @@ class TestN8nSource:
 
     def test_executions_partition_on_started_at(self):
         # Executions have no createdAt/updatedAt; startedAt is the stable creation field.
-        response = n8n_source("https://n.example.com", "key", "executions", mock.MagicMock(), _make_manager())
+        response = _source("executions", _make_manager())
         assert response.partition_keys == ["startedAt"]

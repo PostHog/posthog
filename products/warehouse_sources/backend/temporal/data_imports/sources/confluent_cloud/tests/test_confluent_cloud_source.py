@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.source import ConfluentCloudSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluentcloud import (
     ConfluentCloudSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
