@@ -17,7 +17,14 @@ import {
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AssistantInsightVizNode = z.object({
@@ -203,7 +210,7 @@ const InsightCreateSchema = InsightsCreateBody.omit({
     ),
 })
 
-const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithAgentNote<WithPostHogUrl<Schemas.Insight>>> => ({
     name: 'insight-create',
     schema: InsightCreateSchema,
     handler: async (context: Context, params: z.infer<typeof InsightCreateSchema>) => {
@@ -241,7 +248,10 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            "After creating a Trends, SQL (HogQL), or Funnels insight — the only kinds that support alerts — consider offering the user an alert as a next step. Judge relevance before offering. Alerts earn their keep on metrics someone would act on if they moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency), and are rarely worth it for one-off or exploratory insights, high-cardinality breakdowns, or vanity metrics. Favor a single-value or clearly trending series, since a threshold compares against one number. Propose a concrete threshold and direction drawn from the metric (e.g. 'alert if this drops below X' or 'if it spikes above Y') rather than asking generically; when an absolute number is unclear, suggest a relative-change alert on a sudden increase or decrease. First call alerts-list for this insight's id to avoid duplicating an existing alert, then use alert-create. Skip Retention, Paths, Stickiness, and Lifecycle insights, which cannot have alerts, and don't re-offer if the user declines."
+        )
     },
 })
 
