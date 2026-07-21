@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import SourceFieldOauthConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntercomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
+    IntercomSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip 
     validate_credentials as validate_drip_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DripSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drip import DripSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

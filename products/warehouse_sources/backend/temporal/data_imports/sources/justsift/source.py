@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JustSiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.justsift import (
+    JustSiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.justsift import (
     JustSiftResumeConfig,
     check_access,

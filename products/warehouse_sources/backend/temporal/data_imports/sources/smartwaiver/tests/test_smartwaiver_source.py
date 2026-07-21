@@ -5,7 +5,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SmartwaiverSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
+    SmartwaiverSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import (
     ENDPOINTS,
     SMARTWAIVER_ENDPOINTS,

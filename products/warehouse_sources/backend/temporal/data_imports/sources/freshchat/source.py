@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.
     FRESHCHAT_ENDPOINTS,
     PRIMARY_KEYS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshchatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshchat import (
+    FreshchatSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshchat's top-level v2 list endpoints (Agents, Users, Groups, Channels)

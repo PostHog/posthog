@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StatuspageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
+    StatuspageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

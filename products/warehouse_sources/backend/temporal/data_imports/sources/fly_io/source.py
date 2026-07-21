@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.fly
     validate_credentials as validate_fly_io_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import FLY_IO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlyIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

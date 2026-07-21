@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PipedriveSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipedrive import (
+    PipedriveSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.pipedrive import (
     PipedriveResumeConfig,
     normalize_company_domain,
