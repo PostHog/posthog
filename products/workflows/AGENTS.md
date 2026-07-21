@@ -3,38 +3,88 @@
 Repo-wide conventions live in [`../../AGENTS.md`](../../AGENTS.md) — read that first.
 [`CONTRIBUTING.md`](./CONTRIBUTING.md) has the recipes for extending the builder UI
 (trigger types, action nodes, Hog function templates, input types). This file covers
-the rules and landmines specific to workflows' data layer, its Node.js runtime, and
-its API — the things that aren't discoverable from types and cost real review cycles
-when missed.
+what isn't discoverable from types: how the product is split across runtimes, the
+cross-language couplings that must move together, and the landmines that cost real
+review cycles when missed.
 
-## The data layer: where workflow email metrics actually live
+## Orientation: workflows is a split-brain product
+
+- **Django** (`products/workflows/backend/`) owns models, CRUD, validation, and the
+  API (`api/hog_flow.py` is the center of gravity).
+- **The Node plugin server** (`nodejs/src/cdp/services/hogflows/` and siblings under
+  `nodejs/src/cdp/`) owns execution: trigger matching, the graph executor,
+  cyclotron job queues, delays/waits, batch jobs, scheduling, email delivery.
+- **The frontend** (`products/workflows/frontend/`) owns the builder and scenes.
+
+Most features touch at least two of the three. When you change a definition on one
+side, go looking for its mirror on the others — the couplings below are the known
+ones.
+
+## One flow definition, three schemas — change all of them together
+
+The `HogFlow` shape exists in three places that nothing keeps in sync:
+
+1. `products/workflows/backend/api/hog_flow.py` — DRF serializers, the **source of
+   truth** (validation + generated API/MCP types flow from here)
+2. `nodejs/src/cdp/schema/hogflow.ts` — zod schema the executor parses rows with
+3. `products/workflows/frontend/Workflows/hogflows/types.ts` — the frontend zod/TS
+   mirror
+
+Adding an enum value (e.g. a new `status`), field, or action type in one place and
+not the others fails at runtime or typecheck far from your change. Grep all three.
+
+Other Django↔Node couplings enforced only by comments and runtime errors:
+
+- `DELAY_DURATION_REGEX` in `hog_flow.py` must match the parser in
+  `nodejs/src/cdp/services/hogflows/actions/delay.ts`.
+- The `trigger` column is **derived** server-side from the actions array (exactly
+  one `type: 'trigger'` action); `billable_action_types` is computed on save.
+  Neither is client-writable — don't add API surface that pretends otherwise.
+
+## Validation is deliberately two-tier: web drafts are lenient, everyone else is strict
+
+`_should_validate_strictly` (hog_flow.py): drafts saved from the web builder pass
+with incomplete/invalid configs (mid-edit saves), while programmatic callers (API,
+MCP, agents) get full validation even on drafts. When adding validation, wire it
+through this posture — a check that ignores it either blocks the builder's
+incremental saves or lets agents store configs that only explode at activation.
+Graph-structure validation (`graph_validation.py`) is enforced only on the `/graph`
+endpoint and advisory elsewhere, because existing rows carry legacy corruption.
+
+## Execution reads a cache — status changes need the reload signal
+
+The plugin server loads **only `status='active'`** flows, cached via `LazyLoader`
+(`hogflow-manager.service.ts`), invalidated by the `reload-hog-flows` pubsub
+message. Django's `post_save` signal publishes it (`reload_hog_flows_on_workers`).
+If you mutate flow rows any way that skips `save()` (queryset `.update()`, raw SQL
+from Node), workers keep executing the stale definition until you publish the
+reload yourself.
+
+## The data layer: where workflow email metrics live
 
 Delivery metrics are in ClickHouse `app_metrics2` with `app_source = 'hog_flow'`,
 one row per (team, app_source_id, metric) per hour bucket. The metric names are not
-what you'd guess — the mapping from SES events lives in
+what you'd guess — the SES-event mapping lives in
 `nodejs/src/cdp/services/messaging/helpers/ses.ts`:
 
 - `email_sent` / `email_failed` — send outcome (`email.service.ts`)
 - `email_bounced` — SES `Bounce`
 - `email_blocked` — SES `Complaint`. **This is the spam-complaint metric**, despite
-  the name. `email_spam` also exists in the type union but SES complaints do NOT
-  flow into it.
-- `email_opened` / `email_link_clicked` — tracking pixel/redirect; these arrive via
-  publicly reachable endpoints and are forgeable, so never use them for
-  trust/reputation decisions.
+  the name; `email_spam` exists in the type union but SES complaints do NOT flow
+  into it.
+- `email_opened` / `email_link_clicked` — tracking pixel/redirect; publicly
+  reachable and forgeable, so never use them for trust/reputation decisions.
 
 Bounces and complaints arrive **hours after their send** via the SES webhook, into
 whatever hour bucket they land in — a bucket can hold bounces with zero sends.
 Windowed aggregations must not filter on `sent > 0` per bucket or late bounces
 silently vanish.
 
-## Batch broadcasts attribute metrics to the batch-job id
-
-Batch-triggered runs record `app_metrics2.app_source_id` as the **batch job id**
-(`parentRunId`), not the workflow id. To attribute per workflow, resolve unmatched
-source ids through `workflows_hogflowbatchjob (id → hog_flow_id)`. Source ids that
-match neither a workflow nor a batch job (deleted flows, plain hog functions) are
-real traffic — decide explicitly whether they count in team-level aggregates.
+**Batch broadcasts attribute metrics to the batch-job id** (`parentRunId`), not the
+workflow id. To attribute per workflow, resolve unmatched source ids through
+`workflows_hogflowbatchjob (id → hog_flow_id)`. Ids matching neither (deleted
+flows, plain hog functions) are real traffic — decide explicitly whether they count
+in team-level aggregates.
 
 ## Table names are mixed — check `db_table` before writing raw SQL
 
@@ -45,9 +95,9 @@ at runtime — a service test that inserts real rows is the cheapest guard.
 
 ## Rows written by Node, read by Django
 
-Node services (evaluators, consumers) write rows keyed by the **raw** team id, which
-in multi-environment projects can be a child environment id that canonical-team
-resolution would rewrite. When Django reads such rows, use
+Node services (evaluators, consumers) write rows keyed by the **raw** team id,
+which in multi-environment projects can be a child environment id that
+canonical-team resolution would rewrite. When Django reads such rows, use
 `Model.objects.for_team(self.team_id, canonical=True)` — never plain ambient scope
 (silently misses child-env rows) and never `unscoped()` (banned by root CLAUDE.md).
 
