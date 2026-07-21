@@ -23,6 +23,30 @@ DEBUG=1 python manage.py probe_mcp_server https://mcp.example.com/mcp
 DEBUG=1 python manage.py sync_mcp_server_templates --skip-probe  # local seed without network
 ```
 
+## What can and can't be added
+
+Only **hosted (remote) MCP servers** on a public HTTPS endpoint speaking the streamable-HTTP transport belong in the catalog.
+
+Adds and auto-activates on merge:
+
+- OAuth servers with Dynamic Client Registration — the probe mints a real DCR client and verifies the authorization page.
+- API-key and unauthenticated servers that answer the MCP initialize handshake.
+
+Adds but ships **inactive** until an operator finishes activation (see the runbook below):
+
+- OAuth servers without DCR ("shared creds") — someone must register an OAuth app with the vendor and provision credentials per environment.
+- Vendors whose DCR is gated (initial access token, software statement, partner allowlist) — the probe classifies these as shared-creds too.
+
+Can't be added:
+
+- Local/stdio servers (npx or docker packages with no hosted endpoint).
+- Servers that aren't publicly reachable — private IPs, VPN-only hosts, and internal domains are blocked by SSRF protection.
+- Non-HTTP transports (WebSocket-only) and legacy HTTP+SSE dual-endpoint servers — the probe and proxy speak streamable HTTP only.
+- Any URL that fails the probe (`speaks_mcp: false`) — never ship an unprobed URL.
+
+Known gap: API keys are sent as `Authorization: Bearer <key>`, so servers that require a custom header (`X-API-Key`, ...) or exotic auth (signed JWTs, mTLS, IP allowlists) pass the probe but fail at first real install.
+A real end-to-end install (Gate B in the skill) is the only check that catches these.
+
 ## Server icons (logo.dev)
 
 Catalog icons are not committed image assets.
