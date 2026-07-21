@@ -21,8 +21,9 @@ use crate::merge::transfer::{MergeStateTransfer, PendingTransfer, PersonMergeEve
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
     MERGE_DRAIN_DURATION_SECONDS, MERGE_HELD_OFFSET_GAUGE, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL,
-    MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL,
-    MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
+    MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL,
+    MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL, MERGE_TRANSFER_FORWARDS_TOTAL,
+    MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
@@ -268,6 +269,12 @@ pub(crate) async fn handle_merge(
             produce_and_settle(partition_id, handle, merge, &transfer, &pending_key, offset).await;
         }
         Ok(DrainOutcome::AwaitingRegisterTransferEnablement) => {
+            // A cross-partition merge of a person that owns membership-register rows cannot ship its
+            // register payload until reconcile is enabled, so it sticky-holds — a visible commit-stall
+            // in place of silent register loss. Reconcile must be enabled before the merge producer
+            // (`PERSON_MERGE_EVENTS_ENABLED`), or merge consumption on this partition wedges for the
+            // tenure.
+            counter!(MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL).increment(1);
             warn!(
                 partition_id,
                 team_id = event.team_id,

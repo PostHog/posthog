@@ -77,9 +77,16 @@ pub enum DrainSkip {
 
 /// Whether a cross-partition drain may emit the additive membership-register payload.
 ///
-/// Local register writes and receiver application are unconditional. Only the sender is gated so
-/// a mixed-version fleet cannot acknowledge a transfer on an old receiver and delete the sole copy
-/// of its reconcile scan domain.
+/// Local register writes and receiver application are unconditional; only the sender is gated, on
+/// `reconcile_enabled`. While the gate is off, a register-owning cross-partition merge never ships a
+/// transfer — it fail-stops via [`DrainOutcome::AwaitingRegisterTransferEnablement`] (sticky hold,
+/// zero mutation) — so a receiver that cannot apply the payload never acks a transfer and deletes the
+/// sole copy of its reconcile scan domain.
+///
+/// Once the gate is on the sender emits, and a receiver that does not understand `membership_registers`
+/// (no `deny_unknown_fields`) silently drops it, deleting the survivor's only register row. The gate
+/// alone therefore does not make a mixed-version fleet safe: enable `COHORT_SEED_RECONCILE_ENABLED`
+/// only once every pod can apply the transfer, and disable it before rolling the image back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MembershipRegisterTransferMode {
     Disabled,

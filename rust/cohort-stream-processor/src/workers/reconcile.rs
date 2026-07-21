@@ -687,7 +687,6 @@ async fn settle_reconcile_page(
     source_offset: i64,
     last_updated: &str,
 ) -> Option<PageProgress> {
-    counter!(RECONCILE_ROWS_SCANNED_TOTAL).increment(page.len() as u64);
     let evaluated_at_ms = clickhouse_timestamp_to_millis(last_updated)
         .expect("worker-generated last_updated timestamps always parse");
     let mut changes = Vec::with_capacity(page.len());
@@ -769,12 +768,6 @@ async fn settle_reconcile_page(
         );
         return None;
     }
-    if entered > 0 {
-        counter!(RECONCILE_ROWS_EMITTED_TOTAL, "status" => "entered").increment(entered);
-    }
-    if left > 0 {
-        counter!(RECONCILE_ROWS_EMITTED_TOTAL, "status" => "left").increment(left);
-    }
 
     let cascade_errors = produce_cascades(merge, cascades).await;
     if cascade_errors > 0 {
@@ -810,6 +803,16 @@ async fn settle_reconcile_page(
             );
             return None;
         }
+    }
+    // Count only durably-settled pages: membership produce, cascade produce, and commit have all
+    // succeeded here. Any earlier failure returns `None` above and retries the whole page, so
+    // incrementing here keeps a retry from double-counting.
+    counter!(RECONCILE_ROWS_SCANNED_TOTAL).increment(page.len() as u64);
+    if entered > 0 {
+        counter!(RECONCILE_ROWS_EMITTED_TOTAL, "status" => "entered").increment(entered);
+    }
+    if left > 0 {
+        counter!(RECONCILE_ROWS_EMITTED_TOTAL, "status" => "left").increment(left);
     }
     if fixed_entered > 0 {
         counter!(RECONCILE_BITS_FIXED_TOTAL, "direction" => "entered").increment(fixed_entered);

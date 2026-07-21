@@ -539,6 +539,36 @@ mod tests {
     }
 
     #[test]
+    fn transfer_tolerates_unknown_fields_so_a_new_sender_cannot_poison_an_old_receiver() {
+        // A sender may add fields to the transfer wire; a receiver that does not know them must
+        // ignore them, not reject the whole message. This pins the absence of
+        // `#[serde(deny_unknown_fields)]` on MergeStateTransfer — adding it would silently drop every
+        // cross-partition merge whose transfer carries an unknown field.
+        let json = serde_json::json!({
+            "team_id": 7,
+            "old_person_uuid": uuid(0xAAAA).to_string(),
+            "new_person_uuid": uuid(0xBBBB).to_string(),
+            "merged_at_ms": 1_716_800_000_000_i64,
+            "source_partition": 17,
+            "source_offset": 12_345,
+            "leaves": [],
+            "membership_registers": [{ "cohort_id": 9, "in_cohort": false, "kind": "composable" }],
+            "some_future_field": { "added": "by a newer sender" },
+        });
+        let decoded = MergeStateTransfer::decode(&serde_json::to_vec(&json).unwrap())
+            .expect("an unknown extra field must not fail the decode");
+        assert_eq!(
+            decoded.membership_registers,
+            vec![TransferMembershipRegister {
+                cohort_id: 9,
+                in_cohort: false,
+                kind: TransferMembershipRegisterKind::Composable,
+            }],
+            "the known additive field still round-trips alongside the ignored unknown one",
+        );
+    }
+
+    #[test]
     fn register_without_kind_defaults_to_safe_composable_semantics() {
         let register: TransferMembershipRegister = serde_json::from_value(serde_json::json!({
             "cohort_id": 9,

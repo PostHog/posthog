@@ -5,8 +5,8 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 // The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
 pub use cohort_core::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
-    FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,
-    STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+    FILTER_CATALOG_INVALID_SHAPE_HASH, FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK,
+    STAGE1_GLOBALS_PARSE_ERROR, STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
 };
 
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
@@ -390,6 +390,14 @@ pub const MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL: &str = "merge_transfer_produce_f
 pub const MERGE_OUTBOX_CLEAR_FAILURE_TOTAL: &str = "merge_outbox_clear_failure_total";
 /// Cross-partition drains whose packaged transfer carried no leaves (counter).
 pub const MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL: &str = "merge_transfers_skipped_empty_total";
+/// Cross-partition merges retained (sticky-held, no mutation) because the membership-register
+/// transfer is still disabled — i.e. `COHORT_SEED_RECONCILE_ENABLED` is off while a merged person
+/// owns register rows (counter). Each retry of the held offset re-counts, so this is a stall *rate*.
+/// A sustained non-zero level means merge consumption is wedged on that partition: reconcile must be
+/// enabled before the merge producer (`PERSON_MERGE_EVENTS_ENABLED`). **Alert on a sustained
+/// non-zero level.**
+pub const MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL: &str =
+    "merge_transfers_held_awaiting_enablement_total";
 /// Entries currently staged in a partition's `cf_pending_transfers` outbox, labelled by `partition`
 /// (gauge). A sustained non-zero level means the transfer topic keeps refusing produces.
 pub const MERGE_PENDING_TRANSFERS_GAUGE: &str = "merge_pending_transfers";
@@ -475,9 +483,11 @@ pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_complete
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
 /// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
-/// Stage 2 rows read by reconcile scan attempts (counter).
+/// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
+/// page that fails its produce or commit and retries is not double-counted.
 pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_total";
-/// Snapshot membership rows acknowledged by Kafka, labelled by `status` (counter).
+/// Snapshot membership rows acknowledged by Kafka and durably settled, labelled by `status`, counted
+/// once per committed page (counter).
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
@@ -787,5 +797,17 @@ mod tests {
             "store_schema_mismatch_wipes_total",
         );
         assert_eq!(MERGE_DRAIN_LEAVES_SCANNED, "merge_drain_leaves_scanned");
+    }
+
+    #[test]
+    fn catalog_and_merge_hold_metric_names_are_stable() {
+        assert_eq!(
+            FILTER_CATALOG_INVALID_SHAPE_HASH,
+            "filter_catalog_invalid_shape_hash_total",
+        );
+        assert_eq!(
+            MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL,
+            "merge_transfers_held_awaiting_enablement_total",
+        );
     }
 }

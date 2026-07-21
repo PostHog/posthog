@@ -178,7 +178,8 @@ class Command(BaseCommand):
         log(
             f"drained {drain_stats.consumed} messages from {drain_stats.partitions_read}/{drain_stats.partitions} "
             f"partitions; folded {fold_stats.folded} for team {team_id} across {len(fold_stats.cohorts_seen)} cohorts "
-            f"(dropped: {fold_stats.dropped_wrong_team} wrong-team, {fold_stats.dropped_before_since} pre-since, "
+            f"({fold_stats.reconcile_markers_recorded} reconcile markers; "
+            f"dropped: {fold_stats.dropped_wrong_team} wrong-team, {fold_stats.dropped_before_since} pre-since, "
             f"{fold_stats.dropped_malformed} malformed, {drain_stats.undecodable} undecodable; "
             f"by origin: {dict(sorted(fold_stats.folded_by_origin.items()))})"
         )

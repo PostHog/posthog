@@ -12,7 +12,10 @@ use tracing::warn;
 use crate::filters::catalog::FilterCatalog;
 use crate::filters::reverse_index::TeamFiltersBuilder;
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::metrics::{FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK};
+use crate::metrics::{
+    FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_INVALID_SHAPE_HASH,
+    FILTER_CATALOG_TZ_FALLBACK,
+};
 use crate::seed::BehavioralShapeHash;
 
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
@@ -66,12 +69,15 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
                     Some(raw_hash) if raw_hash.is_empty() => {}
                     Some(raw_hash) => match BehavioralShapeHash::parse(&raw_hash) {
                         Ok(hash) => builder.set_behavioral_shape_hash(cohort_id, hash),
-                        Err(error) => warn!(
-                            cohort_id = cohort_id.0,
-                            team_id = team_id.0,
-                            error = %error,
-                            "ignoring invalid persisted behavioral shape hash",
-                        ),
+                        Err(error) => {
+                            counter!(FILTER_CATALOG_INVALID_SHAPE_HASH).increment(1);
+                            warn!(
+                                cohort_id = cohort_id.0,
+                                team_id = team_id.0,
+                                error = %error,
+                                "ignoring invalid persisted behavioral shape hash",
+                            );
+                        }
                     },
                 }
             }

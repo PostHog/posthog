@@ -158,6 +158,10 @@ class TestFold(SimpleTestCase):
             [(run.run_id, run.partitions_seen, run.complete) for run in completeness],
             [(RUN_1, 41, False), (RUN_2, 64, True)],
         )
+        # Counts every accepted marker message, including the RUN_1 partition-0 duplicate — 106,
+        # not the 105 distinct partitions the completeness sets hold. Keeps the summary's
+        # folded + drops + markers == total accounting exact.
+        self.assertEqual(stats.reconcile_markers_recorded, 106)
 
     @parameterized.expand(
         [

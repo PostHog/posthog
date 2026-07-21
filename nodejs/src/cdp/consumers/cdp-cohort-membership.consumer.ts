@@ -12,7 +12,11 @@ import { HealthCheckResult } from '../../types'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterCohortMembershipControlMessageSkipped } from './metrics'
 
-// Zod schema for validation
+// Zod schema for validation.
+// Invariant: a membership row must never carry a `type` field. Control messages (e.g. reconcile
+// completion markers) are the only shape with `type`, and `isTypedControlMessage` skips any object
+// that defines one *before* this schema runs — so adding `type` to a membership row would make the
+// consumer silently drop it.
 const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),

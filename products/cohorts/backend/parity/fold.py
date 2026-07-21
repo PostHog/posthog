@@ -51,6 +51,10 @@ class FoldStats:
     dropped_malformed: int = 0
     cohorts_seen: set[int] = field(default_factory=set)
     reconcile_markers: dict[tuple[str, int], set[int]] = field(default_factory=dict)
+    # Count of accepted marker messages, incl. duplicates — the reconcile_markers set dedups by
+    # partition, so it undercounts. This keeps folded + drops + markers == total (markers land in
+    # neither the folded nor the dropped buckets).
+    reconcile_markers_recorded: int = 0
     folded_by_origin: dict[str, int] = field(default_factory=dict)
 
 
@@ -122,6 +126,7 @@ def fold_membership_changes(
                 stats.dropped_before_since += 1
                 continue
             stats.reconcile_markers.setdefault((run_id, cohort_id), set()).add(partition)
+            stats.reconcile_markers_recorded += 1
             stats.cohorts_seen.add(cohort_id)
             continue
 
