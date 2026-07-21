@@ -20,6 +20,9 @@ class EmailOutboxMessage(UUIDModel):
         PENDING = "pending", "Pending"
         SENT = "sent", "Sent"
         FAILED_PERMANENT = "failed_permanent", "Failed (permanent)"
+        # Mailgun accepted the message (2xx) but a later delivery-event webhook
+        # reported it never reached the recipient — a hard bounce or spam complaint.
+        BOUNCED = "bounced", "Bounced"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)

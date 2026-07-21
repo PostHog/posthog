@@ -195,6 +195,13 @@ export function Message({
                                         Failed to send
                                     </span>
                                 </Tooltip>
+                            ) : message.emailDeliveryStatus === 'bounced' ? (
+                                <Tooltip title="Mailgun accepted this reply but it bounced before reaching the recipient, so the customer never got it. Check the address and follow up another way.">
+                                    <span className="inline-flex items-center gap-0.5 text-xs text-danger">
+                                        <IconWarning className="text-xs" />
+                                        Not delivered
+                                    </span>
+                                </Tooltip>
                             ) : message.emailDeliveryStatus === 'sending' ? (
                                 <span className="text-xs text-muted-alt">Sending…</span>
                             ) : (

@@ -664,6 +664,21 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
+def mark_outbox_bounced(outbox: EmailOutboxMessage, reason: str) -> None:
+    """Downgrade a previously-sent reply after Mailgun reports it never reached the recipient.
+
+    A Mailgun send returns 2xx on "accepted for delivery", not "delivered". A later
+    delivery-event webhook (hard bounce or spam complaint) is the only signal that the
+    message failed at the recipient's server, so this flips the durable outbox row and the
+    agent-facing comment badge from "sent" to "bounced" instead of leaving a silent success.
+    """
+    outbox.status = EmailOutboxMessage.Status.BOUNCED
+    outbox.last_error = reason[:2000]
+    outbox.locked_until = None
+    outbox.save(update_fields=["status", "last_error", "locked_until", "updated_at"])
+    _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "bounced")
+
+
 def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
     outbox.attempts += 1
     backoff = min(
