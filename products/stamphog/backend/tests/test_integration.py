@@ -1096,13 +1096,16 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
     stamphog_chain: StamphogChain,
     failure: tuple[Literal["response"], int] | tuple[Literal["side_effect"], Exception],
 ) -> None:
-    # The ReviewHog handoff is a secondary, cross-product notification that runs BEFORE the durable
-    # terminal save, so any exception it raises must be caught or the refusal is lost (the sticky
-    # comment is already posted, but verdict is only in-memory until the save). A 422 is swallowed
-    # inside the client; a 500 raises StamphogGitHubError; a rate limit raises GitHubRateLimitError and
-    # a network blip raises requests.RequestException from the egress layer. All four must leave the
-    # run COMPLETED + REFUSED, not FAILED. The latter two are the regression: they are not subclasses
-    # of StamphogGitHubError, so only a broad catch at the call site contains them.
+    # The ReviewHog handoff is a secondary, cross-product notification that runs AFTER the durable
+    # terminal save, so the refusal itself is never at risk — it's already committed by the time the
+    # handoff fires. Left uncaught, though, the exception would fail the activity and trigger a retry,
+    # re-running already-succeeded side effects (posting the sticky comment, stripping the trigger
+    # label) even though the verdict is saved; catching it keeps the handoff single-shot best-effort.
+    # A 422 is swallowed inside the client; a 500 raises StamphogGitHubError; a rate limit raises
+    # GitHubRateLimitError and a network blip raises requests.RequestException from the egress layer.
+    # All four must leave the run COMPLETED + REFUSED, not FAILED. The latter two are the regression:
+    # they are not subclasses of StamphogGitHubError, so only a broad catch at the call site contains
+    # them.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
