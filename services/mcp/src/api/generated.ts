@@ -1991,6 +1991,37 @@ export namespace Schemas {
       Stale: 'STALE',
     } as const;
 
+    /**
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type MetricsRecalculationStatusEnum = typeof MetricsRecalculationStatusEnum[keyof typeof MetricsRecalculationStatusEnum];
+
+
+    export const MetricsRecalculationStatusEnum = {
+      Pending: 'pending',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+     */
+    export interface ActiveRecalculationRun {
+      /** Identifier of the run that is still executing */
+      readonly id: string;
+      /** Status of the executing run (pending or in_progress)
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: MetricsRecalculationStatusEnum;
+    }
+
     export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -25410,22 +25441,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pending` - Pending
-     * * `in_progress` - In Progress
-     * * `completed` - Completed
-     * * `failed` - Failed
-     */
-    export type ExperimentMetricsRecalculationStatusEnum = typeof ExperimentMetricsRecalculationStatusEnum[keyof typeof ExperimentMetricsRecalculationStatusEnum];
-
-
-    export const ExperimentMetricsRecalculationStatusEnum = {
-      Pending: 'pending',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-    } as const;
-
-    /**
      * * `manual` - Manual
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
@@ -25510,7 +25525,7 @@ export namespace Schemas {
        * * `in_progress` - In Progress
        * * `completed` - Completed
        * * `failed` - Failed */
-      readonly status: ExperimentMetricsRecalculationStatusEnum;
+      readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
       /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
@@ -25519,6 +25534,8 @@ export namespace Schemas {
       readonly failed_metrics: number;
       /** Map of metric_uuid to error details */
       readonly metric_errors: unknown;
+      /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+      readonly metric_retries: unknown;
       /** What triggered this recalculation
        *
        * * `manual` - Manual
@@ -25549,6 +25566,8 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
+      /** Run currently executing for this experiment, if any; poll it by id for live progress */
+      readonly active_run: ActiveRecalculationRun | null;
       /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
        *
        * * `recalculation` - recalculation
@@ -60382,6 +60401,115 @@ export namespace Schemas {
       results: StaffCacheTeamStatus[];
     }
 
+    export interface StaffCohort {
+      /** Cohort id. */
+      id: number;
+      /**
+         * Cohort name.
+         * @nullable
+         */
+      name: string | null;
+      /** Id of the team the cohort belongs to. */
+      team_id: number;
+      /** Name of the team the cohort belongs to. */
+      team_name: string;
+      /** Project id the cohort's team belongs to, for building /project/<id>/cohorts/<id> links. */
+      project_id: number;
+      /** Whether the cohort is soft-deleted. */
+      deleted: boolean;
+      /** Whether the cohort is static (populated once from a source rather than recalculated). */
+      is_static: boolean;
+      /** Whether a calculation is currently marked as in flight. */
+      is_calculating: boolean;
+      /**
+         * When the last calculation completed, or null if never calculated.
+         * @nullable
+         */
+      last_calculation: string | null;
+      /**
+         * Duration of the last completed calculation in milliseconds.
+         * @nullable
+         */
+      last_calculation_duration_ms: number | null;
+      /** Consecutive calculation failures; above 20 the cohort is excluded from periodic recalculation. */
+      errors_calculating: number;
+      /**
+         * When the last calculation error was recorded.
+         * @nullable
+         */
+      last_error_at: string | null;
+      /**
+         * Version of the last completed calculation.
+         * @nullable
+         */
+      version: number | null;
+      /**
+         * Version most recently requested; greater than `version` while a calculation is pending or stuck.
+         * @nullable
+         */
+      pending_version: number | null;
+      /**
+         * Number of persons in the cohort as of the last completed calculation.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * When the cohort was created.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    export interface StaffCohortFailed {
+      /** Cohort id that raised while being enqueued. */
+      cohort_id: number;
+      /** Error message from the failed enqueue attempt. */
+      error: string;
+    }
+
+    export interface StaffCohortLookupResponse {
+      /** Requested cohorts, in request order. */
+      results: StaffCohort[];
+      /** Requested cohort ids that do not exist. */
+      not_found_cohort_ids: number[];
+    }
+
+    export interface StaffCohortRecalculate {
+      /**
+         * Cohort ids to force-recalculate (max 10 per request).
+         * @minItems 1
+         * @maxItems 10
+         */
+      cohort_ids: number[];
+    }
+
+    export interface StaffCohortSkipped {
+      /** Cohort id that was skipped. */
+      cohort_id: number;
+      /** Why the cohort was not enqueued for recalculation. */
+      reason: string;
+    }
+
+    export interface StaffCohortRecalculateResponse {
+      /** Cohort ids for which a recalculation was enqueued (including their dependency chains). */
+      queued_cohort_ids: number[];
+      /** Subset of queued_cohort_ids whose dependency chain failed to resolve, so only the cohort itself (not its dependents/dependencies) was enqueued. Those related cohorts are still stale; re-request recalculation for them explicitly once the dependency issue is fixed. */
+      partial_cohort_ids: number[];
+      /** Cohort ids that raised while being enqueued and were not queued at all. Cohorts listed elsewhere in this response already had their enqueue attempted; retry only these ids rather than the whole batch. */
+      failed_cohort_ids: StaffCohortFailed[];
+      /** Cohorts that exist but were not enqueued, with the reason. */
+      skipped: StaffCohortSkipped[];
+      /** Requested cohort ids that do not exist. */
+      not_found_cohort_ids: number[];
+    }
+
+    export interface StaffStuckCohortsResponse {
+      /** Stuck cohorts, oldest last_calculation first (max 100). */
+      results: StaffCohort[];
+      /** Total number of stuck cohorts instance-wide. */
+      total_count: number;
+    }
+
     export interface StaffTeamConfig {
       /** Team id. */
       team_id: number;
@@ -64165,6 +64293,29 @@ export namespace Schemas {
       default_email_channel_id?: string | null;
     }
 
+    export interface _AggregatedSpanRow {
+      /** Service that emitted the spans in this group. */
+      service_name: string;
+      /** Span name (operation) for this group. */
+      name: string;
+      /** Number of spans matched in this group. */
+      count: number;
+      /** Sum of span durations in nanoseconds. */
+      total_duration_nano: number;
+      /** Average span duration in nanoseconds. */
+      avg_duration_nano: number;
+      /** Median span duration in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th percentile span duration in nanoseconds. */
+      p95_duration_nano: number;
+      /** 99th percentile span duration in nanoseconds. */
+      p99_duration_nano: number;
+      /** 99.9th percentile span duration in nanoseconds. */
+      p999_duration_nano: number;
+      /** Spans with OTel status code Error (status_code = 2). */
+      error_count: number;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -65449,11 +65600,39 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Property filters applied to spans in both windows. */
       filterGroup?: _SpanPropertyFilter[];
+      /**
+         * Max rows to return, ordered by total_duration_nano DESC. Defaults to 100; hard max 5000. Keep this small to bound the response size — a high value on high-cardinality span names (e.g. untemplated URL paths) returns a very large payload. Prefer narrowing with `serviceNames`/`filterGroup` over raising the limit.
+         * @minimum 1
+         * @maximum 5000
+         */
+      limit?: number;
+      /**
+         * Row offset for pagination. Combine with `limit` and the `next_offset` returned in the response to page through results beyond the first page.
+         * @minimum 0
+         */
+      offset?: number;
     }
 
     export interface _TracingAggregationRequest {
       /** The span aggregation query to execute. */
       query: _TracingAggregationQueryBody;
+    }
+
+    export interface _TracingAggregationResponse {
+      /** One row per (service_name, name) group, ordered by total_duration_nano descending. */
+      results: _AggregatedSpanRow[];
+      /**
+         * Rows for the comparison window when compareFilter.compare is true, else null.
+         * @nullable
+         */
+      compare: _AggregatedSpanRow[] | null;
+      /** True when more rows exist beyond this page — page further with `next_offset`, or narrow the query. */
+      has_more: boolean;
+      /**
+         * Offset to request the next page, or null when this is the last page.
+         * @nullable
+         */
+      next_offset: number | null;
     }
 
     /**
@@ -65714,6 +65893,15 @@ export namespace Schemas {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
     }
+
+    export type CohortsStaffListParams = {
+    /**
+     * Cohort ids to look up (max 50 per request). Repeat the param (?cohort_ids=1&cohort_ids=2) or pass one comma-separated value (?cohort_ids=1,2).
+     * @minItems 1
+     * @maxItems 50
+     */
+    cohort_ids: number[];
+    };
 
     export type CustomerAnalyticsExternalAccountsRetrieveParams = {
     /**
@@ -74638,6 +74826,10 @@ export namespace Schemas {
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts;
+    /**
+     * Filter by exact feature flag key match. Case insensitive.
+     */
+    key?: string;
     /**
      * Number of results to return per page.
      */
