@@ -278,6 +278,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         credit_bucket=None,
         requires_server_credential=True,
     ),
+    # Translates survey copy into a target language on demand. Customer-facing and
+    # previously tagged $ai_billable=true client-side, so it keeps billing into AI credits.
+    "survey_translation": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=CreditBucket.AI_CREDITS,
+    ),
 }
 
 

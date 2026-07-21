@@ -2,9 +2,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from products.surveys.backend.llm import generate_structured_output
+from products.surveys.backend.llm import generate_structured_output_via_gateway
 
-DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite-preview"
+TRANSLATION_GATEWAY_PRODUCT = "survey_translation"
+DEFAULT_TRANSLATION_MODEL = "claude-haiku-4-5"
 DRAFT_TRANSLATION_QUESTION_ID_PREFIX = "__draft_question_"
 
 
@@ -192,7 +193,8 @@ def generate_survey_translation(
 ) -> tuple[dict[str, dict[str, str]], list[dict[str, Any]], list[str], str]:
     root = _root_source(survey)
     questions = _questions_source(survey)
-    result, trace_id = generate_structured_output(
+    result, trace_id = generate_structured_output_via_gateway(
+        product=TRANSLATION_GATEWAY_PRODUCT,
         model=model,
         system_prompt=SYSTEM_PROMPT,
         user_prompt=(
@@ -201,14 +203,13 @@ def generate_survey_translation(
             f"Questions: {questions}"
         ),
         response_schema=SurveyTranslationResponse,
+        # `ai_product` and `$ai_billable` now come from the gateway's product config.
         posthog_properties={
-            "ai_product": "surveys",
             "ai_feature": "survey_translation",
             "target_language": target_language,
         },
         team_id=team_id,
         distinct_id=distinct_id,
-        billable=True,
     )
 
     translations, question_patches, generated_paths = _filter_existing_fields(

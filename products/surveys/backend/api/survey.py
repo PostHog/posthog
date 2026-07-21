@@ -3044,8 +3044,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
             )
 
-        if not settings.GEMINI_API_KEY:
-            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+        if not (settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY):
+            raise exceptions.ValidationError(
+                "LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured to generate translations"
+            )
 
         if not self.team.organization.is_ai_data_processing_approved:
             return Response(

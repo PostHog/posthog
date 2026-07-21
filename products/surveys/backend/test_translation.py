@@ -3,9 +3,9 @@ from unittest.mock import Mock, patch
 from products.surveys.backend.translation import SurveyTranslationResponse, generate_survey_translation
 
 
-@patch("products.surveys.backend.translation.generate_structured_output")
-def test_generate_survey_translation_preserves_manual_translations(mock_generate_structured_output: Mock) -> None:
-    mock_generate_structured_output.return_value = (
+@patch("products.surveys.backend.translation.generate_structured_output_via_gateway")
+def test_generate_survey_translation_preserves_manual_translations(mock_generate_via_gateway: Mock) -> None:
+    mock_generate_via_gateway.return_value = (
         SurveyTranslationResponse.model_validate(
             {
                 "root": {
@@ -71,18 +71,23 @@ def test_generate_survey_translation_preserves_manual_translations(mock_generate
         "questions.0.translations.es.choices.1",
     ]
     assert trace_id == "trace-1"
-    assert "description_or_goal" in mock_generate_structured_output.call_args.kwargs["user_prompt"]
-    assert mock_generate_structured_output.call_args.kwargs["billable"] is True
-    assert mock_generate_structured_output.call_args.kwargs["team_id"] == 1
-    assert mock_generate_structured_output.call_args.kwargs["posthog_properties"]["ai_product"] == "surveys"
-    assert mock_generate_structured_output.call_args.kwargs["posthog_properties"]["ai_feature"] == "survey_translation"
+    assert "description_or_goal" in mock_generate_via_gateway.call_args.kwargs["user_prompt"]
+    assert mock_generate_via_gateway.call_args.kwargs["team_id"] == 1
+    assert mock_generate_via_gateway.call_args.kwargs["product"] == "survey_translation"
+    assert mock_generate_via_gateway.call_args.kwargs["model"] == "claude-haiku-4-5"
+    assert mock_generate_via_gateway.call_args.kwargs["posthog_properties"]["ai_feature"] == "survey_translation"
+    # `ai_product` / `$ai_billable` are gateway-owned; sending them as caller
+    # properties would override the product config.
+    caller_properties = mock_generate_via_gateway.call_args.kwargs["posthog_properties"]
+    assert "ai_product" not in caller_properties
+    assert "$ai_billable" not in caller_properties
 
 
-@patch("products.surveys.backend.translation.generate_structured_output")
+@patch("products.surveys.backend.translation.generate_structured_output_via_gateway")
 def test_generate_survey_translation_includes_submit_and_back_button_labels(
-    mock_generate_structured_output: Mock,
+    mock_generate_via_gateway: Mock,
 ) -> None:
-    mock_generate_structured_output.return_value = (
+    mock_generate_via_gateway.return_value = (
         SurveyTranslationResponse.model_validate(
             {
                 "root": {
@@ -114,11 +119,11 @@ def test_generate_survey_translation_includes_submit_and_back_button_labels(
     assert "translations.es.backButtonText" in generated_paths
 
 
-@patch("products.surveys.backend.translation.generate_structured_output")
+@patch("products.surveys.backend.translation.generate_structured_output_via_gateway")
 def test_generate_survey_translation_preserves_manual_choice_translations_after_choice_count_change(
-    mock_generate_structured_output: Mock,
+    mock_generate_via_gateway: Mock,
 ) -> None:
-    mock_generate_structured_output.return_value = (
+    mock_generate_via_gateway.return_value = (
         SurveyTranslationResponse.model_validate(
             {
                 "questions": [
@@ -172,9 +177,9 @@ def test_generate_survey_translation_preserves_manual_choice_translations_after_
     assert trace_id == "trace-2"
 
 
-@patch("products.surveys.backend.translation.generate_structured_output")
-def test_generate_survey_translation_matches_questions_without_ids(mock_generate_structured_output: Mock) -> None:
-    mock_generate_structured_output.return_value = (
+@patch("products.surveys.backend.translation.generate_structured_output_via_gateway")
+def test_generate_survey_translation_matches_questions_without_ids(mock_generate_via_gateway: Mock) -> None:
+    mock_generate_via_gateway.return_value = (
         SurveyTranslationResponse.model_validate(
             {
                 "questions": [
@@ -218,4 +223,4 @@ def test_generate_survey_translation_matches_questions_without_ids(mock_generate
         "questions.1.translations.es.buttonText",
     ]
     assert trace_id == "trace-2"
-    assert "__draft_question_1" in mock_generate_structured_output.call_args.kwargs["user_prompt"]
+    assert "__draft_question_1" in mock_generate_via_gateway.call_args.kwargs["user_prompt"]
