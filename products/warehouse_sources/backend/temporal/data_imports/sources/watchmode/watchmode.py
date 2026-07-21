@@ -112,6 +112,10 @@ def watchmode_source(
                 "api_key": api_key,
                 "location": "header",
             },
+            # `requests` replays custom headers like `X-API-Key` across a cross-host
+            # redirect, so a 3xx from upstream could forward the key off-host. Pin
+            # redirects off to keep the credential on the validated host.
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -149,7 +153,9 @@ def watchmode_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     """Probe /v1/status/ — a cheap account endpoint that confirms the key is genuine."""
-    session = make_tracked_session(redact_values=(api_key,))
+    # `allow_redirects=False`: keep the `X-API-Key` header from being replayed to a
+    # redirect target, matching the sync path's credential boundary.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     try:
         response = session.get(
             f"{WATCHMODE_BASE_URL}/v1/status/",

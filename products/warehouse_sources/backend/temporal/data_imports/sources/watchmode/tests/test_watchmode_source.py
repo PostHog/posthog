@@ -86,6 +86,20 @@ class TestWatchmodeSource:
         assert "apiKey" not in called_url
         assert mock_get.call_args.kwargs["headers"] == {"X-API-Key": "test-key"}
 
+    def test_validate_credentials_disables_redirects(self) -> None:
+        # A cross-host redirect would otherwise replay the `X-API-Key` header off-host,
+        # leaking the key; the validation probe must pin redirects off.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
+        ) as mock_make_session:
+            response = requests.Response()
+            response.status_code = 200
+            mock_make_session.return_value.get.return_value = response
+
+            self.source.validate_credentials(self.config, team_id=1)
+
+        assert mock_make_session.call_args.kwargs["allow_redirects"] is False
+
     def test_validate_credentials_handles_connection_errors(self) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"

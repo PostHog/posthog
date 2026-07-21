@@ -144,6 +144,39 @@ class TestWatchmodeSourceResumeBehavior:
         assert len(sent_params) == 2
         assert rows == [{"id": 1, "source_id": 203}, {"id": 1, "source_id": 57}]
 
+    def test_sync_requests_do_not_follow_redirects(self) -> None:
+        # `requests` replays the `X-API-Key` header across a cross-host redirect, so a
+        # dropped `allow_redirects=False` would forward the customer's key off-host.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        sent_redirects: list[Any] = []
+        responses = iter([_make_json_response({"titles": [{"id": 1}], "total_pages": 1})])
+
+        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+            sent_redirects.append(kwargs.get("allow_redirects"))
+            return next(responses)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            source_response = watchmode_source(
+                api_key="test-key",
+                endpoint="titles",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+            )
+            for _ in cast(Iterable[Any], source_response.items()):
+                pass
+
+        assert sent_redirects == [False]
+
     @pytest.mark.parametrize("endpoint", ["sources", "regions", "networks", "genres"])
     def test_reference_endpoints_fetch_a_single_unpaginated_page(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
