@@ -75,7 +75,7 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsCreateBodyCooldownHoursMax)
         .optional()
         .describe('Minimum hours between repeated firing notifications.'),
-    snooze_until: zod.iso
+    snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),
@@ -191,7 +191,7 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsPartialUpdateBodyCooldownHoursMax)
         .optional()
         .describe('Minimum hours between repeated firing notifications.'),
-    snooze_until: zod.iso
+    snoozed_until: zod.iso
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),

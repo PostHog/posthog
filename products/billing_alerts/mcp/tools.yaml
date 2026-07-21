@@ -29,8 +29,6 @@ tools:
             threshold_percentage, while absolute_value and absolute_increase use threshold_value. Values are USD in the
             first version. Optional destination_changes can create Slack, Microsoft Teams, or HTTPS webhook destinations
             atomically with the alert.
-        exclude_params:
-            - check_interval_hours
         feature_flag: billing-alerts
     billing-alert-delete:
         operation: billing_alerts_destroy
@@ -65,10 +63,8 @@ tools:
             or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. Match
             threshold_percentage with relative_increase and threshold_value with absolute_value or absolute_increase.
             Optional destination_changes applies destination creation or complete-group deletion in the same backend
-            transaction as the configuration update. Repeating a request that creates destinations creates another
-            destination group.
-        exclude_params:
-            - check_interval_hours
+            transaction as the configuration update. Repeating a request that creates a destination of the same type
+            is rejected, because an alert allows one destination group per type.
         feature_flag: billing-alerts
     billing-alerts-list:
         operation: billing_alerts_list

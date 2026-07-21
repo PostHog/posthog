@@ -83,6 +83,17 @@ class AlertPolicy:
 
 LOGS_ALERT_POLICY = AlertPolicy()
 
+BILLING_ALERT_POLICY = AlertPolicy(
+    broken_is_terminal=False,
+    transient_errors_count_toward_broken=True,
+    notify_error_on_every_failure=True,
+    cooldown_gates_initial_fire=False,
+    cooldown_gates_resolve=False,
+    renotify_while_firing=True,
+    clear_check_ends_snooze=True,
+    disable_when_broken=True,
+)
+
 
 @dataclass(frozen=True)
 class CheckInput:

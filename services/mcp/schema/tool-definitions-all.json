@@ -1431,7 +1431,7 @@
         "feature_flag": "billing-alerts"
     },
     "billing-alert-update": {
-        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. Match threshold_percentage with relative_increase and threshold_value with absolute_value or absolute_increase. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates destinations creates another destination group.",
+        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. Match threshold_percentage with relative_increase and threshold_value with absolute_value or absolute_increase. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates a destination of the same type is rejected, because an alert allows one destination group per type.",
         "category": "Billing alerts",
         "feature": "billing_alerts",
         "summary": "Update billing alert",

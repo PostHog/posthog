@@ -11,8 +11,18 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from products.alerts.backend.facade.api import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    validate_destination_data,
+)
 from products.billing_alerts.backend.facade import api as billing_alerts_api
-from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.models import (
+    BillingAlertConfiguration,
+    BillingAlertEvent,
+    validate_threshold_configuration,
+)
 
 _DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
 _NOT_PROVIDED = object()
@@ -42,22 +52,7 @@ def _is_microsoft_teams_webhook(webhook_url: str) -> bool:
 
 
 class BillingAlertEventSerializer(serializers.ModelSerializer):
-    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this billing alert event.")
-    kind = serializers.ChoiceField(
-        choices=BillingAlertEvent.Kind.choices,
-        read_only=True,
-        help_text="Event kind for a check, state transition, or delivery-worthy alert event.",
-    )
-    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=BillingAlertEvent.Source.choices,
-        read_only=True,
-        help_text="Whether this evaluation was scheduled or manually requested.",
-    )
-    attempt_number = serializers.IntegerField(
-        read_only=True,
-        help_text="Attempt number for this billing date and configuration revision.",
-    )
-    created_at = serializers.DateTimeField(read_only=True, help_text="When this event was recorded.")
+    # Model properties derived from the claim, so DRF cannot generate them.
     evaluation_date = serializers.DateField(
         read_only=True,
         allow_null=True,
@@ -68,39 +63,6 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Configuration revision used for this evaluation.",
     )
-    period_start = serializers.DateTimeField(
-        read_only=True,
-        allow_null=True,
-        help_text="Start of the evaluated billing period.",
-    )
-    period_end = serializers.DateTimeField(
-        read_only=True,
-        allow_null=True,
-        help_text="End of the evaluated billing period.",
-    )
-    metric = serializers.ChoiceField(
-        choices=BillingAlertConfiguration.Metric.choices,
-        read_only=True,
-        help_text="Billing metric evaluated by this event.",
-    )
-    current_value = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True, allow_null=True)
-    baseline_value = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True, allow_null=True)
-    absolute_delta = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True, allow_null=True)
-    relative_delta_percentage = serializers.DecimalField(
-        max_digits=28,
-        decimal_places=6,
-        read_only=True,
-        allow_null=True,
-    )
-    threshold_breached = serializers.BooleanField(read_only=True)
-    state_before = serializers.CharField(read_only=True, allow_null=True)
-    state_after = serializers.CharField(read_only=True, allow_null=True)
-    notification_sent_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    targets_notified = serializers.JSONField(read_only=True)
-    query_duration_ms = serializers.IntegerField(read_only=True, allow_null=True)
-    error_code = serializers.CharField(read_only=True, allow_null=True)
-    error_message = serializers.CharField(read_only=True, allow_null=True)
-    reason = serializers.CharField(read_only=True)
 
     class Meta:
         model = BillingAlertEvent
@@ -129,6 +91,30 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
             "error_message",
             "reason",
         ]
+        read_only_fields = [field for field in fields if field not in ("evaluation_date", "configuration_revision")]
+        extra_kwargs = {
+            "id": {"help_text": "Unique identifier for this billing alert event."},
+            "kind": {"help_text": "Event kind for a check, state transition, or delivery-worthy alert event."},
+            "source": {"help_text": "Whether this evaluation was scheduled or manually requested."},
+            "attempt_number": {"help_text": "Attempt number for this billing date and configuration revision."},
+            "created_at": {"help_text": "When this event was recorded."},
+            "period_start": {"help_text": "Start of the evaluated billing period."},
+            "period_end": {"help_text": "End of the evaluated billing period."},
+            "metric": {"help_text": "Billing metric evaluated by this event."},
+            "current_value": {"help_text": "Metric value for the evaluated billing date."},
+            "baseline_value": {"help_text": "Average metric value across the baseline window."},
+            "absolute_delta": {"help_text": "Current value minus the baseline value."},
+            "relative_delta_percentage": {"help_text": "Percentage change against the baseline value."},
+            "threshold_breached": {"help_text": "Whether the evaluated value breached the configured threshold."},
+            "state_before": {"help_text": "Alert state before this event was applied."},
+            "state_after": {"help_text": "Alert state after this event was applied."},
+            "notification_sent_at": {"help_text": "When notifications for this event were delivered."},
+            "targets_notified": {"help_text": "Notification targets recorded for this event."},
+            "query_duration_ms": {"help_text": "Milliseconds spent fetching billing data for this evaluation."},
+            "error_code": {"help_text": "Exception class name recorded when the evaluation failed."},
+            "error_message": {"help_text": "Failure description recorded when the evaluation failed."},
+            "reason": {"help_text": "Human-readable explanation of the evaluation outcome."},
+        }
 
 
 class BillingAlertDestinationSummarySerializer(serializers.Serializer):
@@ -150,18 +136,22 @@ class BillingAlertDestinationCreateDataSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        destination_type = attrs["type"]
-        if destination_type == "slack":
-            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
-                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
-        elif destination_type in ("webhook", "teams"):
-            webhook_url = attrs.get("webhook_url")
-            if not webhook_url:
-                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
+        data = cast(AlertDestinationData, attrs)
+        data["type"] = DestinationType(attrs["type"])
+        try:
+            validate_destination_data(data, allowed_destination_types=billing_alerts_api.BILLING_DESTINATION_TYPES)
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: error.message})
+            raise ValidationError(error.message)
+
+        # URL-shape checks beyond the shared required-field validation.
+        webhook_url = attrs.get("webhook_url")
+        if data["type"] in (DestinationType.WEBHOOK, DestinationType.TEAMS) and webhook_url:
             parsed_url = urlparse(webhook_url)
             if parsed_url.scheme != "https" or not parsed_url.netloc:
                 raise ValidationError({"webhook_url": "Webhook URLs must be valid HTTPS URLs."})
-            if destination_type == "teams" and not _is_microsoft_teams_webhook(webhook_url):
+            if data["type"] == DestinationType.TEAMS and not _is_microsoft_teams_webhook(webhook_url):
                 raise ValidationError({"webhook_url": "Enter a supported Microsoft Teams webhook URL."})
         return attrs
 
@@ -203,16 +193,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=160, help_text="Display name for this billing alert.")
     description = serializers.CharField(required=False, allow_blank=True, help_text="Optional internal description.")
     enabled = serializers.BooleanField(required=False, help_text="Whether scheduled checks should evaluate this alert.")
-    metric = serializers.ChoiceField(
-        choices=BillingAlertConfiguration.Metric.choices,
-        read_only=True,
-        help_text="Billing metric evaluated by this alert. The first version supports spend only.",
-    )
-    currency = serializers.CharField(read_only=True, help_text="Server-controlled currency for spend values.")
-    configuration_revision = serializers.IntegerField(
-        read_only=True,
-        help_text="Revision incremented whenever evaluation behavior changes.",
-    )
     threshold_type = serializers.ChoiceField(
         choices=BillingAlertConfiguration.ThresholdType.choices,
         required=False,
@@ -250,27 +230,17 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         max_value=72,
         help_text="Hours after a UTC billing date ends before it becomes eligible for evaluation.",
     )
-    state = serializers.ChoiceField(choices=BillingAlertConfiguration.State.choices, read_only=True)
-    check_interval_hours = serializers.ChoiceField(
-        choices=[billing_alerts_api.DAILY_CHECK_INTERVAL_HOURS],
-        required=False,
-        help_text="Billing alerts evaluate one UTC billing date per day.",
-    )
     cooldown_hours = serializers.IntegerField(
         required=False,
         min_value=0,
         max_value=24 * 30,
         help_text="Minimum hours between repeated firing notifications.",
     )
-    snooze_until = serializers.DateTimeField(
+    snoozed_until = serializers.DateTimeField(
         required=False,
         allow_null=True,
         help_text="ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.",
     )
-    next_check_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    last_checked_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    last_notified_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    consecutive_failures = serializers.IntegerField(read_only=True)
     destinations = serializers.SerializerMethodField(
         help_text="Notification destination groups configured for this alert, including their shared HogFunctions.",
     )
@@ -279,8 +249,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         write_only=True,
         help_text="Destination groups to create or delete in the same transaction as this configuration write.",
     )
-    created_at = serializers.DateTimeField(read_only=True)
-    updated_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = BillingAlertConfiguration
@@ -303,9 +271,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "baseline_window_days",
             "evaluation_delay_hours",
             "state",
-            "check_interval_hours",
             "cooldown_hours",
-            "snooze_until",
+            "snoozed_until",
             "next_check_at",
             "last_checked_at",
             "last_notified_at",
@@ -315,6 +282,30 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        read_only_fields = [
+            "metric",
+            "currency",
+            "configuration_revision",
+            "state",
+            "next_check_at",
+            "last_checked_at",
+            "last_notified_at",
+            "consecutive_failures",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "metric": {"help_text": "Billing metric evaluated by this alert. The first version supports spend only."},
+            "currency": {"help_text": "Server-controlled currency for spend values."},
+            "configuration_revision": {"help_text": "Revision incremented whenever evaluation behavior changes."},
+            "state": {"help_text": "Current lifecycle state of this alert."},
+            "next_check_at": {"help_text": "When the next scheduled evaluation is due."},
+            "last_checked_at": {"help_text": "When this alert was last evaluated."},
+            "last_notified_at": {"help_text": "When notifications were last delivered for this alert."},
+            "consecutive_failures": {"help_text": "Number of consecutive failed evaluations."},
+            "created_at": {"help_text": "When this alert was created."},
+            "updated_at": {"help_text": "When this alert was last updated."},
+        }
 
     @extend_schema_field(BillingAlertDestinationSummarySerializer(many=True))
     def get_destinations(self, obj: BillingAlertConfiguration) -> list[dict[str, Any]]:
@@ -332,15 +323,10 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
 
         if isinstance(instance, BillingAlertConfiguration):
             return [instance]
-        if isinstance(instance, QuerySet):
-            return [item for item in instance if isinstance(item, BillingAlertConfiguration)]
-        if instance is not None:
-            try:
-                alerts = [item for item in instance if isinstance(item, BillingAlertConfiguration)]
-                if alerts:
-                    return alerts
-            except TypeError:
-                pass
+        if isinstance(instance, QuerySet | list):
+            alerts = [item for item in instance if isinstance(item, BillingAlertConfiguration)]
+            if alerts:
+                return alerts
         return [obj]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -356,23 +342,18 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         threshold_value = attrs.get("threshold_value", current.threshold_value if current else None)
         minimum_value = attrs.get("minimum_value", current.minimum_value if current else Decimal("0"))
 
-        if threshold_type == BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE:
-            if threshold_percentage is None:
-                raise ValidationError({"threshold_percentage": "Required for relative increase alerts."})
-            if threshold_percentage <= 0:
-                raise ValidationError({"threshold_percentage": "Must be greater than 0."})
-        if threshold_type in (
-            BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
-            BillingAlertConfiguration.ThresholdType.ABSOLUTE_INCREASE,
-        ):
-            if threshold_value is None:
-                raise ValidationError({"threshold_value": "Required for absolute threshold alerts."})
-            if threshold_value < 0:
-                raise ValidationError({"threshold_value": "Must be greater than or equal to 0."})
-        if minimum_value < 0:
-            raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
-        if attrs.get("enabled") is False and attrs.get("snooze_until") is not None:
-            raise ValidationError({"snooze_until": "A disabled alert cannot also be snoozed."})
+        errors = validate_threshold_configuration(
+            threshold_type=threshold_type,
+            threshold_percentage=threshold_percentage,
+            threshold_value=threshold_value,
+            minimum_value=minimum_value,
+        )
+        if errors:
+            raise ValidationError(errors)
+
+        enabled = attrs.get("enabled", current.enabled if current else True)
+        if attrs.get("snoozed_until") is not None and not enabled:
+            raise ValidationError({"snoozed_until": "A disabled alert cannot also be snoozed."})
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> BillingAlertConfiguration:
@@ -392,7 +373,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         validated_data: dict[str, Any],
     ) -> BillingAlertConfiguration:
         destination_changes = validated_data.pop("destination_changes", None)
-        snooze_until = validated_data.get("snooze_until", _NOT_PROVIDED)
+        snoozed_until = validated_data.get("snoozed_until", _NOT_PROVIDED)
         evaluation_fields = {
             "threshold_type",
             "threshold_percentage",
@@ -403,8 +384,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         }
         revision_fields = evaluation_fields | {
             "enabled",
-            "snooze_until",
-            "check_interval_hours",
+            "snoozed_until",
             "cooldown_hours",
         }
         with transaction.atomic():
@@ -413,7 +393,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                 organization_id=instance.organization_id,
             )
             evaluation_changed = _any_field_changed(locked, validated_data, evaluation_fields)
-            cadence_changed = _any_field_changed(locked, validated_data, {"check_interval_hours"})
             configuration_changed = _any_field_changed(
                 locked,
                 validated_data,
@@ -426,8 +405,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             billing_alerts_api.apply_billing_alert_configuration_lifecycle(
                 locked,
                 enabled_change=enabled_change,
-                snooze_until_provided=snooze_until is not _NOT_PROVIDED,
-                snooze_until=snooze_until if snooze_until is not _NOT_PROVIDED else None,
+                snoozed_until_provided=snoozed_until is not _NOT_PROVIDED,
+                snoozed_until=snoozed_until if snoozed_until is not _NOT_PROVIDED else None,
                 threshold_changed=evaluation_changed,
             )
 
@@ -435,31 +414,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             billing_alerts_api.reschedule_billing_alert_configuration(
                 updated,
                 configuration_changed=configuration_changed,
-                cadence_changed=cadence_changed,
             )
             if destination_changes:
                 billing_alerts_api.apply_destination_changes(
                     updated, request=self.context["request"], changes=destination_changes
                 )
             return updated
-
-
-class BillingAlertCreateDestinationSerializer(BillingAlertDestinationCreateDataSerializer):
-    def validate(self, attrs: dict) -> dict:
-        attrs = super().validate(attrs)
-        alert = self.context.get("alert")
-        if (
-            attrs["type"] == "slack"
-            and alert is not None
-            and not billing_alerts_api.slack_integration_belongs_to_team(
-                integration_id=attrs["slack_workspace_id"],
-                team_id=alert.execution_team_id,
-            )
-        ):
-            raise ValidationError(
-                {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
-            )
-        return attrs
 
 
 class BillingAlertDeleteDestinationSerializer(serializers.Serializer):
