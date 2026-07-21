@@ -589,6 +589,7 @@ the row lists both.
 | watchmode                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                          | HTTP                        | requests                                                        | ✅                          |
 | weights_and_biases               | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| wikipedia_pageviews              | HTTP                        | requests                                                        | ✅                          |
 | windmill                         | HTTP                        | requests                                                        | ✅                          |
 | woocommerce                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress                        | HTTP                        | requests                                                        | ✅                          |
@@ -994,7 +995,6 @@ doesn't conflict with concurrent PRs.
 - wasabi
 - watchmode
 - when_i_work
-- wikipedia_pageviews
 - workday
 - workflowmax
 - workramp
