@@ -122,7 +122,9 @@ def _without_contradicted(properties: Any, overriding_props: list[dict]) -> Any:
     depth. Emptied subgroups are pruned."""
 
     def is_contradicted(leaf: Any) -> bool:
-        return isinstance(leaf, dict) and any(filters_contradict(leaf, o) for o in overriding_props)
+        return isinstance(leaf, dict) and any(
+            isinstance(o, dict) and filters_contradict(leaf, o) for o in overriding_props
+        )
 
     if isinstance(properties, list):
         return [p for p in properties if not is_contradicted(p)]
@@ -166,13 +168,27 @@ def _strip_query_properties(query: dict, overriding_props: list[dict]) -> dict:
     return query
 
 
+def _flatten_leaf_properties(properties: Any) -> list[dict]:
+    """Flatten a `properties` value into a flat list of leaf filter dicts. `properties` is either a flat
+    list of leaves or a (possibly nested) `PropertyGroupFilter` dict (`{"type": ..., "values": [...]}`),
+    the same two shapes `_without_contradicted` handles. Non-dict entries are skipped so a leaf's string
+    keys (or other stray values) never reach the contradiction logic."""
+    if isinstance(properties, list):
+        return [leaf for p in properties for leaf in _flatten_leaf_properties(p)]
+    if isinstance(properties, dict):
+        if isinstance(properties.get("values"), list):
+            return _flatten_leaf_properties(properties["values"])
+        return [properties]
+    return []
+
+
 def remove_query_properties_overridden_by(query: dict, overriding_filters: dict | None) -> dict:
     """Drop the insight's own property filters that an `overriding_filters` property provably contradicts,
     so the higher-priority layers take precedence over the insight's base filter instead of AND-ing a
     contradiction into an empty result. Compatible filters on the same key are left in place to stack.
     Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
     filter."""
-    overriding_props = (overriding_filters or {}).get("properties") or []
+    overriding_props = _flatten_leaf_properties((overriding_filters or {}).get("properties"))
     if not overriding_props:
         return query
     return _strip_query_properties(query, overriding_props)

@@ -218,6 +218,32 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
             {"key": "$country", "value": "US", "type": "event"}
         ]
 
+    def test_grouped_overriding_properties_strip_contradicted_leaf_without_crashing(self):
+        # Dashboard/tile filters can carry a `PropertyGroupFilter` dict, not just a flat list. Iterating
+        # that dict yields its string keys, so the contradiction check used to blow up with
+        # `AttributeError: 'str' object has no attribute 'get'`. The group must be flattened to its leaves.
+        query = self._query(
+            [
+                {"key": "$browser", "value": "Chrome", "type": "event"},
+                {"key": "$country", "value": "US", "type": "event"},
+            ]
+        )
+        overriding = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "$browser", "value": "Firefox", "type": "event"}],
+                    }
+                ],
+            }
+        }
+
+        stripped = remove_query_properties_overridden_by(query, overriding)
+
+        assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
+
     def test_prunes_matching_leaf_nested_three_levels_deep(self):
         # AND[OR[AND[leaf]]] — a plain PropertyGroupFilter nesting shape. A shallow, one-level-only
         # traversal would leave the innermost leaf in place despite the tile overriding it.
