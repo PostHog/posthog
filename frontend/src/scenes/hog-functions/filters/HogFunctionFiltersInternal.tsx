@@ -82,6 +82,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$health_check_issue_resolved',
                 },
             ]
+        case 'conversations-alerts':
+            return [
+                {
+                    label: 'Support incident detected',
+                    value: '$conversation_incident_detected',
+                },
+            ]
         default:
             return [
                 {

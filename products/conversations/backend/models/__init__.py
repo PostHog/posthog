@@ -9,6 +9,8 @@ from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .ticket import Ticket
+from .ticket_alert_rule import TicketAlertRule
+from .ticket_incident import IncidentScope, IncidentStatus, TicketIncident
 from .ticket_view import TicketView
 from .zendesk_import_job import ZendeskImportJob
 
@@ -23,11 +25,15 @@ __all__ = [
     "Priority",
     "RuleType",
     "Status",
+    "IncidentScope",
+    "IncidentStatus",
     "TeamConversationsSlackConfig",
     "TeamConversationsTeamsChannelSync",
     "TeamConversationsTeamsConfig",
     "Ticket",
+    "TicketAlertRule",
     "TicketAssignment",
+    "TicketIncident",
     "TicketView",
     "ZendeskImportJob",
 ]

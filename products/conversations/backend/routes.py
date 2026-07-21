@@ -1,6 +1,12 @@
 from posthog.api.routing import RouterRegistry
 
-from products.conversations.backend.api import TicketViewSet, TicketViewViewSet, ZendeskImportViewSet
+from products.conversations.backend.api import (
+    TicketAlertRuleViewSet,
+    TicketIncidentViewSet,
+    TicketViewSet,
+    TicketViewViewSet,
+    ZendeskImportViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -8,6 +14,18 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/tickets",
         TicketViewSet,
         "environment_conversations_tickets",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/alert_rules",
+        TicketAlertRuleViewSet,
+        "project_conversations_alert_rules",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/incidents",
+        TicketIncidentViewSet,
+        "project_conversations_incidents",
         ["team_id"],
     )
     routers.projects.register(

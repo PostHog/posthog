@@ -475,6 +475,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$conversation_incident_detected": {
+            "label": "Conversation incident detected",
+            "description": "Fires when support ticket volume spikes abnormally or a ticket alert rule triggers.",
+        },
     },
     "elements": {
         "tag_name": {

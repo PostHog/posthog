@@ -3,14 +3,11 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
-from django.db.models.functions import Cast
+from django.db.models import QuerySet, Sum
 from django.http import Http404
-from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -40,7 +37,6 @@ from posthog.models.person.util import get_person_by_distinct_id, get_persons_by
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
-from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
@@ -54,8 +50,9 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.ticket_filtering import apply_ticket_filters
 
 from ee.models.rbac.role import Role
 
@@ -211,9 +208,6 @@ class TicketMessagePagination(pagination.LimitOffsetPagination):
     max_limit = 200
 
 
-MAX_TAG_FILTER_VALUES = 50
-
-
 class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
 
@@ -363,172 +357,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         queryset = queryset.filter(team_id=self.team_id)
         queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
 
-        status_param = self.request.query_params.get("status")
-        if status_param:
-            valid_statuses = [s.value for s in Status]
-            statuses = [s.strip() for s in status_param.split(",") if s.strip() in valid_statuses]
-            if len(statuses) == 1:
-                queryset = queryset.filter(status=statuses[0])
-            elif len(statuses) > 1:
-                queryset = queryset.filter(status__in=statuses)
-
-        priority_param = self.request.query_params.get("priority")
-        if priority_param:
-            valid_priorities = [p.value for p in Priority]
-            priorities = [p.strip() for p in priority_param.split(",") if p.strip() in valid_priorities]
-            if len(priorities) == 1:
-                queryset = queryset.filter(priority=priorities[0])
-            elif len(priorities) > 1:
-                queryset = queryset.filter(priority__in=priorities)
-
-        channel_source = self.request.query_params.get("channel_source")
-        if channel_source and channel_source in [c.value for c in Channel]:
-            queryset = queryset.filter(channel_source=channel_source)
-
-        channel_detail = self.request.query_params.get("channel_detail")
-        if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
-            queryset = queryset.filter(channel_detail=channel_detail)
-
-        assignee_param = self.request.query_params.get("assignee")
-        if assignee_param:
-            user_ids: list[int] = []
-            role_ids: list[uuid.UUID] = []
-            include_unassigned = False
-            for raw_entry in assignee_param.split(",")[:100]:
-                entry = raw_entry.strip()
-                if entry.lower() == "unassigned":
-                    include_unassigned = True
-                elif entry.startswith("user:"):
-                    try:
-                        user_ids.append(int(entry[5:]))
-                    except ValueError:
-                        pass
-                elif entry.startswith("role:"):
-                    try:
-                        role_ids.append(uuid.UUID(entry[5:]))
-                    except (ValueError, AttributeError):
-                        pass
-            assignee_q = Q()
-            if user_ids:
-                assignee_q |= Q(assignment__user_id__in=user_ids)
-            if role_ids:
-                assignee_q |= Q(assignment__role_id__in=role_ids)
-            if include_unassigned:
-                assignee_q |= Q(assignment__isnull=True)
-            if assignee_q:
-                queryset = queryset.filter(assignee_q)
-
-        date_from = self.request.query_params.get("date_from")
-        if date_from and date_from != "all":
-            parsed = relative_date_parse(date_from, self.team.timezone_info)
-            if parsed:
-                queryset = queryset.filter(updated_at__gte=parsed)
-
-        date_to = self.request.query_params.get("date_to")
-        if date_to:
-            parsed = relative_date_parse(date_to, self.team.timezone_info)
-            if parsed:
-                queryset = queryset.filter(updated_at__lte=parsed)
-
-        distinct_ids_param = self.request.query_params.get("distinct_ids")
-        if distinct_ids_param:
-            ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
-            if ids:
-                queryset = queryset.filter(distinct_id__in=ids)
-
-        search = self.request.query_params.get("search")
-        if search and len(search) <= 200:
-            if search.isdigit():
-                queryset = queryset.filter(ticket_number=int(search))
-            else:
-                # EXISTS subquery: matches any comment in the ticket's conversation.
-                # Uses the (team_id, scope, item_id) composite index on Comment to
-                # narrow to per-ticket comments; EXISTS short-circuits on first match.
-                # If this becomes slow at scale (10k+ candidate tickets with broad
-                # filters), consider adding a GIN trigram index on Comment.content:
-                #   GinIndex(name="comment_content_trigram", fields=["content"],
-                #            opclasses=["gin_trgm_ops"])
-                comment_match = Comment.objects.filter(
-                    team_id=OuterRef("team_id"),
-                    scope="conversations_ticket",
-                    item_id=Cast(OuterRef("id"), output_field=CharField()),
-                    content__icontains=search,
-                    deleted=False,
-                )
-                queryset = queryset.filter(
-                    Q(anonymous_traits__name__icontains=search)
-                    | Q(anonymous_traits__email__icontains=search)
-                    | Q(email_subject__icontains=search)
-                    | Exists(comment_match)
-                )
-
-        sla_param = self.request.query_params.get("sla")
-        if sla_param:
-            now = timezone.now()
-            if sla_param == "breached":
-                queryset = queryset.filter(sla_due_at__lt=now)
-            elif sla_param == "at-risk":
-                queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
-            elif sla_param == "on-track":
-                queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
-
-        snoozed_param = self.request.query_params.get("snoozed")
-        if snoozed_param is not None:
-            if snoozed_param.lower() == "true":
-                queryset = queryset.filter(snoozed_until__isnull=False)
-            elif snoozed_param.lower() == "false":
-                queryset = queryset.filter(snoozed_until__isnull=True)
-
-        tags_param = self.request.query_params.get("tags")
-        if tags_param:
-            try:
-                tags_list = json.loads(tags_param)
-                if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list[:MAX_TAG_FILTER_VALUES]).distinct()
-            except json.JSONDecodeError:
-                pass
-
-        tags_all_param = self.request.query_params.get("tags_all")
-        if tags_all_param:
-            try:
-                tags_all_list = json.loads(tags_all_param)
-                if isinstance(tags_all_list, list) and tags_all_list:
-                    # One filter per tag (not __in) so this is AND: the ticket must carry every tag.
-                    for tag_name in tags_all_list[:MAX_TAG_FILTER_VALUES]:
-                        queryset = queryset.filter(tagged_items__tag__name=tag_name)
-                    queryset = queryset.distinct()
-            except json.JSONDecodeError:
-                pass
-
-        tags_exclude_param = self.request.query_params.get("tags_exclude")
-        if tags_exclude_param:
-            try:
-                tags_exclude_list = json.loads(tags_exclude_param)
-                if isinstance(tags_exclude_list, list) and tags_exclude_list:
-                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
-            except json.JSONDecodeError:
-                pass
-
-        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
-        if ai_triage_result_param:
-            valid_results = {
-                "persisted",
-                "escalated_with_best",
-                "escalated_no_reply",
-                "skipped_unactionable",
-                "blocked_unsafe",
-                "blocked_unsafe_reply",
-                "in_progress",
-            }
-            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
-            if results:
-                q = Q()
-                normal_results = results - {"in_progress"}
-                if normal_results:
-                    q |= Q(ai_triage__result__in=normal_results)
-                if "in_progress" in results:
-                    q |= Q(ai_triage__status="in_progress")
-                queryset = queryset.filter(q)
+        queryset = apply_ticket_filters(queryset, self.request.query_params, self.team)
 
         allowed_orderings = {
             "updated_at",

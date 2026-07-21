@@ -66,6 +66,7 @@ export interface supportTicketsSceneLogicValues {
     dateTo: string | null
     orderBy: string
     priorityFilter: TicketPriority[]
+    ruleFilterParams: Record<string, string>
     searchQuery: string
     selectedTicketIds: string[]
     selectedTickets: Ticket[]
@@ -185,6 +186,19 @@ export interface supportTicketsSceneLogicMeta {
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
+        ruleFilterParams: (
+            statusFilter: TicketStatus[],
+            priorityFilter: TicketPriority[],
+            channelFilter: TicketChannel | 'all',
+            slaFilter: TicketSlaState | 'all',
+            aiTriageResultFilter: AITriageFilterValue[],
+            assigneeFilterEntries: AssigneeFilterEntry[],
+            tagsFilter: string[],
+            tagsMatch: TicketTagsMatch,
+            tagsExcludeFilter: string[],
+            searchQuery: string,
+            aiEnabled: boolean
+        ) => Record<string, string>
         currentFilters: (
             statusFilter: TicketStatus[],
             priorityFilter: TicketPriority[],
@@ -431,6 +445,69 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             (s) => [s.assigneeFilter],
             (assigneeFilter: AssigneeFilterEntry[]): AssigneeFilterEntry[] => normalizeAssigneeFilter(assigneeFilter),
         ],
+        ruleFilterParams: [
+            (s) => [
+                s.statusFilter,
+                s.priorityFilter,
+                s.channelFilter,
+                s.slaFilter,
+                s.aiTriageResultFilter,
+                s.assigneeFilterEntries,
+                s.tagsFilter,
+                s.tagsMatch,
+                s.tagsExcludeFilter,
+                s.searchQuery,
+                s.aiEnabled,
+            ],
+            (
+                status: TicketStatus[],
+                priority: TicketPriority[],
+                channel: TicketChannel | 'all',
+                sla: TicketSlaState | 'all',
+                aiTriageResult: AITriageFilterValue[],
+                assignee: AssigneeFilterEntry[],
+                tags: string[],
+                tagsMatch: TicketTagsMatch,
+                tagsExclude: string[],
+                search: string,
+                aiEnabled: boolean
+            ): Record<string, string> => {
+                // The current filters in the tickets list endpoint's query-param form —
+                // the shape TicketAlertRule.filters stores. Date/order params are
+                // deliberately excluded: an alert rule's window supplies the time bound.
+                const params: Record<string, string> = {}
+                if (status.length > 0) {
+                    params.status = status.join(',')
+                }
+                if (priority.length > 0) {
+                    params.priority = priority.join(',')
+                }
+                if (aiEnabled && aiTriageResult.length > 0) {
+                    params.ai_triage_result = aiTriageResult.join(',')
+                }
+                if (channel !== 'all') {
+                    params.channel_source = channel
+                }
+                if (sla !== 'all') {
+                    params.sla = sla
+                }
+                if (assignee.length > 0) {
+                    params.assignee = assignee
+                        .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
+                        .join(',')
+                }
+                if (tags.length > 0) {
+                    params[tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(tags)
+                }
+                if (tagsExclude.length > 0) {
+                    params.tags_exclude = JSON.stringify(tagsExclude)
+                }
+                if (search) {
+                    params.search = search
+                }
+                return params
+            },
+        ],
         currentFilters: [
             (s) => [
                 s.statusFilter,
@@ -481,40 +558,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     listeners(({ actions, values, props }) => ({
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
-            const params: Record<string, any> = {}
+            // ruleFilterParams is the single source for row-filter params (it's also what
+            // "create alert rule from filters" stores); only time/order/pagination are added here.
+            const params: Record<string, any> = { ...values.ruleFilterParams }
 
             if (props.distinctIds && props.distinctIds.length > 0) {
                 params.distinct_ids = props.distinctIds.join(',')
-            }
-
-            if (values.statusFilter.length > 0) {
-                params.status = values.statusFilter.join(',')
-            }
-            if (values.priorityFilter.length > 0) {
-                params.priority = values.priorityFilter.join(',')
-            }
-            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
-                params.ai_triage_result = values.aiTriageResultFilter.join(',')
-            }
-            if (values.channelFilter !== 'all') {
-                params.channel_source = values.channelFilter
-            }
-            if (values.slaFilter !== 'all') {
-                params.sla = values.slaFilter
-            }
-            if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries
-                    .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
-                    .join(',')
-            }
-            if (values.tagsFilter.length > 0) {
-                params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
-            }
-            if (values.tagsExcludeFilter.length > 0) {
-                params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
-            }
-            if (values.searchQuery) {
-                params.search = values.searchQuery
             }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom

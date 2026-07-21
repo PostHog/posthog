@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
+import { IconBell, IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -23,7 +23,9 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -41,6 +43,7 @@ import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
+import { IncidentBanner } from '../../components/IncidentBanner/IncidentBanner'
 import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
@@ -425,6 +428,29 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     )
 }
 
+function CreateAlertRuleButton(): JSX.Element | null {
+    const logic = useMountedLogic(supportTicketsSceneLogic)
+    const { ruleFilterParams } = useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_TRENDS]) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconBell />}
+            tooltip="Get alerted when tickets matching the current filters spike"
+            onClick={() => router.actions.push(urls.supportTrends(), {}, { newRuleFilters: ruleFilterParams })}
+            data-attr="create-ticket-alert-rule"
+        >
+            Create alert rule
+        </LemonButton>
+    )
+}
+
 export function SupportTicketsTableFilters(): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
@@ -709,6 +735,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
             </div>
             <div className="flex items-center gap-2">
                 <SupportTicketsBulkActions />
+                <CreateAlertRuleButton />
                 <SavedViewsButton id="SupportTicketsScene" />
                 <LemonButton
                     type="secondary"
@@ -742,6 +769,7 @@ export function SupportTicketsScene(): JSX.Element {
             />
             <ScenesTabs />
             {conversationsDisabled ? <ConversationsDisabledBanner /> : null}
+            {!conversationsDisabled ? <IncidentBanner /> : null}
             <SupportTicketsTableFilters />
             <SupportTicketsTable />
         </SceneContent>

@@ -150,6 +150,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'health-alerts',
         filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
     },
+    'conversations-incident-detected': {
+        sub_template_id: 'conversations-incident-detected',
+        type: 'internal_destination',
+        context_id: 'conversations-alerts',
+        filters: { events: [{ id: '$conversation_incident_detected', type: 'events' }] },
+    },
 }
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
@@ -1249,6 +1255,86 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'conversations-incident-detected': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['conversations-incident-detected'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on support incident',
+            description: 'Send a webhook when a support ticket incident is detected',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['conversations-incident-detected'],
+            template_id: 'template-discord',
+            name: 'Post to Discord on support incident',
+            description: 'Posts a message to Discord when a support ticket incident is detected',
+            inputs: {
+                content: {
+                    value: `**🚨 Possible support incident**
+
+{event.properties.title}
+**Tickets in window:** {event.properties.observed_count}{event.properties.baseline_value > 0 ? concat(' (baseline ', round(event.properties.baseline_value), ')') : ''}
+**Project:** [{project.name}]({project.url})
+
+[View tickets]({event.properties.tickets_url})`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['conversations-incident-detected'],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on support incident',
+            description: 'Posts a message to Microsoft Teams when a support ticket incident is detected',
+            inputs: {
+                text: {
+                    value: `**🚨 Possible support incident:** {event.properties.title}\n**Tickets in window:** {event.properties.observed_count} (View in [PostHog]({event.properties.tickets_url}))`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['conversations-incident-detected'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on support incident',
+            description: 'Posts a message to Slack when a support ticket incident is detected',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: '🚨 Possible support incident' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '{event.properties.title}',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [
+                                {
+                                    type: 'plain_text',
+                                    text: 'Tickets in window: {event.properties.observed_count}',
+                                },
+                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{event.properties.tickets_url}',
+                                    text: { text: 'View tickets', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Possible support incident: {event.properties.title}',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1280,6 +1366,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$health_check_issue_firing':
         case '$health_check_issue_resolved':
             return 'health-alerts'
+        case '$conversation_incident_detected':
+            return 'conversations-alerts'
         default:
             return 'standard'
     }
