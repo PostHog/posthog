@@ -1154,10 +1154,9 @@ class InsightSerializer(InsightBasicSerializer):
         # and avoid refreshing from the DB
         #
         # `after_dashboard_changes` is only set (even to an empty list) when this request itself
-        # wrote `dashboards` (see _update_insight_dashboards), so a caller that isn't opted into
-        # the deprecated field for reads still needs to see the corrected value for the write it
-        # just made — including the "removed from all dashboards" case.
-        if "after_dashboard_changes" in self.context:
+        # wrote `dashboards` (see _update_insight_dashboards). Correct the value only for callers
+        # that opted into receiving the deprecated field.
+        if "after_dashboard_changes" in self.context and should_serve_deprecated_dashboards_field(self.context):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]

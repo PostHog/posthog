@@ -98,3 +98,13 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert "dashboards" not in response.json()
         assert [tile["dashboard_id"] for tile in response.json()["dashboard_tiles"]] == [self.dashboard.id]
+
+    def test_session_auth_write_does_not_echo_deprecated_dashboards_field(self):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/",
+            {"dashboards": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "dashboards" not in response.json()
