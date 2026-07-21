@@ -30,6 +30,7 @@ export interface ticketViewsLogicValues {
     activeView: SavedTicketView | null // supportTicketsSceneLogic
     currentFilters: TicketViewFilters // supportTicketsSceneLogic
     currentTeamId: number | null // teamLogic
+    favoriteViews: SavedTicketView[]
     favoritingShortIds: string[]
     isModalOpen: boolean
     isSaveModalOpen: boolean
@@ -232,6 +233,10 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                     }
                     return b.created_at.localeCompare(a.created_at)
                 }),
+        ],
+        favoriteViews: [
+            (s) => [s.sortedViews],
+            (sortedViews: SavedTicketView[]): SavedTicketView[] => sortedViews.filter((v) => v.is_favorited),
         ],
     }),
 
