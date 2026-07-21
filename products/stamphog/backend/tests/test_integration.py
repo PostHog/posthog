@@ -2,7 +2,6 @@ import os
 import json
 import uuid
 from pathlib import Path
-from typing import Literal
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -1073,28 +1072,22 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
 
 @pytest.mark.parametrize(
-    "failure",
+    "fault",
     [
         # The client swallows a 422 (label missing on the repo) itself; a 500 raises StamphogGitHubError.
-        pytest.param(("response", 422), id="swallows_missing_label"),
-        pytest.param(("response", 500), id="client_raises_on_500"),
+        pytest.param(422, id="swallows_missing_label"),
+        pytest.param(500, id="client_raises_on_500"),
         # The egress layer raises these directly — not subclasses of StamphogGitHubError, so a narrow
         # except would let them escape post_verdict and skip the durable verdict save below.
-        pytest.param(
-            ("side_effect", GitHubRateLimitError("secondary rate limit")),
-            id="rate_limit_does_not_escape",
-        ),
-        pytest.param(
-            ("side_effect", requests.ConnectionError("network blip")),
-            id="network_error_does_not_escape",
-        ),
+        pytest.param(GitHubRateLimitError("secondary rate limit"), id="rate_limit_does_not_escape"),
+        pytest.param(requests.ConnectionError("network blip"), id="network_error_does_not_escape"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
     team,
     stamphog_chain: StamphogChain,
-    failure: tuple[Literal["response"], int] | tuple[Literal["side_effect"], Exception],
+    fault: int | Exception,
 ) -> None:
     # The ReviewHog handoff is a secondary, cross-product notification that runs AFTER the durable
     # terminal save, so the refusal itself is never at risk — it's already committed by the time the
@@ -1109,12 +1102,10 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
-    if failure[0] == "response":
-        status = failure[1]
-        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(status, text="handoff failure")
+    if isinstance(fault, Exception):
+        stamphog_chain.recorder.add_label_side_effect = fault
     else:
-        side_effect = failure[1]
-        stamphog_chain.recorder.add_label_side_effect = side_effect
+        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(fault, text="handoff failure")
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )

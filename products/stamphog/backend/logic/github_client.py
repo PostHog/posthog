@@ -1027,14 +1027,10 @@ class StamphogGitHubClient:
     def add_pr_label(self, repo: str, number: int, label: str) -> None:
         """Add a label to a PR (``POST .../issues/{number}/labels``).
 
-        Hands a refused/escalated PR to ReviewHog by adding its trigger label, which the
-        ``review-hog.yml`` workflow routes to a fresh review (stamphog is the one sanctioned bot
-        exempted from that workflow's bot-labeler-skip). The handoff is a secondary, cross-product
-        notification — it must never jeopardize the verdict — so this method is best-effort: a 404 (repo
-        not found) or 422 (the label does not exist on the repo, i.e. ReviewHog isn't enabled there) is
-        swallowed, so a vendored stamphog in another repo never raises over a missing label. A transient
-        non-success raises so the activity retries, but callers must wrap the call so a persistent failure
-        still lets the verdict land (see post_verdict).
+        A 404 (repo not found) or 422 (label does not exist on the repo) is swallowed, so a vendored
+        stamphog in another repo never raises over a label — e.g. ``reviewhog`` — that isn't set up
+        there. Any other non-success raises ``StamphogGitHubError``; see ``post_verdict`` for how the
+        ReviewHog handoff caller treats that as best-effort.
         """
         path = f"/repos/{repo}/issues/{number}/labels"
         response = self._request(
