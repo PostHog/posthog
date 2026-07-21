@@ -187,6 +187,26 @@ def record_oauth_client_used(integration: "Integration", *, used_fallback: bool)
         integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
 
 
+def issuing_oauth_client_id(integration: "Integration") -> str | None:
+    """The OAuth client id the connection was originally established with, or None if unknown.
+
+    OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
+    authorization exchange - refreshes only overwrite the access and refresh tokens. So this reads
+    the app the customer actually connected through, which is knowable for connections that already
+    exist, without waiting for a refresh to reveal it.
+    """
+    id_token = integration.sensitive_config.get("id_token")
+    if not id_token:
+        return None
+    try:
+        claims = _decode_jwt_payload(id_token) or {}
+    except Exception:
+        logger.warning("Failed to decode id_token", integration_id=integration.id, kind=integration.kind)
+        return None
+    audience = claims.get("aud")
+    return audience if isinstance(audience, str) else None
+
+
 def refresh_backoff_active(integration: "Integration") -> bool:
     """Whether the refresh sweep should skip this integration. Reconnecting resets the state
     (the OAuth callback replaces `config` wholesale), and on-demand API refreshes bypass this."""
