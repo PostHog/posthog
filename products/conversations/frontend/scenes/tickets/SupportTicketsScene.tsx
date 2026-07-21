@@ -173,6 +173,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             dataSource={tickets}
             rowKey="id"
             loading={ticketsLoading}
+            // Keep rows clickable while a background refresh is in flight; the loading overlay
+            // otherwise captures pointer events and blocks navigation on every reload.
+            disableTableWhileLoading={false}
             embedded={embedded}
             sorting={sorting}
             onSort={(newSorting) => setSorting(newSorting)}
