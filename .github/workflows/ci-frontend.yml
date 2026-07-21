@@ -478,6 +478,17 @@ jobs:
                       echo "Skipping dist size section — script not present on this checkout"
                   fi
 
+            - name: Post CI report — toolbar bundle
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
+                      node frontend/bin/post-toolbar-size-comment.mjs
+                  else
+                      echo "Skipping toolbar bundle section — script not present on this checkout"
+                  fi
+
             - name: Check eager graph budgets (warn only)
               if: always() && github.event_name == 'pull_request'
               run: |

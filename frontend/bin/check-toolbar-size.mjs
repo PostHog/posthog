@@ -1,7 +1,15 @@
+import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import fs from 'fs'
 import path from 'path'
 
 import { eagerOutputs, findEntryOutput, jsOutputs, readToolbarMetafile } from './toolbar-metafile.mjs'
+
+// --report-only: write toolbar-size-report.json (the shipped-size numbers) for the shared CI
+// comment, exactly like check-eager-graph, without failing the build. build:with-report runs it
+// for both the PR and base builds so the comment can show a vs-base delta. The enforcing run
+// (no flag) stays a hard-fail CI step.
+const reportOnly = process.argv.includes('--report-only')
 
 // Size guards for the split toolbar build (dist/toolbar.js loader + dist/toolbar/ ESM app).
 //
@@ -56,9 +64,11 @@ function main() {
 
     // Per-file ceiling across every shipped artifact (app outputs + loader + copied CSS).
     const shippedFiles = Object.keys(outputs).filter((o) => !o.endsWith('.map'))
+    const oversizeFiles = []
     for (const file of [...shippedFiles, 'dist/toolbar.css']) {
         const bytes = outputs[file]?.bytes ?? statBytes(file)
         if (bytes !== null && bytes > MAX_FILE_BYTES) {
+            oversizeFiles.push({ file, bytes })
             fail(
                 `${file} is ${humanBytes(bytes)}, over the ${humanBytes(MAX_FILE_BYTES)} CloudFront gzip limit — ` +
                     'CloudFront serves files this large uncompressed. Split it further.'
@@ -102,6 +112,13 @@ function main() {
         )
     }
 
+    if (reportOnly) {
+        writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles: lazyJs.length, oversizeFiles, outputs })
+        // Never fail in report-only mode: the shared CI comment surfaces the numbers and the
+        // enforcing run (no flag) is a separate CI step that hard-fails.
+        return
+    }
+
     if (failed) {
         process.exit(1)
     }
@@ -112,6 +129,41 @@ function main() {
             `deferred JS ${humanBytes(lazyBytes)} in ${lazyJs.length} files, ` +
             `every file under the ${humanBytes(MAX_FILE_BYTES)} CloudFront gzip limit.`
     )
+}
+
+// Written for the shared CI comment (post-toolbar-size-comment.mjs). Mirrors the eager-graph
+// report shape: numbers plus the built tree's HEAD sha so the PR build's report is found by sha
+// and the plain file (last write = base build) doubles as the vs-base baseline.
+function writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles, oversizeFiles, outputs }) {
+    const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+    const largest = eagerJs
+        .map((o) => ({ file: o, bytes: outputs[o].bytes }))
+        .sort((a, b) => b.bytes - a.bytes)
+        .slice(0, 10)
+    const report = {
+        loaderBytes,
+        loaderBudget: MAX_LOADER_BYTES,
+        eagerBytes,
+        eagerFiles: eagerJs.length,
+        budgetBytes: MAX_EAGER_BYTES,
+        overBudget: eagerBytes > MAX_EAGER_BYTES,
+        lazyBytes,
+        lazyFiles,
+        maxFileBytes: MAX_FILE_BYTES,
+        oversizeFiles,
+        largest,
+    }
+    try {
+        report.sha = execSync('git rev-parse HEAD', { cwd: frontendDir, encoding: 'utf-8' }).trim()
+    } catch (err) {
+        console.error(`Could not resolve HEAD sha for the toolbar report: ${err.message}`)
+    }
+    const serialized = JSON.stringify(report, null, 2)
+    fs.writeFileSync(path.join(frontendDir, 'toolbar-size-report.json'), serialized)
+    if (report.sha) {
+        fs.writeFileSync(path.join(frontendDir, `toolbar-size-report-${report.sha}.json`), serialized)
+    }
+    console.info(`Wrote toolbar-size-report.json (eager ${humanBytes(eagerBytes)} / budget ${humanBytes(MAX_EAGER_BYTES)}).`)
 }
 
 main()
