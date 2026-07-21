@@ -2,6 +2,8 @@ import uuid
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
+
 import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
@@ -78,13 +80,30 @@ def snooze_alert_from_slack(alert_id: uuid.UUID, *, duration: str, user: User) -
         return "no_access"
 
     if not alert.enabled:
+        # Fast path only — not the authoritative check. A concurrent disable between here and
+        # the row-locked re-check below must still be caught, so this just avoids taking a lock
+        # for the common case.
         return "disabled"
 
     # always store snoozed_until as UTC time, as we look at current UTC time to check when to
     # run alerts — same call the alerts API uses so "1d" means the same thing everywhere.
     snoozed_until = relative_date_parse(duration, ZoneInfo("UTC"), increase=True, always_truncate=True)
-    with ActingUserContext(user):
-        alert.snooze(until=snoozed_until)
+
+    with transaction.atomic():
+        try:
+            # Authoritative re-check under a row lock: without this, a concurrent disable
+            # between the fast-path check above and this mutation would still persist
+            # enabled=False alongside state=SNOOZED — a state the alert should never be in.
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
+            locked_alert = AlertConfiguration.objects.select_for_update().get(id=alert_id)
+        except AlertConfiguration.DoesNotExist:
+            return "not_found"
+
+        if not locked_alert.enabled:
+            return "disabled"
+
+        with ActingUserContext(user):
+            locked_alert.snooze(until=snoozed_until)
 
     return "snoozed"
 
