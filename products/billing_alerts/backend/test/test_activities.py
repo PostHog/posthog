@@ -5,12 +5,15 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.models import Organization, Team
+
 from products.billing_alerts.backend.models import (
     BillingAlertConfiguration,
     BillingAlertEvaluationClaim,
     BillingAlertEvent,
 )
 from products.billing_alerts.backend.temporal.activities import (
+    _due_billing_alerts_for_sweep,
     _evaluate_billing_alerts,
     _group_key,
     due_billing_alerts_q,
@@ -109,6 +112,29 @@ class TestBillingAlertActivities(BaseTest):
         alert_ids = set(due_billing_alerts_q(now).values_list("id", flat=True))
 
         assert alert_ids == {due.id, never_checked.id}
+
+    def test_due_sweep_interleaves_organizations_inside_global_cap(self) -> None:
+        now = datetime(2026, 6, 23, 12, tzinfo=UTC)
+        first = self._alert(name="First organization A", next_check_at=None)
+        self._alert(name="First organization B", next_check_at=None)
+        other_organization = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_organization, name="Other project")
+        other = self._alert(
+            organization_id=other_organization.id,
+            team_id=other_team.id,
+            name="Other organization",
+            next_check_at=None,
+        )
+
+        with patch("products.billing_alerts.backend.temporal.activities.MAX_DUE_BILLING_ALERTS_PER_TICK", 2):
+            selected = list(_due_billing_alerts_for_sweep(now).values_list("id", flat=True))
+
+        assert len(selected) == 2
+        assert other.id in selected
+        selected_organization_ids = set(
+            BillingAlertConfiguration.objects.filter(id__in=selected).values_list("organization_id", flat=True)
+        )
+        assert selected_organization_ids == {first.organization_id, other.organization_id}
 
     def test_group_key_separates_pending_evaluation_dates(self) -> None:
         now = datetime(2026, 6, 23, 12, tzinfo=UTC)

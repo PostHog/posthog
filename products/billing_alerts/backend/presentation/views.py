@@ -27,6 +27,7 @@ from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertDestinationResponseSerializer,
     BillingAlertEventSerializer,
 )
+from products.billing_alerts.backend.presentation.throttles import BillingAlertCheckNowThrottle
 
 
 @extend_schema(tags=["billing"])
@@ -93,7 +94,13 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "Manual checks can send notifications when the evaluation records a dispatchable event."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="check_now", required_scopes=["billing:write"])
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="check_now",
+        required_scopes=["billing:write"],
+        throttle_classes=[BillingAlertCheckNowThrottle],
+    )
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         result = billing_alerts_api.evaluate_and_dispatch_alert(alert)
