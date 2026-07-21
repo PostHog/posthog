@@ -184,13 +184,11 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
         res.status(410).json({ error: 'session_terminal', state: existing.state })
         return
     }
-    if (existing.state === 'closed') {
-        const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
-        const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
-        if (!allowRestart) {
-            res.status(410).json({ error: 'session_terminal', state: 'closed' })
-            return
-        }
+    const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
+    const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
+    if (existing.state === 'closed' && !allowRestart) {
+        res.status(410).json({ error: 'session_terminal', state: 'closed' })
+        return
     }
     // Refresh credentials before re-queueing so a worker can never claim this
     // turn in the gap between the state transition and the broker write. If a
@@ -220,8 +218,10 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
             })
         }
         // Running sessions keep their state (the live worker drains the input
-        // or `finalizeRun` re-queues) — see `requeueForInput`.
-        await deps.queue.requeueForInput(sessionId)
+        // or `finalizeRun` re-queues), and a session cancelled since the read
+        // above stays terminal — see `requeueForInput`. The restart flag only
+        // permits closed → queued when the trigger spec opted in.
+        await deps.queue.requeueForInput(sessionId, { allowRestartFromClosed: allowRestart })
     } catch (err) {
         try {
             await credentialWrite.rollback()

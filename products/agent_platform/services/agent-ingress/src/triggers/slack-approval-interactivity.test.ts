@@ -114,7 +114,7 @@ function harness(opts: {
             } as unknown as AgentSession
         },
         appendPendingInput: async () => undefined,
-        update: async () => undefined,
+        requeueForInput: async () => undefined,
     } as unknown as SessionQueue
 
     const http = {

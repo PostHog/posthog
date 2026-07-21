@@ -122,15 +122,30 @@ export interface SessionQueue extends SessionInputsStore {
     update(sessionId: string, patch: Partial<AgentSession>): Promise<void>
     /**
      * Wake a session because new input landed in `pending_inputs` (ingress
-     * `/send`, `/run`-resume, the janitor's approval-expiry wake). Sets
-     * `state = 'queued'` — except when the session is currently `running`,
-     * where it no-ops: the claim's row lock is released at claim-commit, so
-     * flipping a running session to `queued` would let a second worker claim
-     * it while the first still runs it. The running worker sees the input via
-     * `drainPendingInputs` at its next turn, and `finalizeRun` re-queues the
-     * session if the input arrived after its final drain.
+     * `/send`, `/run`-resume, MCP continuation, approval decisions, the
+     * janitor's approval-expiry wake). Sets `state = 'queued'` — except:
+     *   - `running` no-ops: the claim's row lock is released at claim-commit,
+     *     so flipping a running session to `queued` would let a second worker
+     *     claim it while the first still runs it. The running worker sees the
+     *     input via `drainPendingInputs` at its next turn, and `finalizeRun`
+     *     re-queues the session if the input arrived after its final drain
+     *     and the run completed.
+     *   - final states (`closed` / `cancelled` / `failed`) no-op: a wake
+     *     racing a cancel or an idle-close must never resurrect a terminated
+     *     session. `allowRestartFromClosed` permits the one sanctioned
+     *     restart — closed → queued — for callers whose trigger spec sets
+     *     `allow_restart`; cancelled/failed stay terminal regardless.
      */
-    requeueForInput(sessionId: string): Promise<void>
+    requeueForInput(sessionId: string, opts?: { allowRestartFromClosed?: boolean }): Promise<void>
+    /**
+     * Guarded idle-close (janitor sweep only). Closes the session only if it
+     * is still `completed` at write time; a session re-queued or claimed
+     * since the sweep read its candidate row is left alone. A `completed`
+     * session with undrained `pending_inputs` is re-queued instead of closed
+     * so the input isn't stranded behind a terminal state. Returns the state
+     * actually persisted (null when the row is gone or the guard skipped it).
+     */
+    closeIfIdle(sessionId: string): Promise<AgentSession['state'] | null>
     /**
      * End-of-run state write (runner only). Persists conversation +
      * usage_total unconditionally, but guards the state transition in SQL:

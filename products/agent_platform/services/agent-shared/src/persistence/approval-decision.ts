@@ -109,7 +109,11 @@ export async function applyApprovalDecision(
             timestamp: now(),
         }
         await deps.queue.appendPendingInput(existing.session_id, wake)
-        await deps.queue.update(existing.session_id, { state: 'queued' })
+        // Guarded wake, never a raw state write: a running session keeps its
+        // owner (the live worker drains the marker), and a session that
+        // terminated after the approval queued (cancel, idle-close, failure)
+        // is not resurrected by a late decision.
+        await deps.queue.requeueForInput(existing.session_id)
         return { ok: true, state: updated.state }
     }
 
@@ -142,6 +146,7 @@ export async function applyApprovalDecision(
         timestamp: now(),
     }
     await deps.queue.appendPendingInput(existing.session_id, rejected)
-    await deps.queue.update(existing.session_id, { state: 'queued' })
+    // Same guarded wake as the approve arm — see above.
+    await deps.queue.requeueForInput(existing.session_id)
     return { ok: true, state: updated.state }
 }

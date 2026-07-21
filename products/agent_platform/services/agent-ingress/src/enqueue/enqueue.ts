@@ -4,12 +4,15 @@
  * externalKey for dedupe.
  *
  * externalKey rule: if an existing session for (application, externalKey)
- * exists and is not terminal (`closed` / `failed`), the incoming principal
- * is checked against the session's ACL. If it passes, the new message is
- * appended to `pending_inputs` and the session is re-enqueued — the runner
- * drains pending_inputs at the start of its next turn, so this works whether
- * the session is currently `queued`, `running`, or `completed` (the
- * open-but-idle state under the new state machine).
+ * exists and is not terminal (`closed` / `cancelled` / `failed`), the incoming
+ * principal is checked against the session's ACL. If it passes, the new
+ * message is appended to `pending_inputs` and the session is re-enqueued — the
+ * runner drains pending_inputs at the start of its next turn, so this works
+ * whether the session is currently `queued`, `running`, or `completed` (the
+ * open-but-idle state under the new state machine). A terminal session under
+ * the key gets a fresh session instead — `cancelled` is always terminal
+ * (matching chat /send's 410), so a resume can never restart a cancelled
+ * session.
  *
  * On ACL denial: the would-be message is preserved as a
  * `PendingElevationRequest` on the session, the session is NOT advanced,
@@ -203,7 +206,14 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         // under a shared external_key), and two draft revisions previewed under
         // the same external_key stay isolated.
         const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, input.revision.id)
-        if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
+        // Terminal states (`closed` / `cancelled` / `failed`) never resume —
+        // fall through and create a fresh session under the same key.
+        // `cancelled` is in the set so this path agrees with chat /send's
+        // "cancelled is always terminal" 410 (and with `requeueForInput`,
+        // which would refuse to wake it anyway — without this check the
+        // append would strand in pending_inputs on the cancelled row while
+        // the caller was told "resumed").
+        if (existing && existing.state !== 'closed' && existing.state !== 'failed' && existing.state !== 'cancelled') {
             const denied = await elevationIfDenied(deps, input, existing)
             if (denied) {
                 return denied

@@ -143,8 +143,16 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
             const age = now.getTime() - updated
             const effectiveTtl = await resolveCompletedTtl(s, deps.getResumeConfig, idleCompletedTtl)
             if (age > effectiveTtl) {
-                await deps.queue.update(s.id, { state: 'closed' })
-                closed++
+                // Guarded close: the candidate row was read above, and a
+                // /send can re-queue (or a worker claim) the session in the
+                // gap — `closeIfIdle` re-checks `state = 'completed'` at
+                // write time and re-queues instead of closing when an
+                // undrained input landed, so the sweep never clobbers a live
+                // wake into `closed`.
+                const persisted = await deps.queue.closeIfIdle(s.id)
+                if (persisted === 'closed') {
+                    closed++
+                }
             }
         }
     }
