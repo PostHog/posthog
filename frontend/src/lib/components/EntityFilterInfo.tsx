@@ -134,7 +134,7 @@ function EntityFilterInfoTooltipTitle({
 }
 
 interface EntityFilterInfoProps {
-    filter: EntityFilter | ActionFilter
+    filter?: EntityFilter | ActionFilter | null
     allowWrap?: boolean
     showSingleName?: boolean
     style?: React.CSSProperties
@@ -155,6 +155,13 @@ export function EntityFilterInfo({
     showIcon = false,
 }: EntityFilterInfoProps): JSX.Element {
     const isColumn = layout === 'column'
+
+    // `filter` is null for formula series (and can be absent for other callers); render nothing
+    // rather than dereferencing it in getEntityFilterDisplayInfo.
+    if (!filter) {
+        return <></>
+    }
+
     const { displayName, baseName, underlying, isRenamed } = getEntityFilterDisplayInfo(filter, filterGroupType)
 
     // Reveal the underlying entity (and the tooltip) only when the label hides it — an

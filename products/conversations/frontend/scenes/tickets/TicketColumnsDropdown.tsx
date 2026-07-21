@@ -15,7 +15,7 @@ interface TicketColumnsDropdownProps {
 
 export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketColumnsDropdownProps): JSX.Element {
     const { visibleColumns } = useValues(ticketColumnsLogic)
-    const { toggleColumn, resetColumns } = useActions(ticketColumnsLogic)
+    const { toggleColumn, setVisibleColumns } = useActions(ticketColumnsLogic)
 
     const offerable = offerableTicketColumns({ aiEnabled, embedded })
     const shownCount = offerable.filter((key) => visibleColumns.includes(key) || isTicketColumnMandatory(key)).length
@@ -53,7 +53,7 @@ export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketCol
                         size="small"
                         fullWidth
                         disabledReason={allShown ? 'Every column is already shown' : undefined}
-                        onClick={resetColumns}
+                        onClick={() => setVisibleColumns(offerable)}
                     >
                         Show all columns
                     </LemonButton>
