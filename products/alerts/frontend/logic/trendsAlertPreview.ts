@@ -42,18 +42,25 @@ export function deriveTrendsAlertPreviewSeries(
         return { values, labels, relative: false }
     }
 
-    const derivedValues = values.slice(1).map((current, index) => {
+    const derivedPoints = values.slice(1).map((current, index) => {
         const previous = values[index]
         const numerator =
             conditionType === AlertConditionType.RELATIVE_INCREASE ? current - previous : previous - current
         if (thresholdType === InsightThresholdType.ABSOLUTE) {
-            return numerator
+            return { value: numerator, index }
         }
         if (previous === 0) {
-            return current === 0 ? 0 : Infinity
+            return { value: current === 0 ? 0 : null, index }
         }
-        return (numerator / previous) * 100
+        return { value: (numerator / previous) * 100, index }
     })
+    const availablePoints = derivedPoints.filter(
+        (point): point is { value: number; index: number } => point.value !== null
+    )
 
-    return { values: derivedValues, labels: labels?.slice(1), relative: true }
+    return {
+        values: availablePoints.map((point) => point.value),
+        labels: labels ? availablePoints.map((point) => labels[point.index + 1]) : undefined,
+        relative: true,
+    }
 }
