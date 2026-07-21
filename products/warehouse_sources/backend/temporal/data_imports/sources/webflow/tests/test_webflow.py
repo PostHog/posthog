@@ -207,6 +207,7 @@ class TestValidateCredentials:
             ("bad_token", 401, None, False),
             ("missing_scope_at_create", 403, None, True),
             ("missing_scope_for_schema", 403, "products", False),
+            ("invalid_site_id", 400, None, False),
             ("site_not_found", 404, None, False),
             ("server_error", 500, None, False),
         ]
@@ -216,6 +217,18 @@ class TestValidateCredentials:
             MockSession.return_value.get.return_value = _make_response({"message": "nope"}, status_code=status_code)
             ok, _error = validate_credentials("token", "site-1", schema_name)
         assert ok is expected_ok
+
+    def test_invalid_site_id_400_does_not_leak_raw_envelope(self) -> None:
+        # A malformed Site ID gets a 400 with Webflow's raw "Validation Error: ..." envelope, which
+        # must not surface to the user.
+        with patch(TRANSPORT) as MockSession:
+            MockSession.return_value.get.return_value = _make_response(
+                {"message": "Validation Error: Provided IDs are invalid: Site ID"}, status_code=400
+            )
+            ok, error = validate_credentials("token", "site-1")
+        assert ok is False
+        assert "Site ID isn't valid" in (error or "")
+        assert "Validation Error" not in (error or "")
 
     def test_request_exception_returns_error(self) -> None:
         with patch(TRANSPORT) as MockSession:

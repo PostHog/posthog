@@ -107,6 +107,15 @@ def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str
     if response.status_code == 404:
         return False, f"Webflow site '{site_id}' was not found or is not accessible by this token"
 
+    # A 400 means Webflow rejected the Site ID as malformed before looking it up — distinct from a
+    # 404 for a well-formed but unknown/inaccessible id. Surface a clear message instead of leaking
+    # Webflow's raw "Validation Error: ..." envelope.
+    if response.status_code == 400:
+        return (
+            False,
+            "The Webflow Site ID isn't valid. Check that you entered the Site ID (not the site name or URL) and try again.",
+        )
+
     try:
         message = response.json().get("message", response.text)
     except ValueError:
