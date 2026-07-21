@@ -2,12 +2,7 @@ import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } fr
 
 import { intervalDropdownPhrase } from 'products/alerts/frontend/components/editAlertModalUtils'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import {
-    isFunnelsAlertConfig,
-    isHogQLAlertConfig,
-    isTrendsAlertConfig,
-    type AlertType,
-} from 'products/alerts/frontend/types'
+import { type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
 
 export interface AlertSummaryParts {
     /** What the alert watches — e.g. "value below 100" or "anomalies". Empty when unknown. */
@@ -16,6 +11,12 @@ export interface AlertSummaryParts {
     cadence: string
     /** Who it notifies — e.g. "2 people" or "2 people + Slack". Empty when none configured. */
     notifies: string
+}
+
+const ALERT_KIND_LABELS: Partial<Record<AlertConfig['type'], string>> = {
+    TrendsAlertConfig: 'Trends',
+    FunnelsAlertConfig: 'Funnels',
+    HogQLAlertConfig: 'SQL',
 }
 
 export function formatNotificationSummary(subscribedCount: number, destinationCount: number): string {
@@ -29,11 +30,11 @@ export function formatNotificationSummary(subscribedCount: number, destinationCo
     return parts.join(' + ')
 }
 
-function formatBound(value: number | undefined, thresholdType: InsightThresholdType): string | null {
+function boundForDisplay(value: number | undefined, thresholdType: InsightThresholdType): number | null {
     if (value == null || Number.isNaN(value)) {
         return null
     }
-    return String(thresholdType === InsightThresholdType.PERCENTAGE ? value * 100 : value)
+    return thresholdType === InsightThresholdType.PERCENTAGE ? value * 100 : value
 }
 
 export function formatThresholdSummary(
@@ -42,8 +43,8 @@ export function formatThresholdSummary(
     lower: number | undefined,
     upper: number | undefined
 ): string {
-    const lo = formatBound(lower, thresholdType)
-    const hi = formatBound(upper, thresholdType)
+    const lo = boundForDisplay(lower, thresholdType)
+    const hi = boundForDisplay(upper, thresholdType)
     const both = lo != null && hi != null
     const unit = thresholdType === InsightThresholdType.PERCENTAGE ? '%' : ''
     switch (conditionType) {
@@ -127,18 +128,9 @@ export function alertKindLabel(alertForm: AlertFormType | AlertType | null | und
     if (!alertForm) {
         return null
     }
-    const config = (alertForm as AlertFormType).config
+    const config = alertForm.config
     if (!config) {
         return null
     }
-    if (isTrendsAlertConfig(config)) {
-        return 'Trends'
-    }
-    if (isFunnelsAlertConfig(config)) {
-        return 'Funnels'
-    }
-    if (isHogQLAlertConfig(config)) {
-        return 'SQL'
-    }
-    return null
+    return ALERT_KIND_LABELS[config.type] ?? null
 }
