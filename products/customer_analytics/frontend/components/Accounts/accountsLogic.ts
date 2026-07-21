@@ -10,8 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AccountsQuery, DataNode, DataTableNode, NodeKind, RefreshType } from '~/queries/schema/schema-general'
 import type { AccountCustomPropertyFilter, UserBasicType } from '~/types'
 
 import {
@@ -172,6 +172,7 @@ export interface accountsLogicValues {
     overviewMetrics: string[] // accountsOverviewTilesLogic
     tileFilter: TileFilter | null // accountsOverviewTilesLogic
     mineOnly: boolean // customerAnalyticsSceneLogic
+    listHasMoreData: boolean // dataNodeLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     accountIdFilter: string | null
@@ -180,10 +181,12 @@ export interface accountsLogicValues {
     allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
+    canSortClientSide: boolean
     currentUserId: number | null
     customPropertyFilters: AccountCustomPropertyFilter[]
     hogqlQuery: DataTableNode
     isRoleSaving: (accountId: string, column: string) => boolean
+    listPaginated: boolean
     metricsQuery: AccountsQuery | null
     relationshipOverrides: Record<string, number[]>
     savingRoles: Record<string, true>
@@ -228,6 +231,17 @@ export interface accountsLogicActions {
     setMineOnly: (mineOnly: boolean) => {
         mineOnly: boolean
     } // customerAnalyticsSceneLogic
+    listLoadData: (
+        refresh?: RefreshType | undefined,
+        alreadyRunningQueryId?: string | undefined,
+        overrideQuery?: DataNode<Record<string, any>> | undefined
+    ) => {
+        overrideQuery: DataNode<Record<string, any>> | undefined
+        pollOnly: boolean
+        queryId: string
+        refresh: RefreshType | undefined
+    } // dataNodeLogic
+    listLoadNextData: () => any // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
@@ -349,6 +363,7 @@ export interface accountsLogicMeta {
             tileFilter: TileFilter | null,
             customPropertyFilters: AccountCustomPropertyFilter[]
         ) => AccountsViewUrlState
+        canSortClientSide: (listHasMoreData: boolean, listPaginated: boolean) => boolean
         hogqlQuery: (
             searchQuery: string,
             tagsFilter: string[],
@@ -357,6 +372,7 @@ export interface accountsLogicMeta {
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             sortOrder: AccountSortOrder,
+            canSortClientSide: boolean,
             querySelectColumns: string[],
             visibleColumnNames: string[],
             customPropertyFilters: AccountCustomPropertyFilter[],
@@ -409,6 +425,10 @@ export const accountsLogic = kea<accountsLogicType>([
             ['metrics as overviewMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
             ['mineOnly'],
+            // Pagination state of the list rows, to decide whether the whole
+            // matching set is loaded (sort client-side) or not (sort server-side).
+            dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY } as DataNodeLogicProps),
+            ['hasMoreData as listHasMoreData'],
         ],
         actions: [
             accountsColumnConfigLogic,
@@ -423,6 +443,10 @@ export const accountsLogic = kea<accountsLogicType>([
             ['loadUserSuccess'],
             membersLogic,
             ['ensureAllMembersLoaded'],
+            // List load lifecycle — a fresh load resets the paginated flag, "Load
+            // more" sets it (see the listPaginated reducer).
+            dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY } as DataNodeLogicProps),
+            ['loadData as listLoadData', 'loadNextData as listLoadNextData'],
         ],
     })),
     actions({
@@ -512,6 +536,18 @@ export const accountsLogic = kea<accountsLogicType>([
             null as AccountSortOrder,
             {
                 setSortOrder: (_, { sortOrder }) => sortOrder,
+            },
+        ],
+        // True when the currently-loaded rows were built by paging past the first
+        // page ("Load more"). Keeps the list in server-side sort mode so paginating
+        // to the end never drops the query's `orderBy` (which would reset back to
+        // page one and discard the accumulated rows). Reset on every fresh load, so
+        // a filtered-down set is re-evaluated and can return to instant client sort.
+        listPaginated: [
+            false,
+            {
+                listLoadData: () => false,
+                listLoadNextData: () => true,
             },
         ],
         savingRoles: [
@@ -625,6 +661,13 @@ export const accountsLogic = kea<accountsLogicType>([
                 return state
             },
         ],
+        // When the whole matching set is already loaded in the browser, sorting can
+        // happen client-side (instant, no refetch). Otherwise the query carries an
+        // `orderBy` so ClickHouse sorts the full set and returns the global top page.
+        canSortClientSide: [
+            (s) => [s.listHasMoreData, s.listPaginated],
+            (listHasMoreData: boolean, listPaginated: boolean): boolean => !listHasMoreData && !listPaginated,
+        ],
         hogqlQuery: [
             (s) => [
                 s.searchQuery,
@@ -634,6 +677,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.sortOrder,
+                s.canSortClientSide,
                 s.querySelectColumns,
                 s.visibleColumnNames,
                 s.customPropertyFilters,
@@ -648,6 +692,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 sortOrder: AccountSortOrder,
+                canSortClientSide: boolean,
                 querySelectColumns: string[],
                 visibleColumnNames: string[],
                 customPropertyFilters: AccountCustomPropertyFilter[],
@@ -669,10 +714,14 @@ export const accountsLogic = kea<accountsLogicType>([
                     customPropertyFilters,
                     customPropertyDefinitionsById,
                 })
+                // Only sort on the server when the list is paginated — otherwise the
+                // rows are all loaded and the table sorts them client-side (instant, no
+                // refetch), so leaving `orderBy` off keeps the query semantically stable
+                // and toggling sort doesn't re-fetch.
                 // HogQL ORDER BY resolves SELECT aliases by name, so the visible column
                 // name works directly. Skip sorts on columns the translation dropped
                 // (a legacy role with no matching definition) — the alias wouldn't resolve.
-                if (sortOrder && visibleColumnNames.includes(sortOrder.column)) {
+                if (sortOrder && !canSortClientSide && visibleColumnNames.includes(sortOrder.column)) {
                     const expr = orderByExpression(sortOrder.column, aliasToDefinition)
                     source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
                 }
