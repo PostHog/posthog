@@ -2515,25 +2515,6 @@ def _decode_picker_context(context_token: str) -> dict[str, Any] | None:
     return None
 
 
-def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
-    links = event.get("links")
-    if not isinstance(links, list):
-        return []
-
-    resources: list[dict[str, str]] = []
-    for link in links:
-        if not isinstance(link, dict):
-            continue
-        url = link.get("url")
-        if not isinstance(url, str):
-            continue
-        parsed = parse_posthog_resource_link(url)
-        if parsed:
-            resource_type, resource_ref = parsed
-            resources.append({"type": resource_type, "ref": str(resource_ref)})
-    return resources
-
-
 @csrf_exempt
 def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -2604,6 +2585,35 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
 
     # posthog_code_event_handler: unrecognized event type
     return HttpResponse(status=200)
+
+
+def _is_posthog_app_url(url: str) -> bool:
+    hostname = urlparse(url).hostname
+    return hostname == urlparse(settings.SITE_URL).hostname or hostname in {
+        "app.posthog.com",
+        "eu.posthog.com",
+        "posthog.com",
+        "us.posthog.com",
+    }
+
+
+def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
+    links = event.get("links")
+    if not isinstance(links, list):
+        return []
+
+    resources: list[dict[str, str]] = []
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        url = link.get("url")
+        if not isinstance(url, str) or not _is_posthog_app_url(url):
+            continue
+        parsed = parse_posthog_resource_link(url)
+        if parsed:
+            resource_type, resource_ref = parsed
+            resources.append({"type": resource_type, "ref": str(resource_ref)})
+    return resources
 
 
 def _extract_context_token(payload: dict) -> str:

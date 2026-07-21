@@ -121,7 +121,7 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
                 "links": [
                     {"url": "https://us.posthog.com/project/2/insights/abc123"},
                     {"url": "https://us.posthog.com/project/2/dashboard/456"},
-                    {"url": "https://example.com/private?token=secret"},
+                    {"url": "https://example.com/project/2/insights/not-posthog"},
                 ],
             },
         }
