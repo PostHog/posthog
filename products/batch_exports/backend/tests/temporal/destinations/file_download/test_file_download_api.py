@@ -1,5 +1,6 @@
 import time
 import uuid
+import random
 import asyncio
 import datetime as dt
 from urllib.parse import urlsplit
@@ -19,6 +20,7 @@ from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
+from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
 
 from products.batch_exports.backend.api.file_download import (
     _calculate_expiration_for_file_download,
@@ -30,6 +32,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportFileDownload,
     BatchExportOnDemand,
     BatchExportRun,
+    BatchExportSource,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
@@ -145,6 +148,15 @@ def override_file_download_settings(aws_role_arn, s3_bucket):
         BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS=900,  # Minimum
     ):
         yield
+
+
+@pytest.fixture
+def mock_start_file_download_export():
+    """Mock starting the Temporal workflow so create tests don't reach Temporal."""
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
+        yield mock_start
 
 
 @pytest.mark.django_db(transaction=True)
@@ -361,6 +373,7 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
     user,
     data_interval_start,
     data_interval_end,
+    mock_start_file_download_export,
 ):
     destination = await BatchExportDestination.objects.acreate(
         type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
@@ -376,26 +389,23 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch(
-        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
-    ) as mock_start:
-        response = await async_client.post(
-            f"/api/projects/{team.pk}/file_download_batch_exports",
-            {
-                "file": {
-                    "format": "Parquet",
-                    "compression": "zstd",
-                },
-                "model": "events",
-                "data_interval_start": data_interval_start,
-                "data_interval_end": data_interval_end,
+    response = await async_client.post(
+        f"/api/projects/{team.pk}/file_download_batch_exports",
+        {
+            "file": {
+                "format": "Parquet",
+                "compression": "zstd",
             },
-            content_type="application/json",
-        )
+            "model": "events",
+            "data_interval_start": data_interval_start,
+            "data_interval_end": data_interval_end,
+        },
+        content_type="application/json",
+    )
 
     assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
     assert response.json()["code"] == "too_many_concurrent_file_downloads"
-    mock_start.assert_not_called()
+    mock_start_file_download_export.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -403,33 +413,31 @@ async def test_file_download_create_rejects_future_data_interval_end(
     async_client: AsyncClient,
     team,
     user,
+    mock_start_file_download_export,
 ):
     now = dt.datetime.now(dt.UTC)
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch(
-        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
-    ) as mock_start:
-        data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
-        response = await async_client.post(
-            f"/api/projects/{team.pk}/file_download_batch_exports",
-            {
-                "file": {
-                    "format": "Parquet",
-                    "compression": "zstd",
-                },
-                "model": "events",
-                "data_interval_start": (now - dt.timedelta(hours=1)).isoformat(),
-                "data_interval_end": data_interval_end_iso,
+    data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
+    response = await async_client.post(
+        f"/api/projects/{team.pk}/file_download_batch_exports",
+        {
+            "file": {
+                "format": "Parquet",
+                "compression": "zstd",
             },
-            content_type="application/json",
-        )
+            "model": "events",
+            "data_interval_start": (now - dt.timedelta(hours=1)).isoformat(),
+            "data_interval_end": data_interval_end_iso,
+        },
+        content_type="application/json",
+    )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == f"The provided 'data_interval_end' ({data_interval_end_iso}) is in the future"
 
-    mock_start.assert_not_called()
+    mock_start_file_download_export.assert_not_called()
     assert (
         await BatchExportRun.objects.filter(
             batch_export_on_demand__team_id=team.pk,
@@ -597,3 +605,273 @@ async def test_file_download_cancel_mocked(
 
     await run.arefresh_from_db()
     assert run.status == BatchExportRun.Status.CANCELLED
+
+
+class TestFileDownloadHogQL:
+    """File download batch exports created from a user-defined HogQL query."""
+
+    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.api.file_download.posthoganalytics.feature_enabled"
+
+    @pytest.fixture
+    def enable_hogql_flag(self):
+        """Enable the hogql-batch-exports feature flag for the duration of a test."""
+        with unittest.mock.patch(self.HOGQL_FLAG_PATCH_TARGET, return_value=True):
+            yield
+
+    @pytest.fixture
+    async def hogql_export_test_events(self, clickhouse_client, team):
+        """Insert events for this and another team directly into the events table.
+
+        A hogql export reads the main (sharded) events table with no interval filter, so
+        the test controls exactly which rows exist there: no duplicates, plus another
+        team's rows to verify only this team's data is exported.
+        """
+        timestamp = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+        events = generate_test_events(
+            count=10,
+            team_id=team.pk,
+            possible_datetimes=[timestamp],
+            event_name="test-{i}",
+            properties={"$browser": "Chrome"},
+        )
+        events_from_other_team = generate_test_events(
+            count=3,
+            team_id=team.pk + random.randint(1, 1000),
+            possible_datetimes=[timestamp],
+            event_name="test-{i}",
+            properties={"$browser": "Chrome"},
+        )
+        await insert_event_values_in_clickhouse(
+            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
+        )
+        return events
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_rejected_when_flag_disabled(
+        self, async_client: AsyncClient, team, user, mock_start_file_download_export
+    ):
+        await async_client.aforce_login(user)
+
+        with unittest.mock.patch(self.HOGQL_FLAG_PATCH_TARGET, return_value=False) as mock_flag:
+            response = await async_client.post(
+                f"/api/projects/{team.pk}/file_download_batch_exports",
+                {
+                    "file": {"format": "Parquet"},
+                    "model": "hogql",
+                    "hogql_query": "SELECT event AS event FROM events",
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert mock_flag.call_args[0][0] == "hogql-batch-exports"
+        mock_start_file_download_export.assert_not_called()
+        assert await sync_to_async(lambda: BatchExportSource.objects.for_team(team.pk).count())() == 0
+
+    @pytest.mark.parametrize(
+        "body_overrides,expected_error_fragment",
+        [
+            pytest.param(
+                {"hogql_query": None},
+                "'hogql_query' is required when 'model' is 'hogql'",
+                id="missing-query",
+            ),
+            pytest.param(
+                {"hogql_query": "this is not hogql"},
+                "Failed to parse HogQL query",
+                id="unparseable-query",
+            ),
+            pytest.param(
+                {"hogql_query": "SELECT event AS event FROM events WHERE {filters}"},
+                "Placeholders are not supported",
+                id="placeholder-query",
+            ),
+            pytest.param(
+                {"hogql_query": "SELECT count() FROM events"},
+                "must be a field or have an alias",
+                id="unaliased-expression-column",
+            ),
+            pytest.param(
+                {"hogql_query": "SELECT x AS x FROM no_such_table"},
+                "Invalid HogQL query",
+                id="unknown-table",
+            ),
+            pytest.param(
+                {"data_interval_start": "2026-01-01T00:00:00+00:00", "data_interval_end": "2026-01-02T00:00:00+00:00"},
+                "not supported when 'model' is 'hogql'",
+                id="intervals-with-hogql",
+            ),
+            pytest.param(
+                {"include": ["my-event"]},
+                "'include' and 'exclude' are not supported when 'model' is 'hogql'",
+                id="include-with-hogql",
+            ),
+            pytest.param(
+                {"model": "events"},
+                "'hogql_query' is only supported when 'model' is 'hogql'",
+                id="query-with-events-model",
+            ),
+            pytest.param(
+                {"model": "events", "hogql_query": None},
+                "'data_interval_start' and 'data_interval_end' are required",
+                id="events-model-missing-intervals",
+            ),
+        ],
+    )
+    @pytest.mark.usefixtures("enable_hogql_flag")
+    @pytest.mark.django_db(transaction=True)
+    async def test_rejects_invalid_requests(
+        self,
+        async_client: AsyncClient,
+        team,
+        user,
+        mock_start_file_download_export,
+        body_overrides,
+        expected_error_fragment,
+    ):
+        await async_client.aforce_login(user)
+
+        body: dict = {
+            "file": {"format": "Parquet"},
+            "model": "hogql",
+            "hogql_query": "SELECT event AS event FROM events",
+        }
+        for key, value in body_overrides.items():
+            if value is None:
+                body.pop(key, None)
+            else:
+                body[key] = value
+
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports",
+            body,
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error_fragment in response.content.decode()
+        mock_start_file_download_export.assert_not_called()
+        assert (
+            await BatchExportRun.objects.filter(
+                batch_export_on_demand__team_id=team.pk,
+                batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+            ).acount()
+            == 0
+        )
+        assert await sync_to_async(lambda: BatchExportSource.objects.for_team(team.pk).count())() == 0
+
+    @pytest.mark.usefixtures("enable_hogql_flag")
+    @pytest.mark.django_db(transaction=True)
+    async def test_create(self, async_client: AsyncClient, team, user, mock_start_file_download_export):
+        """A hogql create request stores the query on a source and threads it to the workflow.
+
+        The run's data interval is faked as now/now: hogql exports have no interval, but
+        everything downstream formats concrete bounds.
+        """
+        await async_client.aforce_login(user)
+        hogql_query = "SELECT event AS event, distinct_id AS distinct_id FROM events"
+
+        before = dt.datetime.now(dt.UTC)
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports",
+            {
+                "file": {"format": "Parquet"},
+                "model": "hogql",
+                "hogql_query": hogql_query,
+            },
+            content_type="application/json",
+        )
+        after = dt.datetime.now(dt.UTC)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+        with team_scope(team_id=team.pk, canonical=True):
+            run = await BatchExportRun.objects.select_related(
+                "batch_export_on_demand__source", "batch_export_on_demand__destination"
+            ).aget(id=response.json()["id"])
+
+        assert run.data_interval_start == run.data_interval_end
+        assert before <= run.data_interval_end <= after
+        on_demand = run.batch_export_on_demand
+        assert on_demand is not None
+        assert on_demand.model == "hogql"
+        assert on_demand.source is not None
+        assert on_demand.source.hogql_query == hogql_query
+        assert on_demand.source.team_id == team.pk
+        assert "include_events" not in on_demand.destination.config
+
+        mock_start_file_download_export.assert_called_once()
+        batch_export_model = mock_start_file_download_export.call_args.kwargs["batch_export_model"]
+        assert batch_export_model.name == "hogql"
+        assert batch_export_model.hogql_query == hogql_query
+
+    @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
+    @pytest.mark.django_db(transaction=True)
+    async def test_end_to_end(self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events):
+        """A hogql export produces a downloadable file whose contents match the query results."""
+        await async_client.aforce_login(user)
+
+        hogql_query = """
+        SELECT event AS event, distinct_id AS distinct_id, properties.$browser AS browser
+        FROM events
+        """
+
+        async with Worker(
+            temporal_client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=WORKFLOWS,
+            activities=ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            response = await async_client.post(
+                f"/api/projects/{team.pk}/file_download_batch_exports",
+                {
+                    "file": {"format": "Parquet", "compression": "zstd"},
+                    "model": "hogql",
+                    "hogql_query": hogql_query,
+                },
+                content_type="application/json",
+            )
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+            run_id = response.json()["id"]
+
+            timeout = 60
+            start = time.monotonic()
+            files = None
+            while True:
+                status_response = await async_client.get(
+                    f"/api/projects/{team.pk}/file_download_batch_exports/{run_id}",
+                )
+                data = status_response.json()
+                assert data["status"] in ("Starting", "Running", "Completed"), status_response.json()
+                assert data.get("error", None) is None
+
+                if data["status"] == "Completed":
+                    files = data["files"]
+                    break
+
+                if time.monotonic() - start > timeout:
+                    raise TimeoutError("Batch export run took too long to complete")
+
+                await asyncio.sleep(2)
+
+        assert files is not None and len(files) == 1
+        response = await async_client.get(
+            f"/api/projects/{team.pk}/file_download_batch_exports/{run_id}/download/{files[0]}",
+        )
+        assert response.status_code == 302
+        pre_signed_url = response["Location"]
+
+        async with aiohttp.ClientSession() as s:
+            async with s.get(pre_signed_url) as resp:
+                content = await resp.read()
+
+                assert resp.status == 200, f"Invalid status: {resp.status}: {content!r}"
+
+        table = pq.read_table(pa.BufferReader(content))
+
+        assert table.column_names == ["event", "distinct_id", "browser"]
+        exported_rows = sorted((row["event"], row["distinct_id"], row["browser"]) for row in table.to_pylist())
+        expected_rows = sorted((e["event"], e["distinct_id"], "Chrome") for e in hogql_export_test_events)
+        assert exported_rows == expected_rows

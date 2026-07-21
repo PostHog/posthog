@@ -407,8 +407,8 @@
             "type": "string"
         },
         "model": {
-            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions",
-            "enum": ["events", "persons", "sessions"],
+            "description": "Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions\n* `hogql` - Hogql",
+            "enum": ["events", "persons", "sessions", "hogql"],
             "type": "string"
         },
         "name": {

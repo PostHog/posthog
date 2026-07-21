@@ -5,7 +5,6 @@ import typing
 import datetime as dt
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -18,7 +17,11 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError, parse_hogql_select_for_batch_export
+from products.batch_exports.backend.hogql_source import (
+    UnsupportedHogQLQueryError,
+    create_hogql_context_for_batch_export,
+    parse_hogql_select_for_batch_export,
+)
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal import sql
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -75,18 +78,10 @@ class RecordBatchModel(abc.ABC):
     async def get_hogql_context(self) -> HogQLContext:
         """Return a HogQLContext to generate a ClickHouse query."""
         team = await Team.objects.aget(id=self.team_id)
-        context = HogQLContext(
-            team=team,
-            team_id=team.id,
-            enable_select_queries=True,
-            limit_top_select=False,
-            values={
-                "log_comment": self.get_log_comment(),
-            },
+        # Building the context reads from Postgres, so it must run off the event loop.
+        return await database_sync_to_async(create_hogql_context_for_batch_export)(
+            team, values={"log_comment": self.get_log_comment()}
         )
-        context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
-
-        return context
 
     def get_log_comment(self) -> str:
         tags = query_tagging.get_query_tags()
