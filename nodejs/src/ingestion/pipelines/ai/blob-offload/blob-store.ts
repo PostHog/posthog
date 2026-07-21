@@ -80,12 +80,13 @@ export class S3BlobStore implements BlobStore {
         }
         // Self-copy resets the object's creation date, which the bucket's 31-day
         // lifecycle rule keys on — every object outlives its last reference by ≥30d.
+        // S3 URL-decodes CopySource (unlike Key), so path segments must be percent-encoded.
         await this.timed('copy', () =>
             this.s3.send(
                 new CopyObjectCommand({
                     Bucket,
                     Key,
-                    CopySource: `${Bucket}/${Key}`,
+                    CopySource: `${Bucket}/${Key.split('/').map(encodeURIComponent).join('/')}`,
                     MetadataDirective: 'REPLACE',
                     ContentType: blob.mime,
                 }),
@@ -107,9 +108,18 @@ export interface AiBlobS3Config {
     AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 }
 
+// The 31-day bucket lifecycle must outlive touch age + the 30-day ai_events row TTL,
+// or pointers in live rows would reference expired objects.
+const MAX_TOUCH_AFTER_HOURS = 24
+
 export function buildAiBlobStore(config: AiBlobS3Config): S3BlobStore | null {
     if (!config.AI_BLOB_S3_BUCKET) {
         return null
+    }
+    if (config.AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS > MAX_TOUCH_AFTER_HOURS) {
+        throw new Error(
+            `AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS must be at most ${MAX_TOUCH_AFTER_HOURS}, got ${config.AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS}`
+        )
     }
     const s3Config: S3ClientConfig = { region: config.AI_BLOB_S3_REGION }
     if (config.AI_BLOB_S3_ENDPOINT) {

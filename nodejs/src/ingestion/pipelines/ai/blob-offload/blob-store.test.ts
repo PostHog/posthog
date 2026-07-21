@@ -65,6 +65,22 @@ describe('S3BlobStore', () => {
         })
     })
 
+    it('URI-encodes CopySource so prefixes with special characters can refresh', async () => {
+        const spaced = new S3BlobStore(s3, {
+            bucket: 'blobs',
+            prefix: 'ai blobs/v+1/',
+            touchAfterMs: 20 * 3600 * 1000,
+            timeoutMs: 30000,
+        })
+        send.mockResolvedValueOnce({ LastModified: new Date(NOW.getTime() - 25 * 3600 * 1000) }).mockResolvedValueOnce(
+            {}
+        )
+        await expect(spaced.ensureStored(2, BLOB)).resolves.toBe('touched')
+        const copy = send.mock.calls[1][0]
+        expect(copy.input.Key).toBe(`ai blobs/v+1/2/sha256/${HASH}`)
+        expect(copy.input.CopySource).toBe(`blobs/ai%20blobs/v%2B1/2/sha256/${HASH}`)
+    })
+
     it('treats a HEAD response without LastModified as stale', async () => {
         send.mockResolvedValueOnce({}).mockResolvedValueOnce({})
         await expect(store().ensureStored(2, BLOB)).resolves.toBe('touched')
@@ -128,5 +144,21 @@ describe('S3BlobStore', () => {
             AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
         }
         expect(buildAiBlobStore(base)).not.toBeNull()
+    })
+
+    // 31d bucket lifecycle − 30d row TTL leaves at most 24h of touch slack; a
+    // larger window silently produces pointers that outlive their objects.
+    it('rejects a touch-after window that could outlive the lifecycle safety margin', () => {
+        const base = {
+            AI_BLOB_S3_BUCKET: 'blobs',
+            AI_BLOB_S3_PREFIX: '',
+            AI_BLOB_S3_ENDPOINT: '',
+            AI_BLOB_S3_REGION: 'us-east-1',
+            AI_BLOB_S3_ACCESS_KEY_ID: '',
+            AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+            AI_BLOB_S3_TIMEOUT_MS: 30000,
+            AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 48,
+        }
+        expect(() => buildAiBlobStore(base)).toThrow()
     })
 })

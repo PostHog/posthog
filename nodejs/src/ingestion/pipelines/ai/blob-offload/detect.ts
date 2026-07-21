@@ -22,9 +22,10 @@ export interface ExtractionResult {
 
 const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/
 const MIME = /^[\w.+-]+\/[\w.+-]+$/
-// Canonical base64 only (no whitespace, padding only terminal, length % 4 === 0): provider
-// `data` fields are never wrapped, and Buffer.from decodes leniently enough that a looser
-// match would silently corrupt long plain text that happens to fit the charset.
+// Canonical base64 only (padding only terminal, length % 4 === 0): Buffer.from decodes
+// leniently (stops at the first mid-string `=`), so a looser check would silently replace
+// a payload with a pointer to its truncated decode. Provider `data` fields must match
+// as-is; data-URI bodies may wrap with whitespace and are compacted before the check.
 const CANONICAL_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 interface Extraction {
@@ -60,7 +61,11 @@ function extractFromString(state: Extraction, value: string): string {
     if (!match) {
         return value
     }
-    const pointer = pointerFor(state, match[2], match[1], 'data_uri')
+    const compact = match[2].replace(/\s+/g, '')
+    if (!isBase64String(compact)) {
+        return value
+    }
+    const pointer = pointerFor(state, compact, match[1], 'data_uri')
     if (pointer) {
         state.savedChars += value.length - pointer.length
         return pointer
@@ -72,50 +77,65 @@ function isBase64String(value: unknown): value is string {
     return typeof value === 'string' && value.length % 4 === 0 && CANONICAL_BASE64.test(value)
 }
 
+interface ProviderBlob {
+    data: string
+    mime: string
+    detector: BlobDetector
+}
+
 /** Shape detectors for providers that carry raw base64 with the mime in a sibling field. */
-function extractFromObject(
-    state: Extraction,
-    obj: Record<string, unknown>,
-    parentKey: string | null
-): Record<string, unknown> {
+function providerBlob(obj: Record<string, unknown>, parentKey: string | null): ProviderBlob | null {
     if (
         obj.type === 'base64' &&
         typeof obj.media_type === 'string' &&
         MIME.test(obj.media_type) &&
         isBase64String(obj.data)
     ) {
-        const pointer = pointerFor(state, obj.data, obj.media_type, 'anthropic_source')
-        if (pointer) {
-            state.savedChars += obj.data.length - pointer.length
-            return { ...obj, data: pointer }
-        }
+        return { data: obj.data, mime: obj.media_type, detector: 'anthropic_source' }
     }
     const geminiMime =
         typeof obj.mimeType === 'string' ? obj.mimeType : typeof obj.mime_type === 'string' ? obj.mime_type : null
     if (geminiMime && MIME.test(geminiMime) && isBase64String(obj.data)) {
-        const pointer = pointerFor(state, obj.data, geminiMime, 'gemini_inline_data')
+        return { data: obj.data, mime: geminiMime, detector: 'gemini_inline_data' }
+    }
+    // The composed mime is validated as a whole: `format` is attacker-controlled and
+    // flows into the S3 Content-Type header, where invalid characters crash the sender.
+    if (
+        parentKey === 'input_audio' &&
+        typeof obj.format === 'string' &&
+        MIME.test(`audio/${obj.format}`) &&
+        isBase64String(obj.data)
+    ) {
+        return { data: obj.data, mime: `audio/${obj.format}`, detector: 'openai_input_audio' }
+    }
+    return null
+}
+
+function extractFromObject(
+    state: Extraction,
+    obj: Record<string, unknown>,
+    parentKey: string | null
+): Record<string, unknown> {
+    let base = obj
+    const match = providerBlob(obj, parentKey)
+    if (match) {
+        const pointer = pointerFor(state, match.data, match.mime, match.detector)
         if (pointer) {
-            state.savedChars += obj.data.length - pointer.length
-            return { ...obj, data: pointer }
+            state.savedChars += match.data.length - pointer.length
+            base = { ...obj, data: pointer }
         }
     }
-    if (parentKey === 'input_audio' && typeof obj.format === 'string' && isBase64String(obj.data)) {
-        const pointer = pointerFor(state, obj.data, `audio/${obj.format}`, 'openai_input_audio')
-        if (pointer) {
-            state.savedChars += obj.data.length - pointer.length
-            return { ...obj, data: pointer }
-        }
-    }
-    let changed = false
-    const rewritten: Record<string, unknown> = {}
-    for (const [key, child] of Object.entries(obj)) {
+    let changed = base !== obj
+    const entries: [string, unknown][] = []
+    for (const [key, child] of Object.entries(base)) {
         const newChild = extractFromNode(state, child, key)
-        rewritten[key] = newChild
+        entries.push([key, newChild])
         if (newChild !== child) {
             changed = true
         }
     }
-    return changed ? rewritten : obj
+    // fromEntries defines own properties, so a JSON-parsed `__proto__` key survives the rewrite.
+    return changed ? Object.fromEntries(entries) : obj
 }
 
 function extractFromNode(state: Extraction, node: unknown, parentKey: string | null): unknown {

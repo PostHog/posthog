@@ -99,6 +99,32 @@ describe('offloadAiBlobsStep', () => {
         )
     })
 
+    it('caps concurrent blob uploads while still storing every blob', async () => {
+        let inFlight = 0
+        let highWater = 0
+        let calls = 0
+        const store: BlobStore = {
+            ensureStored: async (): Promise<EnsureStoredOutcome> => {
+                calls++
+                inFlight++
+                highWater = Math.max(highWater, inFlight)
+                await new Promise((resolve) => setImmediate(resolve))
+                inFlight--
+                return 'uploaded'
+            },
+        }
+        const step = createOffloadAiBlobsStep(store, CONFIG)
+        const parts = Array.from({ length: 20 }, (_, i) => ({
+            image_url: { url: `data:image/png;base64,${Buffer.alloc(8192, i).toString('base64')}` },
+        }))
+        const result = await step(makeInput({ $ai_input: parts }))
+        if (!isOkResult(result)) {
+            throw new Error('expected ok result')
+        }
+        expect(calls).toBe(20)
+        expect(highWater).toBeLessThanOrEqual(8)
+    })
+
     it('deduplicates identical blobs across multiple heavy props', async () => {
         const store = new FakeBlobStore()
         const step = createOffloadAiBlobsStep(store, CONFIG)

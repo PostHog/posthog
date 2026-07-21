@@ -32,6 +32,21 @@ function mimeFamily(mime: string): string {
     return MIME_FAMILIES.has(family) ? family : 'other'
 }
 
+const MAX_CONCURRENT_UPLOADS = 8
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    const results = new Array<R>(items.length)
+    let next = 0
+    const worker = async (): Promise<void> => {
+        while (next < items.length) {
+            const i = next++
+            results[i] = await fn(items[i])
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+    return results
+}
+
 export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
     store: BlobStore | null,
     config: OffloadAiBlobsConfig
@@ -83,8 +98,12 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         const blobs = [...blobsByHash.values()]
         // Upload-before-emit: every blob must be confirmed durable before the
         // rewritten event exists anywhere. A failure rejects the step; the
-        // pipeline's retry option owns transient failures.
-        const outcomes = await Promise.all(blobs.map((blob) => store.ensureStored(input.team.id, blob)))
+        // pipeline's retry option owns transient failures. Concurrency is bounded
+        // so a many-blob event can't monopolize the S3 socket pool, and the
+        // per-request timeout starts when a request runs, not when it's queued.
+        const outcomes = await mapWithConcurrency(blobs, MAX_CONCURRENT_UPLOADS, (blob) =>
+            store.ensureStored(input.team.id, blob)
+        )
 
         recordBelowFloor()
         blobs.forEach((blob, i) => {

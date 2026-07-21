@@ -1,11 +1,16 @@
 import { createHash } from 'crypto'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { extractBlobs } from './detect'
 import { parseBlobPointer } from './pointer'
 
 const PNG_BYTES = Buffer.alloc(20000, 7)
 const PNG_B64 = PNG_BYTES.toString('base64')
 const PNG_HASH = createHash('sha256').update(PNG_BYTES).digest('hex')
+const JPEG_BYTES = Buffer.alloc(20000, 9)
+const JPEG_B64 = JPEG_BYTES.toString('base64')
+const JPEG_HASH = createHash('sha256').update(JPEG_BYTES).digest('hex')
 const OPTS = { minBase64Length: 8192 }
 
 describe('extractBlobs', () => {
@@ -113,5 +118,47 @@ describe('extractBlobs', () => {
         const result = extractBlobs(input, OPTS)
         expect(result.blobs).toHaveLength(0)
         expect(result.value).toEqual(input)
+    })
+
+    it.each([
+        ['crlf header injection', 'mp3\r\nX-Injected: 1'],
+        ['non-latin1 characters', 'mp3🎵'],
+        ['spaces', 'mp3 audio'],
+    ])('leaves input_audio inline when format is not a valid mime subtype (%s)', (_name, format) => {
+        const input = { type: 'input_audio', input_audio: { data: PNG_B64, format } }
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(0)
+        expect(result.value).toEqual(input)
+    })
+
+    it.each([
+        ['host blob above the floor', PNG_B64, 2],
+        ['host blob below the floor', Buffer.alloc(100, 1).toString('base64'), 1],
+    ])('rewrites sibling data URIs inside a matched provider shape (%s)', (_name, hostData, expectedBlobs) => {
+        const input = {
+            type: 'base64',
+            media_type: 'image/png',
+            data: hostData,
+            preview: { image_url: { url: `data:image/jpeg;base64,${JPEG_B64}` } },
+        }
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(expectedBlobs)
+        const rewritten = result.value as typeof input
+        expect(parseBlobPointer(rewritten.preview.image_url.url)?.hash).toBe(JPEG_HASH)
+    })
+
+    it('preserves a JSON-parsed __proto__ field during rewrites', () => {
+        const input = parseJSON(`{"image_url":{"url":"data:image/png;base64,${PNG_B64}"},"__proto__":{"marker":1}}`)
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect(JSON.stringify(result.value)).toContain('"__proto__":{"marker":1}')
+        expect(Object.getPrototypeOf(result.value)).toBe(Object.prototype)
+    })
+
+    it('leaves data URIs with non-canonical base64 inline instead of truncated-decoding them', () => {
+        const url = `data:image/png;base64,AAAA=${PNG_B64}`
+        const result = extractBlobs({ image_url: { url } }, OPTS)
+        expect(result.blobs).toHaveLength(0)
+        expect((result.value as { image_url: { url: string } }).image_url.url).toBe(url)
     })
 })
