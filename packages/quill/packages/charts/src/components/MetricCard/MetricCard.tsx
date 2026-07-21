@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import type { ChartTheme } from '../../core/types'
+import type { ChartTheme, Series } from '../../core/types'
 import {
     ArrowRightIcon,
     type ChangeColor,
@@ -30,6 +30,10 @@ export interface MetricCardProps {
     /** Series values. When present, a sparkline renders below the headline and hovering a point
      *  swaps the headline. */
     data?: number[]
+    /** Multi-series sparkline (one line per series). When set, `data`, `color`, and
+     *  `sparklineDashedFromIndex` are ignored — express those per series. The headline, hover, and
+     *  change pill operate on the per-index total across all series. */
+    series?: Series[]
     /** Labels paired with `data`. Used for the default subtitle on hover. */
     labels?: string[]
     /** Required when `data` is present. */
@@ -100,6 +104,7 @@ function MetricCardInner({
     title,
     value,
     data,
+    series,
     labels,
     theme,
     color,
@@ -131,7 +136,16 @@ function MetricCardInner({
     className,
     dataAttr,
 }: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
-    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
+    // Multi-series draws N lines; the metric engine (headline, hover, change) still runs on a single
+    // number[] — the per-index total across those series — so a stat tile reads as one number.
+    const multiSeries = series != null && series.length > 0 && theme != null ? series : null
+    const sparklineData = useMemo<number[] | null>(() => {
+        if (multiSeries) {
+            const length = Math.max(0, ...multiSeries.map((s) => s.data.length))
+            return Array.from({ length }, (_, i) => multiSeries.reduce((acc, s) => acc + (s.data[i] ?? 0), 0))
+        }
+        return data != null && data.length > 0 && theme != null ? data : null
+    }, [multiSeries, data, theme])
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
@@ -284,7 +298,8 @@ function MetricCardInner({
 
             {sparklineData && theme && (
                 <Sparkline
-                    data={sparklineData}
+                    data={multiSeries ? undefined : sparklineData}
+                    series={multiSeries ?? undefined}
                     labels={labels}
                     theme={theme}
                     color={color}

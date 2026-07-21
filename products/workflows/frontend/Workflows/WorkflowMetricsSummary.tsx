@@ -244,6 +244,7 @@ export function WorkflowMetricsSummary({
                             timeSeries={timeSeries}
                             previousPeriodTimeSeries={previousPeriodTimeSeries}
                             color={METRIC_COLORS[name] ?? metric.color}
+                            seriesColors={METRIC_COLORS}
                             colorIfZero={getColorVar('muted')}
                             footer={
                                 summaryMetric === 'converted' &&
