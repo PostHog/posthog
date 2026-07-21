@@ -19,9 +19,6 @@ tools:
             destructive: false
             idempotent: false
         enrich_url: '{id}'
-        # The frontend parses the created entity's id/name out of the tool result for the
-        # "Open dashboard" toast — TOON text would defeat that parse.
-        output_format: json
         title: Create dashboard
         description: >
             Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
@@ -40,6 +37,7 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+        output_format: json
         response:
             exclude:
                 - effective_restriction_level
