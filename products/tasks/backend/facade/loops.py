@@ -21,6 +21,7 @@ Permission model (see LOOPS.md "Access control"):
 
 import json
 import base64
+import logging
 from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
@@ -34,7 +35,7 @@ from pydantic.dataclasses import dataclass
 
 from posthog.models import User
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
@@ -43,6 +44,8 @@ from products.tasks.backend import loop_service
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.loop_lifecycle import pause_loops_for_deactivated_user, pause_loops_referencing_integrations
 from products.tasks.backend.models import Loop, LoopTrigger, SandboxEnvironment, Task, TaskRun
+
+logger = logging.getLogger(__name__)
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe for presentation to import for serializer choices.
@@ -568,19 +571,25 @@ def repository_accessible_via_integration(team_id: int, integration_id: int, ful
     reach. A GitHub App installation can be shared across projects, so verifying only that the
     integration row belongs to the team is not enough: a member could otherwise point a loop at
     another project's private repo and have it read or written through the installation-wide token.
-    Match against the integration's cached accessible-repository list. A populated cache that lacks
-    the repo is a hard reject; a cache that was never synced stays permissive rather than blocking
-    creation on a cold cache (mirrors `_user_integration_has_repository` in the task run path)."""
+
+    Fails closed. `list_all_cached_repositories` refreshes a cold or stale cache from GitHub, and we
+    accept only an exact match against the resulting list. A missing/invalidated cache is a normal
+    state, so treating it as permissive would leave the cross-project boundary bypassable; if the
+    list can't be resolved (refresh error, no snapshot) we reject rather than authorize."""
     integration = Integration.objects.filter(team_id=team_id, kind="github", id=integration_id).first()
     if integration is None:
         return False
     normalized = full_name.strip().lower()
-    cached = integration.repository_cache
-    if isinstance(cached, list) and any(
-        isinstance(repo, dict) and str(repo.get("full_name", "")).lower() == normalized for repo in cached
-    ):
-        return True
-    return integration.repository_cache_updated_at is None
+    try:
+        repositories = GitHubIntegration(integration).list_all_cached_repositories()
+    except Exception:
+        logger.warning(
+            "loop_repository_access_check_unavailable",
+            exc_info=True,
+            extra={"team_id": team_id, "integration_id": integration_id},
+        )
+        return False
+    return any(isinstance(repo, dict) and str(repo.get("full_name", "")).lower() == normalized for repo in repositories)
 
 
 def _desktop_node_exists(team_id: int, node_id: str, *, node_type: str) -> bool:

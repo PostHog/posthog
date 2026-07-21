@@ -847,6 +847,27 @@ class LoopInternalFacadeTest(LoopsAPITestCase):
                 },
             )
 
+    @patch("products.tasks.backend.facade.loops.GitHubIntegration")
+    def test_repository_access_requires_an_exact_cache_match(self, mock_github):
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/allowed"}]
+
+        self.assertTrue(
+            loops_facade.repository_accessible_via_integration(self.team.id, integration.id, "acme/allowed")
+        )
+        self.assertFalse(loops_facade.repository_accessible_via_integration(self.team.id, integration.id, "acme/other"))
+
+    @patch("products.tasks.backend.facade.loops.GitHubIntegration")
+    def test_repository_access_fails_closed_when_the_repo_list_is_unavailable(self, mock_github):
+        # A cold or invalidated cache that can't be refreshed must reject, not authorize: otherwise a
+        # member could point a loop at another project's private repo reachable by the shared install.
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        mock_github.return_value.list_all_cached_repositories.side_effect = Exception("github unavailable")
+
+        self.assertFalse(
+            loops_facade.repository_accessible_via_integration(self.team.id, integration.id, "acme/allowed")
+        )
+
     def test_malformed_behaviors_row_does_not_break_the_loop_list(self):
         # A facade-bypass or backfill could leave a malformed behaviors shape; one bad row must not
         # 500 the whole list read.
