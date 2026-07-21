@@ -761,29 +761,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     ):
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
-    # Hand a refused/escalated PR to ReviewHog regardless of review mode: stamphog couldn't sign off,
-    # so a deeper, second-opinion review is wanted. Adding the ReviewHog trigger label fires its
-    # workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
-    # strip it). Same verdict condition as the trigger-label strip above, for the same reason — a
-    # gate-blocked refusal counts. This is a secondary, cross-product notification that must never
-    # jeopardize the verdict, so it is single-shot best-effort: the refusal's sticky comment is already
-    # posted and run.verdict is set in-memory above, but the durable terminal save below runs AFTER this
-    # call, so any exception that escaped here would skip it, exhaust the activity retries, and land at
-    # mark_review_failed — a delivered refusal rewritten to FAILED with no persisted verdict. Catching
-    # every exception (not just StamphogGitHubError) closes that: the client raises its own error class
-    # for unexpected statuses, but rate limits raise GitHubRateLimitError and network blips raise
-    # requests.RequestException from the egress layer, neither a subclass of StamphogGitHubError. The
-    # sticky upsert above is idempotent, so a missed handoff is a missed handoff, not corruption.
-    if parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
-        try:
-            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
-        except Exception:
-            activity.logger.exception(
-                "stamphog: reviewhog handoff failed; verdict still posted",
-                repo=repo,
-                pr_number=pull_request.pr_number,
-            )
-
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at
     # Conditional terminal save: a delivery superseding this run between the guards above and here
@@ -804,6 +781,29 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
+
+    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
+    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
+    # then overrode (a newer run might approve the same head). Same verdict condition as the
+    # trigger-label strip above (keyed off parsed.verdict, not run.verdict, so a gate-blocked refusal
+    # counts), in both review modes: stamphog couldn't sign off, so a deeper second-opinion review is
+    # wanted. Adding the ReviewHog trigger label fires its workflow (review-hog.yml exempts
+    # stamphog[bot] from the bot-labeler-skip that would otherwise strip it). This is a secondary,
+    # cross-product notification that must never jeopardize the verdict — the refusal is already
+    # durably saved, so it is single-shot best-effort: catching every exception (not just
+    # StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
+    # requests.RequestException the egress layer raises on rate limits and network blips, neither a
+    # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
+    # missed handoff, not corruption.
+    if parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        try:
+            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
+        except Exception:
+            # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
+            # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
+            activity.logger.exception(
+                f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
+            )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this

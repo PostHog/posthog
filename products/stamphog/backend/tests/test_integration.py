@@ -1130,6 +1130,42 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
     assert run.verdict == ReviewVerdict.REFUSED
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain: StamphogChain) -> None:
+    # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
+    # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
+    # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
+    # returns skipped_superseded and the reviewhog label is never added.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-refused-superseded"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": _refused_engine_output()},
+    )
+    # A concurrent delivery flips the run to SUPERSEDED during the sticky-comment post (before the
+    # terminal save), so the conditional .exclude(status=SUPERSEDED).update(...) matches nothing and the
+    # run returns skipped_superseded. This reaches the terminal-save early return, NOT the top guard —
+    # the run is REVIEWING at load.
+    original_post_sticky = activities._post_sticky
+
+    def _supersede_then_post(client, repo, pr, body) -> None:
+        ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
+        original_post_sticky(client, repo, pr, body)
+
+    with patch.object(activities, "_post_sticky", side_effect=_supersede_then_post):
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_superseded"}
+    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
+
+
 @pytest.mark.parametrize(
     "review_enabled,approved_at_sha,expected_audience_key",
     [
