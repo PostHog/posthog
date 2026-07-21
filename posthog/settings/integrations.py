@@ -1,5 +1,7 @@
+import os
+
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # integration-gateway (Rust credential service). URL Django/consumers call, and the dedicated
 # scoped-JWT signing secret (see posthog/integration_gateway_jwt.py). The secret defaults to a known
@@ -11,6 +13,10 @@ INTEGRATION_GATEWAY_JWT_SECRET = get_from_env(
     "INTEGRATION_GATEWAY_JWT_SECRET",
     LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET if DEBUG or TEST else "",
 )
+# Integration kinds the gateway refreshes, sharing the exact env var the gateway reads. These are
+# excluded from the Celery refresh beat (posthog/tasks/integrations.py) so exactly one system
+# refreshes a given kind. Empty (default) = the beat refreshes everything, gateway refreshes nothing.
+INTEGRATION_GATEWAY_REFRESH_KINDS = get_list(os.getenv("INTEGRATION_GATEWAY_REFRESH_KINDS", ""))
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")

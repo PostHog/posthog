@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from celery import shared_task
 
 from posthog.models.integration import (
@@ -17,8 +19,14 @@ from products.workflows.backend.providers import SESProvider
 def refresh_integrations() -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
+    # Kinds the integration-gateway refreshes are excluded here so exactly one system refreshes a
+    # given kind (empty list by default => no change). The gateway only supports OAuth2 kinds, which
+    # is exactly this query, so a gcloud/github/firebase kind mislisted there stays refreshed below.
     oauth_integrations = defer_repository_cache_fields(
-        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).exclude(kind="meta-ads").all()
+        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
+        .exclude(kind="meta-ads")
+        .exclude(kind__in=settings.INTEGRATION_GATEWAY_REFRESH_KINDS)
+        .all()
     )
 
     for integration in oauth_integrations:

@@ -50,7 +50,8 @@ async fn pool() -> PgPool {
 async fn spawn_app(pool: PgPool) -> String {
     let decryptor = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
     let cache = cache::build(30, 1000);
-    let service = Arc::new(IntegrationService::new(pool, decryptor, cache));
+    // No RefreshManager: these tests exercise the read path (pass-through).
+    let service = Arc::new(IntegrationService::new(pool, decryptor, cache, None));
     let state = AppState {
         service,
         jwt_secrets: Arc::new(vec![JWT_SECRET.to_string()]),
@@ -192,7 +193,10 @@ async fn fetches_and_decrypts_for_owning_team() {
     assert_eq!(got["team_id"], json!(team_id));
     assert_eq!(got["kind"], json!("slack"));
     // sensitive_config is decrypted pass-through; the undecryptable leaf survives unchanged.
-    assert_eq!(got["sensitive_config"]["access_token"], json!("xoxb-secret-token"));
+    assert_eq!(
+        got["sensitive_config"]["access_token"],
+        json!("xoxb-secret-token")
+    );
     assert_eq!(got["sensitive_config"]["not_encrypted"], json!("plain"));
     // config is returned verbatim (not encrypted).
     assert_eq!(got["config"]["team"], json!("T-1234"));
@@ -203,8 +207,13 @@ async fn wrong_team_is_indistinguishable_from_not_found() {
     let pool = pool().await;
     let owner = seed_team(&pool).await;
     let other = seed_team(&pool).await;
-    let integration_id =
-        seed_integration(&pool, owner, "slack", json!({ "access_token": encrypt_leaf("x") })).await;
+    let integration_id = seed_integration(
+        &pool,
+        owner,
+        "slack",
+        json!({ "access_token": encrypt_leaf("x") }),
+    )
+    .await;
 
     let base = spawn_app(pool).await;
     let resp = reqwest::Client::new()
@@ -223,7 +232,10 @@ async fn wrong_team_is_indistinguishable_from_not_found() {
         .as_object()
         .unwrap()
         .contains_key(&integration_id.to_string()));
-    assert_eq!(body["integrations"][integration_id.to_string()], Value::Null);
+    assert_eq!(
+        body["integrations"][integration_id.to_string()],
+        Value::Null
+    );
 }
 
 #[tokio::test]

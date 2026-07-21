@@ -101,4 +101,12 @@ impl IntegrationDecryptor {
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok())
     }
+
+    /// Encrypt one value under the PRIMARY key. `MultiFernet::encrypt` uses the first key in the
+    /// chain, matching Django's `EncryptedJSONField` write path (`MultiFernet(keys).encrypt`, first
+    /// key = `ENCRYPTION_SALT_KEYS[0]`). The result is a standard Fernet token Django can decrypt.
+    /// Used by the token-refresh writer to re-encrypt rotated tokens before writing them back.
+    pub fn encrypt_leaf(&self, plaintext: &str) -> String {
+        self.multi.encrypt(plaintext.as_bytes())
+    }
 }
