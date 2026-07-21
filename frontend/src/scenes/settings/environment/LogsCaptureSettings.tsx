@@ -7,8 +7,9 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 const VALID_RETENTION_DAYS = [14, 30, 90] as const
 type LogsRetentionDays = (typeof VALID_RETENTION_DAYS)[number]
@@ -115,6 +116,7 @@ export function LogsPiiScrubSettings(): JSX.Element {
 export function LogsRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -139,6 +141,15 @@ export function LogsRetentionSettings(): JSX.Element {
     }
 
     const throttleReason = getThrottleReason()
+    const retentionFeatureDisabledReason = (retentionDays: LogsRetentionDays): string | undefined => {
+        if (retentionDays === 30 && !hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)) {
+            return 'Upgrade to a paid plan to use 30-day retention'
+        }
+        if (retentionDays === 90 && !hasAvailableFeature(AvailableFeature.LOGS_RETENTION_90D)) {
+            return 'Upgrade to a paid plan to use 90-day retention'
+        }
+        return undefined
+    }
 
     const renderOptions = (): LemonSegmentedButtonOption<LogsRetentionDays>[] => {
         const disabledReason = currentTeamLoading ? 'Loading...' : (restrictedReason ?? throttleReason ?? undefined)
@@ -152,13 +163,13 @@ export function LogsRetentionSettings(): JSX.Element {
             {
                 value: 30,
                 label: '30 days',
-                disabledReason,
+                disabledReason: disabledReason ?? retentionFeatureDisabledReason(30),
                 'data-attr': 'logs-retention-button-30d',
             },
             {
                 value: 90,
                 label: '90 days',
-                disabledReason,
+                disabledReason: disabledReason ?? retentionFeatureDisabledReason(90),
                 'data-attr': 'logs-retention-button-90d',
             },
         ]
