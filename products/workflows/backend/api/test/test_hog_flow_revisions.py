@@ -205,6 +205,7 @@ class TestHogFlowRevisions(APIBaseTest):
         results = response.json()["results"]
         assert [r["version"] for r in results] == [2, 1]
         assert results[0]["created_by"]["id"] == self.user.id
+        assert results[1]["created_by"] is None, "the bootstrap snapshot has no author and must serialize as null"
         assert "content" not in results[0]
 
         detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1")

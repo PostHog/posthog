@@ -253,13 +253,8 @@ const workflowsListRevisions = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/`,
             query: {
-                created_at: params.created_at,
-                created_by: params.created_by,
-                id: params.id,
                 limit: params.limit,
                 offset: params.offset,
-                status: params.status,
-                updated_at: params.updated_at,
             },
         })
         return await withPostHogUrl(context, result, '/workflows')

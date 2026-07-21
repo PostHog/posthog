@@ -1023,16 +1023,8 @@ export const HogFlowsRevisionsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFlowsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
-    created_at: zod.iso.datetime({ offset: true }).optional(),
-    created_by: zod.number().optional(),
-    id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    status: zod
-        .enum(['active', 'archived', 'draft'])
-        .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
-    updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
 export const HogFlowsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({

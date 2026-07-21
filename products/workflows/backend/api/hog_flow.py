@@ -1418,7 +1418,9 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
 
 
 class HogFlowRevisionBasicSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    # allow_null: the first tracked write bootstraps a snapshot of the pre-existing live content,
+    # which has no author.
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = HogFlowRevision
@@ -1710,6 +1712,9 @@ class HogFlowViewSet(
         # injects derived fields like 'trigger' and 'billable_action_types' which would otherwise make every
         # status-only PATCH look like a mixed edit.
         route_to_draft = False
+        # Resolved once, before the write transaction: the flag check can hit the network and must
+        # not extend the select_for_update row-lock hold (same rule as _maybe_reschedule_timing_edits).
+        revisions_enabled = use_workflows_revisions(self.team)
         if self._is_mcp_request(self.request):
             keys = set(self.request.data.keys())
             has_status = "status" in keys
@@ -1727,11 +1732,10 @@ class HogFlowViewSet(
             # team; otherwise active workflows stay read-only via MCP. Status-only PATCHes (lifecycle
             # tools) pass through either way, and metadata-only edits apply live once the flag is on.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                if not use_workflows_revisions(self.team):
+                if not revisions_enabled:
                     raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
 
-        # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
 
         # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
@@ -1780,9 +1784,14 @@ class HogFlowViewSet(
                 bump = False
                 if before_update is not None:
                     self._refresh_action_redirects(
-                        serializer.instance, before_update, serializer.validated_data.get("actions")
+                        serializer.instance,
+                        before_update,
+                        serializer.validated_data.get("actions"),
+                        enabled=revisions_enabled,
                     )
-                    bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
+                    bump = self._stage_revision_bump(
+                        serializer.instance, before_update, serializer.validated_data, enabled=revisions_enabled
+                    )
                 serializer.save()
                 if bump:
                     assert before_update is not None
@@ -1819,26 +1828,31 @@ class HogFlowViewSet(
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
 
-    def _refresh_action_redirects(self, target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
+    def _refresh_action_redirects(
+        self, target: HogFlow, old: HogFlow, new_actions: Optional[list], enabled: bool
+    ) -> None:
         # Skip-forward for deleted steps: refresh the redirect map whenever a live graph write is about
         # to land, while both the old graph (`old`, the locked pre-write row) and the new actions are in
         # hand. Must run before serializer.save() so the map persists in the same write, transaction,
-        # and worker reload as the graph it describes. Flag-gated with the rest of the revisions cycle.
+        # and worker reload as the graph it describes. Flag-gated with the rest of the revisions cycle;
+        # `enabled` is the caller's pre-transaction flag evaluation so no network call runs under the lock.
         # No status gate: disabling a flow doesn't purge its parked runs (the worker only cancels them
         # if they wake while the flow is still disabled), so a step deleted during a disable/re-enable
         # window needs its redirect recorded just like one deleted live.
-        if new_actions is None or not use_workflows_revisions(self.team):
+        if new_actions is None or not enabled:
             return
         target.action_redirects = compute_action_redirects(
             old.actions or [], old.edges or [], new_actions, old.action_redirects
         )
 
-    def _stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict) -> bool:
+    def _stage_revision_bump(self, instance: HogFlow, before: HogFlow, validated_data: dict, enabled: bool) -> bool:
         # Revision history: only live-content changes get a version. Compared pre-save so the bumped
         # version lands in the same UPDATE (and worker reload) as the content it describes. The
         # serializer injects derived fields (trigger, billable_action_types) into every validated
         # payload, so a status/metadata-only write compares equal here and stays unversioned.
-        if not use_workflows_revisions(self.team):
+        # `enabled` is the caller's pre-transaction flag evaluation — the flag check can hit the
+        # network and must not run under the select_for_update lock.
+        if not enabled:
             return False
         old_content = snapshot_flow_content(before)
         new_content = {
@@ -1894,13 +1908,17 @@ class HogFlowViewSet(
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
         instance = self.get_object()
 
+        # Resolved before the write transaction: the flag check can hit the network and must not
+        # extend the select_for_update row-lock hold.
+        revisions_enabled = use_workflows_revisions(self.team)
+
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
             route_to_draft = False
             if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
-                if not use_workflows_revisions(self.team):
+                if not revisions_enabled:
                     raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
                 route_to_draft = True
 
@@ -1925,8 +1943,12 @@ class HogFlowViewSet(
             if route_to_draft:
                 self._write_draft(locked, locked, serializer.validated_data)
             else:
-                self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
-                bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
+                self._refresh_action_redirects(
+                    locked, before_update, serializer.validated_data.get("actions"), enabled=revisions_enabled
+                )
+                bump = self._stage_revision_bump(
+                    locked, before_update, serializer.validated_data, enabled=revisions_enabled
+                )
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 serializer.save()
                 if bump:
@@ -2083,8 +2105,12 @@ class HogFlowViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
             serializer.is_valid(raise_exception=True)
-            self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
-            bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)
+            # enabled=True: the flag was already checked (and required) at the top of this method,
+            # before the transaction — re-evaluating it here would put a network call under the lock.
+            self._refresh_action_redirects(
+                locked, before_update, serializer.validated_data.get("actions"), enabled=True
+            )
+            bump = self._stage_revision_bump(locked, before_update, serializer.validated_data, enabled=True)
             serializer.save()
             if bump:
                 self._append_revisions(locked, before_update)
@@ -2130,7 +2156,9 @@ class HogFlowViewSet(
         return Response(self.get_serializer(locked).data)
 
     @extend_schema(responses={200: HogFlowRevisionBasicSerializer(many=True)})
-    @action(detail=True, methods=["GET"])
+    # filter_backends=[]: don't inherit the viewset's HogFlow filterset — its fields would be
+    # advertised as query params in the generated contract but silently ignored here.
+    @action(detail=True, methods=["GET"], filter_backends=[])
     def revisions(self, request: Request, *args, **kwargs):
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.

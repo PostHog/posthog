@@ -10107,7 +10107,7 @@
         "title": "Restore workflow revision",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

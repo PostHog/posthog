@@ -977,7 +977,7 @@ export interface HogFlowRevisionBasicApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PaginatedHogFlowRevisionBasicListApi {
@@ -993,7 +993,7 @@ export interface HogFlowRevisionApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
     readonly content: unknown
 }
@@ -1399,9 +1399,6 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
 } as const
 
 export type HogFlowsRevisionsListParams = {
-    created_at?: string
-    created_by?: number
-    id?: string
     /**
      * Number of results to return per page.
      */
@@ -1410,22 +1407,7 @@ export type HogFlowsRevisionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived
-     */
-    status?: HogFlowsRevisionsListStatus
-    updated_at?: string
 }
-
-export type HogFlowsRevisionsListStatus = (typeof HogFlowsRevisionsListStatus)[keyof typeof HogFlowsRevisionsListStatus]
-
-export const HogFlowsRevisionsListStatus = {
-    Active: 'active',
-    Archived: 'archived',
-    Draft: 'draft',
-} as const
 
 export type HogFlowsMetricsGlobalRetrieveParams = {
     /**

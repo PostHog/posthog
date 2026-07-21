@@ -30369,7 +30369,7 @@ export namespace Schemas {
       /** Workflow version this snapshot was published as. */
       readonly version: number;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
       readonly content: unknown;
     }
@@ -30378,7 +30378,7 @@ export namespace Schemas {
       /** Workflow version this snapshot was published as. */
       readonly version: number;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
     }
 
     export interface HogFlowRevisionRestoreRequest {
@@ -68142,9 +68142,6 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsHogFlowsRevisionsListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
     /**
      * Number of results to return per page.
      */
@@ -68153,23 +68150,7 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsRevisionsListStatus;
-    updated_at?: string;
     };
-
-    export type EnvironmentsHogFlowsRevisionsListStatus = typeof EnvironmentsHogFlowsRevisionsListStatus[keyof typeof EnvironmentsHogFlowsRevisionsListStatus];
-
-
-    export const EnvironmentsHogFlowsRevisionsListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
 
     export type EnvironmentsHogFlowsMetricsGlobalRetrieveParams = {
     /**
@@ -75799,9 +75780,6 @@ export namespace Schemas {
     } as const;
 
     export type HogFlowsRevisionsListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
     /**
      * Number of results to return per page.
      */
@@ -75810,23 +75788,7 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived
-     */
-    status?: HogFlowsRevisionsListStatus;
-    updated_at?: string;
     };
-
-    export type HogFlowsRevisionsListStatus = typeof HogFlowsRevisionsListStatus[keyof typeof HogFlowsRevisionsListStatus];
-
-
-    export const HogFlowsRevisionsListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
 
     export type HogFlowsMetricsGlobalRetrieveParams = {
     /**
