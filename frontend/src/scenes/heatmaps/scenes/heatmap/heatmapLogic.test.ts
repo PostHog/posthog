@@ -1,11 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
-import apiReal from 'lib/api'
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 import { HeatmapType } from '~/types'
 
+import { savedCreate, savedPartialUpdate, savedRetrieve } from 'products/web_analytics/frontend/generated/api'
+
 import { heatmapLogic, resolveHeatmapExportUrl } from './heatmapLogic'
+
+jest.mock('products/web_analytics/frontend/generated/api')
 
 describe('heatmapLogic', () => {
     describe('resolveHeatmapExportUrl', () => {
@@ -42,13 +46,11 @@ describe('heatmapLogic', () => {
 
     describe('createHeatmap', () => {
         let logic: ReturnType<typeof heatmapLogic.build>
-        let createSpy: jest.SpyInstance
 
         beforeEach(() => {
             initKeaTests()
-            jest.spyOn(apiReal, 'queryHogQL').mockResolvedValue({ results: [] } as any)
-            jest.spyOn(apiReal.savedHeatmaps, 'list').mockResolvedValue({ results: [], count: 0 } as any)
-            createSpy = jest.spyOn(apiReal.savedHeatmaps, 'create').mockResolvedValue({ short_id: 'new-id' } as any)
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.mocked(savedCreate).mockResolvedValue({ short_id: 'new-id' } as any)
             logic = heatmapLogic({ id: 'new' })
             logic.mount()
         })
@@ -62,7 +64,7 @@ describe('heatmapLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.createHeatmap()
             }).toFinishAllListeners()
-            expect(createSpy).not.toHaveBeenCalled()
+            expect(savedCreate).not.toHaveBeenCalled()
         })
 
         it('posts the trimmed URL rather than an empty string', async () => {
@@ -70,19 +72,20 @@ describe('heatmapLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.createHeatmap()
             }).toFinishAllListeners()
-            expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://example.com/pricing' }))
+            expect(savedCreate).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({ url: 'https://example.com/pricing' })
+            )
         })
     })
 
     describe('updateHeatmap', () => {
         let logic: ReturnType<typeof heatmapLogic.build>
-        let updateSpy: jest.SpyInstance
 
         beforeEach(async () => {
             initKeaTests()
-            jest.spyOn(apiReal, 'queryHogQL').mockResolvedValue({ results: [] } as any)
-            jest.spyOn(apiReal.savedHeatmaps, 'list').mockResolvedValue({ results: [], count: 0 } as any)
-            jest.spyOn(apiReal.savedHeatmaps, 'get').mockResolvedValue({
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.mocked(savedRetrieve).mockResolvedValue({
                 id: 1,
                 short_id: 'abc',
                 name: 'Test heatmap',
@@ -93,7 +96,6 @@ describe('heatmapLogic', () => {
                 status: 'completed',
                 has_content: false,
             } as any)
-            updateSpy = jest.spyOn(apiReal.savedHeatmaps, 'update')
             logic = heatmapLogic({ id: 'abc' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -106,7 +108,7 @@ describe('heatmapLogic', () => {
 
         it('keeps the edited URL in the field when the save fails', async () => {
             logic.actions.setDisplayUrl('https://new.example.com')
-            updateSpy.mockRejectedValueOnce(new Error('rejected'))
+            jest.mocked(savedPartialUpdate).mockRejectedValueOnce(new Error('rejected'))
 
             await expectLogic(logic, () => {
                 logic.actions.updateHeatmap()
