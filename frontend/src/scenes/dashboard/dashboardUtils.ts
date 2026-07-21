@@ -249,7 +249,7 @@ export async function getInsightWithRetry(
     insight: QueryBasedInsightModel,
     dashboardId: number,
     queryId: string,
-    refresh: 'force_blocking' | 'blocking',
+    refresh: 'force_blocking' | 'blocking' | 'async_except_on_cache_miss',
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,

@@ -3446,6 +3446,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard,
                     lastDashboardRefresh,
                 } = values
+                // Stale tiles refresh in the background (served from recent cache immediately)
+                // rather than blocking on a recompute per tile; a true cache miss still blocks so
+                // cold tiles aren't shown empty. Flag-gated for staged rollout + cost measurement.
+                const tileRefreshMode: 'blocking' | 'async_except_on_cache_miss' = values.featureFlags[
+                    FEATURE_FLAGS.DASHBOARD_ASYNC_TILE_REFRESH
+                ]
+                    ? 'async_except_on_cache_miss'
+                    : 'blocking'
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -3463,7 +3471,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             insight,
                             dashboardId,
                             queryId,
-                            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
+                            forceRefresh ? 'force_blocking' : tileRefreshMode,
                             methodOptions,
                             effectiveRefreshFilters,
                             urlVariables,

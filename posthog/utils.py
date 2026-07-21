@@ -1721,6 +1721,7 @@ def refresh_requested_by_client(request: Request) -> bool | str:
         request,
         allowed_values=[
             "async",
+            "async_except_on_cache_miss",
             "blocking",
             "force_async",
             "force_blocking",
