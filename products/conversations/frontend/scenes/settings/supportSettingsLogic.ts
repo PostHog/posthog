@@ -49,6 +49,8 @@ export interface supportSettingsLogicValues {
     aiEnabledChannels: TicketChannel[]
     aiReplyModes: Record<string, Record<string, 'bot_reply' | 'private_note'>>
     aiResolutionChannels: TicketChannel[]
+    aiSubjectGenerationEnabled: boolean
+    aiSubjectGenerationLoading: boolean
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
     conversationsDomains: string[]
@@ -401,6 +403,12 @@ export interface supportSettingsLogicActions {
     setAiResolutionChannels: (channels: TicketChannel[]) => {
         channels: TicketChannel[]
     }
+    setAiSubjectGenerationEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setAiSubjectGenerationLoading: (loading: boolean) => {
+        loading: boolean
+    }
     setAiSuggestionsEnabled: (enabled: boolean) => {
         enabled: boolean
     }
@@ -537,6 +545,7 @@ export interface supportSettingsLogicMeta {
         githubConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        aiSubjectGenerationEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
@@ -654,6 +663,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // AI suggestions
         setAiSuggestionsEnabled: (enabled: boolean) => ({ enabled }),
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
+        setAiSubjectGenerationEnabled: (enabled: boolean) => ({ enabled }),
+        setAiSubjectGenerationLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
@@ -846,6 +857,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiSubjectGenerationLoading: [
+            false,
+            {
+                setAiSubjectGenerationLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -1100,6 +1119,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
+        ],
+        aiSubjectGenerationEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.ai_subject_generation_enabled,
         ],
         aiDiagnosticsEnabled: [
             (s) => [s.currentTeam],
@@ -1561,6 +1585,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_suggestions_enabled: enabled,
+                },
+            })
+        },
+        setAiSubjectGenerationEnabled: ({ enabled }) => {
+            actions.setAiSubjectGenerationLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_subject_generation_enabled: enabled,
                 },
             })
         },

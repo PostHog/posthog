@@ -15,11 +15,13 @@ from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 
+from .ai.subject import should_generate_subject
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
 from .tasks import (
+    generate_ticket_subject,
     post_reply_to_github,
     post_reply_to_slack,
     post_reply_to_teams,
@@ -193,6 +195,40 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             capture_exception(e, {"ticket_id": item_id})
 
     transaction.on_commit(do_update)
+
+
+@receiver(post_save, sender=Comment)
+def generate_ticket_subject_on_message(sender, instance: Comment, created: bool, **kwargs):
+    """Regenerate the AI ticket subject when a public (non-private) message lands.
+
+    Fires for both customer and team/AI public messages so the subject tracks the
+    whole thread; private notes are ignored. The cheap local gates (opt-in + org
+    consent, via should_generate_subject) run before enqueue so teams that haven't
+    opted in don't spam the worker queue. The worker re-checks those and adds the
+    feature-flag gate before spending on the LLM.
+    """
+    if instance.scope != "conversations_ticket":
+        return
+
+    if not instance.item_id or not created:
+        return
+
+    if _is_private_message(instance.item_context):
+        return
+
+    team_id = instance.team_id
+    item_id = instance.item_id
+
+    def enqueue():
+        try:
+            ticket = Ticket.objects.select_related("team__organization").filter(id=item_id, team_id=team_id).first()
+            if not ticket or not should_generate_subject(ticket):
+                return
+            cast(Any, generate_ticket_subject).delay(ticket_id=str(ticket.id), team_id=team_id)
+        except Exception:
+            logger.exception("generate_ticket_subject_signal_failed", item_id=item_id)
+
+    transaction.on_commit(enqueue)
 
 
 @receiver(pre_save, sender=Comment)

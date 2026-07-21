@@ -30,6 +30,7 @@ from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
+from products.conversations.backend.ai.subject import maybe_generate_subject
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.formatting import (
@@ -2056,3 +2057,24 @@ def create_github_issue(
 
     logger.info("github_issue_created", ticket_id=str(ticket.id), repo=repo, issue_number=issue_number)
     return {"ticket_id": str(ticket.id), "issue_number": issue_number}
+
+
+@shared_task(ignore_result=True, max_retries=2, default_retry_delay=10)
+@skip_team_scope_audit
+def generate_ticket_subject(ticket_id: str, team_id: int) -> None:
+    """Generate (or refresh) an AI subject for a ticket after a public reply.
+
+    Best-effort: gates, LLM errors, and a missing ticket all just no-op. Writes with
+    a scoped `.update()` so it doesn't fire the Ticket/Comment save signals or bump
+    `updated_at` (a subject refresh shouldn't reorder the dashboard).
+    """
+    ticket = Ticket.objects.select_related("team__organization").filter(id=ticket_id, team_id=team_id).first()
+    if not ticket:
+        return
+
+    subject = maybe_generate_subject(ticket)
+    if not subject:
+        return
+
+    Ticket.objects.filter(id=ticket_id, team_id=team_id).update(subject=subject)
+    logger.info("conversations_ticket_subject_generated", ticket_id=ticket_id, team_id=team_id)

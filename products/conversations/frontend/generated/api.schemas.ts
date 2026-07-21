@@ -718,6 +718,11 @@ export interface TicketApi {
     escalation_reason?: string | null
     /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
     readonly ai_triage: unknown
+    /**
+     * AI-generated summary of what the ticket is about, refreshed as the thread grows. Null until generated. Only set for tickets without a channel-provided subject (see email_subject); managed by the AI subject generator, not directly editable.
+     * @nullable
+     */
+    readonly subject: string | null
     readonly created_at: string
     readonly updated_at: string
     readonly message_count: number
@@ -811,6 +816,11 @@ export interface PatchedTicketApi {
     escalation_reason?: string | null
     /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
     readonly ai_triage?: unknown
+    /**
+     * AI-generated summary of what the ticket is about, refreshed as the thread grows. Null until generated. Only set for tickets without a channel-provided subject (see email_subject); managed by the AI subject generator, not directly editable.
+     * @nullable
+     */
+    readonly subject?: string | null
     readonly created_at?: string
     readonly updated_at?: string
     readonly message_count?: number

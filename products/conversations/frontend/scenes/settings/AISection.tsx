@@ -45,6 +45,8 @@ export function AISection(): JSX.Element {
     const {
         aiSuggestionsEnabled,
         aiSuggestionsLoading,
+        aiSubjectGenerationEnabled,
+        aiSubjectGenerationLoading,
         aiDiagnosticsEnabled,
         aiDiagnosticsLoading,
         aiEnabledChannels,
@@ -52,8 +54,13 @@ export function AISection(): JSX.Element {
         aiResolutionChannels,
         aiReplyModes,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiSubjectGenerationEnabled,
+        setAiDiagnosticsEnabled,
+        setAiResolutionChannels,
+        setAiReplyMode,
+    } = useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
 
@@ -105,6 +112,29 @@ export function AISection(): JSX.Element {
                         so the AI can ground its replies in your company's information.
                     </LemonBanner>
                 )}
+            </SceneSection>
+
+            <SceneSection
+                title="Auto-generate ticket subjects"
+                titleSize="sm"
+                className="my-8"
+                description="When enabled, PostHog uses a lightweight AI model to write a short subject line for tickets that don't already have one, and keeps it up to date as the conversation grows. Tickets with a channel-provided subject (like email) are left untouched."
+            >
+                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Generate ticket subjects</label>
+                            <p className="text-xs text-muted-alt mb-0">
+                                Requires AI data processing consent at the organization level.
+                            </p>
+                        </div>
+                        <LemonSwitch
+                            checked={aiSubjectGenerationEnabled}
+                            onChange={(checked) => setAiSubjectGenerationEnabled(checked)}
+                            loading={aiSubjectGenerationLoading}
+                        />
+                    </div>
+                </LemonCard>
             </SceneSection>
 
             {aiSuggestionsEnabled && (

@@ -189,7 +189,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         <IdentityBadge verified={ticket.identity_verified} />
                     ) : undefined
                 }
-                description=""
+                description={ticket?.subject || ticket?.email_subject || ''}
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
                     name: 'Ticket list',

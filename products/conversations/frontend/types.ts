@@ -149,6 +149,7 @@ export interface Ticket {
     identity_verified: boolean | null
     ai_resolved: boolean
     escalation_reason?: string
+    subject?: string | null
     created_at: string
     updated_at: string
     message_count: number

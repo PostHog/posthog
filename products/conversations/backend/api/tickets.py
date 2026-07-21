@@ -252,6 +252,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "ai_resolved",
             "escalation_reason",
             "ai_triage",
+            "subject",
             "created_at",
             "updated_at",
             "message_count",
@@ -306,8 +307,16 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "person",
             "ai_triage",
             "identity_verified",
+            "subject",
         ]
         extra_kwargs = {
+            "subject": {
+                "help_text": (
+                    "AI-generated summary of what the ticket is about, refreshed as the thread grows. "
+                    "Null until generated. Only set for tickets without a channel-provided subject "
+                    "(see email_subject); managed by the AI subject generator, not directly editable."
+                )
+            },
             "identity_verified": {
                 "help_text": (
                     "Trust signal indicating whether the ticket's claimed identity was attested by the server "

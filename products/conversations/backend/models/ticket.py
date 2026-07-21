@@ -57,6 +57,11 @@ class Ticket(UUIDTModel):
     escalation_reason = models.TextField(null=True, blank=True)
     ai_triage = models.JSONField(default=dict, blank=True)
 
+    # AI-generated summary of what the ticket is about. Managed exclusively by the subject
+    # generator (products/conversations/backend/ai/subject.py); a human/channel-provided
+    # subject lives in `email_subject` and is never touched here. Null until first generated.
+    subject = models.CharField(max_length=200, null=True, blank=True)
+
     # Unread message counters
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
     unread_team_count = models.IntegerField(default=0)  # Messages team hasn't seen (from customer)
