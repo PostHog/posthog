@@ -1,4 +1,11 @@
+import { isProdEnv } from '~/common/utils/env-utils'
+
 import { ProviderCredentials, providerFor } from './providers'
+
+jest.mock('~/common/utils/env-utils', () => ({
+    ...jest.requireActual('~/common/utils/env-utils'),
+    isProdEnv: jest.fn(() => false),
+}))
 
 function creds(overrides: Partial<ProviderCredentials> = {}): ProviderCredentials {
     return {
@@ -57,5 +64,42 @@ describe('providerFor', () => {
             })
         )
         expect(provider?.tokenUrl).toBe('http://localhost:9999/token')
+    })
+
+    it('ignores the token url override in production (fail closed)', () => {
+        ;(isProdEnv as jest.Mock).mockReturnValueOnce(true)
+        const provider = providerFor(
+            'hubspot',
+            creds({
+                HUBSPOT_APP_CLIENT_ID: 'cid',
+                HUBSPOT_APP_CLIENT_SECRET: 'sec',
+                INTEGRATION_GATEWAY_REFRESH_TOKEN_URL_OVERRIDE: 'https://attacker.example.com/token',
+            })
+        )
+        expect(provider?.tokenUrl).toBe('https://api.hubapi.com/oauth/v1/token')
+    })
+
+    it('resolves salesforce to the org instance host from config.instance_url', () => {
+        const provider = providerFor(
+            'salesforce',
+            creds({ SALESFORCE_CONSUMER_KEY: 'k', SALESFORCE_CONSUMER_SECRET: 's' }),
+            {
+                instance_url: 'https://myco--sandbox.sandbox.my.salesforce.com',
+            }
+        )
+        expect(provider?.tokenUrl).toBe('https://myco--sandbox.sandbox.my.salesforce.com/services/oauth2/token')
+    })
+
+    it.each([
+        ['missing instance_url', {}],
+        ['non-salesforce host', { instance_url: 'https://evil.example.com' }],
+        ['non-https scheme', { instance_url: 'http://x.my.salesforce.com' }],
+    ])('falls back to the salesforce login url when instance_url is invalid (%s)', (_name, integrationConfig) => {
+        const provider = providerFor(
+            'salesforce',
+            creds({ SALESFORCE_CONSUMER_KEY: 'k', SALESFORCE_CONSUMER_SECRET: 's' }),
+            integrationConfig
+        )
+        expect(provider?.tokenUrl).toBe('https://login.salesforce.com/services/oauth2/token')
     })
 })

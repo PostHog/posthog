@@ -50,6 +50,12 @@ export class IntegrationService {
             const rows = await this.repository.fetchByIds(misses)
             dbLoaded = rows.length
             for (let row of rows) {
+                // Team-scope BEFORE any refresh/decrypt/cache. Skipping cross-team rows here (rather
+                // than only filtering at the end) ensures a wrong-team caller can never trigger a
+                // refresh — an outbound OAuth call plus a DB write — against another team's integration.
+                if (row.team_id !== teamId) {
+                    continue
+                }
                 // Just-in-time refresh for owned kinds before decrypt/cache, so a stale token is
                 // never cached. No-op when refresh is disabled, the kind isn't owned, the token is
                 // still fresh, or the refresh fails (fail-open).
@@ -70,7 +76,8 @@ export class IntegrationService {
             }
         }
 
-        // Team-scope isolation: drop anything not owned by the caller's team.
+        // Team-scope isolation for cache hits: the cache is keyed by integration id only, so a value
+        // populated by one team could be served to another — drop anything not owned by the caller.
         for (const [id, value] of resolved) {
             if (value.team_id !== teamId) {
                 resolved.delete(id)

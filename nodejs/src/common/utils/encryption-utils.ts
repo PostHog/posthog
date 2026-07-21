@@ -28,8 +28,15 @@ export class EncryptedFields {
         for (const key of encryptionSaltKeys.split(',').filter((k) => k)) {
             this.fernets.push(new Fernet(toFernetKey(Buffer.from(key, 'utf-8'))))
         }
-        const secrets = legacySecretKeys.split(',').filter((k) => k)
-        const salts = saltKeys.split(',').filter((k) => k)
+        // Trim like Django's get_list so a comma-separated list with spaces derives identical keys.
+        const secrets = legacySecretKeys
+            .split(',')
+            .map((k) => k.trim())
+            .filter((k) => k)
+        const salts = saltKeys
+            .split(',')
+            .map((k) => k.trim())
+            .filter((k) => k)
         for (const secret of secrets) {
             for (const salt of salts) {
                 const derived = crypto.pbkdf2Sync(secret, salt, PBKDF2_ITERATIONS, FERNET_KEY_LENGTH, 'sha256')
