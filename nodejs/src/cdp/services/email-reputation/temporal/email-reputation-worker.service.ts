@@ -131,6 +131,14 @@ export class EmailReputationWorkerService {
                 await client.schedule.getHandle(EMAIL_REPUTATION_SCHEDULE_ID).update((previous) => ({
                     ...previous,
                     spec: { calendars: [{ hour }] },
+                    // Reassert the action too: a schedule left by an older build could otherwise
+                    // keep dispatching a stale workflow type/queue/args forever.
+                    action: {
+                        type: 'startWorkflow',
+                        workflowType: EMAIL_REPUTATION_WORKFLOW_TYPE,
+                        taskQueue: EMAIL_REPUTATION_TASK_QUEUE,
+                        args: [],
+                    },
                     policies: { ...previous.policies, overlap: ScheduleOverlapPolicy.SKIP },
                 }))
                 logger.info('[EmailReputationWorker] updated existing schedule', { hour })

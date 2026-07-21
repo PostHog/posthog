@@ -32,7 +32,6 @@ export async function emailReputationEvaluation(): Promise<EmailReputationEvalua
     // `new Date()` deterministic on replay.
     const evaluatedAt = new Date().toISOString()
 
-    const plan = await fetchTeamsToEvaluate(evaluatedAt)
     const result: EmailReputationEvaluationResult = {
         evaluatedAt,
         teamsEvaluated: 0,
@@ -41,26 +40,37 @@ export async function emailReputationEvaluation(): Promise<EmailReputationEvalua
         failedBatches: 0,
     }
 
-    const batchSize = Math.max(1, plan.batchSize)
-    for (let offset = 0; offset < plan.teamIds.length; offset += batchSize) {
-        if (offset > 0 && plan.batchDelayMs > 0) {
-            await sleep(plan.batchDelayMs)
+    // The plan is cursor-paged so no single activity result carries the fleet-wide team list.
+    let cursor = 0
+    let firstBatch = true
+    for (;;) {
+        const page = await fetchTeamsToEvaluate(evaluatedAt, cursor)
+        const batchSize = Math.max(1, page.batchSize)
+        for (let offset = 0; offset < page.teamIds.length; offset += batchSize) {
+            if (!firstBatch && page.batchDelayMs > 0) {
+                await sleep(page.batchDelayMs)
+            }
+            firstBatch = false
+            const teamIds = page.teamIds.slice(offset, offset + batchSize)
+            try {
+                const summary = await evaluateTeamBatch(teamIds, evaluatedAt)
+                result.teamsEvaluated += summary.teamsEvaluated
+                result.workflowsEvaluated += summary.workflowsEvaluated
+                result.snapshotsWritten += summary.snapshotsWritten
+            } catch (error) {
+                // One poison batch must not starve every later-sorted team of snapshots for the
+                // day — the activity already retried; record and move on.
+                result.failedBatches++
+                log.error('email reputation batch failed after retries, continuing with remaining batches', {
+                    teamIds,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
         }
-        const teamIds = plan.teamIds.slice(offset, offset + batchSize)
-        try {
-            const summary = await evaluateTeamBatch(teamIds, evaluatedAt)
-            result.teamsEvaluated += summary.teamsEvaluated
-            result.workflowsEvaluated += summary.workflowsEvaluated
-            result.snapshotsWritten += summary.snapshotsWritten
-        } catch (error) {
-            // One poison batch must not starve every later-sorted team of snapshots for the day —
-            // the activity already retried; record and move on.
-            result.failedBatches++
-            log.error('email reputation batch failed after retries, continuing with remaining batches', {
-                teamIds,
-                error: error instanceof Error ? error.message : String(error),
-            })
+        if (page.nextCursor === null) {
+            break
         }
+        cursor = page.nextCursor
     }
 
     return result

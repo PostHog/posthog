@@ -69,11 +69,20 @@ export class EmailReputationService {
     ) {}
 
     /**
-     * Teams to evaluate: those that sent workflow email within the lookback, plus teams with a
-     * recent nonzero snapshot that have gone silent — the latter get an explicit carry-forward
-     * snapshot so "latest reputation" never silently goes stale.
+     * One page of teams to evaluate: those that sent workflow email within the lookback, plus
+     * teams with a recent nonzero snapshot that have gone silent — the latter get an explicit
+     * carry-forward snapshot so "latest reputation" never silently goes stale.
+     *
+     * Cursor-paginated by team id (activity results ride Temporal workflow history, so the full
+     * fleet-wide id list must never be one payload): both sources are queried for ids >
+     * `cursorTeamId` in id order, merged, and truncated to `pageSize`; `nextCursor` is null on
+     * the last page.
      */
-    public async fetchTeamsToEvaluate(evaluatedAt: string): Promise<number[]> {
+    public async fetchTeamsToEvaluate(
+        evaluatedAt: string,
+        cursorTeamId: number,
+        pageSize: number
+    ): Promise<{ teamIds: number[]; nextCursor: number | null }> {
         const result = await this.clickhouse.query({
             query: `
                 SELECT DISTINCT team_id
@@ -81,11 +90,13 @@ export class EmailReputationService {
                 WHERE app_source = 'hog_flow'
                     AND metric_kind = 'email'
                     AND metric_name = 'email_sent'
+                    AND team_id > {cursorTeamId:UInt64}
                     AND timestamp >= parseDateTimeBestEffort({evaluatedAt:String}) - INTERVAL {lookbackDays:UInt32} DAY
                     AND timestamp < parseDateTimeBestEffort({evaluatedAt:String})
                 ORDER BY team_id
+                LIMIT {pageSize:UInt32}
             `,
-            query_params: { evaluatedAt, lookbackDays: this.config.lookbackDays },
+            query_params: { evaluatedAt, cursorTeamId, pageSize, lookbackDays: this.config.lookbackDays },
             format: 'JSONEachRow',
         })
         const rows = await result.json<{ team_id: number | string }>()
@@ -94,16 +105,23 @@ export class EmailReputationService {
         const recentlyEvaluated = await this.postgres.query<{ team_id: number }>(
             PostgresUse.COMMON_READ,
             `SELECT DISTINCT team_id FROM posthog_emailreputationsnapshot
-             WHERE hog_flow_id IS NULL AND emails_sent > 0
-                 AND evaluated_at >= $1::timestamptz - make_interval(days => $2)`,
-            [evaluatedAt, this.config.lookbackDays],
+             WHERE hog_flow_id IS NULL AND emails_sent > 0 AND team_id > $3
+                 AND evaluated_at >= $1::timestamptz - make_interval(days => $2)
+             ORDER BY team_id LIMIT $4`,
+            [evaluatedAt, this.config.lookbackDays, cursorTeamId, pageSize],
             'emailReputationFetchRecentTeams'
         )
         for (const row of recentlyEvaluated.rows) {
             teamIds.add(Number(row.team_id))
         }
 
-        return [...teamIds].sort((a, b) => a - b)
+        // Both sources returned their first `pageSize` ids after the cursor, so the merged set's
+        // first `pageSize` ids are complete — anything beyond belongs to a later page.
+        const merged = [...teamIds].sort((a, b) => a - b)
+        const page = merged.slice(0, pageSize)
+        const hasMore =
+            merged.length > pageSize || rows.length === pageSize || recentlyEvaluated.rows.length === pageSize
+        return { teamIds: page, nextCursor: hasMore && page.length > 0 ? page[page.length - 1] : null }
     }
 
     /**

@@ -244,7 +244,8 @@ describe('EmailReputationService', () => {
         // Next run: no sends at all — the team still enters the plan via its recent snapshot...
         mockMetrics([])
         const nextRun = '2026-07-11T06:00:00.000Z'
-        expect(await service.fetchTeamsToEvaluate(nextRun)).toContain(teamId)
+        const plan = await service.fetchTeamsToEvaluate(nextRun, 0, 5000)
+        expect(plan.teamIds).toContain(teamId)
 
         // ...and gets an explicit zero-volume row instead of yesterday's critical staying "current"
         await service.evaluateTeamBatch([teamId], nextRun)
