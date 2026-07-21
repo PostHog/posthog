@@ -2,9 +2,6 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Literal
 
-from django.db.models import Sum
-from django.utils import timezone
-
 import structlog
 
 from posthog.schema import NativeMarketingSource
@@ -20,7 +17,10 @@ from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade import (
+    api as warehouse_api,
+    contracts as warehouse_contracts,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -127,16 +127,15 @@ async def get_data_source_health(
         targets = {k: v for k, v in targets.items() if k == source_type}
 
     config_sources_map = sources_map if sources_map is not None else await _get_sources_map(team)
-    sources_by_type = await _get_sources_by_type(team, list(targets.keys()))
+    health_by_type = await _get_health_by_type(team, targets)
 
     entries: list[DataSourceHealthEntry] = []
     for type_key, native in targets.items():
-        source = sources_by_type.get(type_key)
         entries.append(
-            await _build_entry(
+            _build_entry(
                 source_type=type_key,
                 native=native,
-                source=source,
+                health=health_by_type.get(type_key),
                 config_sources_map=config_sources_map,
             )
         )
@@ -160,28 +159,38 @@ def _get_sources_map(team: Team) -> dict[str, dict]:
 
 
 @database_sync_to_async
-def _get_sources_by_type(team: Team, source_types: list[str]) -> dict[str, ExternalDataSource]:
-    """Index live sources by source_type. We pick the most recently created if
-    the team has more than one of the same type — this is uncommon in practice."""
-    qs = ExternalDataSource.objects.filter(team=team, source_type__in=source_types, deleted=False).order_by(
-        "source_type", "-created_at"
+def _get_health_by_type(
+    team: Team, targets: dict[str, NativeMarketingSource]
+) -> dict[str, warehouse_contracts.SourceHealth]:
+    """Health for the newest source of each native type (more than one of the same
+    type is uncommon in practice). Sync status, last error, row counts, and required-
+    table states all come from the warehouse facade in one set-based call."""
+    required_by_type = {
+        type_key: list(NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.get(native, []))
+        for type_key, native in targets.items()
+    }
+    healths = warehouse_api.list_source_health(
+        team.pk,
+        source_types=list(targets.keys()),
+        stale_threshold=STALE_THRESHOLD,
+        required_schema_names_by_type=required_by_type,
     )
-    by_type: dict[str, ExternalDataSource] = {}
-    for src in qs:
-        by_type.setdefault(src.source_type, src)
+    by_type: dict[str, warehouse_contracts.SourceHealth] = {}
+    for health in healths:  # ordered (source_type, -created_at) → first seen per type is newest
+        by_type.setdefault(health.source_type, health)
     return by_type
 
 
-async def _build_entry(
+def _build_entry(
     *,
     source_type: str,
     native: NativeMarketingSource,
-    source: ExternalDataSource | None,
+    health: warehouse_contracts.SourceHealth | None,
     config_sources_map: dict[str, dict],
 ) -> DataSourceHealthEntry:
     display_name = DISPLAY_NAMES[native]
 
-    if source is None:
+    if health is None:
         return DataSourceHealthEntry(
             source_type=source_type,
             is_native=True,
@@ -209,31 +218,32 @@ async def _build_entry(
             fix_suggestion=f"Connect {display_name} from {_MARKETING_SETTINGS_URL}.",
         )
 
-    last_completed_at, last_error_text = await _get_last_job_state(source)
-    rows_24h, rows_7d = await _get_rows_synced(source)
-    required_tables = await _get_required_tables_status(source, native)
+    required_tables = [
+        RequiredTableStatus(
+            table_name=s.schema_name,
+            present=s.present,
+            should_sync=s.should_sync,
+            status=s.status,
+            last_synced_at=s.last_synced_at,
+        )
+        for s in health.schemas
+    ]
 
-    source_id_str = str(source.id)
+    source_id_str = str(health.source_id)
     field_mapping = config_sources_map.get(source_id_str, {})
     mapped_keys = list(field_mapping.keys())
     # Native sources don't use sources_map for column mapping. Only non-native
     # (BigQuery, S3, self-managed) sources track per-column mappings here.
     missing_required: list[str] = []
 
-    last_sync_status = _resolve_sync_status(
-        last_completed_at=last_completed_at,
-        last_error_text=last_error_text,
-        required_tables=required_tables,
-    )
-
     diagnosis, fix_suggestion = _diagnose(
         display_name=display_name,
-        last_sync_status=last_sync_status,
-        last_completed_at=last_completed_at,
-        last_error_text=last_error_text,
+        last_sync_status=health.sync_status,
+        last_completed_at=health.last_completed_sync_at,
+        last_error_text=health.last_unresolved_error,
         sources_map_present=bool(field_mapping),
         missing_required=missing_required,
-        rows_last_7d=rows_7d,
+        rows_last_7d=health.rows_synced_last_7d,
         required_tables=required_tables,
         source_id=source_id_str,
     )
@@ -243,11 +253,11 @@ async def _build_entry(
         is_native=True,
         display_name=display_name,
         connected=True,
-        last_sync_at=last_completed_at,
-        last_sync_status=last_sync_status,
-        last_error=last_error_text,
-        rows_last_24h=rows_24h,
-        rows_last_7d=rows_7d,
+        last_sync_at=health.last_completed_sync_at,
+        last_sync_status=health.sync_status,
+        last_error=health.last_unresolved_error,
+        rows_last_24h=health.rows_synced_last_24h,
+        rows_last_7d=health.rows_synced_last_7d,
         sources_map_present=bool(field_mapping),
         schema_columns_mapped=mapped_keys,
         schema_columns_required_missing=missing_required,
@@ -257,114 +267,6 @@ async def _build_entry(
         diagnosis=diagnosis,
         fix_suggestion=fix_suggestion,
     )
-
-
-@database_sync_to_async
-def _get_required_tables_status(source: ExternalDataSource, native: NativeMarketingSource) -> list[RequiredTableStatus]:
-    required_names = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.get(native, [])
-    if not required_names:
-        return []
-
-    schemas_by_name: dict[str, ExternalDataSchema] = {
-        s.name: s for s in ExternalDataSchema.objects.filter(source=source, deleted=False)
-    }
-    out: list[RequiredTableStatus] = []
-    for name in required_names:
-        schema = schemas_by_name.get(name)
-        if schema is None:
-            out.append(
-                RequiredTableStatus(table_name=name, present=False, should_sync=False, status=None, last_synced_at=None)
-            )
-        else:
-            out.append(
-                RequiredTableStatus(
-                    table_name=name,
-                    present=True,
-                    should_sync=schema.should_sync,
-                    status=schema.status,
-                    last_synced_at=getattr(schema, "last_synced_at", None),
-                )
-            )
-    return out
-
-
-@database_sync_to_async
-def _get_last_job_state(source: ExternalDataSource) -> tuple[datetime | None, str | None]:
-    """Return (last_completed_finished_at, last_unresolved_error_text) for a source.
-
-    `last_unresolved_error_text` is the latest FAILED job's error message *only
-    if* its created_at is newer than the most recent COMPLETED job — otherwise
-    the failure has been resolved by a subsequent successful sync.
-    """
-    last_completed = (
-        ExternalDataJob.objects.filter(pipeline=source, status=ExternalDataJob.Status.COMPLETED)
-        .order_by("-finished_at")
-        .values_list("finished_at", flat=True)
-        .first()
-    )
-    last_failed = (
-        ExternalDataJob.objects.filter(pipeline=source, status=ExternalDataJob.Status.FAILED)
-        .exclude(latest_error__isnull=True)
-        .order_by("-created_at")
-        .values("created_at", "latest_error")
-        .first()
-    )
-
-    error_text: str | None = None
-    if last_failed is not None:
-        if last_completed is None or last_failed["created_at"] > last_completed:
-            error_text = last_failed["latest_error"]
-
-    return last_completed, error_text
-
-
-@database_sync_to_async
-def _get_rows_synced(source: ExternalDataSource) -> tuple[int, int]:
-    now = timezone.now()
-    in_24h = (
-        ExternalDataJob.objects.filter(
-            pipeline=source,
-            status=ExternalDataJob.Status.COMPLETED,
-            finished_at__gte=now - timedelta(hours=24),
-        ).aggregate(total=Sum("rows_synced"))["total"]
-        or 0
-    )
-    in_7d = (
-        ExternalDataJob.objects.filter(
-            pipeline=source,
-            status=ExternalDataJob.Status.COMPLETED,
-            finished_at__gte=now - timedelta(days=7),
-        ).aggregate(total=Sum("rows_synced"))["total"]
-        or 0
-    )
-    return int(in_24h), int(in_7d)
-
-
-def _resolve_sync_status(
-    *,
-    last_completed_at: datetime | None,
-    last_error_text: str | None,
-    required_tables: list[RequiredTableStatus],
-) -> SyncStatus:
-    """Resolve the source-level sync status. Per-required-table state takes
-    priority over the source-level job state, because the Marketing analytics
-    dashboard surfaces those schema-level issues directly to users (banner)."""
-    missing = [t for t in required_tables if not t.present]
-    if missing:
-        return "tables_missing"
-    failed = [t for t in required_tables if t.status == "Failed"]
-    if failed:
-        return "tables_failed"
-    disabled = [t for t in required_tables if t.present and not t.should_sync]
-    if disabled:
-        return "tables_disabled"
-    if last_error_text is not None:
-        return "error"
-    if last_completed_at is None:
-        return "never"
-    if timezone.now() - last_completed_at > STALE_THRESHOLD:
-        return "stale"
-    return "ok"
 
 
 def _diagnose(
