@@ -48,6 +48,21 @@ tools:
     data-warehouse-managed-warehouse-data-status-retrieve:
         operation: data_warehouse_managed_warehouse_data_status_retrieve
         enabled: false
+    data-warehouse-managed-warehouse-modeled-tables-retrieve:
+        operation: data_warehouse_managed_warehouse_modeled_tables_retrieve
+        enabled: false
+    data-warehouse-managed-warehouse-publish-table-create:
+        operation: data_warehouse_managed_warehouse_publish_table_create
+        enabled: false
+    data-warehouse-managed-warehouse-published-table-destroy:
+        operation: data_warehouse_managed_warehouse_published_table_destroy
+        enabled: false
+    data-warehouse-managed-warehouse-published-tables-retrieve:
+        operation: data_warehouse_managed_warehouse_published_tables_retrieve
+        enabled: false
+    data-warehouse-managed-warehouse-republish-table-create:
+        operation: data_warehouse_managed_warehouse_republish_table_create
+        enabled: false
     data-warehouse-managed-warehouse-source-schemas-retrieve:
         operation: data_warehouse_managed_warehouse_source_schemas_retrieve
         enabled: false
