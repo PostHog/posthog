@@ -1,5 +1,17 @@
 # Security guidelines for agents
 
+## Routing security fixes
+
+**Security fixes are developed in private, never in this public repo.** Opening a public PR, branch, or issue for a vulnerability discloses it before the fix is deployed — so it must not happen.
+
+- **Where:** open the change against the private mirror **`PostHog/posthog-private`**, not `PostHog/posthog`.
+- **Branch name:** start it with **`security/`** (e.g. `security/idor-dashboards`).
+- **Never on public `PostHog/posthog`:** do not open a PR, push a branch, or file an issue there that fixes or describes a security weakness — not even a "small" or "obvious" one, and not a test that demonstrates the exploit.
+- **What counts as a security fix** (route any of these to `PostHog/posthog-private`): closing an access-control / IDOR gap, an injection (SQL/HogQL/command/path), SSRF, an auth / session / token weakness, secret exposure, an XSS / CSRF / open-redirect issue, or any change whose purpose is to close an exploitable hole. **If unsure, treat it as a security fix** and route it privately.
+- **Reporting (audits / reviews):** keep findings in the session or private channels; do not paste exploit details or vulnerable-path specifics into a public PR, issue, or comment.
+
+This is about _where the fix lands_ — the rest of this doc is about writing secure code.
+
 ## Principle of Least Privilege
 
 Default to the smallest permission, narrowest field set, and shortest scope that still works. If a change needs more access than what's already in place, stop and reconsider the design before widening it.
