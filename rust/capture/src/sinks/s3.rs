@@ -17,6 +17,7 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
+use crate::sinks::sink::{fold_results, passthrough_record, PreparedRecord, Sink, SinkResult};
 use crate::sinks::Event;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -54,12 +55,12 @@ impl EventBuffer {
         }
     }
 
-    fn add_event(&mut self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let json = serde_json::to_string(&event.event)?;
-        self.event_bytes.extend_from_slice(json.as_bytes());
+    /// Append one already-serialized event payload (from [`Sink::prepare`]) as a
+    /// newline-delimited JSON line — the on-disk format the flusher uploads.
+    fn add_payload(&mut self, payload: &[u8]) {
+        self.event_bytes.extend_from_slice(payload);
         self.event_bytes.push(b'\n');
         self.event_count += 1;
-        Ok(())
     }
 
     fn should_flush(&self) -> bool {
@@ -273,30 +274,65 @@ impl Inner {
     }
 }
 
+/// The S3 sink mechanism: serialize in [`prepare`](Sink::prepare), then buffer
+/// the prepared payloads and await the batching flusher's result in
+/// [`publish_batch`](Sink::publish_batch). One flush covers the whole batch, so
+/// its outcome fans out to one [`SinkResult`] per event. [`Event`] is a thin
+/// shim over this trait.
+#[async_trait]
+impl Sink for S3Sink {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        events
+            .into_iter()
+            .map(|event| {
+                let payload = serde_json::to_vec(&event.event)?;
+                Ok(passthrough_record(&event, payload))
+            })
+            .collect()
+    }
+
+    #[instrument(skip_all)]
+    async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
+        let uuids: Vec<uuid::Uuid> = prepared.iter().map(|r| r.uuid).collect();
+
+        let mut buffer = self.inner.buffer.lock().await;
+        for record in &prepared {
+            buffer.add_payload(&record.record.payload);
+        }
+        let mut rx = buffer.tx.subscribe();
+        drop(buffer);
+
+        let flush_result = rx
+            .recv()
+            .await
+            .unwrap_or(Err(CaptureError::NonRetryableSinkError));
+
+        // One flush covers the whole batch: fan its outcome out to every event.
+        uuids
+            .into_iter()
+            .map(|uuid| match &flush_result {
+                Ok(()) => SinkResult::ok(uuid),
+                Err(err) => SinkResult::err(uuid, err.clone()),
+            })
+            .collect()
+    }
+}
+
 #[async_trait]
 impl Event for S3Sink {
     #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let mut buffer = self.inner.buffer.lock().await;
-        buffer.add_event(event)?;
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        rx.recv()
-            .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
+        let prepared = self.prepare(vec![event]).await?;
+        fold_results(self.publish_batch(prepared).await)
     }
 
     #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let mut buffer = self.inner.buffer.lock().await;
-        for event in events {
-            buffer.add_event(event)?;
-        }
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        rx.recv()
-            .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
+        let prepared = self.prepare(events).await?;
+        fold_results(self.publish_batch(prepared).await)
     }
 }
 

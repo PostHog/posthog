@@ -14,6 +14,7 @@ use metrics::counter;
 
 use crate::api::CaptureError;
 use crate::config::AiRouting;
+use crate::sinks::sink::{PreparedRecord, Sink, SinkResult};
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
@@ -39,6 +40,19 @@ impl SplitKafkaSink {
 
     fn routes_to_secondary(&self, event: &ProcessedEvent) -> bool {
         self.routing.routes_to_secondary(&event.event.token)
+    }
+
+    /// Sink-path variant: route by the token header carried on a prepared
+    /// record. `to_headers()` always stamps the token, so this recovers the
+    /// same routing decision `routes_to_secondary` makes on a `ProcessedEvent`.
+    fn record_routes_to_secondary(&self, record: &PreparedRecord) -> bool {
+        record
+            .record
+            .headers
+            .token
+            .as_deref()
+            .map(|token| self.routing.routes_to_secondary(token))
+            .unwrap_or(false)
     }
 }
 
@@ -99,8 +113,88 @@ impl Event for SplitKafkaSink {
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
-        self.primary.flush()?;
-        self.secondary.flush()?;
+        // Disambiguate: `dyn Event` now carries both `Event::flush` and its
+        // `Sink::flush` supertrait method.
+        Sink::flush(&*self.primary)?;
+        Sink::flush(&*self.secondary)?;
+        Ok(())
+    }
+}
+
+/// Sink-path split: mirrors the [`Event`] impl above so a call site that
+/// publishes through the unified [`Sink`] (the analytics pipeline) keeps the
+/// same per-token routing. The two clusters use different topics, so each
+/// partition must be serialized by its own inner sink in `prepare`;
+/// `publish_batch` then routes each prepared record back to the same cluster by
+/// its token header. Inner sinks are already `Sink`-backed.
+#[async_trait]
+impl Sink for SplitKafkaSink {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        let mut primary_events: Vec<ProcessedEvent> = Vec::new();
+        let mut secondary_events: Vec<ProcessedEvent> = Vec::new();
+        for event in events {
+            if self.routes_to_secondary(&event) {
+                secondary_events.push(event);
+            } else {
+                primary_events.push(event);
+            }
+        }
+
+        // Prep is fail-fast (a single error aborts the whole batch), so prepare
+        // the primary partition first and only touch the secondary if it clears.
+        let mut prepared: Vec<PreparedRecord> = Vec::new();
+        if !primary_events.is_empty() {
+            prepared.extend(self.primary.prepare(primary_events).await?);
+        }
+        if !secondary_events.is_empty() {
+            prepared.extend(self.secondary.prepare(secondary_events).await?);
+        }
+        Ok(prepared)
+    }
+
+    async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
+        let mut primary: Vec<PreparedRecord> = Vec::new();
+        let mut secondary: Vec<PreparedRecord> = Vec::new();
+        for record in prepared {
+            if self.record_routes_to_secondary(&record) {
+                secondary.push(record);
+            } else {
+                primary.push(record);
+            }
+        }
+
+        counter!("capture_split_sink_selected", "cluster" => "primary")
+            .increment(primary.len() as u64);
+        counter!("capture_split_sink_selected", "cluster" => "secondary")
+            .increment(secondary.len() as u64);
+
+        // A batch is built from a single request and routing is token-based, so
+        // today one partition is always empty and the whole batch goes to one
+        // cluster; the both-non-empty arm is defensive against a future
+        // multi-token batch path, matching the `Event` impl above.
+        match (primary.is_empty(), secondary.is_empty()) {
+            (false, true) => self.primary.publish_batch(primary).await,
+            (true, false) => self.secondary.publish_batch(secondary).await,
+            (false, false) => {
+                let (mut p, s) = tokio::join!(
+                    self.primary.publish_batch(primary),
+                    self.secondary.publish_batch(secondary),
+                );
+                p.extend(s);
+                p
+            }
+            (true, true) => Vec::new(),
+        }
+    }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        // Disambiguate: `dyn Event` now carries both `Event::flush` and its
+        // `Sink::flush` supertrait method.
+        Sink::flush(&*self.primary)?;
+        Sink::flush(&*self.secondary)?;
         Ok(())
     }
 }
@@ -188,6 +282,34 @@ mod tests {
         .await
         .unwrap();
 
+        assert_eq!(tokens(&secondary), vec!["sec_1", "sec_2"]);
+        assert_eq!(tokens(&primary), vec!["pri_1", "pri_2"]);
+    }
+
+    /// The `Sink` path (used by the analytics pipeline after Step 6) must split
+    /// by the same per-token policy as the `Event` path: each event is prepared
+    /// by its destination's inner sink and published back to that same cluster.
+    #[tokio::test]
+    async fn sink_path_partitions_across_sinks_by_token() {
+        let (sink, primary, secondary) = split_sink(&["sec_1", "sec_2"]);
+
+        let prepared = Sink::prepare(
+            &sink,
+            vec![
+                event_with_token("sec_1"),
+                event_with_token("pri_1"),
+                event_with_token("sec_2"),
+                event_with_token("pri_2"),
+            ],
+        )
+        .await
+        .unwrap();
+        let results = sink.publish_batch(prepared).await;
+
+        // Every prepared record acks, and each partition was serialized by its
+        // own inner sink (MockSink captures in `prepare`).
+        assert_eq!(results.len(), 4);
+        assert!(results.iter().all(|r| r.result.is_ok()));
         assert_eq!(tokens(&secondary), vec!["sec_1", "sec_2"]);
         assert_eq!(tokens(&primary), vec!["pri_1", "pri_2"]);
     }

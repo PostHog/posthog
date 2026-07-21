@@ -21,6 +21,7 @@ use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
+use crate::sinks::fold_results;
 use crate::token::validate_token;
 
 pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
@@ -211,7 +212,18 @@ pub async fn otel_handler(
     // with different `overflow_reason` stamps in the same batch.
     stamp_overflow_reason(&mut processed_events, state.overflow_limiter.as_ref());
 
-    state.sink.send_batch(processed_events).await.map_err(|e| {
+    // Publish via the unified `Sink` (reached through the `Event: Sink`
+    // supertrait on `state.sink`): `prepare` serializes + routes, `publish_batch`
+    // enqueues + drains, and the per-event results fold back to today's
+    // whole-request response — first failure wins, identical `CaptureError`
+    // mapping — wire-identical to the former `send_batch`. The batch-size
+    // histogram is recorded up front, as the `Event::send_batch` shim did.
+    histogram!("capture_event_batch_size").record(processed_events.len() as f64);
+    let publish = async {
+        let prepared = state.sink.prepare(processed_events).await?;
+        fold_results(state.sink.publish_batch(prepared).await)
+    };
+    publish.await.map_err(|e: CaptureError| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
         warn!("Failed to send OTel events to Kafka: {:?}", e);
         e.into_response()

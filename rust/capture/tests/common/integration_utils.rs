@@ -10,6 +10,7 @@ use capture::{
     config::CaptureMode,
     quota_limiters::CaptureQuotaLimiter,
     router::router,
+    sinks::sink::{passthrough_record, PreparedRecord, Sink, SinkResult},
     sinks::Event,
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
@@ -1040,6 +1041,28 @@ impl Event for MemorySink {
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend_from_slice(&events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Sink for MemorySink {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        let prepared = events
+            .iter()
+            .map(|event| passthrough_record(event, Vec::new()))
+            .collect();
+        self.events.lock().unwrap().extend_from_slice(&events);
+        Ok(prepared)
+    }
+
+    async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
+        prepared
+            .into_iter()
+            .map(|record| SinkResult::ok(record.uuid))
+            .collect()
     }
 }
 

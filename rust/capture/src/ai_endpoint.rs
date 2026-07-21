@@ -32,6 +32,7 @@ use crate::extractors::extract_body_with_timeout;
 use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
+use crate::sinks::fold_results;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
@@ -445,8 +446,23 @@ async fn ai_handler_inner(
         state.overflow_limiter.as_ref(),
     );
 
-    // Step 9: Send event to Kafka
-    state.sink.send(processed_event).await.map_err(|e| {
+    // Step 9: Send event to Kafka via the unified `Sink` (reached through the
+    // `Event: Sink` supertrait on `state.sink`): `prepare` serializes + routes,
+    // `publish_batch` enqueues + drains, and the per-event results fold back to
+    // today's whole-request response — first failure wins, identical
+    // `CaptureError` mapping — so this is wire-identical to the former
+    // single-event `send`. The batch-size histogram is recorded up front, as the
+    // `Event::send` shim did, so the distribution still reflects this submission.
+    histogram!("capture_event_batch_size").record(1.0);
+    let prepared = state
+        .sink
+        .prepare(vec![processed_event])
+        .await
+        .map_err(|e| {
+            warn!("Failed to send AI event to Kafka: {:?}", e);
+            e
+        })?;
+    fold_results(state.sink.publish_batch(prepared).await).map_err(|e| {
         warn!("Failed to send AI event to Kafka: {:?}", e);
         e
     })?;

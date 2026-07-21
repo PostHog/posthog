@@ -407,7 +407,20 @@ pub async fn process_replay_events(
         historical_migration: context.historical_migration,
     };
 
-    sink.send(ProcessedEvent { metadata, event }).await?;
+    // Publish through the unified `Sink` (reached via the `Event: Sink`
+    // supertrait): `prepare` serializes + applies the bespoke replay envelope
+    // (lz4 body + `content-encoding: lz4` header) and routes on the stamped
+    // metadata (session_id partition key, replay-overflow rerouting, DLQ), then
+    // `publish_batch` enqueues + drains the ack. The single `SinkResult` folds
+    // back to today's whole-request response, so this is wire-identical to the
+    // former single-event `send` — and the handler still awaits the ack before
+    // it answers. The batch-size histogram is recorded up front (as the `Event`
+    // shim's `send` did) so the distribution reflects submissions, not only acks.
+    histogram!("capture_event_batch_size").record(1.0);
+    let prepared = sink
+        .prepare(vec![ProcessedEvent { metadata, event }])
+        .await?;
+    sinks::fold_results(sink.publish_batch(prepared).await)?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
 

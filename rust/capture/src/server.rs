@@ -236,7 +236,11 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         let legacy_flush = {
             let sink = Arc::clone(&sink);
             async move {
-                let result = tokio::task::spawn_blocking(move || sink.flush()).await;
+                // `dyn Event` now carries both `Event::flush` and its
+                // `Sink::flush` supertrait method; they are equivalent, keep the
+                // legacy Event path.
+                let result =
+                    tokio::task::spawn_blocking(move || crate::sinks::Event::flush(&*sink)).await;
                 match result {
                     Ok(Err(e)) => error!("Sink flush failed: {e:#}"),
                     Err(e) => error!("Sink flush task panicked: {e}"),

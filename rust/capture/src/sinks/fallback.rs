@@ -1,31 +1,39 @@
 use crate::api::CaptureError;
+use crate::sinks::sink::{fold_results, Outcome, PreparedRecord, Sink, SinkResult};
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
 use async_trait::async_trait;
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use std::sync::Arc;
 use tracing::instrument;
 use tracing::log::error;
 
+/// A health-gated failover wrapper over the unified [`Sink`] mechanism: it
+/// tries the primary sink and, if that fails retriably (or an advisory
+/// lifecycle handle reports the primary unhealthy), publishes the same prepared
+/// batch to the fallback sink instead. This is the mechanism primitive the
+/// automatic failover / circuit breaker (Step 11) builds on.
+///
+/// Both inner sinks consume the *same* prepared batch, so preparation happens
+/// once (via the primary) and the failover decision lives purely in
+/// [`publish_batch`](Sink::publish_batch). [`Event`] is a thin shim over this
+/// trait so the current call sites stay frozen until they migrate.
 pub struct FallbackSink {
-    primary: Arc<Box<dyn Event + Send + Sync + 'static>>,
-    fallback: Arc<Box<dyn Event + Send + Sync + 'static>>,
+    primary: Arc<dyn Sink>,
+    fallback: Arc<dyn Sink>,
     advisory_handle: Option<lifecycle::Handle>,
 }
 
-/// FallbackSink attempts to send events to the primary sink, and if it fails,
-/// it will send events to the fallback sink. When an advisory lifecycle handle
-/// is provided, it skips the primary entirely while the handle reports unhealthy.
 impl FallbackSink {
     pub fn new<P, F>(primary: P, fallback: F) -> Self
     where
-        P: Event + Send + Sync + 'static,
-        F: Event + Send + Sync + 'static,
+        P: Sink + 'static,
+        F: Sink + 'static,
     {
         Self {
-            primary: Arc::new(Box::new(primary)),
-            fallback: Arc::new(Box::new(fallback)),
+            primary: Arc::new(primary),
+            fallback: Arc::new(fallback),
             advisory_handle: None,
         }
     }
@@ -36,13 +44,13 @@ impl FallbackSink {
         advisory_handle: lifecycle::Handle,
     ) -> Self
     where
-        P: Event + Send + Sync + 'static,
-        F: Event + Send + Sync + 'static,
+        P: Sink + 'static,
+        F: Sink + 'static,
     {
         gauge!("capture_primary_sink_health").set(1.0);
         Self {
-            primary: Arc::new(Box::new(primary)),
-            fallback: Arc::new(Box::new(fallback)),
+            primary: Arc::new(primary),
+            fallback: Arc::new(fallback),
             advisory_handle: Some(advisory_handle),
         }
     }
@@ -56,46 +64,39 @@ impl FallbackSink {
 }
 
 #[async_trait]
-impl Event for FallbackSink {
-    #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let healthy = self.primary_is_healthy();
-        gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
-
-        if healthy {
-            match self.primary.send(event.clone()).await {
-                Ok(_) => Ok(()),
-                Err(CaptureError::RetryableSinkError) => {
-                    error!("Primary sink failed, falling back");
-                    counter!("capture_fallback_sink_failovers_total").increment(1);
-                    self.fallback.send(event).await
-                }
-                Err(e) => Err(e),
-            }
-        } else {
-            counter!("capture_fallback_sink_failovers_total").increment(1);
-            self.fallback.send(event).await
-        }
+impl Sink for FallbackSink {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        // Prepare once, through the primary; both inner sinks publish the same
+        // batch, so the failover decision stays purely in `publish_batch`.
+        self.primary.prepare(events).await
     }
 
     #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
         let healthy = self.primary_is_healthy();
         gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
 
-        if healthy {
-            match self.primary.send_batch(events.clone()).await {
-                Ok(_) => Ok(()),
-                Err(CaptureError::RetryableSinkError) => {
-                    error!("Primary sink failed, falling back");
-                    counter!("capture_fallback_sink_failovers_total").increment(1);
-                    self.fallback.send_batch(events).await
-                }
-                Err(e) => Err(e),
-            }
-        } else {
+        if !healthy {
             counter!("capture_fallback_sink_failovers_total").increment(1);
-            self.fallback.send_batch(events).await
+            return self.fallback.publish_batch(prepared).await;
+        }
+
+        let results = self.primary.publish_batch(prepared.clone()).await;
+        // Fail over only on a retriable failure, mirroring today's advisory
+        // semantics; a fatal (non-retryable) failure is returned as-is. The
+        // Kafka mechanism is fail-fast, so at most one result carries the error.
+        if results
+            .iter()
+            .any(|r| matches!(r.outcome(), Outcome::Retriable))
+        {
+            error!("Primary sink failed, falling back");
+            counter!("capture_fallback_sink_failovers_total").increment(1);
+            self.fallback.publish_batch(prepared).await
+        } else {
+            results
         }
     }
 
@@ -104,10 +105,32 @@ impl Event for FallbackSink {
     }
 }
 
+#[async_trait]
+impl Event for FallbackSink {
+    #[instrument(skip_all)]
+    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        histogram!("capture_event_batch_size").record(1.0);
+        let prepared = self.prepare(vec![event]).await?;
+        fold_results(self.publish_batch(prepared).await)
+    }
+
+    #[instrument(skip_all)]
+    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        histogram!("capture_event_batch_size").record(events.len() as f64);
+        let prepared = self.prepare(events).await?;
+        fold_results(self.publish_batch(prepared).await)
+    }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        Sink::flush(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sinks::print::PrintSink;
+    use crate::sinks::sink::passthrough_record;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -116,13 +139,25 @@ mod tests {
     #[derive(Clone)]
     pub struct FailSink {}
 
+    // A primary that prepares cleanly but always fails to publish retriably, so
+    // the failover path is exercised.
     #[async_trait]
-    impl Event for FailSink {
-        async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-            Err(CaptureError::RetryableSinkError)
+    impl Sink for FailSink {
+        async fn prepare(
+            &self,
+            events: Vec<ProcessedEvent>,
+        ) -> Result<Vec<PreparedRecord>, CaptureError> {
+            Ok(events
+                .into_iter()
+                .map(|event| passthrough_record(&event, Vec::new()))
+                .collect())
         }
-        async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-            Err(CaptureError::RetryableSinkError)
+
+        async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
+            prepared
+                .into_iter()
+                .map(|record| SinkResult::err(record.uuid, CaptureError::RetryableSinkError))
+                .collect()
         }
     }
 
