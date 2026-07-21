@@ -763,25 +763,9 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
-    # Nullable mirrors the source Team.autocapture_exceptions_opt_in during the move; null == disabled.
-    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"
-
-
-def sync_autocapture_opt_in(team_id: int, opt_in: bool | None) -> None:
-    """Mirror Team.autocapture_exceptions_opt_in onto ErrorTrackingSettings while the setting is being moved.
-
-    Only opted-in teams get a row — a missing row reads as disabled, so teams that never opted in stay
-    row-less. Disabling an already-opted-in team syncs the existing row instead of creating one.
-    """
-    if opt_in:
-        ErrorTrackingSettings.objects.update_or_create(
-            team_id=team_id, defaults={"autocapture_exceptions_opt_in": True}
-        )
-    else:
-        ErrorTrackingSettings.objects.filter(team_id=team_id).update(autocapture_exceptions_opt_in=opt_in)
 
 
 class ErrorTrackingSpikeEvent(UUIDModel):

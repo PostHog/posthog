@@ -64,6 +64,7 @@ from products.tasks.backend.presentation.serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxCustomImageBuildSerializer,
     SandboxCustomImageSerializer,
+    SandboxCustomImageUpdateSerializer,
     SandboxCustomImageWriteSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
@@ -661,6 +662,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             runtime_adapter=request.validated_data.get("runtime_adapter"),
             model=request.validated_data.get("model"),
             reasoning_effort=request.validated_data.get("reasoning_effort"),
+            sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
+            custom_image_id=request.validated_data.get("custom_image_id"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -1175,6 +1178,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
+            message_id=request.validated_data.get("message_id"),
         )
         if relay_status == "failed":
             return Response(
@@ -1534,7 +1538,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             try:
                 signal_result = tasks_facade.signal_task_run_user_message(
-                    pk, task_id, self.team_id, content=command_params.get("content"), artifact_ids=artifact_ids
+                    pk,
+                    task_id,
+                    self.team_id,
+                    content=command_params.get("content"),
+                    artifact_ids=artifact_ids,
+                    actor_user_id=request.user.id,
+                    steer=command_params.get("steer", False),
                 )
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
@@ -2371,7 +2381,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    http_method_names = ["get", "post", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -2409,6 +2419,28 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         except ValueError as e:
             raise ValidationError(str(e))
         return Response(SandboxCustomImageSerializer(image).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=SandboxCustomImageUpdateSerializer,
+        responses={200: SandboxCustomImageSerializer},
+        description="Rename or update the description of a custom image. Only mutable metadata "
+        "(name, description) is editable; the build spec and status are managed by the build flow.",
+    )
+    def partial_update(self, request, pk=None, **kwargs):
+        serializer = SandboxCustomImageUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image = tasks_facade.update_sandbox_custom_image(
+                pk,
+                self.team_id,
+                request.user.id,
+                **serializer.validated_data,
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
 
     @extend_schema(
         request=None,

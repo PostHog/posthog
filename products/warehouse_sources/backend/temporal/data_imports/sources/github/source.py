@@ -47,7 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GithubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,
@@ -98,6 +98,15 @@ class GithubSource(
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
+
+    def server_managed_job_input_fields(self, incoming_job_inputs, existing_job_inputs):
+        # The legacy `repository` is a server-managed marker once the multi-repo `repositories`
+        # field is in play: it defines which repo's schema rows keep bare (unqualified) names, so an
+        # edit can't rename or re-point it. Legacy-only PATCHes (no `repositories`) keep the original
+        # single-repo swap semantics, so it isn't pinned then.
+        if "repositories" in incoming_job_inputs or "repositories" in existing_job_inputs:
+            return ["repository"]
+        return []
 
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:

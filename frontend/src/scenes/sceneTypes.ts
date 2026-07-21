@@ -13,6 +13,7 @@ export enum Scene {
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     AIGateway = 'AIGateway',
+    Alerts = 'Alerts',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -336,6 +337,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+
+    // Toolbar
+    [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
 
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
