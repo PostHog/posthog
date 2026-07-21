@@ -601,7 +601,6 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dixa` - Dixa
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
- * * `Delighted` - Delighted
  * * `AzureDevOps` - AzureDevOps
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
@@ -1470,7 +1469,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Dixa: 'Dixa',
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
-    Delighted: 'Delighted',
     AzureDevOps: 'AzureDevOps',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
@@ -2476,7 +2474,6 @@ export interface ExternalDataSourceCreateApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -3557,7 +3554,6 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -4448,7 +4444,6 @@ export interface DatabaseSchemaRequestApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -5399,7 +5394,6 @@ export interface SourcePreviewRequestApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -6307,7 +6301,6 @@ export interface SourceSetupApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -7222,7 +7215,6 @@ export interface SourceCredentialCreateApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie

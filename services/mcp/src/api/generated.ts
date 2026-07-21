@@ -18016,7 +18016,6 @@ export namespace Schemas {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -18885,7 +18884,6 @@ export namespace Schemas {
       Dixa: 'Dixa',
       Gladly: 'Gladly',
       Qualtrics: 'Qualtrics',
-      Delighted: 'Delighted',
       AzureDevOps: 'AzureDevOps',
       Rollbar: 'Rollbar',
       Opsgenie: 'Opsgenie',
@@ -19768,7 +19766,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -26658,7 +26655,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -27554,7 +27550,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -58810,7 +58805,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -59719,7 +59713,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -60620,7 +60613,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
