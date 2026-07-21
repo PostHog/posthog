@@ -9396,7 +9396,7 @@
                     "type": "array"
                 },
                 "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                     "items": {
                         "anyOf": [
                             {
@@ -9404,6 +9404,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ConversionGoalWarning"
                             }
                         ]
                     },
@@ -9512,7 +9515,7 @@
                     "type": "array"
                 },
                 "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                     "items": {
                         "anyOf": [
                             {
@@ -9520,6 +9523,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ConversionGoalWarning"
                             }
                         ]
                     },
@@ -9810,7 +9816,7 @@
                     "type": "array"
                 },
                 "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                     "items": {
                         "anyOf": [
                             {
@@ -9818,6 +9824,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ConversionGoalWarning"
                             }
                         ]
                     },
@@ -14422,6 +14431,22 @@
                 }
             ]
         },
+        "ConversionGoalWarning": {
+            "additionalProperties": false,
+            "properties": {
+                "message": {
+                    "description": "Human-readable warning shown to the user, e.g. a conversion goal skipped because its table is missing columns",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "conversion_goal",
+                    "description": "Tells warning kinds apart in the shared `warnings` list",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "message"],
+            "type": "object"
+        },
         "CoreEvent": {
             "additionalProperties": false,
             "description": "Unified core event stored in Team settings",
@@ -16320,7 +16345,7 @@
                                     "type": "array"
                                 },
                                 "warnings": {
-                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                                     "items": {
                                         "anyOf": [
                                             {
@@ -16328,6 +16353,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/ConversionGoalWarning"
                                             }
                                         ]
                                     },
@@ -16381,7 +16409,7 @@
                                     "type": "array"
                                 },
                                 "warnings": {
-                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                                     "items": {
                                         "anyOf": [
                                             {
@@ -16389,6 +16417,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/ConversionGoalWarning"
                                             }
                                         ]
                                     },
@@ -16462,7 +16493,7 @@
                                     "type": "array"
                                 },
                                 "warnings": {
-                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                                     "items": {
                                         "anyOf": [
                                             {
@@ -16470,6 +16501,9 @@
                                             },
                                             {
                                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/ConversionGoalWarning"
                                             }
                                         ]
                                     },
@@ -30262,7 +30296,7 @@
                     "type": "array"
                 },
                 "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                     "items": {
                         "anyOf": [
                             {
@@ -30270,6 +30304,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ConversionGoalWarning"
                             }
                         ]
                     },
@@ -30654,7 +30691,7 @@
                     "type": "array"
                 },
                 "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                     "items": {
                         "anyOf": [
                             {
@@ -30662,6 +30699,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ConversionGoalWarning"
                             }
                         ]
                     },
@@ -33584,7 +33624,7 @@
                     "type": "array"
                 },
                 "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                     "items": {
                         "anyOf": [
                             {
@@ -33592,6 +33632,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ConversionGoalWarning"
                             }
                         ]
                     },
@@ -37359,7 +37402,7 @@
                             "type": "array"
                         },
                         "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                             "items": {
                                 "anyOf": [
                                     {
@@ -37367,6 +37410,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ConversionGoalWarning"
                                     }
                                 ]
                             },
@@ -37420,7 +37466,7 @@
                             "type": "array"
                         },
                         "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                             "items": {
                                 "anyOf": [
                                     {
@@ -37428,6 +37474,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ConversionGoalWarning"
                                     }
                                 ]
                             },
@@ -37501,7 +37550,7 @@
                             "type": "array"
                         },
                         "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                             "items": {
                                 "anyOf": [
                                     {
@@ -37509,6 +37558,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ConversionGoalWarning"
                                     }
                                 ]
                             },
@@ -38889,7 +38941,7 @@
                             "type": "array"
                         },
                         "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                             "items": {
                                 "anyOf": [
                                     {
@@ -38897,6 +38949,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ConversionGoalWarning"
                                     }
                                 ]
                             },
@@ -38950,7 +39005,7 @@
                             "type": "array"
                         },
                         "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                             "items": {
                                 "anyOf": [
                                     {
@@ -38958,6 +39013,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ConversionGoalWarning"
                                     }
                                 ]
                             },
@@ -39031,7 +39089,7 @@
                             "type": "array"
                         },
                         "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "description": "Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows.",
                             "items": {
                                 "anyOf": [
                                     {
@@ -39039,6 +39097,9 @@
                                     },
                                     {
                                         "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ConversionGoalWarning"
                                     }
                                 ]
                             },

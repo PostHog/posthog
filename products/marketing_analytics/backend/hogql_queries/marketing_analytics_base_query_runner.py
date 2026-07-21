@@ -11,6 +11,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    ConversionGoalWarning,
     DateRange,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
@@ -687,6 +688,19 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             valid_goals.append(goal)
 
         return valid_goals, warnings
+
+    def _build_response_warnings(self, response_warnings: Optional[list] = None) -> Optional[list]:
+        """Combine any warnings from the inner HogQL execution with skipped-conversion-goal warnings.
+
+        Skipped conversion goals are non-fatal: the query still runs and returns rows. They belong in
+        the structured `warnings` channel rather than `error`, because the CSV exporter treats a
+        non-empty `error` as a hard failure and aborts, discarding rows that computed successfully.
+        """
+        warnings: list = list(response_warnings or [])
+        warnings.extend(
+            ConversionGoalWarning(type="conversion_goal", message=message) for message in self._conversion_goal_warnings
+        )
+        return warnings or None
 
     def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
         """Filter a query's SELECT to the columns requested in self.query.select, in order."""

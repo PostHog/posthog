@@ -101,7 +101,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            warnings=self._build_response_warnings(getattr(response, "warnings", None)),
         )
 
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:

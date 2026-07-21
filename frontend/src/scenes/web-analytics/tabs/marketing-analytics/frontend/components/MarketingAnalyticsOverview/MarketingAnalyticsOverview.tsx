@@ -72,11 +72,13 @@ export function MarketingAnalyticsOverview(props: {
         return <InsightErrorState title={responseError} />
     }
 
-    // Combine validation warnings with any backend warnings (e.g. skipped conversion goals)
-    const allWarnings = [
-        ...(validationWarnings ?? []),
-        ...(responseError && hasResults ? [{ message: responseError, link: undefined } as const] : []),
-    ]
+    // Combine validation warnings with any backend warnings (e.g. skipped conversion goals).
+    // Skipped-goal warnings arrive in the structured `warnings` channel, not `error`, which stays
+    // reserved for hard query failures so downstream consumers (like the CSV exporter) don't abort.
+    const backendWarnings = (marketingOverviewQueryResponse?.warnings ?? []).map(
+        (warning) => ({ message: warning.message, link: undefined }) as const
+    )
+    const allWarnings = [...(validationWarnings ?? []), ...backendWarnings]
 
     return (
         <>
