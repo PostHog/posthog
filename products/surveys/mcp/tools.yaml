@@ -103,7 +103,6 @@ tools:
                 description: >
                     Optional hosted-form content configuration for external_survey forms. Only include this when the
                     user explicitly asks to customize the hosted form content beyond the standard question flow.
-        output_format: json
         ui_app: survey
     survey-delete:
         operation: surveys_destroy

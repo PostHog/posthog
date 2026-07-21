@@ -37,7 +37,6 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
-        output_format: json
         response:
             exclude:
                 - effective_restriction_level
