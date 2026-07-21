@@ -93,6 +93,18 @@ class TestFiltersContradict(SimpleTestCase):
                 {"key": "k", "type": "event", "operator": "is_not", "value": ["true"]},
                 True,
             ),
+            (
+                "bare string operand is non-contradictory rather than crashing",
+                "utm_source",
+                {"key": "k", "type": "event", "operator": "exact", "value": ["a"]},
+                False,
+            ),
+            (
+                "both operands non-dict is non-contradictory",
+                "utm_source",
+                "utm_medium",
+                False,
+            ),
         ]
     )
     def test_filters_contradict(self, _name, filter_a, filter_b, expected):

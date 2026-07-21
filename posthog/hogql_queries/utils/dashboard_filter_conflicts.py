@@ -23,6 +23,10 @@ def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
     replacing the other. Anything not provably contradictory is treated as compatible.
 
     """
+    # Legacy/malformed filter data can hold bare strings instead of dicts; treat anything non-dict as
+    # non-contradictory so a stray value is skipped rather than crashing the request.
+    if not isinstance(filter_a, dict) or not isinstance(filter_b, dict):
+        return False
     if not _same_property(filter_a, filter_b):
         return False
     op_a, values_a = _operator_and_values(filter_a)

@@ -140,6 +140,16 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
         assert len(merged["properties"]) == 2
 
+    def test_bare_string_property_does_not_raise(self):
+        # Legacy/malformed filter data can hold a bare string instead of a property dict; the merge must
+        # skip it rather than crash with AttributeError.
+        tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+        merged = merge_filters_by_priority(
+            {"properties": ["utm_source"]},
+            {"properties": [tile_prop]},
+        )
+        assert merged["properties"] == ["utm_source", tile_prop]
+
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
     def _query(self, properties):
