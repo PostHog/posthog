@@ -417,8 +417,9 @@ def _schedule_earliest_event_date_sync(team_id: int) -> None:
     runs immediately in autocommit). Best-effort: a dispatch failure is logged, not
     raised — the full-backfill sensor resolves the date lazily regardless.
     """
-    # Keep the Celery task module (and its import graph) off the API import path.
-    from products.data_warehouse.backend.tasks.tasks import sync_team_earliest_event_date  # noqa: PLC0415
+    # Keep the Celery task module (and its import graph) off the API import path; the
+    # facade is the allowed boundary for presentation -> tasks.
+    from products.data_warehouse.backend.facade.tasks import sync_team_earliest_event_date  # noqa: PLC0415
 
     def dispatch() -> None:
         try:

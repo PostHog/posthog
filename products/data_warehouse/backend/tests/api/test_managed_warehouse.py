@@ -902,7 +902,7 @@ def test_update_team_puts_only_passed_fields_to_org_team_route(mock_internal: Ma
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
-@patch("products.data_warehouse.backend.tasks.tasks.sync_team_earliest_event_date")
+@patch("products.data_warehouse.backend.facade.tasks.sync_team_earliest_event_date")
 def test_onboard_team_schedules_earliest_event_date_sync_after_commit(
     mock_task: MagicMock,
     _mock_enabled: MagicMock,
@@ -925,7 +925,7 @@ def test_onboard_team_schedules_earliest_event_date_sync_after_commit(
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-@patch("products.data_warehouse.backend.tasks.tasks.sync_team_earliest_event_date")
+@patch("products.data_warehouse.backend.facade.tasks.sync_team_earliest_event_date")
 def test_provision_schedules_earliest_event_date_sync_after_commit(
     mock_task: MagicMock,
     mock_request: MagicMock,
