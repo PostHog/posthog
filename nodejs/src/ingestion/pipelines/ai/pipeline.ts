@@ -226,18 +226,18 @@ export function createAiIngestionPipeline<
             // pipeline's retry machinery instead of hand-rolled concurrency.
             .pipe(createExtractAiBlobsStep(aiBlobStore, aiBlobOffloadConfig))
             .compose((b) =>
-                b.fanOutFanIn(
-                    extractAiBlobsFanOut,
-                    (sub) =>
+                b
+                    .fanOut(extractAiBlobsFanOut)
+                    .via((sub) =>
                         sub.concurrently(
                             (blob) =>
                                 blob.pipe(createUploadAiBlobStep(aiBlobStore), {
                                     retry: { tries: 5, sleepMs: 100, name: 'offload_ai_blobs' },
                                 }),
                             { maxConcurrency: MAX_CONCURRENT_BLOB_UPLOADS }
-                        ),
-                    mergeAiBlobPointersFanIn
-                )
+                        )
+                    )
+                    .fanIn(mergeAiBlobPointersFanIn)
             )
             // Read-only: drop person-update props so they don't
             // leak into person_properties (person is never written).

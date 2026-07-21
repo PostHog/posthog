@@ -49,15 +49,13 @@ function makeInput(properties: Record<string, unknown>): Input {
 
 const CONFIG = { isTeamEnabled: (teamId: number): boolean => teamId === 2, minBase64Length: 8192, maxBlobsPerEvent: 50 }
 
-/** The same extract → fanOutFanIn(upload) → merge wiring the AI pipeline uses. */
+/** The same extract → fanOut → via(upload) → fanIn wiring the AI pipeline uses. */
 function createOffloadPipeline(store: BlobStore | null, config: OffloadAiBlobsConfig) {
     return newChunkPipelineBuilder<Input, { message: Message }>()
         .sequentially((b) => b.pipe(createExtractAiBlobsStep(store, config)))
-        .fanOutFanIn(
-            extractAiBlobsFanOut,
-            (sub) => sub.concurrently((b) => b.pipe(createUploadAiBlobStep(store))),
-            mergeAiBlobPointersFanIn
-        )
+        .fanOut(extractAiBlobsFanOut)
+        .via((sub) => sub.concurrently((b) => b.pipe(createUploadAiBlobStep(store))))
+        .fanIn(mergeAiBlobPointersFanIn)
         .build()
 }
 
