@@ -17,12 +17,12 @@ import { urls } from 'scenes/urls'
 import { AlertState, ProductKey } from '~/queries/schema/schema-general'
 
 import { AlertsFiltersBar } from '../components/AlertsFiltersBar'
+import { AlertStateIndicator } from '../components/AlertStateIndicator'
 import { alertIntervalDisplayLabel } from '../logic/alertIntervalHelpers'
 import { alertLogic } from '../logic/alertLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
-import { AlertStateIndicator } from './ManageAlertsModal'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -198,6 +198,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
     ]
 
     const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
+    const modalAlert = alert ?? alertsSortedByState.find((candidate) => candidate.id === alertId)
     // TODO: add info here to sign up for alerts early access
     return (
         <>
@@ -219,14 +220,17 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                 />
             )}
 
-            {alert && (
+            {modalAlert && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
                     isOpen
-                    alertId={alert.id}
-                    insightShortId={alert.insight.short_id}
-                    insightId={alert.insight.id}
-                    insightLogicProps={{ dashboardItemId: alert.insight.short_id }}
+                    alertId={modalAlert.id}
+                    insightShortId={modalAlert.insight.short_id}
+                    insightId={modalAlert.insight.id}
+                    insightLogicProps={{
+                        dashboardItemId: modalAlert.insight.short_id,
+                        cachedInsight: modalAlert.insight,
+                    }}
                     onEditSuccess={() => {
                         loadAlerts()
                         push(urls.alerts())

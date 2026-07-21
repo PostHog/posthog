@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useRef, useState } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -41,20 +42,43 @@ export function AlertWizard({
     leadingActions,
 }: AlertWizardProps): JSX.Element {
     const [current, setCurrent] = useState(0)
+    const [blockedAdvanceAttempted, setBlockedAdvanceAttempted] = useState(false)
+    const capturedCompletedSteps = useRef(new Set<string>())
     const step = steps[current]
     const isFirst = current === 0
     const isLast = current === steps.length - 1
     const canAdvance = step?.canAdvance !== false
-    const cannotAdvanceReason = step?.cannotAdvanceReason
+
+    const captureCompletedSteps = (nextStepIndex: number): void => {
+        for (let index = current; index < nextStepIndex; index++) {
+            const completedStep = steps[index]
+            if (!completedStep || capturedCompletedSteps.current.has(completedStep.key)) {
+                continue
+            }
+            posthog.capture('alert wizard step completed', {
+                step_key: completedStep.key,
+                step_number: index + 1,
+                next_step_key: steps[index + 1]?.key,
+                total_steps: steps.length,
+            })
+            capturedCompletedSteps.current.add(completedStep.key)
+        }
+    }
 
     const goNext = (): void => {
         if (!canAdvance) {
+            setBlockedAdvanceAttempted(true)
             onSubmitAttempted?.()
             return
         }
+        setBlockedAdvanceAttempted(false)
+        captureCompletedSteps(current + 1)
         setCurrent((i) => Math.min(i + 1, steps.length - 1))
     }
-    const goPrev = (): void => setCurrent((i) => Math.max(i - 1, 0))
+    const goPrev = (): void => {
+        setBlockedAdvanceAttempted(false)
+        setCurrent((i) => Math.max(i - 1, 0))
+    }
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
@@ -64,18 +88,26 @@ export function AlertWizard({
                     {steps.map((s, i) => {
                         const isCurrent = i === current
                         const isComplete = i < current
-                        const canAccess = isCurrent || isComplete || s.canAdvance !== false
+                        const canAccess = i <= current || steps.slice(current, i).every((st) => st.canAdvance !== false)
                         return (
                             <li key={s.key} className="flex items-center gap-1 min-w-0">
                                 <button
                                     type="button"
                                     disabled={!canAccess}
-                                    onClick={() => canAccess && setCurrent(i)}
+                                    onClick={() => {
+                                        if (canAccess) {
+                                            setBlockedAdvanceAttempted(false)
+                                            if (i > current) {
+                                                captureCompletedSteps(i)
+                                            }
+                                            setCurrent(i)
+                                        }
+                                    }}
                                     className={cn(
                                         'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
                                         !canAccess && 'opacity-40 cursor-not-allowed',
                                         isCurrent
-                                            ? 'bg-primary text-primary-highlight font-semibold'
+                                            ? 'bg-accent text-white font-semibold'
                                             : isComplete
                                               ? 'bg-success-highlight text-success'
                                               : 'text-muted hover:bg-border'
@@ -86,13 +118,13 @@ export function AlertWizard({
                                         className={cn(
                                             'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
                                             isCurrent
-                                                ? 'bg-primary-highlight text-primary ring-2 ring-primary ring-offset-1'
+                                                ? 'bg-white text-accent'
                                                 : isComplete
-                                                  ? 'bg-success text-success-highlight'
+                                                  ? 'bg-success text-white'
                                                   : 'border border-border'
                                         )}
                                     >
-                                        {isComplete ? '✓' : i + 1}
+                                        {i + 1}
                                     </span>
                                     <span className="truncate">{s.title}</span>
                                 </button>
@@ -116,20 +148,23 @@ export function AlertWizard({
             <footer className="flex flex-wrap items-center justify-between gap-2 border-t p-4">
                 <div className="flex-1">{leadingActions ? leadingActions : null}</div>
                 <div className="flex items-center gap-2">
-                    <LemonTag type="default" className="m-0">
-                        Step {current + 1} of {steps.length}
-                    </LemonTag>
-                    {!isFirst ? (
+                    {blockedAdvanceAttempted && !canAdvance && step?.cannotAdvanceReason ? (
+                        <span className="text-sm text-danger" role="alert">
+                            {step.cannotAdvanceReason}
+                        </span>
+                    ) : null}
+                    {isFirst ? (
+                        <LemonButton type="secondary" onClick={onBack}>
+                            Close
+                        </LemonButton>
+                    ) : (
                         <LemonButton type="secondary" icon={<IconChevronLeft />} onClick={goPrev}>
                             Back
                         </LemonButton>
-                    ) : null}
+                    )}
                     {!isLast ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={goNext}
-                            disabledReason={canAdvance ? undefined : cannotAdvanceReason}
-                        >
+                        // Stays clickable when blocked so goNext can surface the step's validation errors.
+                        <LemonButton type="primary" onClick={goNext}>
                             Continue
                         </LemonButton>
                     ) : (

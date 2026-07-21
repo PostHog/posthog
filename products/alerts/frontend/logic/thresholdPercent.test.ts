@@ -1,6 +1,6 @@
-import { InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
-import { fractionToPercentInput, rescaleFunnelBound } from './thresholdPercent'
+import { fractionToPercentInput, rescaleThresholdBound, thresholdForConditionChange } from './thresholdPercent'
 
 describe('thresholdPercent', () => {
     // Stored 0–1 fractions render as percentage inputs without float noise — guards the ×100
@@ -22,13 +22,29 @@ describe('thresholdPercent', () => {
         [0.99, InsightThresholdType.ABSOLUTE, 99],
         [7, InsightThresholdType.PERCENTAGE, 0.07],
         [undefined, InsightThresholdType.PERCENTAGE, undefined],
-    ])('rescaleFunnelBound(%p, %s) === %p', (value, toType, expected) => {
-        expect(rescaleFunnelBound(value as number | undefined, toType)).toBe(expected)
+    ])('rescaleThresholdBound(%p, %s) === %p', (value, toType, expected) => {
+        expect(rescaleThresholdBound(value as number | undefined, toType)).toBe(expected)
     })
 
     it('preserves the displayed number across a unit switch instead of ×100-ing it', () => {
         // Entered as "99%" under a has-value (ABSOLUTE) condition, then switched to relative.
-        const asFraction = rescaleFunnelBound(99, InsightThresholdType.PERCENTAGE)
+        const asFraction = rescaleThresholdBound(99, InsightThresholdType.PERCENTAGE)
         expect(fractionToPercentInput(asFraction)).toBe(99) // was 9900 before the fix
+    })
+
+    it('preserves displayed percentage values when switching to an absolute condition', () => {
+        expect(
+            thresholdForConditionChange(
+                {
+                    type: InsightThresholdType.PERCENTAGE,
+                    bounds: { lower: 0.2, upper: 3 },
+                },
+                AlertConditionType.ABSOLUTE_VALUE,
+                false
+            )
+        ).toEqual({
+            type: InsightThresholdType.ABSOLUTE,
+            bounds: { lower: 20, upper: 300 },
+        })
     })
 })

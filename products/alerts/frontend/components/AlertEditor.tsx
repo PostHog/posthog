@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,6 +33,77 @@ export function AlertEditorHeader({ title, description, onBack }: AlertEditorHea
     )
 }
 
+export function AlertEditorLoading({
+    title,
+    onBack,
+    variant = 'redesigned',
+}: Pick<AlertEditorHeaderProps, 'title' | 'onBack'> & { variant?: 'legacy' | 'redesigned' }): JSX.Element {
+    return (
+        <div className="flex min-h-[600px] flex-col" aria-busy="true" aria-label={`Loading ${title.toLowerCase()}`}>
+            <header className="border-b p-4">
+                <AlertEditorHeader title={title} onBack={onBack} />
+            </header>
+            {variant === 'redesigned' ? <RedesignedAlertEditorSkeleton /> : <LegacyAlertEditorSkeleton />}
+            <footer className="flex items-center justify-between border-t p-4">
+                <div className="flex gap-2">
+                    <LemonSkeleton className="h-10 w-28" />
+                    <LemonSkeleton className="h-10 w-32" />
+                </div>
+                <LemonSkeleton className="h-10 w-20" />
+            </footer>
+        </div>
+    )
+}
+
+function RedesignedAlertEditorSkeleton(): JSX.Element {
+    return (
+        <div className="flex-1 space-y-4 p-4">
+            <LemonSkeleton className="h-20 w-full" />
+            <div className="flex gap-6 border-b pb-3">
+                <LemonSkeleton className="h-7 w-24" />
+                <LemonSkeleton className="h-7 w-24" />
+                <LemonSkeleton className="h-7 w-20" />
+                <LemonSkeleton className="h-7 w-20" />
+            </div>
+            <LemonSkeleton className="h-10 w-full" />
+            <LemonSkeleton className="h-4 w-48" />
+            <LemonSkeleton className="h-28 w-full" />
+            <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-3">
+                    <LemonSkeleton className="h-10 w-full" />
+                    <LemonSkeleton className="h-5 w-4/5" />
+                    <LemonSkeleton className="h-5 w-3/4" />
+                </div>
+                <div className="space-y-3">
+                    <LemonSkeleton className="h-10 w-full" />
+                    <LemonSkeleton className="h-10 w-3/4" />
+                    <LemonSkeleton className="h-10 w-3/4" />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function LegacyAlertEditorSkeleton(): JSX.Element {
+    return (
+        <div className="flex-1 space-y-6 p-4">
+            <LemonSkeleton className="h-10 w-full" />
+            <LemonSkeleton className="h-4 w-48" />
+            <div className="space-y-3">
+                <LemonSkeleton className="h-5 w-28" />
+                <LemonSkeleton className="h-10 w-2/3" />
+                <LemonSkeleton className="h-10 w-1/2" />
+                <LemonSkeleton className="h-10 w-1/2" />
+            </div>
+            <div className="space-y-3">
+                <LemonSkeleton className="h-5 w-32" />
+                <LemonSkeleton className="h-10 w-full" />
+                <LemonSkeleton className="h-16 w-full" />
+            </div>
+        </div>
+    )
+}
+
 export interface AlertEditorActionsProps {
     isEditing: boolean
     isSubmitting: boolean
@@ -40,6 +111,7 @@ export interface AlertEditorActionsProps {
     hasPendingChanges?: boolean
     leadingActions?: ReactNode
     onSubmitAttempted?: () => void
+    showNoChangesLabel?: boolean
 }
 
 export function AlertEditorActions({
@@ -49,8 +121,14 @@ export function AlertEditorActions({
     hasPendingChanges = false,
     leadingActions,
     onSubmitAttempted,
+    showNoChangesLabel = false,
 }: AlertEditorActionsProps): JSX.Element {
-    const disabledReason = isEditing && !hasChanges && !hasPendingChanges ? 'No changes to save' : undefined
+    const hasUnsavedChanges = hasChanges || hasPendingChanges
+    const disabledReason = isEditing && !hasUnsavedChanges ? 'No changes to save' : undefined
+    let buttonLabel = 'Create alert'
+    if (isEditing) {
+        buttonLabel = showNoChangesLabel && !hasUnsavedChanges ? 'No changes' : 'Save'
+    }
 
     return (
         <>
@@ -62,7 +140,7 @@ export function AlertEditorActions({
                 disabledReason={disabledReason}
                 onClick={onSubmitAttempted}
             >
-                {isEditing ? 'Save' : 'Create alert'}
+                {buttonLabel}
             </LemonButton>
         </>
     )
@@ -103,12 +181,14 @@ interface AlertEditorFormDetailsProps {
     }
     activity?: ReactNode
     nameDataAttr?: string
+    nameError?: string
 }
 
 export function AlertEditorFormDetails({
     enabled,
     activity,
     nameDataAttr = 'alertForm-name',
+    nameError,
 }: AlertEditorFormDetailsProps): JSX.Element {
     return (
         <div className="space-y-2">
@@ -127,6 +207,7 @@ export function AlertEditorFormDetails({
                     </LemonField>
                 ) : null}
             </div>
+            {nameError ? <LemonField.Error error={nameError} /> : null}
             {activity}
         </div>
     )

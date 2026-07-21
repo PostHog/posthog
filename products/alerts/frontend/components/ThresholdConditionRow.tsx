@@ -7,7 +7,11 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { fractionToPercentInput, rescaleFunnelBound } from 'products/alerts/frontend/logic/thresholdPercent'
+import {
+    fractionToPercentInput,
+    inputToStoredBound,
+    thresholdForConditionChange,
+} from 'products/alerts/frontend/logic/thresholdPercent'
 import { isFunnelsAlertConfig } from 'products/alerts/frontend/types'
 
 export interface ThresholdConditionRowProps {
@@ -49,11 +53,7 @@ const UNIT_OPTIONS = [
     { value: InsightThresholdType.ABSOLUTE, label: '#', tooltip: 'Absolute number' },
 ]
 
-/** The threshold + condition config, laid out as a labeled two-row stack instead of one wrapping line.
- *
- *  Row 1 picks the comparison (absolute value / increases by / decreases by). Row 2 holds the bounds
- *  with explicit "below" / "above" labels so the direction is unambiguous at a glance. The unit toggle
- *  (% vs #) sits at the end of row 2, only when a relative condition makes it meaningful. */
+/** The threshold + condition config, laid out as separate labeled rows. */
 export function ThresholdConditionRow({
     alertForm,
     thresholdBoundsFormError,
@@ -69,7 +69,6 @@ export function ThresholdConditionRow({
 
     return (
         <div className="space-y-2">
-            {thresholdBoundsFormError ? <div className="text-danger text-sm">{thresholdBoundsFormError}</div> : null}
             <div className="flex items-center gap-2">
                 <span className="text-sm text-muted shrink-0 w-20">Fire when</span>
                 <Group name={['condition']}>
@@ -82,25 +81,17 @@ export function ThresholdConditionRow({
                                 value={value}
                                 onChange={(newType) => {
                                     onChange(newType)
-                                    if (!isFunnelAlert) {
-                                        return
-                                    }
-                                    const cfg = alertForm.threshold.configuration
-                                    const targetType =
-                                        newType === AlertConditionType.ABSOLUTE_VALUE
-                                            ? InsightThresholdType.ABSOLUTE
-                                            : InsightThresholdType.PERCENTAGE
-                                    if (cfg.type === targetType) {
+                                    const configuration = alertForm.threshold.configuration
+                                    const nextConfiguration = thresholdForConditionChange(
+                                        configuration,
+                                        newType,
+                                        isFunnelAlert
+                                    )
+                                    if (nextConfiguration === configuration) {
                                         return
                                     }
                                     onSetAlertFormValue('threshold', {
-                                        configuration: {
-                                            type: targetType,
-                                            bounds: {
-                                                lower: rescaleFunnelBound(cfg.bounds?.lower, targetType),
-                                                upper: rescaleFunnelBound(cfg.bounds?.upper, targetType),
-                                            },
-                                        },
+                                        configuration: nextConfiguration,
                                     })
                                 }}
                                 options={
@@ -114,72 +105,6 @@ export function ThresholdConditionRow({
                         )}
                     </LemonField>
                 </Group>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 pl-[5.5rem]">
-                <label className="text-sm text-muted shrink-0 w-16 text-right" htmlFor="alertForm-lower-threshold">
-                    below
-                </label>
-                <LemonField name="lower">
-                    <LemonInput
-                        type="number"
-                        className="w-28 shrink-0"
-                        data-attr="alertForm-lower-threshold"
-                        suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
-                        value={
-                            alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
-                                ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.lower)
-                                : alertForm.threshold.configuration.bounds?.lower
-                        }
-                        onChange={(value) =>
-                            onSetAlertFormValue('threshold', {
-                                configuration: {
-                                    type: alertForm.threshold.configuration.type,
-                                    bounds: {
-                                        ...alertForm.threshold.configuration.bounds,
-                                        lower:
-                                            value &&
-                                            alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
-                                                ? value / 100
-                                                : value,
-                                    },
-                                },
-                            })
-                        }
-                    />
-                </LemonField>
-                <span className="text-muted text-sm">or</span>
-                <label className="text-sm text-muted shrink-0 w-12 text-right" htmlFor="alertForm-upper-threshold">
-                    above
-                </label>
-                <LemonField name="upper">
-                    <LemonInput
-                        type="number"
-                        className="w-28 shrink-0"
-                        data-attr="alertForm-upper-threshold"
-                        suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
-                        value={
-                            alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
-                                ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.upper)
-                                : alertForm.threshold.configuration.bounds?.upper
-                        }
-                        onChange={(value) =>
-                            onSetAlertFormValue('threshold', {
-                                configuration: {
-                                    type: alertForm.threshold.configuration.type,
-                                    bounds: {
-                                        ...alertForm.threshold.configuration.bounds,
-                                        upper:
-                                            value &&
-                                            alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
-                                                ? value / 100
-                                                : value,
-                                    },
-                                },
-                            })
-                        }
-                    />
-                </LemonField>
                 {!isFunnelAlert && isRelative && (
                     <Group name={['threshold', 'configuration']}>
                         <LemonField name="type">
@@ -187,6 +112,80 @@ export function ThresholdConditionRow({
                         </LemonField>
                     </Group>
                 )}
+            </div>
+
+            <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                    <label className="text-sm text-muted shrink-0 w-20" htmlFor="alertForm-lower-threshold">
+                        Less than
+                    </label>
+                    <LemonField name="lower">
+                        <LemonInput
+                            type="number"
+                            min={isRelative ? 0 : undefined}
+                            className="w-32"
+                            status={thresholdBoundsFormError ? 'danger' : 'default'}
+                            data-attr="alertForm-lower-threshold"
+                            suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
+                            value={
+                                alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
+                                    ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.lower)
+                                    : alertForm.threshold.configuration.bounds?.lower
+                            }
+                            onChange={(value) =>
+                                onSetAlertFormValue('threshold', {
+                                    configuration: {
+                                        type: alertForm.threshold.configuration.type,
+                                        bounds: {
+                                            ...alertForm.threshold.configuration.bounds,
+                                            lower: inputToStoredBound(value, alertForm.threshold.configuration.type),
+                                        },
+                                    },
+                                })
+                            }
+                        />
+                    </LemonField>
+                </div>
+                <div className="flex items-center gap-2">
+                    <label className="text-sm text-muted shrink-0 w-20" htmlFor="alertForm-upper-threshold">
+                        More than
+                    </label>
+                    <LemonField name="upper">
+                        <LemonInput
+                            type="number"
+                            min={isRelative ? 0 : undefined}
+                            className="w-32"
+                            status={thresholdBoundsFormError ? 'danger' : 'default'}
+                            data-attr="alertForm-upper-threshold"
+                            suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
+                            value={
+                                alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
+                                    ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.upper)
+                                    : alertForm.threshold.configuration.bounds?.upper
+                            }
+                            onChange={(value) =>
+                                onSetAlertFormValue('threshold', {
+                                    configuration: {
+                                        type: alertForm.threshold.configuration.type,
+                                        bounds: {
+                                            ...alertForm.threshold.configuration.bounds,
+                                            upper: inputToStoredBound(value, alertForm.threshold.configuration.type),
+                                        },
+                                    },
+                                })
+                            }
+                        />
+                    </LemonField>
+                </div>
+                <p
+                    className={
+                        thresholdBoundsFormError
+                            ? 'm-0 min-h-10 pl-[5.5rem] text-xs text-danger'
+                            : 'm-0 min-h-10 pl-[5.5rem] text-xs text-secondary'
+                    }
+                >
+                    {thresholdBoundsFormError ?? 'Enter a value in either field.'}
+                </p>
             </div>
         </div>
     )

@@ -115,6 +115,7 @@ describe('alertFormLogic', () => {
     let errorToastSpy: jest.SpyInstance
     let successToastSpy: jest.SpyInstance
     let captureExceptionSpy: jest.SpyInstance
+    let captureSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
@@ -126,6 +127,7 @@ describe('alertFormLogic', () => {
         errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(jest.fn())
 
         insightLogic(insightLogicProps).mount()
         insightDataLogic(insightLogicProps).mount()
@@ -149,6 +151,7 @@ describe('alertFormLogic', () => {
             onEditSuccess,
             insightVizDataLogicProps: insightLogicProps,
             insightInterval: 'day',
+            uiVersion: 'redesigned',
         })
         logic.mount()
         logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
@@ -205,6 +208,17 @@ describe('alertFormLogic', () => {
                 label: 'View all alerts',
                 action: expect.any(Function),
             },
+        })
+        expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
+            alert_id: 'alert-new-id',
+            alert_mode: 'threshold',
+            detector_type: null,
+            config_type: 'TrendsAlertConfig',
+            calculation_interval: AlertCalculationInterval.DAILY,
+            condition_type: AlertConditionType.ABSOLUTE_VALUE,
+            subscribed_users_count: 0,
+            destination_count: 0,
+            ui_version: 'redesigned',
         })
 
         const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }

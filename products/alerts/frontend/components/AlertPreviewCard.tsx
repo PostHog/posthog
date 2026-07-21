@@ -1,81 +1,151 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline, SparklineReferenceLine } from 'lib/components/Sparkline'
+import type { AnyScaleOptions } from 'lib/components/Sparkline'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
+import { deriveTrendsAlertPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
 import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
-export interface AlertPreviewCardProps {
-    alertForm: AlertFormType
-    /** Trends: the monitored series' values, oldest→newest. Null when not a trends alert or no data. */
-    trendsValues: number[] | null
-    /** Trends: the labels for `trendsValues` (dates). */
-    trendsLabels?: string[] | null
-    funnelPreview: FunnelAlertPreview | null
-    hogqlPreview: HogQLAlertPreview | null
-}
-
-/** Threshold bounds as dashed reference lines for the Sparkline. Returns lower+upper when both are
- *  set, or just one. Scales funnel/percentage thresholds the same way the threshold inputs do. */
+// Relative and percentage thresholds have no fixed value to draw as a line, so they're skipped.
 function thresholdReferenceLines(alertForm: AlertFormType): SparklineReferenceLine[] {
-    const config = alertForm.threshold?.configuration
-    if (!config) {
+    if (alertForm.detector_config) {
         return []
     }
-    const isPercentage = config.type === InsightThresholdType.PERCENTAGE
+    const configuration = alertForm.threshold?.configuration
+    const bounds = configuration?.bounds
+    const relativePercentage =
+        alertForm.condition?.type !== AlertConditionType.ABSOLUTE_VALUE &&
+        configuration?.type === InsightThresholdType.PERCENTAGE
+    const displayValue = (value: number): number => (relativePercentage ? value * 100 : value)
     const lines: SparklineReferenceLine[] = []
-    const lo = config.bounds?.lower
-    const hi = config.bounds?.upper
-    if (lo != null && !Number.isNaN(lo)) {
+    if (bounds?.upper != null && !Number.isNaN(bounds.upper)) {
+        const value = displayValue(bounds.upper as number)
         lines.push({
-            value: isPercentage ? (lo as number) * 100 : (lo as number),
+            value,
             color: 'danger',
-            label: `below ${humanFriendlyNumber(isPercentage ? (lo as number) * 100 : (lo as number))}`,
+            label: `above ${humanFriendlyNumber(value)}`,
+            labelPosition: 'end',
         })
     }
-    if (hi != null && !Number.isNaN(hi)) {
+    if (bounds?.lower != null && !Number.isNaN(bounds.lower)) {
+        const value = displayValue(bounds.lower as number)
         lines.push({
-            value: isPercentage ? (hi as number) * 100 : (hi as number),
+            value,
             color: 'danger',
-            label: `above ${humanFriendlyNumber(isPercentage ? (hi as number) * 100 : (hi as number))}`,
+            label: `below ${humanFriendlyNumber(value)}`,
+            labelPosition: 'start',
         })
     }
     return lines
 }
 
-/** A persistent, at-a-glance preview of what the alert is watching. For trends this is a sparkline
- *  of the monitored series with the current threshold drawn as dashed lines, so the cause→effect of
- *  moving a threshold is immediate. For funnels and SQL it reuses the existing preview banners. */
+function toLogScale(value: number): number {
+    return Math.log10(value + 1)
+}
+
+function fromLogScale(value: number): string {
+    return humanFriendlyNumber(10 ** value - 1)
+}
+
+function shouldUseLogScale(values: number[], referenceLines: SparklineReferenceLine[]): boolean {
+    if (
+        referenceLines.length === 0 ||
+        values.some((value) => value < 0 || !Number.isFinite(value)) ||
+        referenceLines.some((line) => line.value < 0)
+    ) {
+        return false
+    }
+    const positiveThresholds = referenceLines.map((line) => line.value).filter((value) => value > 0)
+    if (positiveThresholds.length === 0) {
+        return false
+    }
+    const largestValue = Math.max(...values, ...positiveThresholds)
+    const smallestThreshold = Math.min(...positiveThresholds)
+    return largestValue / smallestThreshold >= 1000
+}
+
+function allowNegativeYScale(scale: AnyScaleOptions): AnyScaleOptions {
+    return { ...scale, min: undefined }
+}
+
+export interface AlertPreviewCardProps {
+    alertForm: AlertFormType
+    trendsValues: number[] | null
+    trendsLabels?: string[] | null
+    funnelPreview: FunnelAlertPreview | null
+    hogqlPreview: HogQLAlertPreview | null
+    // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
+    loading?: boolean
+}
+
 export function AlertPreviewCard({
     alertForm,
     trendsValues,
     trendsLabels,
     funnelPreview,
     hogqlPreview,
+    loading,
 }: AlertPreviewCardProps): JSX.Element {
     const config = alertForm.config
-    const isDetector = !!alertForm.detector_config
+    const trendsPreview = trendsValues
+        ? deriveTrendsAlertPreviewSeries(
+              trendsValues,
+              trendsLabels ?? undefined,
+              alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
+              alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
+          )
+        : null
+    const referenceLines = thresholdReferenceLines(alertForm)
+    const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
+    const previewValues = useLogScale ? trendsPreview?.values.map(toLogScale) : trendsPreview?.values
+    const previewReferenceLines = useLogScale
+        ? referenceLines.map((line) => ({ ...line, value: toLogScale(line.value) }))
+        : referenceLines
+    const isUnconfiguredAbsoluteThreshold =
+        !alertForm.detector_config &&
+        alertForm.condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
+        alertForm.threshold?.configuration?.type === InsightThresholdType.ABSOLUTE &&
+        referenceLines.length === 0
+    const isAnomalyDetectionWithoutVisibleData =
+        !loading &&
+        !!alertForm.detector_config &&
+        isTrendsAlertConfig(config) &&
+        !trendsValues?.some((value) => value !== 0)
 
     let body: JSX.Element | null = null
-    if (isTrendsAlertConfig(config) && trendsValues && trendsValues.length > 0) {
-        const referenceLines = isDetector ? [] : thresholdReferenceLines(alertForm)
+    if (isUnconfiguredAbsoluteThreshold) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                Set less than or more than to preview this alert.
+            </div>
+        )
+    } else if (isAnomalyDetectionWithoutVisibleData) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                No activity to preview for this series.
+            </div>
+        )
+    } else if (isTrendsAlertConfig(config) && previewValues && previewValues.length > 0) {
         body = (
             <Sparkline
                 type="line"
-                data={trendsValues}
-                labels={trendsLabels ?? undefined}
+                data={previewValues}
+                labels={trendsPreview?.labels}
                 maximumIndicator={false}
-                referenceLines={referenceLines}
-                className="w-full"
+                referenceLines={previewReferenceLines}
+                renderTooltipValue={useLogScale ? fromLogScale : undefined}
+                withYScale={trendsPreview?.relative ? allowNegativeYScale : undefined}
+                className="w-full h-24 flex flex-col"
             />
         )
     } else if (isFunnelsAlertConfig(config) && funnelPreview) {
@@ -85,12 +155,26 @@ export function AlertPreviewCard({
     }
 
     if (!body) {
-        return <></>
+        if (loading) {
+            return (
+                <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                        <span>Preview</span>
+                    </div>
+                    <LemonSkeleton className="h-16 w-full" />
+                </div>
+            )
+        }
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                No insight data available to preview.
+            </div>
+        )
     }
 
     const lastValue =
-        isTrendsAlertConfig(config) && trendsValues && trendsValues.length > 0
-            ? trendsValues[trendsValues.length - 1]
+        isTrendsAlertConfig(config) && trendsPreview?.values.length
+            ? trendsPreview.values[trendsPreview.values.length - 1]
             : null
 
     return (
@@ -105,11 +189,21 @@ export function AlertPreviewCard({
                         <IconInfo className="text-muted size-3.5" />
                     </Tooltip>
                 </div>
-                {lastValue != null ? (
-                    <LemonTag type="default" className="m-0">
-                        Latest: <strong className="ml-1">{humanFriendlyNumber(lastValue)}</strong>
-                    </LemonTag>
-                ) : null}
+                <div className="flex items-center gap-2">
+                    {useLogScale ? (
+                        <Tooltip title="A log scale keeps thresholds with very different values visually distinct.">
+                            <LemonTag type="default" className="m-0">
+                                Log scale
+                            </LemonTag>
+                        </Tooltip>
+                    ) : null}
+                    {lastValue != null ? (
+                        <LemonTag type="default" className="m-0">
+                            {trendsPreview?.relative ? 'Latest change:' : 'Latest:'}
+                            <strong className="ml-1">{humanFriendlyNumber(lastValue)}</strong>
+                        </LemonTag>
+                    ) : null}
+                </div>
             </div>
             {body}
         </div>

@@ -1,15 +1,18 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSwitch } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -26,6 +29,7 @@ import { AlertDefinitionSection } from 'products/alerts/frontend/components/Aler
 import {
     AlertEditor,
     AlertEditorFormDetails,
+    AlertEditorLoading,
     AlertEditorSection,
 } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
@@ -60,7 +64,15 @@ export function EditAlertModal(props: EditAlertModalProps): JSX.Element {
     // is the single switch: off = legacy modal below, on = V2. Consumers don't change.
     const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
     if (redesigned) {
-        return <EditAlertModalV2 {...props} />
+        return (
+            <BindLogic logic={insightLogic} props={props.insightLogicProps}>
+                <BindLogic logic={insightDataLogic} props={props.insightLogicProps}>
+                    <BindLogic logic={insightVizDataLogic} props={props.insightLogicProps}>
+                        <EditAlertModalV2 {...props} />
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
+        )
     }
     return <LegacyEditAlertModal {...props} />
 }
@@ -118,6 +130,7 @@ function LegacyEditAlertModal({
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
+        uiVersion: 'legacy' as const,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -232,14 +245,37 @@ function LegacyEditAlertModal({
     ])
 
     const leadingActions = (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
             {!creatingNewAlert ? (
-                <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: `Delete "${alertForm.name || 'this alert'}"?`,
+                            description: 'This alert will be permanently deleted. This action cannot be undone.',
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: deleteAlert,
+                                'data-attr': 'alert-delete-confirm',
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }}
+                >
                     Delete alert
                 </LemonButton>
             ) : null}
-            {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
-                <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
+            {!creatingNewAlert ? (
+                <SnoozeButton
+                    onChange={snoozeAlert}
+                    value={alert?.snoozed_until}
+                    disabledReason={
+                        alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
+                    }
+                />
             ) : null}
             {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
                 <LemonButton
@@ -251,13 +287,18 @@ function LegacyEditAlertModal({
                     Clear snooze
                 </LemonButton>
             ) : null}
+            <div className="ml-auto mr-2">
+                <LemonField name="enabled" className="m-0">
+                    <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+                </LemonField>
+            </div>
         </div>
     )
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
-                <SpinnerOverlay />
+                <AlertEditorLoading title="Edit alert" onBack={handleClose} variant="legacy" />
             ) : (
                 <Form
                     logic={alertFormLogic}
@@ -275,12 +316,12 @@ function LegacyEditAlertModal({
                         isSubmitting={isAlertFormSubmitting}
                         hasChanges={alertFormChanged}
                         hasPendingChanges={hasPendingNotifications}
+                        showNoChangesLabel
                         onSubmitAttempted={setAlertFormSubmitAttempted}
                         leadingActions={leadingActions}
                     >
                         <div className="deprecated-space-y-6">
                             <AlertEditorFormDetails
-                                enabled={{ checked: alertForm.enabled, dataAttr: 'alertForm-enabled' }}
                                 activity={
                                     alert?.created_by ? (
                                         <UserActivityIndicator
@@ -358,7 +399,11 @@ function LegacyEditAlertModal({
                             />
                         </div>
 
-                        {alertId && alert ? <AlertHistorySection alertId={alert.id} /> : null}
+                        {alertId && alert ? (
+                            <div className="mt-6">
+                                <AlertHistorySection alertId={alert.id} />
+                            </div>
+                        ) : null}
                     </AlertEditor>
                 </Form>
             )}

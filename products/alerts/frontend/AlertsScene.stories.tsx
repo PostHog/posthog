@@ -190,6 +190,25 @@ type Story = StoryObj<{}>
 
 export const ListView: Story = {}
 
+export const RedesignedEditModal: Story = {
+    parameters: {
+        pageUrl: urls.alert('alert-healthy'),
+        featureFlags: [
+            FEATURE_FLAGS.LOGS_ALERTING,
+            FEATURE_FLAGS.ALERTS_REDESIGNED_EDIT_MODAL,
+            FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS,
+        ],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/alerts/:alert_id/': alerts[1],
+                '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
 export const EmptyState: Story = {
     decorators: [
         mswDecorator({

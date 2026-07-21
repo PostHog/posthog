@@ -1,11 +1,15 @@
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
+import { AlertConditionType } from '~/queries/schema/schema-general'
+
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
+export const THRESHOLD_BOUNDS_ORDER_FORM_ERROR = 'The “Less than” value must be lower than the “More than” value'
+export const RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR = 'Enter zero or a positive change value'
 
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
@@ -32,6 +36,7 @@ const alertFormSchema = z
     .object({
         name: z.string(),
         detector_config: z.unknown().nullable(),
+        condition: z.object({ type: z.nativeEnum(AlertConditionType) }),
         threshold: z
             .object({
                 configuration: z
@@ -68,6 +73,31 @@ const alertFormSchema = z
                 code: z.ZodIssueCode.custom,
                 path: ['threshold'],
                 message: THRESHOLD_BOUNDS_FORM_ERROR,
+            })
+        }
+
+        const bounds = alert.threshold?.configuration?.bounds
+        if (
+            !alert.detector_config &&
+            isFiniteThresholdBound(bounds?.lower) &&
+            isFiniteThresholdBound(bounds?.upper) &&
+            Number(bounds?.lower) > Number(bounds?.upper)
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['threshold'],
+                message: THRESHOLD_BOUNDS_ORDER_FORM_ERROR,
+            })
+        }
+
+        const hasNegativeRelativeBound =
+            alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE &&
+            [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && Number(value) < 0)
+        if (hasNegativeRelativeBound) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['threshold'],
+                message: RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR,
             })
         }
     })

@@ -154,6 +154,7 @@ export interface AlertFormLogicProps {
     /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
      * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
     insightIsTrendsFunnel?: boolean
+    uiVersion?: 'legacy' | 'redesigned'
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -243,12 +244,15 @@ function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | n
     if (props.defaultToAnomalyDetection) {
         return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
     }
+    if (props.insightName) {
+        return `${props.insightName} alert`
+    }
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
 }
 
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
-        return {}
+        return { upper: 1 }
     }
 
     // Simple assumption that the alert should be triggered when the first/smallest goal line is crossed
@@ -647,6 +651,20 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw error
                 }
 
+                if (isNewAlert) {
+                    posthog.capture('alert creation completed', {
+                        alert_id: updatedAlert.id,
+                        alert_mode: alert.detector_config ? 'detector' : 'threshold',
+                        detector_type: alert.detector_config?.type ?? null,
+                        config_type: alert.config?.type ?? null,
+                        calculation_interval: alert.calculation_interval,
+                        condition_type: alert.condition?.type ?? null,
+                        subscribed_users_count: alert.subscribed_users?.length ?? 0,
+                        destination_count: notifLogic.values.pendingNotifications.length,
+                        ui_version: props.uiVersion ?? 'legacy',
+                    })
+                }
+
                 // The alert is already persisted — any error from the local side-effects below is a
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
@@ -877,7 +895,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     parent.actions.upsertAlert(updatedAlert)
                     parent.actions.loadAlerts()
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()

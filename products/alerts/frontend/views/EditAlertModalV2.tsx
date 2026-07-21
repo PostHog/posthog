@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconBell, IconClock, IconGraph, IconPulse } from '@posthog/icons'
-import { LemonDialog, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 import type { LemonTab } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -14,6 +14,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { formatDate } from 'lib/utils/datetime'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,10 +28,16 @@ import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightMode
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
-import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
+import {
+    AlertEditor,
+    AlertEditorFormDetails,
+    AlertEditorLoading,
+} from 'products/alerts/frontend/components/AlertEditor'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
 import { AlertPreviewCard } from 'products/alerts/frontend/components/AlertPreviewCard'
+import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertStateIndicator'
 import { buildAlertSummary } from 'products/alerts/frontend/components/alertSummary'
+import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/frontend/components/AlertSummaryBanner'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
 import { ThresholdConditionRow } from 'products/alerts/frontend/components/ThresholdConditionRow'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
@@ -74,6 +81,7 @@ export function EditAlertModalV2({
 }: EditAlertModalV2Props): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
+    const { insightLoading } = useValues(insightLogic(insightLogicProps))
 
     const _onEditSuccess = useCallback(
         (alertId: AlertType['id'] | undefined) => {
@@ -90,6 +98,7 @@ export function EditAlertModalV2({
         formulaNodes,
         interval: trendInterval,
         indexedResults,
+        insightDataLoading,
     } = useValues(trendsLogic)
 
     const { query } = useValues(insightVizDataLogic(insightLogicProps))
@@ -111,6 +120,7 @@ export function EditAlertModalV2({
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
+        uiVersion: 'redesigned' as const,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -118,7 +128,6 @@ export function EditAlertModalV2({
         isAlertFormSubmitting,
         alertFormChanged,
         alertFormHasErrors,
-        alertFormErrors,
         alertFormSubmitAttempted,
         simulationResult,
         simulationResultLoading,
@@ -146,7 +155,7 @@ export function EditAlertModalV2({
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
-    const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
+    const { existingHogFunctions, pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
 
     const handleClose = useCallback(() => {
@@ -228,7 +237,11 @@ export function EditAlertModalV2({
     ])
 
     const subscribedCount = alertForm.subscribed_users?.length ?? 0
-    const summary = useMemo(() => buildAlertSummary(alertForm, subscribedCount), [alertForm, subscribedCount])
+    const destinationCount = existingHogFunctions.length + pendingNotifications.length
+    const summary = useMemo(
+        () => buildAlertSummary(alertForm, subscribedCount, destinationCount),
+        [alertForm, destinationCount, subscribedCount]
+    )
 
     // The monitored trends series' values, for the live preview sparkline. Picked by the alert's
     // series_index so the preview matches what the alert actually evaluates.
@@ -264,14 +277,21 @@ export function EditAlertModalV2({
                                 onClick: deleteAlert,
                                 'data-attr': 'alert-delete-confirm',
                             },
+                            secondaryButton: { children: 'Cancel' },
                         })
                     }}
                 >
                     Delete alert
                 </LemonButton>
             ) : null}
-            {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
-                <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
+            {!creatingNewAlert ? (
+                <SnoozeButton
+                    onChange={snoozeAlert}
+                    value={alert?.snoozed_until}
+                    disabledReason={
+                        alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
+                    }
+                />
             ) : null}
             {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
                 <LemonButton
@@ -306,6 +326,7 @@ export function EditAlertModalV2({
                 labelColumnOptions: hogqlLabelColumnOptions,
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
+            twoColumnLayout
             investigationAgentEnabled={investigationAgentEnabled}
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
@@ -343,6 +364,7 @@ export function EditAlertModalV2({
             alertId={alertId}
             insightShortId={insightShortId}
             inlineNotificationsEnabled={inlineNotificationsEnabled}
+            showSectionTitle={false}
             onSetAlertFormValue={setAlertFormValue}
         />
     )
@@ -353,6 +375,7 @@ export function EditAlertModalV2({
             canCheckOngoingInterval={can_check_ongoing_interval}
             projectTimezone={projectTimezone}
             enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
+            defaultOpen
             onSetAlertFormValue={setAlertFormValue}
         />
     )
@@ -368,15 +391,15 @@ export function EditAlertModalV2({
             }
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
+            loading={insightLoading || insightDataLoading}
         />
     )
+    const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
-                <div className="flex items-center justify-center min-h-[400px]">
-                    <SpinnerOverlay />
-                </div>
+                <AlertEditorLoading title="Edit alert" onBack={handleClose} />
             ) : (
                 <Form
                     logic={alertFormLogic}
@@ -391,14 +414,9 @@ export function EditAlertModalV2({
                             isSubmitting={isAlertFormSubmitting}
                             hasChanges={alertFormChanged}
                             onBack={handleClose}
-                            onSubmitAttempted={() => {
-                                setAlertFormSubmitAttempted()
-                                if (!alertFormHasErrors) {
-                                    handleClose()
-                                }
-                            }}
+                            onSubmitAttempted={setAlertFormSubmitAttempted}
                             steps={buildWizardSteps({
-                                nameNode: <AlertEditorFormDetails />,
+                                nameNode: <AlertEditorFormDetails nameError={nameError} />,
                                 definitionNode,
                                 previewNode,
                                 scheduleNode,
@@ -407,8 +425,7 @@ export function EditAlertModalV2({
                                 summary,
                                 thresholdBoundsFormError,
                                 alertFormHasErrors,
-                                alertFormErrors,
-                                alertFormSubmitAttempted,
+                                alertName: alertForm.name,
                             })}
                         />
                     ) : (
@@ -425,11 +442,19 @@ export function EditAlertModalV2({
                             leadingActions={leadingActions}
                         >
                             <div className="space-y-3">
-                                <SummaryBanner summary={summary} alertMode={alertMode} />
-
                                 <EditAlertTabs
+                                    summary={summary}
+                                    summaryHeader={
+                                        alert ? (
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="font-medium">Current status</span>
+                                                <AlertStateIndicator alert={alert} />
+                                            </div>
+                                        ) : undefined
+                                    }
                                     nameNode={
                                         <AlertEditorFormDetails
+                                            nameError={nameError}
                                             activity={
                                                 alert?.created_by ? (
                                                     <UserActivityIndicator
@@ -446,7 +471,11 @@ export function EditAlertModalV2({
                                     scheduleNode={scheduleNode}
                                     advancedNode={advancedNode}
                                     notifyNode={notifyNode}
-                                    historyNode={alertId && alert ? <AlertHistorySection alertId={alert.id} /> : null}
+                                    historyNode={
+                                        alertId && alert ? (
+                                            <AlertHistorySection alertId={alert.id} showCurrentStatus={false} />
+                                        ) : null
+                                    }
                                 />
                             </div>
                         </AlertEditor>
@@ -467,8 +496,7 @@ interface WizardStepInput {
     summary: { fires: string; cadence: string; notifies: string }
     thresholdBoundsFormError?: string
     alertFormHasErrors: boolean
-    alertFormErrors: Record<string, unknown>
-    alertFormSubmitAttempted: boolean
+    alertName: string
 }
 
 function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
@@ -476,6 +504,9 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
     const reviewFires = summary.fires || 'a configured threshold'
     const reviewCadence = summary.cadence || 'a cadence'
     const reviewNotifies = summary.notifies || 'no one yet'
+    const monitorCannotAdvanceReason = !input.alertName
+        ? 'Enter an alert name.'
+        : input.thresholdBoundsFormError || 'Fix the errors above before continuing.'
 
     return [
         {
@@ -483,7 +514,7 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             title: 'Monitor',
             description: 'Pick what this alert watches and when it should fire.',
             canAdvance: !alertFormHasErrors,
-            cannotAdvanceReason: alertFormHasErrors ? 'Fix the errors above before continuing.' : undefined,
+            cannotAdvanceReason: alertFormHasErrors ? monitorCannotAdvanceReason : undefined,
             content: (
                 <div className="space-y-4">
                     {input.nameNode}
@@ -543,31 +574,9 @@ function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
     ]
 }
 
-function SummaryBanner({
-    summary,
-    alertMode,
-}: {
-    summary: { fires: string; cadence: string; notifies: string }
-    alertMode: 'detector' | 'threshold'
-}): JSX.Element {
-    const fires = summary.fires || (alertMode === 'detector' ? 'an anomaly' : 'a threshold')
-    const cadence = summary.cadence || 'unscheduled'
-    const notifies = summary.notifies || 'no one'
-    return (
-        <div className="rounded border border-border bg-bg-light px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-muted">Fires when</span>
-            <span className="font-medium">{fires}</span>
-            <span className="text-border">·</span>
-            <span className="text-muted">runs</span>
-            <span className="font-medium">{cadence}</span>
-            <span className="text-border">·</span>
-            <span className="text-muted">notifies</span>
-            <span className="font-medium">{notifies}</span>
-        </div>
-    )
-}
-
 interface EditAlertTabsProps {
+    summary: { fires: string; cadence: string; notifies: string }
+    summaryHeader?: React.ReactNode
     nameNode: React.ReactNode
     previewNode: React.ReactNode
     definitionNode: React.ReactNode
@@ -578,6 +587,8 @@ interface EditAlertTabsProps {
 }
 
 function EditAlertTabs({
+    summary,
+    summaryHeader,
     nameNode,
     previewNode,
     definitionNode,
@@ -644,5 +655,15 @@ function EditAlertTabs({
             : null,
     ]
 
-    return <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
+    let activeSummarySection: AlertSummarySection | undefined
+    if (activeKey === 'monitor' || activeKey === 'schedule' || activeKey === 'notify') {
+        activeSummarySection = activeKey
+    }
+
+    return (
+        <div className="space-y-3">
+            <AlertSummaryBanner summary={summary} header={summaryHeader} activeSection={activeSummarySection} />
+            <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
+        </div>
+    )
 }

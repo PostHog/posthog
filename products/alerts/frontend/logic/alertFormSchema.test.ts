@@ -2,7 +2,13 @@ import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } fr
 import { initKeaTests } from '~/test/init'
 
 import type { AlertFormType } from './alertFormLogic'
-import { getAlertFormValidationErrors, THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
+import {
+    getAlertFormValidationErrors,
+    RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR,
+    THRESHOLD_BOUNDS_FORM_ERROR,
+    THRESHOLD_BOUNDS_ORDER_FORM_ERROR,
+    thresholdAlertHasBounds,
+} from './alertFormSchema'
 
 const baseAlert: AlertFormType = {
     name: 'My alert',
@@ -60,6 +66,35 @@ describe('alertFormSchema', () => {
                 threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
             })
         ).toBe(false)
+    })
+
+    it('requires the lower threshold to be below the upper threshold', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            threshold: {
+                configuration: {
+                    type: InsightThresholdType.ABSOLUTE,
+                    bounds: { lower: 5, upper: 1 },
+                },
+            },
+        })
+
+        expect(errors.threshold).toBe(THRESHOLD_BOUNDS_ORDER_FORM_ERROR)
+    })
+
+    it('rejects negative thresholds for relative conditions', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            condition: { type: AlertConditionType.RELATIVE_DECREASE },
+            threshold: {
+                configuration: {
+                    type: InsightThresholdType.ABSOLUTE,
+                    bounds: { upper: -1 },
+                },
+            },
+        })
+
+        expect(errors.threshold).toBe(RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR)
     })
 
     it('treats cleared threshold inputs as missing bounds', () => {
