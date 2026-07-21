@@ -250,30 +250,6 @@ def _stringify_group_key_value(value: object) -> str | list[str]:
     return _scalar(value)
 
 
-# ClickHouse's canonical UUID text form; it rejects anything else when parsing a compared literal.
-UUID_LITERAL_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-
-EVENT_METADATA_UUID_FIELD_LABELS = {"person_id": "person ID", "uuid": "event UUID"}
-
-
-def _validate_uuid_filter_values(key: str, value: object, operator: PropertyOperator) -> None:
-    """events.person_id and events.uuid are UUID columns. ClickHouse parses the compared literal
-    only at execution time, so a malformed value fails the whole query with CANNOT_PARSE_UUID —
-    reject it here with a message that names the bad value instead."""
-    if operator not in (PropertyOperator.EXACT, PropertyOperator.IS_NOT):
-        return
-    values = value if isinstance(value, list) else [value]
-    for single_value in values:
-        if single_value is None:
-            continue
-        if not UUID_LITERAL_PATTERN.match(str(single_value)):
-            label = EVENT_METADATA_UUID_FIELD_LABELS.get(key, key)
-            raise QueryError(
-                f"'{single_value}' is not a valid {label}. "
-                f"Use the full UUID, for example '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
-            )
-
-
 def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
     finder.visit(expr)
@@ -925,9 +901,6 @@ def property_to_expr(
 
         if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
             value = _stringify_group_key_value(value)
-
-        if property.type == "event_metadata" and property.key in EVENT_METADATA_UUID_FIELD_LABELS:
-            _validate_uuid_filter_values(property.key, value, operator)
 
         if property.type == "person" and property.key == "distinct_id":
             # distinct_id is not stored in person.properties.

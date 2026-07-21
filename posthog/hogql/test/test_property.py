@@ -1227,28 +1227,6 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.price = 13"),
         )
 
-    # person_id and uuid are UUID columns: a malformed literal would fail the whole query at
-    # execution time with the opaque CANNOT_PARSE_UUID, so it must be rejected at build time
-    @parameterized.expand(
-        [
-            ("person_id_exact_invalid", "person_id", "2026072018044213140", "exact", True),
-            ("person_id_is_not_invalid", "person_id", ["2026072018044213140"], "is_not", True),
-            ("person_id_mixed_list", "person_id", ["0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b", "nope"], "exact", True),
-            ("uuid_exact_invalid", "uuid", "not-a-uuid", "exact", True),
-            ("person_id_exact_valid", "person_id", "0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b", "exact", False),
-            ("person_id_non_equality_skipped", "person_id", "2026", "icontains", False),
-            ("distinct_id_not_validated", "distinct_id", "not-a-uuid", "exact", False),
-        ]
-    )
-    def test_property_to_expr_event_metadata_uuid_validation(self, _name, key, value, operator, should_raise):
-        prop = {"type": "event_metadata", "key": key, "value": value, "operator": operator}
-        if should_raise:
-            with self.assertRaises(QueryError) as ctx:
-                self._property_to_expr(prop, scope="event")
-            self.assertIn("is not a valid", str(ctx.exception))
-        else:
-            self._property_to_expr(prop, scope="event")
-
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:
             self._property_to_expr(
