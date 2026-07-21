@@ -401,8 +401,8 @@ function IntegrationAccountFieldWithDropdown({
                         {accountsError && <p className="m-0 text-xs text-warning">{accountsError}</p>}
                         {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
                             <p className="m-0 text-xs text-warning">
-                                No accounts are accessible for this connection. Check that the connected account has
-                                the right permissions, then reconnect the integration.
+                                No accounts are accessible for this connection. Check that the connected account has the
+                                right permissions, then reconnect the integration.
                             </p>
                         )}
                         {savedValueMissing && (
