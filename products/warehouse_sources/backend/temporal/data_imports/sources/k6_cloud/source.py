@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import K6CloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
+    K6CloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.k6_cloud import (
     K6CloudResumeConfig,
     k6_cloud_source,

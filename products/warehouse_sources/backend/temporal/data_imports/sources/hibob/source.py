@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HiBobSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.hibob import (
     hibob_source,
     validate_credentials as validate_hibob_credentials,

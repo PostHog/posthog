@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RuddrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import (
     RuddrResumeConfig,
     ruddr_source,

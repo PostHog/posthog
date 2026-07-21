@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoldcastSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.goldcast import (
+    GoldcastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.goldcast import (
     goldcast_source,
     validate_credentials as validate_goldcast_credentials,

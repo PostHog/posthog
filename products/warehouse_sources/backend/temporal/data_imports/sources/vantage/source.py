@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VantageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vantage import (
+    VantageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

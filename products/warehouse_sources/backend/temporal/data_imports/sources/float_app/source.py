@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     FLOAT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FloatAppSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
+    FloatAppSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
