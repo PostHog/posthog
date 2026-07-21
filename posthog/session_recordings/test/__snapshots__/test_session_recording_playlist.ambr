@@ -2233,6 +2233,15 @@
      WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.51
+  '''
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id"
+     FROM "ee_single_session_summary"
+     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
+  '''
+# ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.6
   '''
   SELECT "posthog_organizationmembership"."id",
