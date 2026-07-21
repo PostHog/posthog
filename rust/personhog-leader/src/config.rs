@@ -125,6 +125,27 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub warm_retry_max_backoff_ms: u64,
 
+    // ── Property size admission ──────────────────────────────────
+    /// Ceiling for a person's properties, measured exactly as the
+    /// `check_properties_size` constraint on `posthog_person` measures it:
+    /// `pg_column_size(properties)`, the JSONB binary size. An update
+    /// whose merged state exceeds this is trimmed to the target below (or
+    /// rejected if protected properties alone cannot fit), so every acked
+    /// record is applyable by the writer verbatim — the cache, the
+    /// changelog, and Postgres can never disagree about an acked row.
+    #[envconfig(default = "655360")]
+    pub properties_size_threshold: usize,
+
+    /// Size to trim oversized properties down to, comfortably below the
+    /// threshold so admitted rows keep headroom under the constraint.
+    #[envconfig(default = "524288")]
+    pub properties_trim_target: usize,
+
+    /// Topic for in-product ingestion warnings emitted when admission
+    /// trims or rejects an update.
+    #[envconfig(default = "client_iwarnings_ingestion")]
+    pub ingestion_warnings_topic: String,
+
     // ── Dirty index / changelog recovery ─────────────────────────
     /// How often to poll the writer's committed offsets and prune dirty
     /// index marks the writer has applied to PG. A tick costs one batched

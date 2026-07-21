@@ -14,7 +14,7 @@ use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::{
-    BatchOutcome, PersonDb, PersonWriteStore, RowResult, WriteError, WriteErrorKind,
+    BatchOutcome, PersonDb, PersonWriteStore, WriteError, WriteErrorKind,
 };
 use personhog_writer::writer::WriterTask;
 use prost::Message;
@@ -131,7 +131,7 @@ async fn writer_upsert_batch_multiple_persons() {
 }
 
 #[tokio::test]
-async fn writer_skips_invalid_uuids_without_failing_batch() {
+async fn writer_surfaces_invalid_uuids_as_violations_never_silent_skips() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_004;
     cleanup_team(&pool, team_id).await;
@@ -146,14 +146,27 @@ async fn writer_skips_invalid_uuids_without_failing_batch() {
     bad_person.uuid = "not-a-valid-uuid".to_string();
     let another_valid = make_person(team_id as i64, 3, 1);
 
-    // Batch contains one invalid UUID -- it should be skipped,
-    // and the valid persons should still be written.
-    assert!(matches!(
-        writer
-            .upsert_batch(vec![valid_person, bad_person, another_valid])
-            .await,
-        BatchOutcome::Success
-    ));
+    // An unbindable row fails its chunk: silently dropping it would
+    // permanently diverge PG from the cache and changelog.
+    let outcome = writer
+        .upsert_batch(vec![valid_person, bad_person, another_valid])
+        .await;
+    let BatchOutcome::Partial {
+        transient,
+        data_failed,
+    } = outcome
+    else {
+        panic!("a chunk with an unbindable row must be data-failed");
+    };
+    assert!(transient.is_empty());
+    assert_eq!(data_failed.len(), 3);
+
+    // The per-row pass isolates the poison row as a violation; the valid
+    // rows apply.
+    let fallback = writer.upsert_rows_parallel(data_failed).await;
+    assert!(fallback.transient.is_empty());
+    assert_eq!(fallback.violations.len(), 1);
+    assert_eq!(fallback.violations[0].person_id, 2);
 
     let count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM personhog_person_tmp WHERE team_id = $1")
@@ -161,8 +174,10 @@ async fn writer_skips_invalid_uuids_without_failing_batch() {
             .fetch_one(&pool)
             .await
             .unwrap();
-
-    assert_eq!(count.0, 2);
+    assert_eq!(
+        count.0, 2,
+        "valid rows apply; the poison row writes nothing"
+    );
 
     cleanup_team(&pool, team_id).await;
 }
@@ -207,13 +222,7 @@ async fn consumer_flushes_on_buffer_size_threshold() {
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        writer,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     // Produce 6 messages to mock Kafka (two full batches of 3)
@@ -308,13 +317,7 @@ async fn consumer_flushes_on_timer() {
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        writer,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     // Produce 2 messages -- below the size threshold of 1000
@@ -409,13 +412,7 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        writer,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     // Produce 5 updates for the same person (id=1) with increasing versions
@@ -513,13 +510,7 @@ async fn writer_processes_batch_from_channel() {
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        writer,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     // Send a batch directly through the channel
@@ -586,11 +577,7 @@ impl PersonDb for MockDb {
         }
     }
 
-    async fn execute_row(
-        &self,
-        _person: &Person,
-        _override: Option<&str>,
-    ) -> Result<(), WriteError> {
+    async fn execute_row(&self, _person: &Person) -> Result<(), WriteError> {
         Ok(())
     }
 }
@@ -624,17 +611,10 @@ async fn writer_crashes_after_exhausting_transient_retries() {
         personhog_writer::store::StoreConfig {
             chunk_size: 10,
             row_fallback_concurrency: 4,
-            ..common::test_store_config()
         },
     );
 
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        store,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
@@ -682,17 +662,10 @@ async fn writer_recovers_on_transient_retry() {
         personhog_writer::store::StoreConfig {
             chunk_size: 10,
             row_fallback_concurrency: 4,
-            ..common::test_store_config()
         },
     );
 
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        store,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
@@ -744,17 +717,10 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         personhog_writer::store::StoreConfig {
             chunk_size: 10,
             row_fallback_concurrency: 4,
-            ..common::test_store_config()
         },
     );
 
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        store,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
@@ -778,11 +744,17 @@ async fn writer_falls_back_to_per_row_on_data_error() {
 }
 
 // ============================================================
-// Properties size violation: trim → successful write
+// Properties size violation: invariant violation, never corrected
 // ============================================================
 
+/// A row violating check_properties_size cannot reach the writer through
+/// a correctly-admitting leader, so the writer treats one as an admission
+/// bug: a non-transient error that halts the flush without committing and
+/// writes nothing. A writer-side trim or skip would make Postgres diverge
+/// from the cache and changelog — the exact drift leader admission exists
+/// to prevent.
 #[tokio::test]
-async fn properties_size_violation_trim_succeeds() {
+async fn properties_size_violation_errors_and_writes_nothing() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_050;
     cleanup_team(&pool, team_id).await;
@@ -792,9 +764,8 @@ async fn properties_size_violation_trim_succeeds() {
         common::test_store_config(),
     );
 
-    // Build properties that exceed 640KB total but fit once custom keys are
-    // trimmed. Protected "email" is small; two large custom properties push
-    // the serialized JSON well past the DB constraint.
+    // Would have been trimmable under the old semantics: protected email
+    // is small, two large custom properties push past the constraint.
     let mut props = serde_json::Map::new();
     props.insert(
         "email".to_string(),
@@ -807,74 +778,12 @@ async fn properties_size_violation_trim_succeeds() {
     let mut person = make_person(team_id as i64, 1, 1);
     person.properties = serde_json::to_vec(&serde_json::Value::Object(props)).unwrap();
 
-    let result = store.upsert_row(&person).await;
-    let RowResult::Trimmed(warning) = result else {
-        panic!("expected RowResult::Trimmed");
-    };
-    assert_eq!(warning.team_id, team_id as i64);
-    assert_eq!(warning.person_id, 1);
-    assert!(!warning.message.is_empty());
+    let err = store
+        .upsert_row(&person)
+        .await
+        .expect_err("an unapplyable row must error, never be skipped");
+    assert!(matches!(err.kind, WriteErrorKind::PropertiesSizeViolation));
 
-    // Verify the row landed in PG with trimmed properties
-    let row: (i64, String) = sqlx::query_as(
-        "SELECT id, properties::text FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
-    )
-    .bind(team_id)
-    .bind(1_i64)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-
-    assert_eq!(row.0, 1);
-    let stored_props: serde_json::Value = serde_json::from_str(&row.1).unwrap();
-    let stored_map = stored_props.as_object().unwrap();
-    assert!(
-        stored_map.contains_key("email"),
-        "protected property 'email' should be preserved"
-    );
-    // The trim algorithm removes custom properties in alphabetical order
-    // until the result fits under the target. "custom_a" is removed first;
-    // that alone brings the total below 512KB, so "custom_b" survives.
-    assert!(
-        !stored_map.contains_key("custom_a"),
-        "custom property 'custom_a' should have been trimmed"
-    );
-
-    cleanup_team(&pool, team_id).await;
-}
-
-// ============================================================
-// Properties size violation: untrimable (protected only) → skip
-// ============================================================
-
-#[tokio::test]
-async fn properties_size_violation_untrimable_skips() {
-    let pool = create_test_pool().await;
-    let team_id: i32 = 99_051;
-    cleanup_team(&pool, team_id).await;
-
-    let store = PersonWriteStore::new(
-        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
-        common::test_store_config(),
-    );
-
-    // Only protected properties, and they exceed 640KB on their own.
-    let mut props = serde_json::Map::new();
-    let huge_email = "e".repeat(700_000);
-    props.insert("email".to_string(), serde_json::json!(huge_email));
-
-    let mut person = make_person(team_id as i64, 1, 1);
-    person.properties = serde_json::to_vec(&serde_json::Value::Object(props)).unwrap();
-
-    let result = store.upsert_row(&person).await;
-    let RowResult::Skipped(warning) = result else {
-        panic!("expected RowResult::Skipped");
-    };
-    assert_eq!(warning.team_id, team_id as i64);
-    assert_eq!(warning.person_id, 1);
-    assert!(!warning.message.is_empty());
-
-    // Verify no row was written
     let count: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM personhog_person_tmp WHERE team_id = $1 AND id = $2")
             .bind(team_id)
@@ -882,8 +791,7 @@ async fn properties_size_violation_untrimable_skips() {
             .fetch_one(&pool)
             .await
             .unwrap();
-
-    assert_eq!(count.0, 0, "no row should exist for a skipped person");
+    assert_eq!(count.0, 0, "an unapplyable person must write nothing");
 
     cleanup_team(&pool, team_id).await;
 }
@@ -943,13 +851,7 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
     );
-    let writer_task = WriterTask::new(
-        Arc::clone(&kafka_consumer),
-        writer,
-        flush_rx,
-        writer_handle,
-        None,
-    );
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
 
     let consumer_task = ConsumerTask::new(

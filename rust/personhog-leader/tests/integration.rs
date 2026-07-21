@@ -1,7 +1,10 @@
 mod common;
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use common_ingestion_warnings::throttle::{WarningThrottle, DEFAULT_THROTTLE_PERIOD};
 
 use dashmap::DashMap;
 
@@ -20,7 +23,8 @@ use personhog_leader::cache::{
 };
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::service::PersonHogLeaderService;
+use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
     GetPersonRequest, Person, UpdatePersonPropertiesRequest,
@@ -170,7 +174,7 @@ async fn unowned_partition_returns_failed_precondition() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -178,6 +182,8 @@ async fn unowned_partition_returns_failed_precondition() {
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -246,7 +252,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -254,6 +260,8 @@ async fn missing_partition_metadata_returns_invalid_argument() {
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     // Warm the partition and seed the person so the only failure mode
@@ -325,7 +333,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -333,6 +341,8 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     // Key (1, 42) hashes to some true partition; pick a different one and
@@ -410,7 +420,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
     let recovery = test_recovery(KAFKA_BOOTSTRAP);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -418,6 +428,8 @@ async fn writes_fenced_after_drain_reads_still_served() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
     // The handler shares the cache, inflight tracker, dirty index, and
     // recovery pool with the service, exactly as main.rs wires them.
@@ -519,7 +531,7 @@ async fn drain_fences_before_waiting_on_inflight() {
     let recovery = test_recovery(KAFKA_BOOTSTRAP);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -527,6 +539,8 @@ async fn drain_fences_before_waiting_on_inflight() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -826,7 +840,7 @@ async fn update_produces_person_state_to_kafka() {
     let cache = Arc::new(PartitionedCache::new(100));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -834,6 +848,8 @@ async fn update_produces_person_state_to_kafka() {
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(routing_partition);
@@ -934,7 +950,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -942,6 +958,8 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(0);
@@ -1040,7 +1058,7 @@ async fn e2e_update_produces_to_local_kafka() {
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -1048,6 +1066,8 @@ async fn e2e_update_produces_to_local_kafka() {
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(0);
@@ -1292,7 +1312,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -1300,6 +1320,8 @@ async fn evicted_dirty_person_recovers_from_changelog() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(routing_partition);
@@ -1388,7 +1410,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -1396,6 +1418,8 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(routing_partition);
@@ -1490,7 +1514,7 @@ async fn writes_shed_when_dirty_index_is_full() {
     let dirty_index = Arc::new(DirtyIndex::new(1));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -1498,6 +1522,8 @@ async fn writes_shed_when_dirty_index_is_full() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         test_recovery(&mock_cluster.bootstrap_servers()),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(partition);
@@ -1583,7 +1609,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -1591,6 +1617,8 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(routing_partition);
@@ -1686,7 +1714,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -1694,6 +1722,8 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
     );
 
     cache.create_partition(partition);
@@ -1867,4 +1897,332 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
         .await
         .expect("the pool must survive cancellations");
     assert_eq!(recovered.id, 7);
+}
+
+// ============================================================
+// Admission-time property size enforcement: the merged state is
+// measured as pg_column_size measures it, trimmed to fit, or
+// rejected when protected properties alone cannot fit — so every
+// acked record is applyable by the writer verbatim.
+// ============================================================
+
+#[tokio::test]
+async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
+    const PERSON_ID: i64 = 9;
+    let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
+    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    // The warnings topic is not auto-created; the fire-and-forget emit
+    // would silently drop without it.
+    mock_cluster
+        .create_topic("client_iwarnings_ingestion", 1, 1)
+        .unwrap();
+
+    let cache = Arc::new(PartitionedCache::new(100));
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::clone(&dirty_index),
+        recovery,
+        PropertySizeLimits::new(655360, 524288),
+        // Burst 2 so the trim and reject below — same team, same type —
+        // both clear the throttle; the third enforcement action then
+        // exercises suppression.
+        WarningsProducer::with_throttle(
+            kafka_producer,
+            "client_iwarnings_ingestion".to_string(),
+            WarningThrottle::new(DEFAULT_THROTTLE_PERIOD, NonZeroU32::new(2).unwrap()),
+        ),
+    );
+
+    cache.create_partition(routing_partition);
+    let person = CachedPerson {
+        id: PERSON_ID,
+        ..test_cached_person()
+    };
+    seed_person(&cache, routing_partition, person);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let mut client = create_leader_client(addr).await;
+
+    // Trimmable: small protected property plus two large custom ones.
+    // Trimming removes custom properties alphabetically, so custom_a goes
+    // and custom_b (which alone fits the target) survives.
+    let big = "x".repeat(400_000);
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({
+                    "email": "a@b.c", "custom_a": big, "custom_b": big,
+                }))
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.updated);
+    let stored: serde_json::Value =
+        serde_json::from_slice(&response.person.unwrap().properties).unwrap();
+    let stored = stored.as_object().unwrap();
+    assert_eq!(stored["email"], "a@b.c");
+    assert!(
+        !stored.contains_key("custom_a"),
+        "custom_a must be trimmed (alphabetically first)"
+    );
+    assert!(stored.contains_key("custom_b"));
+
+    // The stored state IS the trimmed state: a strong read agrees with
+    // the update response.
+    let read = client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                read_options: None,
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let read_props: serde_json::Value =
+        serde_json::from_slice(&read.person.unwrap().properties).unwrap();
+    assert!(!read_props.as_object().unwrap().contains_key("custom_a"));
+
+    // Untrimmable: the protected property alone exceeds the trim target,
+    // so after trimming every custom property the merge still cannot fit.
+    let huge_email = "e".repeat(700_000);
+    let err = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"email": huge_email}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            routing_partition,
+        ))
+        .await
+        .expect_err("untrimmable update must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("size limit"));
+    assert!(
+        !err.message().contains("eee"),
+        "the error must carry sizes, never property values"
+    );
+
+    // Rejection leaves no residue: a normal update still works.
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "after"})).unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.updated);
+
+    // Both enforcement actions emitted in-product warnings from the
+    // leader: one trim, one rejection.
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "warnings-check")
+        .create()
+        .unwrap();
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset("client_iwarnings_ingestion", 0, rdkafka::Offset::Beginning)
+        .unwrap();
+    consumer.assign(&tpl).unwrap();
+    let mut warnings = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while warnings.len() < 2 && Instant::now() < deadline {
+        if let Some(Ok(message)) = consumer.poll(Duration::from_millis(200)) {
+            let payload: serde_json::Value =
+                serde_json::from_slice(message.payload().unwrap()).unwrap();
+            assert_eq!(payload["type"], "person_properties_size_violation");
+            assert_eq!(payload["source"], "personhog-leader");
+            // The pipeline's canonical shape: a ClickHouse-format
+            // timestamp, and category/severity in details (the v2 table
+            // materializes columns from those exact keys).
+            let timestamp = payload["timestamp"].as_str().unwrap();
+            assert!(
+                timestamp.len() == 23 && timestamp.as_bytes()[10] == b' ',
+                "timestamp must be ClickHouse-format, got {timestamp}"
+            );
+            let details: serde_json::Value =
+                serde_json::from_str(payload["details"].as_str().unwrap()).unwrap();
+            assert_eq!(details["category"], "size");
+            assert_eq!(details["severity"], "error");
+            assert!(
+                details["personId"].as_str().unwrap().contains('-'),
+                "personId is the uuid"
+            );
+            warnings.push(payload["details"].as_str().unwrap().to_string());
+        }
+    }
+    assert_eq!(
+        warnings.len(),
+        2,
+        "expected a trim warning and a reject warning"
+    );
+    assert!(warnings.iter().any(|w| w.contains("trimmed")));
+    assert!(warnings.iter().any(|w| w.contains("rejected")));
+
+    // Team 1's (team, type) budget is now exhausted: a third enforcement
+    // action still trims, but its warning is suppressed. A fresh team's
+    // warning still emits, and — the warnings topic being a single
+    // partition — arriving as the very next message proves the suppressed
+    // one was never produced.
+    const TEAM_2_PERSON_ID: i64 = 11;
+    let team2_partition = partition_for_person(2, TEAM_2_PERSON_ID, NUM_PARTITIONS);
+    if team2_partition != routing_partition {
+        cache.create_partition(team2_partition);
+    }
+    seed_person(
+        &cache,
+        team2_partition,
+        CachedPerson {
+            id: TEAM_2_PERSON_ID,
+            team_id: 2,
+            ..test_cached_person()
+        },
+    );
+
+    let oversized_trimmable = serde_json::to_vec(&serde_json::json!({
+        "email": "a@b.c", "custom_y": big, "custom_z": big,
+    }))
+    .unwrap();
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: oversized_trimmable.clone(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(
+        response.updated,
+        "throttling gates the warning, not the update"
+    );
+
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 2,
+                person_id: TEAM_2_PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: oversized_trimmable,
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            team2_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.updated);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let next = loop {
+        match consumer.poll(Duration::from_millis(200)) {
+            Some(Ok(message)) => break message,
+            _ => assert!(Instant::now() < deadline, "team 2's warning must arrive"),
+        }
+    };
+    let payload: serde_json::Value = serde_json::from_slice(next.payload().unwrap()).unwrap();
+    assert_eq!(
+        payload["team_id"], 2,
+        "team 1's third warning must be suppressed by the throttle"
+    );
+
+    // NUL bytes are sanitized at admission (`\u{0000}` → `\u{FFFD}`,
+    // matching the Node pipeline): Postgres jsonb refuses NUL, so an
+    // unsanitized record would be unapplyable by the writer. The stored
+    // state — response and strong read alike — carries the sanitized form.
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({
+                    "nul\u{0000}key": "nul\u{0000}value",
+                }))
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.updated);
+    let stored: serde_json::Value =
+        serde_json::from_slice(&response.person.unwrap().properties).unwrap();
+    let stored = stored.as_object().unwrap();
+    assert_eq!(stored["nul\u{FFFD}key"], "nul\u{FFFD}value");
+    assert!(!stored.contains_key("nul\u{0000}key"));
+
+    let read = client
+        .get_person(with_partition(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                read_options: None,
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let read_props: serde_json::Value =
+        serde_json::from_slice(&read.person.unwrap().properties).unwrap();
+    assert_eq!(read_props["nul\u{FFFD}key"], "nul\u{FFFD}value");
+
+    cancel.cancel();
 }
