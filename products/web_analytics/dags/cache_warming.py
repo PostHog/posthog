@@ -315,3 +315,49 @@ def web_analytics_cache_warming_schedule(context: dagster.ScheduleEvaluationCont
         return skip_reason
 
     return dagster.RunRequest()
+
+
+@dagster.op
+def report_warming_plan_op(context: dagster.OpExecutionContext, queries: dict) -> None:
+    """Dry-run reporter: summarize what the warmer WOULD warm — team count, total query
+    shapes, and the per-team distribution — without running (or precomputing) anything.
+
+    Reuses the real audience + shape-selection ops, so the counts reflect exactly what a
+    live run at the current `WEB_ANALYTICS_WARMING_MAX_ACTIVE_TEAMS` would touch.
+    """
+    per_team = sorted(((team_id, len(qs)) for team_id, qs in queries.items()), key=lambda x: -x[1])
+    shape_counts = [c for _, c in per_team]
+    total_shapes = sum(shape_counts)
+    total_underlying_requests = sum(qi["query_count"] for qs in queries.values() for qi in qs)
+    median_shapes = shape_counts[len(shape_counts) // 2] if shape_counts else 0
+
+    context.log.info(
+        f"DRY RUN — would warm {total_shapes} query shapes across {len(per_team)} teams "
+        f"(~{total_underlying_requests} underlying requests over the warming window). "
+        f"Per-team shapes: max={shape_counts[0] if shape_counts else 0}, median={median_shapes}. "
+        f"Top teams by shape count: {per_team[:10]}"
+    )
+    context.add_output_metadata(
+        {
+            "dry_run": True,
+            "team_count": len(per_team),
+            "total_query_shapes_to_warm": total_shapes,
+            "total_underlying_requests": total_underlying_requests,
+            "max_shapes_per_team": shape_counts[0] if shape_counts else 0,
+            "median_shapes_per_team": median_shapes,
+            "top_10_teams_by_shape_count": str(per_team[:10]),
+        }
+    )
+
+
+@dagster.job(
+    description="Dry run: report how many web analytics query shapes cache warming would warm, without warming",
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/web_analytics_cache_warming": "web_analytics_cache_warming_dry_run",
+    },
+)
+def web_analytics_cache_warming_dry_run_job():
+    team_ids = get_teams_for_warming_op()
+    queries = get_queries_for_teams_op(team_ids)
+    report_warming_plan_op(queries)
