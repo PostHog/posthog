@@ -228,7 +228,6 @@ class ExternalDataSourceType(models.TextChoices):
     DIXA = "Dixa", "Dixa"
     GLADLY = "Gladly", "Gladly"
     QUALTRICS = "Qualtrics", "Qualtrics"
-    DELIGHTED = "Delighted", "Delighted"
     AZUREDEVOPS = "AzureDevOps", "AzureDevOps"
     ROLLBAR = "Rollbar", "Rollbar"
     OPSGENIE = "Opsgenie", "Opsgenie"

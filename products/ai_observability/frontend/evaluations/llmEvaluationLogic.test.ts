@@ -580,6 +580,19 @@ return result`,
             })
         })
 
+        describe('breadcrumbs', () => {
+            it('does not show the template picker while an existing evaluation loads', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                expect(logic.values.evaluation).toBeNull()
+                expect(logic.values.breadcrumbs.map((breadcrumb) => breadcrumb.name)).toEqual([
+                    'Evaluations',
+                    'New Evaluation',
+                ])
+            })
+        })
+
         describe('runsSummary', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
@@ -693,19 +706,45 @@ return result`,
                 })
             })
 
-            it('applies template when provided', async () => {
-                logic = llmEvaluationLogic({ evaluationId: 'new', templateKey: 'factuality' })
+            it.each([
+                {
+                    name: 'LLM judge',
+                    templateKey: 'relevance',
+                    expectedEvaluation: {
+                        name: 'Relevance',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: expect.stringContaining('relevant') },
+                        output_type: 'boolean',
+                    },
+                },
+                {
+                    name: 'Hog',
+                    templateKey: 'cost_latency',
+                    expectedEvaluation: {
+                        name: 'Cost & latency',
+                        evaluation_type: 'hog',
+                        evaluation_config: { source: expect.stringContaining('latency'), bytecode: [] },
+                        output_type: 'boolean',
+                    },
+                },
+                {
+                    name: 'sentiment',
+                    templateKey: 'sentiment',
+                    expectedEvaluation: {
+                        name: 'Sentiment analysis',
+                        evaluation_type: 'sentiment',
+                        evaluation_config: { source: 'user_messages' },
+                        output_type: 'sentiment',
+                    },
+                },
+            ])('applies the $name template', async ({ templateKey, expectedEvaluation }) => {
+                logic = llmEvaluationLogic({ evaluationId: 'new', templateKey })
                 logic.mount()
 
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
                 await expectLogic(logic).toMatchValues({
-                    evaluation: expect.objectContaining({
-                        name: expect.any(String),
-                        evaluation_config: expect.objectContaining({
-                            prompt: expect.any(String),
-                        }),
-                    }),
+                    evaluation: expect.objectContaining(expectedEvaluation),
                 })
             })
         })

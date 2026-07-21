@@ -1370,7 +1370,6 @@ class ExternalDataSourceType(StrEnum):
     DIXA = "Dixa"
     GLADLY = "Gladly"
     QUALTRICS = "Qualtrics"
-    DELIGHTED = "Delighted"
     AZURE_DEV_OPS = "AzureDevOps"
     ROLLBAR = "Rollbar"
     OPSGENIE = "Opsgenie"

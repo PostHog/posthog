@@ -56,6 +56,7 @@ import { EvaluationTarget, EvaluationType } from './types'
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
         hasUnsavedChanges,
@@ -225,7 +226,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
+        push(evaluationBackTarget.path)
     }
 
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
