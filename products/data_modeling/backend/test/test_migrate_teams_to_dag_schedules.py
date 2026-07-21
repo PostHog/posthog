@@ -138,6 +138,31 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
         shared.refresh_from_db()
         self.assertIsNone(shared.sync_frequency_interval)
 
+    def test_temporal_outage_in_sweep_does_not_abort_the_run(self):
+        # a connect failure during phase 2 must skip this team's v1 sweep (idempotent on re-run),
+        # not propagate out and abort the whole fleet run before later teams are processed
+        dag, nodes = self._v1_dag_with_mixed_frequencies()
+
+        with (
+            mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
+            mock.patch(f"{COMMAND}.sync_connect", side_effect=RuntimeError("temporal down")),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+        ):
+            # completes without raising — the outage is swallowed per team
+            call_command("migrate_teams_to_dag_schedules", "--team-ids", str(self.team.pk), stdout=StringIO())
+
+        # phase 1 still seeded the targets; phase 2 was skipped, so intervals stay for the re-run
+        for name, interval in (("fast", M15), ("slow", DAY)):
+            node = nodes[name]
+            node.refresh_from_db()
+            self.assertEqual(get_declared_target(node), interval)
+            assert node.saved_query is not None
+            node.saved_query.refresh_from_db()
+            self.assertEqual(node.saved_query.sync_frequency_interval, interval)
+
     def test_flag_off_keeps_single_schedule_migration(self):
         dag, _nodes = self._v1_dag_with_mixed_frequencies()
 

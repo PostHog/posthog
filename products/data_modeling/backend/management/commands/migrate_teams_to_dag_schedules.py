@@ -173,8 +173,17 @@ class Command(BaseCommand):
         if dry_run or not seeded:
             return outcomes
         # Phase 2 — every DAG is now seeded, so sweeping v1 schedules and nulling the consumed
-        # intervals can no longer strand another DAG's seed.
-        temporal = sync_connect()
+        # intervals can no longer strand another DAG's seed. Isolate the connect so a Temporal
+        # outage skips this team's sweep (idempotent, retried on re-run) instead of aborting the
+        # whole fleet run and leaving every later team unprocessed.
+        try:
+            temporal = sync_connect()
+        except Exception:
+            logger.exception(
+                "Failed to connect to Temporal for v1 sweep; leaving it for a re-run",
+                team_id=team_dags[0].team_id,
+            )
+            return outcomes
         for dag, nodes in seeded:
             try:
                 failed_schedule_ids = delete_v1_saved_query_schedules(
