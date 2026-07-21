@@ -564,6 +564,7 @@ the row lists both.
 | zapier_supported_storage         | HTTP                        | requests                                                        | ✅                          |
 | zendesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell                     | HTTP                        | requests                                                        | ✅                          |
+| zendesk_sunshine                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zenduty                          | HTTP                        | requests                                                        | ✅                          |
 | zenloop                          | HTTP                        | requests                                                        | ✅                          |
 | zep                              | HTTP                        | requests                                                        | ✅                          |
@@ -1003,7 +1004,6 @@ doesn't conflict with concurrent PRs.
 - youtube_data
 - zapsign
 - zellify
-- zendesk_sunshine
 - zenefits
 - zenloop
 - zoho_analytics
