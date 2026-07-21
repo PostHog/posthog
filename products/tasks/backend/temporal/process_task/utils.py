@@ -655,6 +655,72 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+# Downscope for sandboxes that only gather evidence (commit history, PR metadata) and must not be
+# able to write anywhere. Every permission here must be one the PostHog GitHub App holds, or the
+# mint 422s: contents/metadata back `gh api repos/.../commits`, pull_requests backs PR lookups.
+READONLY_SANDBOX_GITHUB_PERMISSIONS: dict[str, str] = {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+}
+
+
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether `get_readonly_github_token` has a team-level integration to mint from.
+
+    Cheap preflight for callers that condition user-visible behavior (e.g. prompt guidance naming
+    `gh`) on the token actually being obtainable — the flag alone can't tell a team that never
+    connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
+    """
+    try:
+        return _resolve_mintable_team_integration(team_id) is not None
+    except Exception:
+        logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
+        return False
+
+
+def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+    """The team-level integration a read-only mint may use, or None.
+
+    Refuses the resolver's org-owner personal-integration fallback (its installation can span
+    repos never connected to this team) and installations already marked permanently gone by a
+    prior failed mint — re-minting those storms GitHub with doomed calls until the customer
+    reconnects.
+    """
+    # Deferred to break a circular import — repo_selection.agent transitively imports the
+    # process-task workflow, which imports this module.
+    from products.tasks.backend.logic.repo_selection.agent import resolve_team_github_integration  # noqa: PLC0415
+
+    integration = resolve_team_github_integration(team_id)
+    if not isinstance(integration, GitHubIntegration) or integration.installation_unavailable():
+        return None
+    return integration
+
+
+def get_readonly_github_token(team_id: int) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+
+    Resolves the same integration the repo-selection agent would use for this team, then mints an
+    installation token downscoped to read-only permissions. Team-level installations only: the
+    resolver's org-owner fallback returns a *personal* integration whose installation can span
+    repositories never connected to this team, and an unpinned mint against it would read them
+    all — a scheduled scout must never widen its reach beyond what the team itself connected.
+    The scoped token is never persisted — the integration's cached token stays the
+    full-permission credential other flows share. Returns None (never raises) when the team has
+    no usable team-level integration or the mint fails: read access is an evidence-gathering
+    nicety, and its absence must not fail the run.
+    """
+    try:
+        integration = _resolve_mintable_team_integration(team_id)
+        if integration is None:
+            logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
+            return None
+        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+    except Exception:
+        logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
+        return None
+
+
 def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
