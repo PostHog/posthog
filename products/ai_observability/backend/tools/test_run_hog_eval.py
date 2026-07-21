@@ -11,6 +11,8 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
 from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
 
+EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
+
 
 def _make_event(
     ai_input=None,
@@ -32,6 +34,7 @@ def _make_event(
             }
         ),
         "test-user",
+        EVENT_TIMESTAMP,
         *(None,) * len(HEAVY_COLUMN_NAMES),
     ]
 
@@ -50,6 +53,11 @@ class TestRunHogEvalTestTool(BaseTest):
             ("valid_return_false", "return false;", False),
             ("with_print", "print('checking'); return true;", True),
             ("length_check", "return length(output) > 0;", True),
+            (
+                "shared_timestamp",
+                f"return evaluation_events.1.timestamp == '{EVENT_TIMESTAMP}';",
+                True,
+            ),
         ]
     )
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
@@ -150,6 +158,7 @@ class TestRunHogEvalTestTool(BaseTest):
             "$ai_metric",
             json.dumps({"$ai_input_state": "some input", "$ai_output_state": "some output"}),
             "test-user",
+            EVENT_TIMESTAMP,
         ]
         mock_response.results = [event_row]
         mock_query.return_value = mock_response
@@ -170,7 +179,7 @@ class TestRunHogEvalTestTool(BaseTest):
         from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
         # row[2]: stripped properties (no $ai_input).
-        # row[4..9]: native heavy column values, in HEAVY_COLUMN_NAMES order
+        # row[5..10]: native heavy column values, in HEAVY_COLUMN_NAMES order
         #   ("input", "output", "output_choices", "input_state", "output_state", "tools").
         stripped_props = json.dumps({"$ai_model": "gpt-4o"})
         heavy_input = '[{"role":"user","content":"recovered from native column"}]'
@@ -179,6 +188,7 @@ class TestRunHogEvalTestTool(BaseTest):
             "$ai_generation",
             stripped_props,
             "test-user",
+            EVENT_TIMESTAMP,
             heavy_input,  # input
             None,  # output
             None,  # output_choices
@@ -187,7 +197,7 @@ class TestRunHogEvalTestTool(BaseTest):
             None,  # tools
         ]
         # Sanity: row layout matches what the source expects.
-        assert len(row) == 4 + len(HEAVY_COLUMN_NAMES)
+        assert len(row) == 5 + len(HEAVY_COLUMN_NAMES)
         mock_query.return_value = MagicMock(results=[row])
 
         tool = self._make_tool()

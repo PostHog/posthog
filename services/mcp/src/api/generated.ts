@@ -9223,6 +9223,14 @@ export namespace Schemas {
       HistogramQuantile: 'histogram_quantile',
     } as const;
 
+    export interface AhaFeedbackSignalExtra {
+      workflow_status: string | null;
+      score: string | null;
+      votes: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `good` - good
      * * `bad` - bad
@@ -10144,6 +10152,20 @@ export namespace Schemas {
       totals: AppMetricsTotalsResponseTotals;
     }
 
+    export interface AppfiguresReviewSignalExtra {
+      stars: string | null;
+      version: string | null;
+      product: string | null;
+      date: string | null;
+    }
+
+    export interface AppfollowReviewSignalExtra {
+      rating: string | null;
+      store: string | null;
+      app_version: string | null;
+      date: string | null;
+    }
+
     export interface ApprovalPolicy {
       readonly id: string;
       /** @maxLength 128 */
@@ -10211,6 +10233,14 @@ export namespace Schemas {
       File: 'file',
       GithubPr: 'github_pr',
     } as const;
+
+    export interface AsknicelyFeedbackSignalExtra {
+      score: string | null;
+      status: string | null;
+      question_type: string | null;
+      segment: string | null;
+      created: string | null;
+    }
 
     /**
      * * `user` - user
@@ -13101,6 +13131,14 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BugsnagErrorSignalExtra {
+      severity: string | null;
+      status: string | null;
+      context: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
+
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
@@ -13710,6 +13748,15 @@ export namespace Schemas {
       suggestion_score: number;
       /** Human-readable rationale for the suggestion */
       suggestion_reason: string;
+    }
+
+    export interface CannyFeedbackSignalExtra {
+      status: string | null;
+      tags: unknown[];
+      score: string | null;
+      voteCount: string | null;
+      url: string | null;
+      created: string | null;
     }
 
     /**
@@ -20890,6 +20937,13 @@ export namespace Schemas {
       L2Distance: 'L2Distance',
       CosineDistance: 'cosineDistance',
     } as const;
+
+    export interface DixaConversationSignalExtra {
+      status: string | null;
+      channel: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
 
     export interface DocsSearchRequest {
       /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
@@ -28711,6 +28765,13 @@ export namespace Schemas {
       readonly modified_by: number | null;
     }
 
+    export interface FeaturebaseFeedbackSignalExtra {
+      status: string | null;
+      tags: unknown[];
+      upvotes: string | null;
+      createdAt: string | null;
+    }
+
     export interface FeedbackThemeSession {
       /** Observation whose feedback comment backs this theme. */
       observation_id: string;
@@ -29164,6 +29225,36 @@ export namespace Schemas {
       deleted: boolean;
     }
 
+    export interface FreshdeskTicketSignalExtra {
+      status: string | null;
+      priority: string | null;
+      type: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
+    export interface FreshserviceTicketSignalExtra {
+      status: string | null;
+      priority: string | null;
+      type: string | null;
+      category: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
+    export interface FrillFeedbackSignalExtra {
+      status: string | null;
+      vote_count: string | null;
+      topics: unknown[];
+      created_at: string | null;
+    }
+
+    export interface FrontConversationSignalExtra {
+      status: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
     export interface GapAction {
       /**
          * Optional knowledge source to link when accepting.
@@ -29428,6 +29519,14 @@ export namespace Schemas {
       error?: string;
     }
 
+    export interface GiteaIssueSignalExtra {
+      state: string | null;
+      labels: unknown[];
+      html_url: string | null;
+      number: string | null;
+      created_at: string | null;
+    }
+
     export interface GithubIssueSignalExtra {
       html_url: string;
       number: number;
@@ -29436,6 +29535,14 @@ export namespace Schemas {
       updated_at: string;
       locked: boolean;
       state: string;
+    }
+
+    export interface GitlabIssueSignalExtra {
+      state: string | null;
+      labels: unknown[];
+      iid: string | null;
+      project_id: string | null;
+      created_at: string | null;
     }
 
     export interface Goal {
@@ -29537,6 +29644,14 @@ export namespace Schemas {
       samples: GoalEventSample[];
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
+    }
+
+    export interface GorgiasTicketSignalExtra {
+      status: string | null;
+      priority: string | null;
+      channel: string | null;
+      tags: unknown[];
+      created_datetime: string | null;
     }
 
     /**
@@ -32759,6 +32874,15 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface HoneybadgerFaultSignalExtra {
+      environment: string | null;
+      component: string | null;
+      action: string | null;
+      tags: unknown[];
+      url: string | null;
+      created_at: string | null;
+    }
+
     export interface IdentityMatchingError {
       /** Human-readable explanation of why the request could not be served. */
       detail: string;
@@ -33641,6 +33765,13 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    export interface JudgemeReviewsReviewSignalExtra {
+      rating: string | null;
+      product_title: string | null;
+      verified: string | null;
+      created_at: string | null;
+    }
+
     /**
      * One chunk in a drill-down window over a single knowledge document.
      *
@@ -33812,6 +33943,13 @@ export namespace Schemas {
       /** @nullable */
       readonly file_size_bytes: number | null;
       readonly always_include: boolean;
+    }
+
+    export interface KustomerConversationSignalExtra {
+      status: string | null;
+      priority: string | null;
+      tags: unknown[];
+      createdAt: string | null;
     }
 
     export interface LLMModelInfo {
@@ -40448,6 +40586,36 @@ export namespace Schemas {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `freshdesk` - Freshdesk
+     * * `freshservice` - Freshservice
+     * * `front` - Front
+     * * `gorgias` - Gorgias
+     * * `kustomer` - Kustomer
+     * * `dixa` - Dixa
+     * * `plain` - Plain
+     * * `gitlab` - GitLab
+     * * `gitea` - Gitea
+     * * `shortcut` - Shortcut
+     * * `sentry` - Sentry
+     * * `rollbar` - Rollbar
+     * * `bugsnag` - Bugsnag
+     * * `honeybadger` - Honeybadger
+     * * `raygun` - Raygun
+     * * `snyk` - Snyk
+     * * `sonarqube` - SonarQube
+     * * `semgrep` - Semgrep
+     * * `rapid7_insightvm` - Rapid7 InsightVM
+     * * `featurebase` - Featurebase
+     * * `frill` - Frill
+     * * `aha` - Aha
+     * * `uservoice` - UserVoice
+     * * `productboard` - Productboard
+     * * `canny` - Canny
+     * * `asknicely` - AskNicely
+     * * `retently` - Retently
+     * * `appfigures` - Appfigures
+     * * `appfollow` - AppFollow
+     * * `judgeme_reviews` - Judge.me
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -40468,6 +40636,36 @@ export namespace Schemas {
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Freshdesk: 'freshdesk',
+      Freshservice: 'freshservice',
+      Front: 'front',
+      Gorgias: 'gorgias',
+      Kustomer: 'kustomer',
+      Dixa: 'dixa',
+      Plain: 'plain',
+      Gitlab: 'gitlab',
+      Gitea: 'gitea',
+      Shortcut: 'shortcut',
+      Sentry: 'sentry',
+      Rollbar: 'rollbar',
+      Bugsnag: 'bugsnag',
+      Honeybadger: 'honeybadger',
+      Raygun: 'raygun',
+      Snyk: 'snyk',
+      Sonarqube: 'sonarqube',
+      Semgrep: 'semgrep',
+      Rapid7Insightvm: 'rapid7_insightvm',
+      Featurebase: 'featurebase',
+      Frill: 'frill',
+      Aha: 'aha',
+      Uservoice: 'uservoice',
+      Productboard: 'productboard',
+      Canny: 'canny',
+      Asknicely: 'asknicely',
+      Retently: 'retently',
+      Appfigures: 'appfigures',
+      Appfollow: 'appfollow',
+      JudgemeReviews: 'judgeme_reviews',
     } as const;
 
     /**
@@ -42094,6 +42292,8 @@ export namespace Schemas {
       filters?: TicketViewFilters;
       readonly created_at: string;
       readonly created_by: UserBasic;
+      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+      is_favorited?: boolean;
     }
 
     export interface PaginatedTicketViewList {
@@ -49871,6 +50071,8 @@ export namespace Schemas {
       filters?: PatchedTicketViewFilters;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
+      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+      is_favorited?: boolean;
     }
 
     /**
@@ -50692,6 +50894,13 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    export interface PlainThreadSignalExtra {
+      status: string | null;
+      priority: string | null;
+      labels: unknown[];
+      createdAt: string | null;
+    }
+
     /**
      * * `Postgres` - Postgres
      */
@@ -50910,6 +51119,13 @@ export namespace Schemas {
        * * `app` - app
        * * `toolbar` - toolbar */
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
+    }
+
+    export interface ProductboardFeedbackSignalExtra {
+      state: string | null;
+      tags: unknown[];
+      displayUrl: string | null;
+      createdAt: string | null;
     }
 
     export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
@@ -55442,6 +55658,13 @@ export namespace Schemas {
       code_usage_billing_active: boolean;
     }
 
+    export interface Rapid7InsightvmScannerFindingSignalExtra {
+      severity: string | null;
+      cvss_v3_score: string | null;
+      published: string | null;
+      added: string | null;
+    }
+
     export interface RawUnmatchedSample {
       /** A raw utm_source value matching no integration */
       raw_utm_source: string;
@@ -55452,6 +55675,13 @@ export namespace Schemas {
          * @nullable
          */
       suggested_integration: string | null;
+    }
+
+    export interface RaygunErrorGroupSignalExtra {
+      status: string | null;
+      applicationUrl: string | null;
+      lastOccurredAt: string | null;
+      createdAt: string | null;
     }
 
     /**
@@ -55695,6 +55925,36 @@ export namespace Schemas {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `freshdesk` - freshdesk
+     * * `freshservice` - freshservice
+     * * `front` - front
+     * * `gorgias` - gorgias
+     * * `kustomer` - kustomer
+     * * `dixa` - dixa
+     * * `plain` - plain
+     * * `gitlab` - gitlab
+     * * `gitea` - gitea
+     * * `shortcut` - shortcut
+     * * `sentry` - sentry
+     * * `rollbar` - rollbar
+     * * `bugsnag` - bugsnag
+     * * `honeybadger` - honeybadger
+     * * `raygun` - raygun
+     * * `snyk` - snyk
+     * * `sonarqube` - sonarqube
+     * * `semgrep` - semgrep
+     * * `rapid7_insightvm` - rapid7_insightvm
+     * * `featurebase` - featurebase
+     * * `frill` - frill
+     * * `aha` - aha
+     * * `uservoice` - uservoice
+     * * `productboard` - productboard
+     * * `canny` - canny
+     * * `asknicely` - asknicely
+     * * `retently` - retently
+     * * `appfigures` - appfigures
+     * * `appfollow` - appfollow
+     * * `judgeme_reviews` - judgeme_reviews
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -55715,6 +55975,36 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Freshdesk: 'freshdesk',
+      Freshservice: 'freshservice',
+      Front: 'front',
+      Gorgias: 'gorgias',
+      Kustomer: 'kustomer',
+      Dixa: 'dixa',
+      Plain: 'plain',
+      Gitlab: 'gitlab',
+      Gitea: 'gitea',
+      Shortcut: 'shortcut',
+      Sentry: 'sentry',
+      Rollbar: 'rollbar',
+      Bugsnag: 'bugsnag',
+      Honeybadger: 'honeybadger',
+      Raygun: 'raygun',
+      Snyk: 'snyk',
+      Sonarqube: 'sonarqube',
+      Semgrep: 'semgrep',
+      Rapid7Insightvm: 'rapid7_insightvm',
+      Featurebase: 'featurebase',
+      Frill: 'frill',
+      Aha: 'aha',
+      Uservoice: 'uservoice',
+      Productboard: 'productboard',
+      Canny: 'canny',
+      Asknicely: 'asknicely',
+      Retently: 'retently',
+      Appfigures: 'appfigures',
+      Appfollow: 'appfollow',
+      JudgemeReviews: 'judgeme_reviews',
     } as const;
 
     /**
@@ -55734,6 +56024,8 @@ export namespace Schemas {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `feedback` - feedback
+     * * `review` - review
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -55755,6 +56047,8 @@ export namespace Schemas {
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
       AnomalyInvestigation: 'anomaly_investigation',
+      Feedback: 'feedback',
+      Review: 'review',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -55817,7 +56111,69 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra;
+    export interface ShortcutStorySignalExtra {
+      story_type: string | null;
+      labels: unknown[];
+      workflow_state_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface SentryIssueSignalExtra {
+      level: string | null;
+      status: string | null;
+      permalink: string | null;
+      shortId: string | null;
+      firstSeen: string | null;
+    }
+
+    export interface RollbarItemSignalExtra {
+      level: string | null;
+      status: string | null;
+      environment: string | null;
+      framework: string | null;
+      last_occurrence_timestamp: string | null;
+    }
+
+    export interface SnykScannerFindingSignalExtra {
+      effective_severity_level: string | null;
+      status: string | null;
+      type: string | null;
+      created_at: string | null;
+    }
+
+    export interface SonarqubeScannerFindingSignalExtra {
+      severity: string | null;
+      type: string | null;
+      status: string | null;
+      component: string | null;
+      rule: string | null;
+      creationDate: string | null;
+    }
+
+    export interface SemgrepScannerFindingSignalExtra {
+      severity: string | null;
+      confidence: string | null;
+      status: string | null;
+      state: string | null;
+      created_at: string | null;
+    }
+
+    export interface UservoiceFeedbackSignalExtra {
+      state: string | null;
+      vote_count: string | null;
+      category_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface RetentlyFeedbackSignalExtra {
+      score: string | null;
+      ratingCategory: string | null;
+      feedbackTopics: unknown[];
+      resolved: string | null;
+      createdDate: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -55842,7 +56198,37 @@ export namespace Schemas {
        * * `logs` - logs
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
-       * * `analytics` - analytics */
+       * * `analytics` - analytics
+       * * `freshdesk` - freshdesk
+       * * `freshservice` - freshservice
+       * * `front` - front
+       * * `gorgias` - gorgias
+       * * `kustomer` - kustomer
+       * * `dixa` - dixa
+       * * `plain` - plain
+       * * `gitlab` - gitlab
+       * * `gitea` - gitea
+       * * `shortcut` - shortcut
+       * * `sentry` - sentry
+       * * `rollbar` - rollbar
+       * * `bugsnag` - bugsnag
+       * * `honeybadger` - honeybadger
+       * * `raygun` - raygun
+       * * `snyk` - snyk
+       * * `sonarqube` - sonarqube
+       * * `semgrep` - semgrep
+       * * `rapid7_insightvm` - rapid7_insightvm
+       * * `featurebase` - featurebase
+       * * `frill` - frill
+       * * `aha` - aha
+       * * `uservoice` - uservoice
+       * * `productboard` - productboard
+       * * `canny` - canny
+       * * `asknicely` - asknicely
+       * * `retently` - retently
+       * * `appfigures` - appfigures
+       * * `appfollow` - appfollow
+       * * `judgeme_reviews` - judgeme_reviews */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -55861,7 +56247,9 @@ export namespace Schemas {
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
        * * `scanner_finding` - scanner_finding
-       * * `anomaly_investigation` - anomaly_investigation */
+       * * `anomaly_investigation` - anomaly_investigation
+       * * `feedback` - feedback
+       * * `review` - review */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -66433,7 +66821,7 @@ export namespace Schemas {
       time: string;
       /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
       bucket_ns: number;
-      /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+      /** Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows. */
       count: number;
     }
 
