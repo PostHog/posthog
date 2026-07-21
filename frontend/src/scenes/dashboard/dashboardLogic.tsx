@@ -715,6 +715,9 @@ export interface dashboardLogicActions {
     setExternalFilters: (filters: DashboardFilter) => {
         filters: DashboardFilter
     }
+    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
+        filterTestAccounts: boolean | null
+    }
     setInitialLoadResponseBytes: (responseBytes: number) => {
         responseBytes: number
     }
