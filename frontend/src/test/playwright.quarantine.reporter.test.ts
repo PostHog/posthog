@@ -92,4 +92,14 @@ describe('playwright.quarantine.reporter', () => {
         const reporter = reporterFor([], tests)
         expect(await reporter.onEnd(failedRun)).toBeUndefined()
     })
+
+    test('constructed the way Playwright does (reporter-options object) it loads entries instead of crashing', async () => {
+        // Playwright passes `{}` for `['./reporter.ts']` with no options; treating
+        // that object as the entries array made onEnd throw "entries is not iterable".
+        const reporter = new QuarantineReporter({})
+        reporter.onBegin({}, {
+            allTests: () => [fakeTest('playwright/e2e/x.spec.ts', ['Auth'], 'logs in', 'unexpected')],
+        } as unknown as Suite)
+        await expect(reporter.onEnd(failedRun)).resolves.toBeUndefined()
+    })
 })

@@ -66,9 +66,12 @@ export default class QuarantineReporter implements Reporter {
     private rootSuite: Suite | undefined
     private sawRunError = false
 
-    // entries is injectable so the onEnd override can be unit-tested without a file.
-    constructor(entries: QuarantineEntry[] = loadActiveEntries()) {
-        this.entries = entries
+    // entries is injectable so the onEnd override can be unit-tested without a
+    // file. Playwright itself constructs config-registered reporters with a
+    // reporter-options OBJECT (`{}` when none are configured), so anything that
+    // is not an array means "load from the quarantine file".
+    constructor(entries?: QuarantineEntry[] | object) {
+        this.entries = Array.isArray(entries) ? (entries as QuarantineEntry[]) : loadActiveEntries()
     }
 
     // We only emit occasional warnings, so let Playwright keep its default terminal reporter.
