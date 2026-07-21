@@ -5709,7 +5709,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "filters on events",
+                "has an event-based condition",
             ),
             (
                 "realtime_backfilled_flag_off",
@@ -5717,7 +5717,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 False,
                 status.HTTP_400_BAD_REQUEST,
-                "filters on events",
+                "has an event-based condition",
             ),
         ]
     )
