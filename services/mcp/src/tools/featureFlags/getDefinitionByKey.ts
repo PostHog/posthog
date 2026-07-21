@@ -13,13 +13,27 @@ import type { Context, ToolBase } from '@/tools/types'
  * in the UI and in code. This hand-written tool resolves a key to its flag via the list
  * endpoint's `key` filter (a case-insensitive exact match), narrowed to the exact-case match
  * when the filter returns more than one case-variant.
+ *
+ * A key that matches no flag is not an error. The dominant caller is an agent checking whether
+ * a flag exists before creating it (a read-before-create existence check), so a miss is the
+ * expected answer — it returns a structured `{ found: false }` result naming the key and
+ * pointing at the list/create path, rather than throwing. Throwing here reported a routine
+ * existence check as a failed tool call.
  */
 const schema = z.object({
     key: z.string().describe('The feature flag key: the string identifier used in code (e.g. "new-checkout").'),
 })
 
 type Params = z.infer<typeof schema>
-type Result = WithPostHogUrl<Schemas.FeatureFlag>
+
+/** Returned when no flag matches the key — the expected outcome of a read-before-create check. */
+interface FeatureFlagLookupMiss {
+    found: false
+    key: string
+    message: string
+}
+
+type Result = WithPostHogUrl<Schemas.FeatureFlag> | FeatureFlagLookupMiss
 
 const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
     name: 'feature-flag-get-definition-by-key',
@@ -47,10 +61,16 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
         const matches = exact.length > 0 ? exact : results
 
         if (matches.length === 0) {
-            throw new ToolInputValidationError(
-                `No feature flag with key "${key}" found in this project. Use feature-flag-get-all to list ` +
-                    'available flags.'
-            )
+            // A miss is the expected result of an existence check, not a failure — return it as
+            // data so the agent goes on to create the flag, instead of the call being logged as
+            // errored and the agent treating a routine "not there yet" as something to retry.
+            return {
+                found: false,
+                key,
+                message:
+                    `No feature flag with key "${key}" exists in this project. ` +
+                    'Create it with `create-feature-flag`, or call `feature-flag-get-all` to list existing flags.',
+            }
         }
         if (matches.length > 1) {
             const ids = matches.map((flag) => flag.id).join(', ')
