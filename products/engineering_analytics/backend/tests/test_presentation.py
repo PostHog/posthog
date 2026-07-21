@@ -3,11 +3,27 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+
+
+class TestScopeEnrollment(SimpleTestCase):
+    def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
+        actions = {a.__name__ for a in EngineeringAnalyticsViewSet.get_extra_actions()}
+        enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
+            EngineeringAnalyticsViewSet.scope_object_write_actions
+        )
+        assert actions == enrolled, (
+            f"unenrolled actions (personal API keys get 403): {sorted(actions - enrolled)}; "
+            f"stale scope entries: {sorted(enrolled - actions)}"
+        )
+
 
 _VIEWS = "products.engineering_analytics.backend.facade.api"
 

@@ -54,5 +54,8 @@ class EngineeringAnalyticsViewSet(
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
+        "team_ci_health",
+        "team_ci_activity",
+        "team_merge_trend",
     ]
     scope_object_write_actions: list[str] = ["quarantine_request"]
