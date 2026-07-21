@@ -281,6 +281,73 @@ describe('experimentReplayTabLogic', () => {
         ])
     })
 
+    it('skips metrics without a uuid — the persisted selection needs a stable identity', async () => {
+        // A positional stand-in id would re-attach a persisted selection to a *different* metric
+        // once the metric list is edited, silently filtering the playlist on the wrong event.
+        const withoutUuid = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 47,
+                metrics: [{ ...PURCHASE_METRIC, uuid: undefined }],
+                metrics_secondary: [],
+            } as unknown as Experiment,
+        })
+        withoutUuid.mount()
+        await expectLogic(withoutUuid).toFinishAllListeners()
+
+        expect(withoutUuid.values.metricOptions).toEqual([])
+        withoutUuid.unmount()
+    })
+
+    it('holds metric filters out of the query until the linkability check lands', async () => {
+        // Applying a persisted selection before linkability is known can fire an exposure+metric
+        // query that can only be empty (server-side-only metric), flashing a false empty state.
+        let resolveSeenTogether!: (map: Record<string, boolean>) => void
+        seenTogetherSpy.mockReturnValue(new Promise((resolve) => (resolveSeenTogether = resolve)))
+        const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 48 } as Experiment })
+        pending.mount()
+        pending.actions.setMetricSelected('metric-purchase', true)
+
+        expect(pending.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
+            },
+        ])
+
+        resolveSeenTogether(ALL_LINKABLE)
+        await expectLogic(pending).toFinishAllListeners()
+        expect(pending.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
+                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
+                ],
+            },
+        ])
+        pending.unmount()
+    })
+
+    it('applies metric filters when the linkability check fails — fail open, not permanently gated', async () => {
+        seenTogetherSpy.mockRejectedValue(new Error('network error'))
+        const failed = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 49 } as Experiment })
+        failed.mount()
+        failed.actions.setMetricSelected('metric-purchase', true)
+        await expectLogic(failed).toFinishAllListeners()
+
+        expect(failed.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
+                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
+                ],
+            },
+        ])
+        failed.unmount()
+    })
+
     it('offers saved/shared metrics in the facet, deduped by uuid', async () => {
         const savedMetric = {
             query: {

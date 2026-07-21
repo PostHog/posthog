@@ -45,6 +45,10 @@ logger = logging.getLogger(__name__)
 # Per hit we return the first N event timestamps as seek points; event_count carries the true
 # total, so a busier metric shows the real count and the UI notes the seek points are capped.
 MAX_METRIC_EVENT_TIMESTAMPS = 50
+# Ceiling on UNION ALL branches per scan. An experiment's metric count is user-configurable
+# with no server-side cap, so overlapping metric-heavy experiments could otherwise compile an
+# arbitrarily wide union; 50 mirrors MAX_CANDIDATE_EXPERIMENTS in session_context.
+MAX_SCANNED_METRICS = 50
 
 MetricSourceNode = EventsNode | ActionsNode
 
@@ -59,10 +63,6 @@ class MetricEventSource:
     # are no session events to scan for. A metric with one event side and one data-warehouse
     # side is still linkable on the event side.
     session_linkable: bool
-    event_names: tuple[str, ...]
-    # True when any EventsNode source has event=None ("all events").
-    matches_all_events: bool
-    action_ids: tuple[int, ...]
     # The parsed event/action source nodes, kept for their per-node property filters.
     nodes: tuple[MetricSourceNode, ...]
 
@@ -138,11 +138,6 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
                 metric_uuid=metric_uuid,
                 metric_name=metric.name or _default_metric_title(metric),
                 session_linkable=bool(nodes),
-                event_names=tuple(
-                    node.event for node in nodes if isinstance(node, EventsNode) and node.event is not None
-                ),
-                matches_all_events=any(isinstance(node, EventsNode) and node.event is None for node in nodes),
-                action_ids=tuple(int(node.id) for node in nodes if isinstance(node, ActionsNode)),
                 nodes=nodes,
             )
         )
@@ -181,13 +176,18 @@ def scan_session_for_metric_events(
     """The metrics with >=1 matching event in the session, sorted by first occurrence.
 
     Metrics with no hits are omitted. Duplicate metric uuids (a saved metric shared by several
-    experiments) are scanned once. `user` threads through to HogQL for property-level access
-    control — metric source nodes can carry property filters.
+    experiments) are scanned once, and at most MAX_SCANNED_METRICS metrics are scanned per call
+    (the overflow is logged, not an error). `user` threads through to HogQL for property-level
+    access control — metric source nodes can carry property filters.
     """
     names_by_uuid: dict[str, str] = {}
     branches: list[ast.SelectQuery] = []
+    skipped_over_cap = 0
     for source in metric_sources:
         if not source.session_linkable or source.metric_uuid in names_by_uuid:
+            continue
+        if len(branches) >= MAX_SCANNED_METRICS:
+            skipped_over_cap += 1
             continue
         conditions = [_node_condition(node, team) for node in source.nodes]
         if not conditions:
@@ -217,6 +217,14 @@ def scan_session_for_metric_events(
         )
         assert isinstance(branch, ast.SelectQuery)
         branches.append(branch)
+
+    if skipped_over_cap:
+        logger.warning(
+            "Metric scan for session %s capped at %s branches; %s metrics not scanned",
+            session_id,
+            MAX_SCANNED_METRICS,
+            skipped_over_cap,
+        )
 
     if not branches:
         return []

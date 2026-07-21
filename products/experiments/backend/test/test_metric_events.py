@@ -3,8 +3,11 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
+
+from posthog.schema import ActionsNode
 
 from posthog.models import Team
 
@@ -104,10 +107,8 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
 
         assert len(sources) == 1
         assert sources[0].metric_uuid == metric["uuid"]
-        assert sources[0].event_names == expected_events
+        assert tuple(node.event for node in sources[0].nodes) == expected_events
         assert sources[0].session_linkable is True
-        assert sources[0].matches_all_events is False
-        assert sources[0].action_ids == ()
 
     @parameterized.expand(
         [
@@ -140,7 +141,7 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
 
         assert sources[0].metric_name == expected_title
 
-    def test_resolves_action_source_to_action_id(self) -> None:
+    def test_resolves_action_source(self) -> None:
         action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
         experiment = self._experiment(
             metrics=[_metric("mean", source={"kind": "ActionsNode", "id": action.pk})],
@@ -149,8 +150,7 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         sources = resolve_metric_events(experiment)
 
         assert len(sources) == 1
-        assert sources[0].action_ids == (action.pk,)
-        assert sources[0].event_names == ()
+        assert [(type(node), int(node.id)) for node in sources[0].nodes] == [(ActionsNode, action.pk)]
         assert sources[0].session_linkable is True
 
     def test_data_warehouse_only_metric_is_not_session_linkable(self) -> None:
@@ -164,18 +164,9 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         dw_only, mixed = resolve_metric_events(experiment)
 
         assert dw_only.session_linkable is False
-        assert dw_only.event_names == ()
+        assert dw_only.nodes == ()
         assert mixed.session_linkable is True
-        assert mixed.event_names == ("purchase",)
-
-    def test_all_events_source_sets_matches_all_events(self) -> None:
-        experiment = self._experiment(metrics=[_metric("mean", source=_events_node(None))])
-
-        sources = resolve_metric_events(experiment)
-
-        assert sources[0].matches_all_events is True
-        assert sources[0].event_names == ()
-        assert sources[0].session_linkable is True
+        assert [node.event for node in mixed.nodes] == ["purchase"]
 
     def test_includes_secondary_and_saved_metrics(self) -> None:
         primary = _metric("mean", source=_events_node("purchase"))
@@ -312,3 +303,17 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
         hits = self._scan([broken, purchases], "s1")
 
         assert [hit.metric_uuid for hit in hits] == [purchases["uuid"]]
+
+    def test_scan_caps_number_of_scanned_metrics(self) -> None:
+        # Metric counts are user-configurable with no server-side cap; without the branch cap a
+        # metric-heavy experiment would compile an arbitrarily wide UNION ALL per player open.
+        first = _metric("mean", name="Purchases", source=_events_node("purchase"))
+        second = _metric("mean", name="Signups", source=_events_node("signup"))
+        self._create_session_event("purchase", "s1")
+        self._create_session_event("signup", "s1")
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_SCANNED_METRICS", 1):
+            hits = self._scan([first, second], "s1")
+
+        assert [hit.metric_uuid for hit in hits] == [first["uuid"]]
