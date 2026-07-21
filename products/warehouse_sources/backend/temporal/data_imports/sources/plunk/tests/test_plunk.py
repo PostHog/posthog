@@ -1,7 +1,7 @@
 import io
 import json
 import threading
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -10,6 +10,7 @@ from unittest import mock
 import requests
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk import plunk as plunk_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.plunk import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -433,20 +434,20 @@ class _FakeStreamResponse:
 class TestReadBounded:
     def test_reads_full_body_under_cap(self):
         response = _FakeStreamResponse([b"hel", b"lo"])
-        assert _read_bounded(response, max_bytes=100) == b"hello"
+        assert _read_bounded(cast(requests.Response, response), max_bytes=100) == b"hello"
 
     def test_raises_when_body_exceeds_byte_cap(self):
         # The cap is what stops a huge (or gzip-bombed) body from exhausting a worker's memory.
         response = _FakeStreamResponse([b"a" * 8, b"b" * 8])
         with pytest.raises(PlunkResponseTooLargeError):
-            _read_bounded(response, max_bytes=10)
+            _read_bounded(cast(requests.Response, response), max_bytes=10)
 
     def test_times_out_and_closes_a_stalled_body(self):
         # A host that stalls mid-body must not pin the worker: the deadline fires and the socket is
         # closed. max_seconds=0 makes the join return immediately while the reader is still blocked.
         response = _FakeStreamResponse([b"partial"], block=True)
         with pytest.raises(PlunkResponseTimeoutError):
-            _read_bounded(response, max_bytes=100, max_seconds=0)
+            _read_bounded(cast(requests.Response, response), max_bytes=100, max_seconds=0)
         assert response.closed is True
 
 
@@ -474,5 +475,5 @@ class TestBoundedSession:
 
     def test_factory_wires_key_redaction_into_adapter(self):
         session = _make_bounded_session("sk_secret")
-        adapter = session.get_adapter("https://plunk.example.com")
+        adapter = cast(TrackedHTTPAdapter, session.get_adapter("https://plunk.example.com"))
         assert adapter._redact_values == ("sk_secret",)
