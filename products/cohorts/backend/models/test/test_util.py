@@ -1146,3 +1146,35 @@ class TestRecalculationErrorRecovery(BaseTest):
         self.assertIs(ctx.exception, real_error)
         assert mock_history.save.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+    def test_original_error_surfaces_when_reset_calculating_save_fails(self):
+        # calculate_people_ch's finally block resets is_calculating on the same connection the recovery
+        # bookkeeping save uses. If that reset write hits the dropped connection it must not raise out of
+        # finally and mask the real calculation error - it runs through the same reconnect-and-retry.
+        cohort = _create_cohort(
+            team=self.team,
+            name="c",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        real_error = RuntimeError("real root cause")
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.recalculate_cohortpeople",
+                side_effect=real_error,
+            ),
+            # The is_calculating reset write fails on the dropped connection, initial attempt and retry.
+            patch.object(
+                Cohort,
+                "_safe_reset_calculating_state",
+                side_effect=OperationalError("the connection is closed"),
+            ),
+            # Patch connections so the reconnect doesn't close the real test transaction's connection.
+            patch("products.cohorts.backend.models.util.connections") as mock_connections,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                cohort.calculate_people_ch(pending_version=0)
+
+        self.assertIs(ctx.exception, real_error)
+        assert cohort._safe_reset_calculating_state.call_count == 2
+        mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()

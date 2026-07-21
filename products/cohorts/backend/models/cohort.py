@@ -406,6 +406,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         start_time = time.monotonic()
 
         cohort_type_cleared = False
+        # Snapshot the current error count while the connection is healthy so the error-path
+        # increment below is a concrete int, not an F() expression. save_recovery_bookkeeping
+        # may replay the finally-save, and a replayed F("errors_calculating") + 1 would count a
+        # single failure twice if the first write committed before the connection dropped.
+        starting_errors_calculating = self.errors_calculating or 0
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
@@ -428,7 +433,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.errors_calculating = 0
             self.last_error_at = None
         except Exception:
-            self.errors_calculating = F("errors_calculating") + 1
+            self.errors_calculating = starting_errors_calculating + 1
             self.last_error_at = timezone.now()
 
             logger.warning(
@@ -455,9 +460,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 cohort_id=self.pk,
                 team_id=self.team_id,
             )
-            # Only set is_calculating = False if this is the highest pending version
-            # This prevents the flag from being reset while other higher-version calculations are still running
-            self._safe_reset_calculating_state(completed_version=pending_version)
+            # Only set is_calculating = False if this is the highest pending version. This prevents the
+            # flag from being reset while other higher-version calculations are still running. Route it
+            # through the same reconnect-and-retry: it is a bookkeeping write on the same connection, so
+            # an unguarded failure here would mask the real error and leave is_calculating stuck True.
+            save_recovery_bookkeeping(
+                lambda: self._safe_reset_calculating_state(completed_version=pending_version),
+                cohort_id=self.pk,
+                team_id=self.team_id,
+            )
 
         self.refresh_from_db()
 

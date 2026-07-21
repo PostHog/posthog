@@ -36,6 +36,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
@@ -165,8 +166,12 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
         connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
         try:
             save_fn()
-        except Exception:
+        except Exception as retry_error:
+            # A swallowed retry means the cohort is stuck with is_calculating=True and no bookkeeping
+            # recorded. Surface it to error tracking, matching how other swallowed cohort-calculation
+            # errors are captured, so it alerts rather than only living in structured logs.
             logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
+            capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
 def run_cohort_query(
