@@ -11,11 +11,11 @@ from posthog.models.team import Team
 from products.data_modeling.backend.logic.node_frequency import schedulable_nodes
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
+    delete_v1_saved_query_schedules,
     null_saved_query_intervals,
     tiered_schedules_enabled,
 )
 from products.data_modeling.backend.models.dag import DAG
-from products.data_warehouse.backend.facade.api import saved_query_workflow_exists
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +25,8 @@ class Command(BaseCommand):
         "Convert a team's DAGs to per-cadence-tier schedules: persist a freshness target on every "
         "schedulable node lacking one (seeded from its current cadence, never overwriting), then "
         "reconcile Temporal so one execute-dag schedule exists per tier — sweeping the legacy "
-        "single per-DAG schedule. Saved-query sync_frequency_intervals are nulled once targets "
+        "single per-DAG schedule and any v1 per-query schedules, so it is safe on a v1 team "
+        "directly. Saved-query sync_frequency_intervals are nulled once targets "
         "are persisted (the node target becomes the only store of frequency intent). Caveat: "
         "re-running the conversion re-seeds a node whose target was explicitly cleared ('never') "
         "from the DAG's interval."
@@ -80,26 +81,23 @@ class Command(BaseCommand):
         if not dag_list:
             raise CommandError("No matching DAGs")
 
-        # Refuse v1 teams: converting alongside live v1 schedules causes permanent double-scheduling.
-        for dag in dag_list:
-            for node in schedulable_nodes(dag).select_related("saved_query"):
-                if node.saved_query is not None and saved_query_workflow_exists(node.saved_query):
-                    raise CommandError(
-                        f"DAG {dag.name} ({dag.id}) still has a live v1 per-query schedule for saved query "
-                        f"{node.saved_query.id}; run migrate_teams_to_dag_schedules first"
-                    )
-
         default = (
             timedelta(seconds=options["default_interval_seconds"])
             if options["default_interval_seconds"] is not None
             else None
         )
-        # Seed every DAG before nulling any interval: a query in two DAGs seeds from the shared
-        # interval, so nulling mid-loop would corrupt the other DAG's seed.
+        # Seed every DAG before touching intervals: a query in two DAGs seeds from the shared
+        # interval, so sweeping/nulling mid-loop would corrupt the other DAG's seed.
         seeded_by_dag = [(dag, convert_dag_to_tiers(dag, default=default)) for dag in dag_list]
         for dag, seeded in seeded_by_dag:
-            cleared = null_saved_query_intervals(dag)
+            nodes = list(schedulable_nodes(dag).select_related("saved_query"))
+            sq_ids = [str(node.saved_query_id) for node in nodes if node.saved_query_id is not None]
+            # Sweep any legacy v1 per-query schedules (no-op on a v2 team); null only the intervals
+            # whose v1 schedule is gone, so a failed delete keeps its interval for a re-run.
+            failed = delete_v1_saved_query_schedules(nodes, team_id=dag.team_id, dag_id=str(dag.id))
+            swept = [sq_id for sq_id in sq_ids if sq_id not in failed]
+            cleared = null_saved_query_intervals(dag, only_saved_query_ids=swept)
             self.stdout.write(
                 f"DAG {dag.name} ({dag.id}): seeded {seeded} target(s), reconciled, "
-                f"cleared {cleared} saved-query interval(s)"
+                f"swept {len(swept)} v1 schedule(s), cleared {cleared} interval(s)"
             )

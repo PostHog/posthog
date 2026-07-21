@@ -32,11 +32,12 @@ from temporalio.client import (
     ScheduleState,
 )
 from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
+from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -223,6 +224,42 @@ def null_saved_query_intervals(dag: DAG, *, only_saved_query_ids: Iterable[str] 
     return DataWarehouseSavedQuery.objects.filter(
         id__in=saved_query_ids, team_id=dag.team_id, sync_frequency_interval__isnull=False
     ).update(sync_frequency_interval=None)
+
+
+def delete_v1_saved_query_schedules(
+    nodes: Iterable[Node], *, team_id: int, dag_id: str, temporal: Client | None = None
+) -> set[str]:
+    """Delete live v1 per-query Temporal schedules for the given nodes' saved queries.
+
+    NOT_FOUND is treated as already-gone, so this is a safe no-op on a team that never had v1
+    schedules — which lets the tiered conversion run on a v1 team directly instead of stacking
+    tiers on top of live v1 schedules. Returns the saved-query ids whose delete genuinely failed,
+    so the caller keeps their interval for a retry instead of orphaning a live schedule.
+    """
+    node_list = list(nodes)
+    if temporal is None:
+        temporal = sync_connect()
+    deleted = 0
+    failed: list[str] = []
+    for node in node_list:
+        saved_query = node.saved_query
+        if saved_query is None:
+            continue
+        try:
+            delete_schedule(temporal, schedule_id=str(saved_query.id))
+            deleted += 1
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                logger.warning("v1 schedule already gone", saved_query_id=str(saved_query.id), team_id=team_id)
+            else:
+                failed.append(str(saved_query.id))
+                logger.exception("Failed to delete v1 schedule", saved_query_id=str(saved_query.id), team_id=team_id)
+    if failed:
+        logger.warning(
+            "Some v1 schedules could not be deleted", dag_id=dag_id, team_id=team_id, failed_schedule_ids=failed
+        )
+    logger.info("Swept v1 per-query schedules", dag_id=dag_id, team_id=team_id, deleted=deleted, total=len(node_list))
+    return set(failed)
 
 
 @dataclasses.dataclass

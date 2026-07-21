@@ -40,7 +40,8 @@ class TestReconcileFreshnessSchedules(BaseTest):
 
         with (
             mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
-            mock.patch(f"{COMMAND}.saved_query_workflow_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.delete_schedule"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([legacy_id]))),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
@@ -62,14 +63,24 @@ class TestReconcileFreshnessSchedules(BaseTest):
             with self.assertRaisesRegex(CommandError, "tiered-schedules flag"):
                 call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), stdout=StringIO())
 
-    def test_refuses_team_with_live_v1_schedule(self):
-        self._legacy_dag()
+    def test_sweeps_live_v1_schedules(self):
+        dag, node = self._legacy_dag()
+        assert node.saved_query is not None
+        v1_id = str(node.saved_query.id)
+
         with (
             mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
-            mock.patch(f"{COMMAND}.saved_query_workflow_exists", return_value=True),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.delete_schedule") as delete_v1,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
         ):
-            with self.assertRaisesRegex(CommandError, "v1 per-query schedule"):
-                call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), stdout=StringIO())
+            call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), stdout=StringIO())
+
+        delete_v1.assert_called_once_with(mock.ANY, schedule_id=v1_id)
+        node.saved_query.refresh_from_db()
+        self.assertIsNone(node.saved_query.sync_frequency_interval)
 
     def test_dry_run_rejects_default_interval(self):
         self._legacy_dag()
@@ -99,7 +110,8 @@ class TestReconcileFreshnessSchedules(BaseTest):
 
         with (
             mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
-            mock.patch(f"{COMMAND}.saved_query_workflow_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.delete_schedule"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing([]))),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),

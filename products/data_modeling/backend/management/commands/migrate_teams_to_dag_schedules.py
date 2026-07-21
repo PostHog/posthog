@@ -7,7 +7,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
-import temporalio
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
@@ -18,11 +17,12 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import create_schedule, delete_schedule, schedule_exists
+from posthog.temporal.common.schedule import create_schedule, schedule_exists
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
+    delete_v1_saved_query_schedules,
     null_saved_query_intervals,
     tiered_schedules_enabled,
 )
@@ -133,7 +133,9 @@ class Command(BaseCommand):
             intervals=intervals,
         )
         temporal = sync_connect()
-        failed_schedule_ids = self._delete_v1_schedules(temporal, scheduled_nodes, team, str(dag.id))
+        failed_schedule_ids = delete_v1_saved_query_schedules(
+            scheduled_nodes, team_id=team.pk, dag_id=str(dag.id), temporal=temporal
+        )
         # Null intervals only for queries whose v1 schedule actually went away: a failed delete
         # keeps its interval so a re-run retries it, instead of orphaning a v1 schedule beside the
         # tiers on a DAG that (interval-less) would then be skipped forever.
@@ -146,46 +148,6 @@ class Command(BaseCommand):
             count=cleared,
         )
         return True
-
-    def _delete_v1_schedules(self, temporal, scheduled_nodes, team, dag_id: str) -> set[str]:
-        deleted_count = 0
-        failed_schedule_ids: list[str] = []
-        for node in scheduled_nodes:
-            saved_query = node.saved_query
-            if saved_query is None:
-                continue
-            try:
-                delete_schedule(temporal, schedule_id=str(saved_query.id))
-                deleted_count += 1
-            except temporalio.service.RPCError as e:
-                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                    logger.warning(
-                        "Old schedule not found (already deleted?)",
-                        saved_query_id=str(saved_query.id),
-                        team_id=team.pk,
-                    )
-                else:
-                    failed_schedule_ids.append(str(saved_query.id))
-                    logger.exception(
-                        "Failed to delete old schedule",
-                        saved_query_id=str(saved_query.id),
-                        team_id=team.pk,
-                    )
-        if failed_schedule_ids:
-            logger.warning(
-                "Some old schedules could not be deleted",
-                dag_id=dag_id,
-                team_id=team.pk,
-                failed_schedule_ids=failed_schedule_ids,
-            )
-        logger.info(
-            "Deleted old per-node schedules",
-            dag_id=dag_id,
-            team_id=team.pk,
-            deleted=deleted_count,
-            total=len(scheduled_nodes),
-        )
-        return set(failed_schedule_ids)
 
     def _migrate_dag(self, dag: DAG, *, dry_run: bool) -> bool:
         """Migrate a single DAG to a v2 schedule.
@@ -281,7 +243,7 @@ class Command(BaseCommand):
             dag.sync_frequency_interval = interval
             dag.save(update_fields=["name", "sync_frequency_interval"])
             logger.info("Renamed DAG", dag_id=str(dag.id), team_id=team.pk)
-            self._delete_v1_schedules(temporal, scheduled_nodes, team, str(dag.id))
+            delete_v1_saved_query_schedules(scheduled_nodes, team_id=team.pk, dag_id=str(dag.id), temporal=temporal)
             # null out sync_frequency_interval on migrated saved queries so v1 schedules are not re-created
             migrated_sq_ids = [node.saved_query_id for node in scheduled_nodes if node.saved_query_id is not None]
             DataWarehouseSavedQuery.objects.filter(id__in=migrated_sq_ids).update(sync_frequency_interval=None)

@@ -45,7 +45,7 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
         with (
             mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{COMMAND}.sync_connect", return_value=mock.Mock()),
-            mock.patch(f"{COMMAND}.delete_schedule", v1_delete),
+            mock.patch(f"{RECONCILE}.delete_schedule", v1_delete),
             mock.patch(
                 f"{RECONCILE}.async_connect",
                 new=mock.AsyncMock(return_value=_temporal_listing(existing_schedule_ids)),
@@ -122,7 +122,7 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
             mock.patch(f"{COMMAND}.sync_connect", return_value=mock.Mock()),
             mock.patch(f"{COMMAND}.schedule_exists", return_value=False),
             mock.patch(f"{COMMAND}.create_schedule") as create,
-            mock.patch(f"{COMMAND}.delete_schedule"),
+            mock.patch(f"{RECONCILE}.delete_schedule"),
         ):
             call_command("migrate_teams_to_dag_schedules", "--team-ids", str(self.team.pk), stdout=StringIO())
 
