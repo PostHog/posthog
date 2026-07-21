@@ -330,7 +330,11 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
         team = Team.objects.get(pk=team_id)
-        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+        # Bypass warehouse access control: DESCRIBE exposes only column names/types, never rows, and
+        # `columns` is a shared cache that must be the same for every reader.
+        executor = HogQLQueryExecutor(
+            query=cleaned, team=team, limit_context=None, bypass_warehouse_access_control=True
+        )
         clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
         if not clickhouse_sql:
