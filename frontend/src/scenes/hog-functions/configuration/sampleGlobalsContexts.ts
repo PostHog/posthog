@@ -26,18 +26,24 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             return exampleGlobals
         }
         const issue = await errorTrackingIssuesRetrieve(projectId, fingerprintRecord.issue_id)
+        const properties: Record<string, any> = {
+            name: issue.name ?? 'Unnamed issue',
+            description: 'PostHog test alert',
+            status: issue.status,
+            fingerprint: fingerprintRecord.fingerprint,
+        }
+        if (issue.assignee) {
+            // Real issue lifecycle events stringify the assignee as {"type":...,"id":...},
+            // and omit the property entirely when the issue is unassigned
+            properties.assignee = JSON.stringify({ type: issue.assignee.type, id: issue.assignee.id })
+        }
         return {
             ...exampleGlobals,
             event: {
                 ...exampleGlobals.event,
                 // Real issue lifecycle events use the issue id as the distinct_id
                 distinct_id: issue.id,
-                properties: {
-                    name: issue.name ?? 'Unnamed issue',
-                    description: 'PostHog test alert',
-                    status: issue.status,
-                    fingerprint: fingerprintRecord.fingerprint,
-                },
+                properties,
             },
         }
     },
