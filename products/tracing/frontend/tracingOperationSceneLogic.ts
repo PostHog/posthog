@@ -234,6 +234,31 @@ function trackedSignal(cache: Record<string, any>, key: string): AbortSignal {
     return controller.signal
 }
 
+function isDateRange(value: unknown): value is DateRange {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false
+    }
+    const { date_from, date_to } = value as Record<string, unknown>
+    return (
+        (date_from === undefined || date_from === null || typeof date_from === 'string') &&
+        (date_to === undefined || date_to === null || typeof date_to === 'string')
+    )
+}
+
+// Returns a valid DateRange from the URL param, or null when it is missing,
+// malformed JSON, or a syntactically valid value of the wrong shape.
+function parseDateRangeParam(raw: unknown): DateRange | null {
+    let value = raw
+    if (typeof raw === 'string') {
+        try {
+            value = JSON.parse(raw)
+        } catch {
+            return null
+        }
+    }
+    return isDateRange(value) ? value : null
+}
+
 export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
     props({} as TracingOperationSceneLogicProps),
     key(({ serviceName, spanName }) => `${serviceName}//${spanName}`),
@@ -566,23 +591,22 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        '/tracing/operation': (_, searchParams, __, { method }) => {
-            if (method === 'REPLACE') {
-                return // our own actionToUrl writes
-            }
+        '/tracing/operation': (_, searchParams) => {
+            // Don't gate on the navigation method: the equality guards below make
+            // re-processing our own (REPLACE) actionToUrl writes a no-op, while still
+            // restoring state when the scene is entered via a router replacement.
+            //
             // Restore the date range first: setDateRange resets sampleIndex.
             if (searchParams.dateRange) {
-                try {
-                    const dateRange =
-                        typeof searchParams.dateRange === 'string'
-                            ? JSON.parse(searchParams.dateRange)
-                            : searchParams.dateRange
-                    if (!objectsEqual(dateRange, values.dateRange)) {
-                        actions.setDateRange(dateRange)
-                    }
-                } catch {
-                    // Malformed param — keep the current range.
+                const dateRange = parseDateRangeParam(searchParams.dateRange)
+                // A malformed or wrong-shaped param yields null — keep the current range.
+                if (dateRange && !objectsEqual(dateRange, values.dateRange)) {
+                    actions.setDateRange(dateRange)
                 }
+            } else if (!objectsEqual(values.dateRange, DEFAULT_DATE_RANGE)) {
+                // No range in the URL — fall back to the default so a back/forward
+                // navigation off a non-default URL doesn't keep a stale range.
+                actions.setDateRange(DEFAULT_DATE_RANGE)
             }
             const minNs = parseInt(String(searchParams.min), 10)
             const maxNs = parseInt(String(searchParams.max), 10)
