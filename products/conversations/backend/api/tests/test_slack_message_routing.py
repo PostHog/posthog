@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
 
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -1094,14 +1094,6 @@ class TestSupporthogInteractivity(BaseTest):
                 "ticket #42",
                 True,
             ),
-            (
-                "genuine_failure",
-                {"channel": "C_CONFIG", "message_ts": "1700000000.000100"},
-                None,
-                True,
-                "couldn't",
-                False,
-            ),
             ("malformed_value", {}, None, False, "couldn't", False),
         ]
     )
@@ -1136,10 +1128,38 @@ class TestSupporthogInteractivity(BaseTest):
 
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
-    def test_open_shows_error_when_retries_exhausted(self, mock_create, mock_get_client):
-        # A persistent failure retries and eventually exhausts — the prompt must still be
-        # replaced with the error state, not left with live buttons forever.
-        mock_create.side_effect = RuntimeError("boom")
+    def test_open_retries_when_create_returns_none(self, mock_create, mock_get_client):
+        # A duplicate delivery that loses the per-thread create lock gets None back while
+        # the sibling's ticket is mid-create. The task must retry — resolving to the
+        # committed ticket on the re-run — not report a false "couldn't open a ticket"
+        # to the user and a false ticket_created=false to the funnel.
+        mock_create.return_value = None
+
+        with self.assertRaises(Retry):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        self.mock_capture_event.assert_not_called()
+        mock_get_client.return_value.chat_update.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("create_raises", RuntimeError("boom")),
+            ("create_returns_none", None),
+        ]
+    )
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_shows_error_when_retries_exhausted(self, _name, failure, mock_create, mock_get_client):
+        # A persistent failure (create raising, or a None that never resolves into a
+        # ticket) retries and eventually exhausts — the prompt must still be replaced
+        # with the error state, not left with live buttons forever.
+        if isinstance(failure, Exception):
+            mock_create.side_effect = failure
+        else:
+            mock_create.return_value = failure
 
         with patch.object(process_supporthog_interactivity, "retry", side_effect=MaxRetriesExceededError()):
             process_supporthog_interactivity(
@@ -1150,3 +1170,7 @@ class TestSupporthogInteractivity(BaseTest):
         client = mock_get_client.return_value
         client.chat_update.assert_called_once()
         assert "couldn't" in client.chat_update.call_args.kwargs["text"].lower()
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge open ticket clicked"
+        assert event_props["ticket_created"] is False

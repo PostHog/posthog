@@ -19,7 +19,7 @@ from django.utils import timezone
 import requests
 import structlog
 from celery import shared_task
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -290,6 +290,18 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                         slack_channel_id=source_channel,
                         message_ts=source_message_ts,
                     )
+                    if ticket is None:
+                        # A duplicate delivery (double click or webhook retry) can lose the
+                        # per-thread create lock to a concurrent sibling and see None while
+                        # the sibling's ticket is mid-create. Retry instead of reporting a
+                        # false failure — the re-run resolves to the committed ticket via
+                        # the existing-ticket check in create_ticket_from_confirmation.
+                        # Genuine failures exhaust retries into the error update below.
+                        raise cast(Any, process_supporthog_interactivity).retry()
+                except Retry:
+                    raise
+                except MaxRetriesExceededError:
+                    pass
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
                     # Retry transient failures — the retried run redoes the whole handler,
