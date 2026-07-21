@@ -231,6 +231,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                         dashboardItemId: modalAlert.insight.short_id,
                         cachedInsight: modalAlert.insight,
                     }}
+                    useAlertCheckPreview
                     onEditSuccess={() => {
                         loadAlerts()
                         push(urls.alerts())

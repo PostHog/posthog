@@ -21,9 +21,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    AlertState,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { FunnelVizType } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
 import { AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
@@ -41,6 +46,7 @@ import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/fronten
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
 import { ThresholdConditionRow } from 'products/alerts/frontend/components/ThresholdConditionRow'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 
 import { SnoozeButton } from '../components/SnoozeButton'
@@ -52,18 +58,7 @@ import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
-
-interface EditAlertModalV2Props {
-    isOpen: boolean | undefined
-    alertId?: AlertType['id']
-    insightId: QueryBasedInsightModel['id']
-    insightShortId: InsightShortId
-    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
-    onClose?: () => void
-    insightLogicProps: InsightLogicProps
-    defaultToAnomalyDetection?: boolean
-    insightName?: string | null
-}
+import type { AlertModalProps } from './EditAlertModal'
 
 /** Redesigned alert edit/create modal. New alerts use a 3-step wizard (Monitor → Schedule & notify
  *  → Review); editing an existing alert skips the wizard and uses a sectioned layout with a one-line
@@ -78,7 +73,8 @@ export function EditAlertModalV2({
     insightLogicProps,
     defaultToAnomalyDetection,
     insightName,
-}: EditAlertModalV2Props): JSX.Element {
+    useAlertCheckPreview,
+}: AlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
@@ -254,6 +250,21 @@ export function EditAlertModalV2({
         return null
     }, [alertForm.config, indexedResults, isTrendsFunnel])
 
+    const checkPreview = useMemo(() => {
+        if (!useAlertCheckPreview || !alert) {
+            return undefined
+        }
+        const preview = deriveAlertCheckPreviewSeries(
+            alert.checks,
+            alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
+            alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
+        )
+        return {
+            ...preview,
+            labels: preview.labels?.map((label) => formatDate(dayjs(label), 'MMM D, HH:mm')),
+        }
+    }, [alert, alertForm.condition?.type, alertForm.threshold?.configuration?.type, useAlertCheckPreview])
+
     const enabledToggle = (
         <LemonField name="enabled" className="m-0">
             <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
@@ -391,7 +402,8 @@ export function EditAlertModalV2({
             }
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
-            loading={insightLoading || insightDataLoading}
+            checkPreview={checkPreview}
+            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
         />
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined

@@ -149,7 +149,7 @@ export function AlertDefinitionSection({
             )}
             <div
                 className={
-                    twoColumnLayout ? 'grid items-start gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]' : 'space-y-3'
+                    twoColumnLayout ? 'grid items-start gap-6 md:grid-cols-[minmax(0,55%)_minmax(0,1fr)]' : 'space-y-3'
                 }
             >
                 <div className="space-y-3">
@@ -166,6 +166,7 @@ export function AlertDefinitionSection({
                             stepLabels={funnel.stepLabels}
                             funnelPreview={funnel.preview}
                             isTrendsFunnel={funnel.isTrendsFunnel}
+                            showInlinePreview={!twoColumnLayout}
                             onSetAlertFormValue={onSetAlertFormValue}
                         />
                     ) : isHogQLAlertConfig(alertForm.config) ? (
@@ -175,6 +176,7 @@ export function AlertDefinitionSection({
                             hogqlColumns={hogql.columns}
                             hogqlValueColumnOptions={hogql.valueColumnOptions}
                             hogqlLabelColumnOptions={hogql.labelColumnOptions}
+                            showInlinePreview={!twoColumnLayout}
                             onSetAlertFormValue={onSetAlertFormValue}
                         />
                     ) : null}

@@ -13,7 +13,7 @@ describe('alertSummary', () => {
     })
 
     it.each([
-        [AlertConditionType.RELATIVE_INCREASE, InsightThresholdType.PERCENTAGE, 0, 0.1, 'increase outside 0%–10%'],
+        [AlertConditionType.RELATIVE_INCREASE, InsightThresholdType.PERCENTAGE, 0, 0.1, 'increase outside 0% – 10%'],
         [AlertConditionType.RELATIVE_INCREASE, InsightThresholdType.ABSOLUTE, undefined, 10, 'increase above 10'],
         [AlertConditionType.RELATIVE_DECREASE, InsightThresholdType.PERCENTAGE, 0.05, undefined, 'decrease below 5%'],
     ])('summarizes %s bounds using %s units', (conditionType, thresholdType, lower, upper, expected) => {

@@ -49,7 +49,7 @@ export function formatThresholdSummary(
     switch (conditionType) {
         case AlertConditionType.RELATIVE_INCREASE:
             if (both) {
-                return `increase outside ${lo}${unit}–${hi}${unit}`
+                return `increase outside ${lo}${unit} – ${hi}${unit}`
             }
             if (lo != null) {
                 return `increase below ${lo}${unit}`
@@ -60,7 +60,7 @@ export function formatThresholdSummary(
             return 'increase breaches a threshold'
         case AlertConditionType.RELATIVE_DECREASE:
             if (both) {
-                return `decrease outside ${lo}${unit}–${hi}${unit}`
+                return `decrease outside ${lo}${unit} – ${hi}${unit}`
             }
             if (lo != null) {
                 return `decrease below ${lo}${unit}`
@@ -71,7 +71,7 @@ export function formatThresholdSummary(
             return 'decrease breaches a threshold'
         default:
             if (both) {
-                return `value outside ${lo}–${hi}`
+                return `value outside ${lo} – ${hi}`
             }
             if (lo != null) {
                 return `value below ${lo}`
