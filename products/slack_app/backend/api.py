@@ -38,8 +38,7 @@ from posthog.models.integration import (
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
-from posthog.schema_enums import AlertState
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -60,7 +59,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
@@ -3432,13 +3431,23 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.warning("insight_alert_snooze_not_org_member", alert_id=str(alert_uuid), slack_user_id=slack_user_id)
         return HttpResponse(status=200)
 
-    # Org membership alone doesn't imply access to this alert's project — the alert API itself
-    # gates read/write on viewer access to the linked insight (see AlertViewSet.safely_get_queryset;
-    # "alert" isn't an access-control resource, so access is checked via the insight it belongs to).
-    # Mirror that boundary here so a member of a private project's org can't snooze its alerts from
-    # a channel that merely happens to have the workspace integration installed.
-    access_level = UserAccessControl(org_member, team=alert.team).get_user_access_level(alert.insight)
-    if not access_level or not access_level_satisfied_for_resource("insight", access_level, "viewer"):
+    # Org membership alone doesn't imply project membership on EE orgs with ACCESS_CONTROL — a
+    # non-admin member with no explicit membership in a private project must still be denied.
+    # This is the same mechanism TeamMemberAccessPermission uses for the API path
+    # (posthog/permissions.py): effective_membership_level short-circuits to the org membership
+    # level when ACCESS_CONTROL isn't available, so this never false-denies on non-EE orgs.
+    if UserPermissions(org_member).team(alert.team).effective_membership_level is None:
+        logger.warning(
+            "insight_alert_snooze_no_project_membership", alert_id=str(alert_uuid), slack_user_id=slack_user_id
+        )
+        return HttpResponse(status=200)
+
+    # Project membership doesn't imply object-level access to this specific insight — the alert
+    # API itself gates read/write on viewer access to the linked insight (see
+    # AlertViewSet.safely_get_queryset / _require_insight_viewer_access; "alert" isn't an
+    # access-control resource, so access is checked via the insight it belongs to). Mirror that
+    # boundary here too.
+    if not UserAccessControl(org_member, team=alert.team).check_access_level_for_object(alert.insight, "viewer"):
         logger.warning("insight_alert_snooze_no_team_access", alert_id=str(alert_uuid), slack_user_id=slack_user_id)
         return HttpResponse(status=200)
 
@@ -3448,18 +3457,7 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     with ActingUserContext(org_member):
-        alert.state = AlertState.SNOOZED
-        alert.snoozed_until = timezone.now() + INSIGHT_ALERT_SNOOZE_DURATIONS[duration]
-        alert.save(update_fields=["state", "snoozed_until"])
-
-        AlertCheck.objects.create(
-            alert_configuration=alert,
-            calculated_value=None,
-            condition=alert.condition,
-            targets_notified={},
-            state=alert.state,
-            error=None,
-        )
+        alert.snooze(until=timezone.now() + INSIGHT_ALERT_SNOOZE_DURATIONS[duration])
 
     human_duration = INSIGHT_ALERT_SNOOZE_DURATION_LABELS[duration]
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"

@@ -3,7 +3,7 @@ import time
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,6 +14,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -25,6 +26,14 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 from products.slack_app.backend.api import _extract_alert_snooze_hint, _handle_insight_alert_snooze
 from products.slack_app.backend.tests.helpers import sign_slack_request
+
+if TYPE_CHECKING:
+    from ee.models.rbac.access_control import AccessControl
+else:
+    try:
+        from ee.models.rbac.access_control import AccessControl
+    except ImportError:
+        AccessControl = None
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -1094,18 +1103,60 @@ class TestInsightAlertSnooze(TestCase):
         assert self.alert.snoozed_until is None
         mock_requests_post.assert_not_called()
 
-    @patch("products.slack_app.backend.api.UserAccessControl")
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_snooze_refuses_without_project_access(
-        self, mock_config, mock_requests_post, mock_is_org_member, mock_user_access_control
-    ):
-        # Org membership alone doesn't grant access to a private project — mirrors the real
-        # alerts API, which gates on viewer access to the alert's insight, not org membership.
+    def test_snooze_refuses_without_project_membership(self, mock_config, mock_requests_post, mock_is_org_member):
+        # A non-admin org member with no explicit membership in a private project must be
+        # denied, even though they pass the org-membership check — mirrors
+        # TeamMemberAccessPermission on the API path.
+        if AccessControl is None:
+            self.skipTest("EE not available")
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_is_org_member.return_value = self.user
-        mock_user_access_control.return_value.get_user_access_level.return_value = None
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+
+        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+
+        assert response.status_code == 200
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.FIRING
+        assert self.alert.snoozed_until is None
+        mock_requests_post.assert_not_called()
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_snooze_refuses_without_insight_access(self, mock_config, mock_requests_post, mock_is_org_member):
+        # Project membership doesn't imply access to every insight in it — mirrors the real
+        # alerts API, which gates on viewer access to the alert's specific insight.
+        if AccessControl is None:
+            self.skipTest("EE not available")
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(self.insight.id),
+            organization_member=membership,
+            access_level="none",
+        )
 
         response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
 
