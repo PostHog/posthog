@@ -89,6 +89,11 @@
             },
             "type": "array"
         },
+        "useArchive": {
+            "default": false,
+            "description": "When true, read attribute values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.",
+            "type": "boolean"
+        },
         "value": {
             "description": "Search filter for attribute values",
             "minLength": 1,

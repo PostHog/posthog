@@ -120,6 +120,11 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "useArchive": {
+                    "default": false,
+                    "description": "When true, compute facet values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.",
+                    "type": "boolean"
                 }
             },
             "type": "object"

@@ -1054,6 +1054,8 @@ export interface _LogsFacetValuesBodyApi {
     facetSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** When true, compute facet values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false. */
+    useArchive?: boolean
 }
 
 export interface _LogsFacetValuesRequestApi {
@@ -1460,6 +1462,8 @@ export interface _LogsQueryBodyApi {
     excludeAttributes?: boolean
     /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
     customColumns?: string[]
+    /** When true, query the logs archive (Iceberg-backed cold storage) instead of the hot ClickHouse tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Archive queries are slower and have no live-tail. Defaults to false. */
+    useArchive?: boolean
 }
 
 export interface _LogsQueryRequestApi {
@@ -1528,6 +1532,8 @@ export interface _LogsQueryResponseApi {
      * @nullable
      */
     columns?: string[] | null
+    /** True when the query was served from the logs archive (because the request set useArchive and the logs-archive-search flag is enabled). Archive queries are slower and have no live-tail or byte-size data. */
+    usedArchive: boolean
 }
 
 /**
@@ -1758,6 +1764,8 @@ export interface _LogsSparklineBodyApi {
      * * `severity` - severity
      * * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+    /** When true, compute the sparkline from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false. */
+    useArchive?: boolean
 }
 
 export interface _LogsSparklineRequestApi {
@@ -1968,6 +1976,10 @@ export type LogsAttributesRetrieveParams = {
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[]
+    /**
+     * When true, read attribute keys from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.
+     */
+    useArchive?: boolean
 }
 
 export type LogsAttributesRetrieveAttributeType =
@@ -2041,6 +2053,10 @@ export type LogsValuesRetrieveParams = {
      * Filter values to those appearing in logs from these services.
      */
     serviceNames?: string[]
+    /**
+     * When true, read attribute values from the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Defaults to false.
+     */
+    useArchive?: boolean
     /**
      * Search filter for attribute values
      * @minLength 1

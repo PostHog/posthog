@@ -130,7 +130,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
     connect((props: FacetCountsLogicProps) => ({
         values: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'archive'],
             teamLogic,
             ['currentTeamId'],
         ],
@@ -200,6 +200,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     searchTerm: values.filters.searchTerm || undefined,
                     facetSearch: values.facetSearch[facet.key] || undefined,
                     filterGroup,
+                    useArchive: values.archive,
                 },
             })
             return response.results
@@ -256,6 +257,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                             attribute_type: 'resource',
                             dateRange: PRESENCE_LOOKBACK,
                             limit: 100,
+                            useArchive: values.archive,
                         })
                         return response.results.map((r) => r.name)
                     },

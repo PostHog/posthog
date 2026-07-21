@@ -4,7 +4,7 @@ from posthog.schema import LogsSparklineBreakdownBy
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -66,52 +66,59 @@ class SparklineQueryRunner(LogsQueryRunner):
 
         return LogsQueryResponse(results=results)
 
+    def _time_field_expr(self) -> ast.Expr:
+        # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
+        # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
+        # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval
+        if self.query_date_range.interval_name != "second":
+            return ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
+        return ast.Field(chain=["timestamp"])
+
+    def _bytes_expr(self) -> ast.Expr:
+        return parse_expr("sum(_bytes_uncompressed)")
+
     def to_query(self) -> ast.SelectQuery:
         query = parse_select(
-            """
+            f"""
                 SELECT
                     am.time_bucket AS time,
-                    {breakdown_field},
+                    {{breakdown_field}},
                     ifNull(ac.event_count, 0) AS count,
                     ifNull(ac.bytes_uncompressed, 0) AS bytes_uncompressed
                 FROM (
                     SELECT
-                        dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
+                        dateAdd({{date_from_start_of_interval}}, {{number_interval_period}}) AS time_bucket
                     FROM numbers(
                         floor(
-                            dateDiff({interval},
-                                     {date_from_start_of_interval},
-                                     {date_to_start_of_interval}) / {interval_count} + 1
+                            dateDiff({{interval}},
+                                     {{date_from_start_of_interval}},
+                                     {{date_to_start_of_interval}}) / {{interval_count}} + 1
                                     )
                         )
                     WHERE
-                        time_bucket >= {date_from_start_of_interval} and
+                        time_bucket >= {{date_from_start_of_interval}} and
                         time_bucket <= greatest(
-                            {date_from_start_of_interval},
-                            toStartOfInterval({date_to} - toIntervalSecond(1), {one_interval_period})
+                            {{date_from_start_of_interval}},
+                            toStartOfInterval({{date_to}} - toIntervalSecond(1), {{one_interval_period}})
                         )
                 ) AS am
                 LEFT JOIN (
                     SELECT
-                        toStartOfInterval({time_field}, {one_interval_period}) AS time,
-                        {breakdown_field},
+                        toStartOfInterval({{time_field}}, {{one_interval_period}}) AS time,
+                        {{breakdown_field}},
                         count() AS event_count,
-                        sum(_bytes_uncompressed) AS bytes_uncompressed
-                    FROM logs
-                    WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
-                    GROUP BY {breakdown_field}, time
+                        {{bytes}} AS bytes_uncompressed
+                    FROM {self.LOGS_TABLE}
+                    WHERE {{where}} AND time >= {{date_from_start_of_interval}} AND time <= {{date_to}}
+                    GROUP BY {{breakdown_field}}, time
                 ) AS ac ON am.time_bucket = ac.time
-                ORDER BY time asc, {breakdown_field} asc
+                ORDER BY time asc, {{breakdown_field}} asc
                 LIMIT 1000
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
-                # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
-                # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval
-                "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
-                if self.query_date_range.interval_name != "second"
-                else ast.Field(chain=["timestamp"]),
+                "time_field": self._time_field_expr(),
+                "bytes": self._bytes_expr(),
                 "where": self.where(),
                 "breakdown_field": ast.Field(
                     chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]

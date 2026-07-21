@@ -122,6 +122,11 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "useArchive": {
+                    "default": false,
+                    "description": "When true, query the logs archive (Iceberg-backed cold storage) instead of the hot ClickHouse tables. Only honoured when the logs-archive-search feature flag is enabled; ignored otherwise. Archive queries are slower and have no live-tail. Defaults to false.",
+                    "type": "boolean"
                 }
             },
             "type": "object"

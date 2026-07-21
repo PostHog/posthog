@@ -29439,6 +29439,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useArchive": {
+                    "description": "Query the logs archive (cold storage) instead of the hot tables. Only honoured when the logs-archive-search feature flag is enabled.",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"

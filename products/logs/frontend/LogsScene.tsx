@@ -24,7 +24,12 @@ import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPromp
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
 import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
-import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
+import {
+    LOGS_SCENE_ARCHIVE_VIEWER_ID,
+    LOGS_SCENE_VIEWER_ID,
+    LogsSceneActiveTab,
+    logsSceneLogic,
+} from './logsSceneLogic'
 
 export const LOGS_LOGIC_KEY = 'logs'
 
@@ -94,9 +99,11 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
+    const showArchive = useFeatureFlag('LOGS_ARCHIVE_SEARCH')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
+        ...(showArchive ? [{ key: 'archive' as const, label: 'Archive' }] : []),
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
         ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
         ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
@@ -146,6 +153,17 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     </div>
                 </LogsSetupPrompt>
             </div>
+            {/* Archive is a separate viewer instance. Lazy-mounted (unlike the hot viewer, which stays
+                mounted-but-hidden) so its slower cold-storage queries only fire once the tab is opened. */}
+            {activeTab === 'archive' && showArchive && (
+                <div className="flex flex-col flex-1 min-h-0">
+                    <LogsSetupPrompt>
+                        <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                            <LogsViewer id={LOGS_SCENE_ARCHIVE_VIEWER_ID} archive showSavedViewsButton />
+                        </div>
+                    </LogsSetupPrompt>
+                </div>
+            )}
             {activeTab === 'services' && showServicesView && (
                 <>
                     <LogsServices />
