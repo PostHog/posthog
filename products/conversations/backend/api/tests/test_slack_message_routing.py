@@ -1093,8 +1093,10 @@ class TestSupporthogInteractivity(BaseTest):
                 True,
                 "ticket #42",
                 True,
+                # Placeholder ("opening a ticket") posted first, confirmation second.
+                2,
             ),
-            ("malformed_value", {}, None, False, "couldn't", False),
+            ("malformed_value", {}, None, False, "couldn't", False, 1),
         ]
     )
     @patch(f"{TASKS_MODULE}.get_slack_client")
@@ -1107,6 +1109,7 @@ class TestSupporthogInteractivity(BaseTest):
         expect_create_called,
         expected_text,
         expected_ticket_created,
+        expected_update_count,
         mock_create,
         mock_get_client,
     ):
@@ -1116,7 +1119,7 @@ class TestSupporthogInteractivity(BaseTest):
 
         assert mock_create.call_count == (1 if expect_create_called else 0)
         client = mock_get_client.return_value
-        client.chat_update.assert_called_once()
+        assert client.chat_update.call_count == expected_update_count
         assert expected_text in client.chat_update.call_args.kwargs["text"].lower()
         # The click lands in the nudge funnel with the outcome; prompts posted before the
         # verdict was stamped into the button value report "unknown".
@@ -1142,7 +1145,35 @@ class TestSupporthogInteractivity(BaseTest):
             )
 
         self.mock_capture_event.assert_not_called()
-        mock_get_client.return_value.chat_update.assert_not_called()
+        # Only the progress placeholder may have been posted — no final state yet.
+        client = mock_get_client.return_value
+        for update_call in client.chat_update.call_args_list:
+            assert "opening" in update_call.kwargs["text"].lower()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_skips_placeholder_when_ticket_already_open(self, mock_create, mock_get_client):
+        # A duplicate delivery arriving after a sibling already created the ticket must not
+        # post the "opening" placeholder over the sibling's confirmation — only the final
+        # confirmation update may go out.
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+        mock_create.return_value = Mock(ticket_number=7)
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        client = mock_get_client.return_value
+        client.chat_update.assert_called_once()
+        assert "ticket #7" in client.chat_update.call_args.kwargs["text"].lower()
 
     @parameterized.expand(
         [
@@ -1168,7 +1199,8 @@ class TestSupporthogInteractivity(BaseTest):
             )
 
         client = mock_get_client.return_value
-        client.chat_update.assert_called_once()
+        # Progress placeholder first, then the error state — never left on the placeholder.
+        assert client.chat_update.call_count == 2
         assert "couldn't" in client.chat_update.call_args.kwargs["text"].lower()
         self.mock_capture_event.assert_called_once()
         _team, event_name, event_props = self.mock_capture_event.call_args.args

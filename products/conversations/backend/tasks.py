@@ -283,6 +283,19 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
             ticket = None
             if source_channel and source_message_ts:
+                # Ticket creation takes several seconds (Slack fetches + backfill) and the
+                # click may have crossed a region on the way here — replace the buttons with
+                # a progress line right away so the click visibly landed and repeat clicks
+                # stop. First attempt only, and only while no sibling delivery has already
+                # resolved the prompt (a stale placeholder must not overwrite a confirmation).
+                is_retry = bool(getattr(cast(Any, process_supporthog_interactivity).request, "retries", 0))
+                ticket_already_open = Ticket.objects.filter(
+                    team=team, slack_channel_id=source_channel, slack_thread_ts=source_message_ts
+                ).exists()
+                if not is_retry and not ticket_already_open:
+                    _update_supporthog_prompt(
+                        team, prompt_channel, prompt_ts, ":hourglass_flowing_sand: Opening a ticket…"
+                    )
                 try:
                     ticket = create_ticket_from_confirmation(
                         team=team,
