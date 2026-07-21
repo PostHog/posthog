@@ -20,6 +20,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     _append_unconfirmed_attachment_notice,
     _markdown_to_slack_mrkdwn,
     _neutralize_approx_tildes,
+    _normalize_labeled_mentions_to_bare,
     _repair_link_trailing_markers,
     _split_markdown_for_slack,
     _wrap_bare_urls_in_emphasis,
@@ -151,6 +152,32 @@ class TestRelaySlackMessage(TestCase):
 
         mock_post.assert_called_once()
         assert mock_post.call_args.args[0].startswith(expected_prefix)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_labeled_mention_echoed_in_body_is_posted_as_bare(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        # The agent echoes participants in the labeled ``<@U…|display name>`` form fed to it.
+        # That form does not reliably notify when the bot posts it, so the relay must rewrite
+        # it to the bare ``<@U…>`` — otherwise a display name with a space (here "Radu Raicea")
+        # renders as inert text and the mentioned user is never pinged.
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-labeled-mention",
+                text="Answering <@U094TR1E59V|Radu Raicea> now.",
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "<@U094TR1E59V>" in posted
+        assert "Radu Raicea" not in posted
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
@@ -508,6 +535,22 @@ class TestNeutralizeApproxTildes(unittest.TestCase):
     )
     def test_neutralize(self, _name, text, expected):
         assert _neutralize_approx_tildes(text) == expected
+
+
+class TestNormalizeLabeledMentionsToBare(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("single_word_name", "hi <@U123|vojta>", "hi <@U123>"),
+            ("name_with_space", "hi <@U123|Radu Raicea>", "hi <@U123>"),
+            ("multiple_mentions", "<@U1|A B> and <@U2|C>", "<@U1> and <@U2>"),
+            ("already_bare_untouched", "hi <@U123>", "hi <@U123>"),
+            ("channel_link_kept", "see <#C123|general>", "see <#C123|general>"),
+            ("url_link_kept", "<https://x.com|label>", "<https://x.com|label>"),
+            ("broadcast_kept", "<!here>", "<!here>"),
+        ]
+    )
+    def test_normalize(self, _name, text, expected):
+        assert _normalize_labeled_mentions_to_bare(text) == expected
 
 
 class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):

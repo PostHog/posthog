@@ -80,6 +80,22 @@ class _RelayAlreadyRecorded(Exception):
     """Raised when a relay was already recorded while holding the row lock."""
 
 
+# Slack returns inbound user mentions in the labeled ``<@U…|display name>`` form, and we
+# feed that same form to the agent so it can echo a token to ping a participant back. That
+# labeled form only reliably notifies on the way *in*, though: when a bot posts it outbound
+# Slack does not consistently linkify it — a display name containing a space renders as inert
+# text and the user is never notified. The canonical outbound mention is the bare ``<@U…>``,
+# which Slack resolves to the current name itself, so every echoed mention is normalized back
+# to the bare id before posting. Only ``<@…>`` user mentions are rewritten; channel links
+# (``<#C…|name>``), broadcast/subteam refs (``<!…>``), and URL links (``<https://…|label>``)
+# keep their labels.
+_RE_LABELED_USER_MENTION = re.compile(r"<@([A-Z0-9]+)\|[^>]*>")
+
+
+def _normalize_labeled_mentions_to_bare(text: str) -> str:
+    return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
+
+
 def _markdown_to_slack_mrkdwn(text: str) -> str:
     """Convert markdown to Slack ``mrkdwn`` via ``markdown_to_mrkdwn``.
 
@@ -385,6 +401,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if not text:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
+
+    # Rewrite echoed ``<@U…|name>`` tokens to the bare ``<@U…>`` so the mentions the agent
+    # composed actually notify their targets. Done before splitting/conversion: the bare form
+    # is shorter (never enlarges a chunk) and the mrkdwn converter passes it through untouched.
+    text = _normalize_labeled_mentions_to_bare(text)
 
     # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
     # (and deliver_pending_slack_file_artifacts below) return falsy when the
