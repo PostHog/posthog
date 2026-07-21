@@ -6,6 +6,7 @@
 //! [`steps`](crate::steps), or [`pipeline`](crate::pipeline). Those domain layers are
 //! built *on top of* this one.
 
+pub mod batch;
 pub mod chain;
 pub mod chunk;
 pub mod concurrency;

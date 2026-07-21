@@ -1,20 +1,20 @@
-//! End-to-end demo: the analytics pipeline composed from the framework, driven through
-//! its own runner. The runner wires the combinators *into* the pipeline — a heatmap
-//! `Branching` split in the sync segment, then `concurrently_per_group` (keyed on
-//! `token:distinct_id`) and `concurrently` in the async phase — so this exercises the
-//! full composition, not standalone combinator demos.
+//! End-to-end demo: the analytics pipeline composed as one fluent builder chain — a
+//! heatmap `Branching` split in the sync segment, then a grouped async stage
+//! (`concurrently_per_group` on `token:distinct_id`) and a per-item async stage
+//! (`concurrently`), all part of the *composition* (`build_analytics_pipeline`). The
+//! test invokes `pipeline.run_batch(..)` and then `handle_results(..)` — no stage wiring
+//! outside the built pipeline.
 
 use capture_pipelines_poc::events::capabilities::{HasGeo, HasToken};
 use capture_pipelines_poc::events::parsed::ParsedEvent;
 use capture_pipelines_poc::pipeline::{
-    analytics_topic_for, build_analytics_pipeline, run_analytics_batch, AnalyticsFx,
-    AnalyticsOutputs, BranchStep, GeoAnnotate, OverflowCheck, Verdict,
+    analytics_topic_for, build_analytics_pipeline, handle_results, AnalyticsFx, AnalyticsOutputs,
+    GeoAnnotate, OverflowCheck, Verdict,
 };
 use capture_pipelines_poc::steps::enrich::Enrich;
-use capture_pipelines_poc::steps::quota::ApplyQuota;
 use capture_pipelines_poc::steps::restrictions::ApplyRestrictions;
 use capture_pipelines_poc::steps::validate::Validate;
-use capture_pipelines_poc::{builder, FailOpen, MemProducer, OutputRegistry, StepResult};
+use capture_pipelines_poc::{builder, MemProducer, OutputRegistry, StepResult};
 
 fn ev(token: &str, distinct_id: &str, event: &str) -> ParsedEvent {
     ParsedEvent {
@@ -28,23 +28,22 @@ fn ev(token: &str, distinct_id: &str, event: &str) -> ParsedEvent {
 
 #[tokio::test]
 async fn analytics_pipeline_end_to_end() {
-    let pipeline = build_analytics_pipeline();
+    // Construct the two async stage processors and grab shared probe handles *before*
+    // moving them into the composition, so we can observe concurrency afterward.
+    let overflow = OverflowCheck::new();
+    let overflow_probe = overflow.probe();
+    let geo = GeoAnnotate::new();
+    let geo_probe = geo.probe();
 
-    // Static-dispatch proof: the pipeline is a flat struct whose size is exactly the
-    // sum of its config-carrying steps (Validate/Identity are ZSTs) — no box indirection.
-    let flat_size = std::mem::size_of::<FailOpen<ApplyQuota>>() + std::mem::size_of::<BranchStep>();
-    assert_eq!(
-        std::mem::size_of_val(&pipeline),
-        flat_size,
-        "flat struct, no boxes"
-    );
+    // One fluent composition — sync steps, Branching, and both async stages — as one
+    // flat monomorphized type (`AnalyticsPipeline`; the boxless proof is the ZST
+    // `composed_pipeline_with_async_stage_is_a_flat_struct` test in `framework::batch`).
+    let pipeline = build_analytics_pipeline(overflow, geo);
 
     let registry = OutputRegistry::new(analytics_topic_for, MemProducer::new());
     assert!(registry.check().is_ok());
 
     let mut fx = AnalyticsFx::default();
-    let overflow = OverflowCheck::new();
-    let geo = GeoAnnotate::new();
 
     let long_token = "a".repeat(41); // > 40 chars → Validate warns
     let batch = vec![
@@ -62,11 +61,10 @@ async fn analytics_pipeline_end_to_end() {
     ];
     let raw: Vec<Vec<u8>> = batch.iter().map(|e| e.token.clone().into_bytes()).collect();
 
-    // High concurrency ceiling so every group / item runs at once (deterministic peak).
-    let verdicts = run_analytics_batch(
-        &pipeline, &overflow, &geo, &mut fx, &registry, &raw, batch, 16,
-    )
-    .await;
+    // Run the whole composed pipeline (sync + both async stages) over the batch, then
+    // handle results (produce redirects, map to outcomes) — no stage wiring here.
+    let final_verdicts = pipeline.run_batch(batch, &mut fx).await;
+    let verdicts = handle_results(final_verdicts, &raw, &registry);
 
     // Positional per-event verdicts, incl. the heatmap-branch split and fail-open.
     assert_eq!(
@@ -93,12 +91,12 @@ async fn analytics_pipeline_end_to_end() {
 
     // In-group ordering preserved through the grouped async stage: A:u1's events stay
     // e1 → e2 → e3 despite groups running concurrently.
-    assert_eq!(overflow.order_for("A:u1"), vec!["e1", "e2", "e3"]);
+    assert_eq!(overflow_probe.order_for("A:u1"), vec!["e1", "e2", "e3"]);
 
     // Cross-group concurrency actually happened: all 6 survivor groups overlapped in the
     // grouped stage, and all 8 survivors overlapped in the per-item concurrent stage.
-    assert_eq!(overflow.max_in_flight(), 6);
-    assert_eq!(geo.max_in_flight(), 8);
+    assert_eq!(overflow_probe.max_in_flight(), 6);
+    assert_eq!(geo_probe.max_in_flight(), 8);
 
     // Redirects produced to the right topics with the original payload bytes.
     assert_eq!(

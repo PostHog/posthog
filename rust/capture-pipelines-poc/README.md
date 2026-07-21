@@ -35,9 +35,11 @@ The public vocabulary matches the plan page and the design doc (§3.2–3.4):
 `fail_open`, `HasSink`, and the capability traits `HasToken` / `HasEventName` /
 `HasDistinctId` / `HasTimestamp` / `HasTeamId` / `HasLane` (plus a demo `HasGeo`
 enrichment capability).
-The demo pipeline composes the plan's step templates *and* the structural combinators end to end (`pipeline::run_analytics_batch`, exercised by `analytics_demo.rs`):
-`Validate` → `ApplyQuota.fail_open()` → `Branching` (a `$$`-prefixed heatmap split that skips restrictions, mirroring capture's real split) → an async `concurrently_per_group` policy stage keyed on `token:distinct_id` (mirroring the Node joined pipeline's post-team block) → a `concurrently` per-item enrichment.
-The end-to-end test asserts positional verdicts, branch routing, in-group ordering, and observed cross-group concurrency — all through the composed runner, not standalone demos.
+The demo pipeline composes the plan's step templates *and* the structural combinators in **one fluent builder chain** (`build_analytics_pipeline`), sync segments and async stages fused into a single spelled-out type (`pipeline::AnalyticsPipeline`):
+`batch_builder().step(Validate).step(ApplyQuota.fail_open()).step(Branching).grouped_stage(token:distinct_id, OverflowCheck).stage(GeoAnnotate).build()`.
+The `Branching` is a `$$`-prefixed heatmap split that skips restrictions (mirroring capture's real split); `grouped_stage` runs `concurrently_per_group` (the Node joined pipeline's post-team block); `stage` runs a per-item `concurrently` enrichment.
+Running is `pipeline.run_batch(batch, &mut fx)`; a thin `handle_results` then produces redirects and maps verdicts — the only logic outside the composition.
+The end-to-end test (`analytics_demo.rs`) asserts positional verdicts, branch routing, in-group ordering, and observed cross-group concurrency, all through the composed pipeline.
 
 Three properties from the design are made *structural* here:
 
@@ -80,6 +82,7 @@ src/
     step.rs               Step (infallible workhorse), FallibleStep
     chain.rs              Chain, IntoOutputs, Identity, typestate PipelineBuilder, Pipeline runner
     chunk.rs              ChunkStep (native async-fn-in-trait), yield_now, sync→chunk→sync runner
+    batch.rs              BatchPipeline, SyncStage/ConcurrentStage/GroupedStage, Then, batch_builder, Built
     fail_open.rs          FailOpen<S> + the .fail_open() extension method
     retry.rs              Retry<S> + .retry(tries, backoff) — injectable backoff
     extend.rs             forward_one_capability! — domain-agnostic forwarding machinery
@@ -98,10 +101,15 @@ src/
   steps/                  one demo step per file
     validate.rs  enrich.rs  quota.rs  restrictions.rs  annotate.rs (async chunk step)
   pipeline/               the composed analytics pipeline
-    mod.rs                AnalyticsFx (compose_fx!), AnalyticsPipeline type alias, builder wiring
+    mod.rs                AnalyticsFx, the one fluent batch_builder composition, AnalyticsPipeline type alias
+    runner.rs             async stage processors (OverflowCheck, GeoAnnotate) + handle_results (no composition)
     outputs.rs            AnalyticsOutputs enum + topic map
     accumulate.rs         Accumulating — per-key fold + threshold flush (replay shape)
 ```
+
+The whole pipeline — sync steps, the heatmap branch, and both async stages — is one `batch_builder()...build()` chain producing a single flat type (`AnalyticsPipeline`, no `Box`/`dyn`; the boxless proof is `framework::batch`'s `composed_pipeline_with_async_stage_is_a_flat_struct` test).
+Async stages compose *in* the builder: `.stage(proc)` (per-item `concurrently`) and `.grouped_stage(key_fn, proc)` (`concurrently_per_group`) each close the current sync segment, append an async stage, and open the next segment.
+`pipeline/runner.rs` holds only the stage processors and the result handler — it does no composition.
 
 ## The forwarding problem
 
@@ -131,8 +139,8 @@ Every structurally-impactful Node builder maps to a Rust demonstration or a docu
 
 | Node builder | Rust demonstration |
 |---|---|
-| `concurrently(maxConcurrency)` | [`concurrently(max, proc, items)`] — `futures` `buffered`; bounded concurrency, FIFO emission. **Used in the demo pipeline** as the per-item enrichment stage; also proven in isolation in `combinators.rs` (order preserved, `max_in_flight == 2`). |
-| `concurrentlyPerGroup(groupingFn)` | [`concurrently_per_group(max, key_of, proc, items)`] — groups run concurrently (bounded), items strictly in-order within a group. Emits **positionally** (vs Node's group-completion order) because verdicts are recorded by position. **Used in the demo pipeline** as the `token:distinct_id` policy stage (the Node post-team block); proven both there and in `combinators.rs` (in-group order, cross-group overlap, bounded, positional verdicts). |
+| `concurrently(maxConcurrency)` | [`concurrently(max, proc, items)`] — `futures` `buffered`; bounded concurrency, FIFO emission. **Composed into the demo pipeline** as a builder `.stage(GeoAnnotate)`; also proven in isolation in `combinators.rs` (order preserved, `max_in_flight == 2`). |
+| `concurrentlyPerGroup(groupingFn)` | [`concurrently_per_group(max, key_of, proc, items)`] — groups run concurrently (bounded), items strictly in-order within a group. Emits **positionally** (vs Node's group-completion order) because verdicts are recorded by position. **Composed into the demo pipeline** as a builder `.grouped_stage(token:distinct_id, OverflowCheck)` (the Node post-team block); proven both there and in `combinators.rs` (in-group order, cross-group overlap, bounded, positional verdicts). |
 | `sequentially` | The default. Sync steps chain with `.step().step()` (no combinator); an async `sequentially(proc, items)` is provided for symmetry. |
 | `branching` (`Exclude<TRemaining, B>`) | `Branching { classify, route }` — a classifier maps to a user enum, the router `match`es it. Exhaustiveness is the compiler's match check: adding a variant breaks every router until handled — the Rust answer to the `Exclude` builder trick. **Used in the demo pipeline** as the `$$`-heatmap split (`BranchStep`). |
 | `gather` | Implicit: chunk stages already receive and return the whole `Vec<In>`, so gathering a chunk into one emission needs no combinator. |

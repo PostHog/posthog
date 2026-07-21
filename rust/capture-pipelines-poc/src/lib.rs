@@ -43,11 +43,15 @@
 //!
 //! ## Pipeline shapes & combinators
 //!
-//! The structurally-impactful Node builders are demonstrated with static dispatch in
-//! [`framework::concurrency`] ([`concurrently`], [`concurrently_per_group`],
-//! [`sequentially`], [`filter_map`], [`Branching`]), [`framework::retry`]
-//! ([`Retry`]/[`RetryExt`]), and [`pipeline::accumulate`]. See `README.md`,
-//! "Pipeline shapes & combinators", for the full Node-feature mapping.
+//! Async stages are part of the *composition*, not hand-wired afterward:
+//! [`framework::batch`]'s [`batch_builder`] fuses sync segments and async stages
+//! (`.step(..)`, `.stage(..)`, `.grouped_stage(..)`) into one flat, monomorphized
+//! [`Built`] type — the whole shape spelled out (see
+//! [`pipeline::AnalyticsPipeline`](pipeline::AnalyticsPipeline)). The stages run the
+//! Node combinators in [`framework::concurrency`] ([`concurrently`],
+//! [`concurrently_per_group`], [`sequentially`], [`filter_map`], [`Branching`]);
+//! [`framework::retry`] ([`Retry`]/[`RetryExt`]) and [`pipeline::accumulate`] cover the
+//! rest. See `README.md`, "Pipeline shapes & combinators", for the full Node mapping.
 
 #![warn(missing_docs)]
 
@@ -57,6 +61,7 @@ pub mod pipeline;
 pub mod steps;
 
 // Ergonomic re-exports so the framework's core vocabulary is available at short paths.
+pub use framework::batch::{batch_builder, BatchPipeline, Built};
 pub use framework::chain::{builder, Chain, Identity, IntoOutputs, Pipeline, PipelineBuilder};
 pub use framework::chunk::{run_chunk_stage, run_pipeline, yield_now, ChunkStep};
 pub use framework::concurrency::{

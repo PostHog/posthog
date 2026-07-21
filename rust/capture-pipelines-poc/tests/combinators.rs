@@ -43,7 +43,8 @@ impl Probe {
     }
 }
 
-impl AsyncProcessor<(char, i64)> for Probe {
+impl AsyncProcessor for Probe {
+    type In = (char, i64);
     type Out = i64;
     type Outputs = NoOutputs;
 

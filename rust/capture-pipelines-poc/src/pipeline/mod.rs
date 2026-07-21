@@ -1,26 +1,34 @@
-//! The composed demo analytics pipeline: its effects struct, output vocabulary, and
-//! the full builder + runner wiring.
+//! The composed demo analytics pipeline: one fluent construction, one spelled-out type.
 //!
-//! The sync segment is `ParsedEvent` → [`Validate`] → [`ApplyQuota`]`.fail_open()` →
-//! [`Branching`] (heatmap split), spelled out as [`AnalyticsPipeline`] — the visible
-//! proof it is one flat, monomorphized struct. The async phase (run by
-//! [`run_analytics_batch`](runner::run_analytics_batch)) then composes
-//! [`concurrently_per_group`](crate::concurrently_per_group) (keyed on
-//! `token:distinct_id`, mirroring the Node joined pipeline's post-team block) and
-//! [`concurrently`](crate::concurrently) (a per-item-independent enrichment).
+//! [`build_analytics_pipeline`] composes the whole thing — sync steps, the heatmap
+//! [`Branching`] split, and **both async stages** — in a single builder chain:
+//!
+//! ```text
+//! Validate → ApplyQuota.fail_open() → Branching        (sync segment)
+//!   → grouped_stage(token:distinct_id, OverflowCheck)  (async: groups concurrent, in-order)
+//!   → stage(GeoAnnotate)                               (async: per-item concurrent)
+//! ```
+//!
+//! The built type [`AnalyticsPipeline`] spells out every sync chain *and* async stage as
+//! one flat, monomorphized struct (no boxes). Running a batch is `pipeline.run_batch(..)`;
+//! [`handle_results`](runner::handle_results) then turns the positional verdicts into
+//! produces + outcomes — the only logic outside the composition, and it does no wiring.
 
 pub mod accumulate;
 pub mod outputs;
 pub mod runner;
 
 pub use outputs::{analytics_topic_for, AnalyticsOutputs};
-pub use runner::{run_analytics_batch, GeoAnnotate, OverflowCheck, Verdict};
+pub use runner::{group_key, handle_results, GeoAnnotate, OverflowCheck, Survivor, Verdict};
 
 use crate::compose_fx;
 use crate::events::capabilities::HasEventName;
 use crate::events::parsed::ParsedEvent;
 use crate::events::wrappers::{Restricted, Validated};
-use crate::framework::chain::{builder, Chain, Identity, Pipeline};
+use crate::framework::batch::{
+    batch_builder, Built, ConcurrentStage, GroupedStage, IdentityBatch, SyncStage, Then,
+};
+use crate::framework::chain::{Chain, Identity};
 use crate::framework::concurrency::Branching;
 use crate::framework::fail_open::{FailOpen, FallibleStepExt};
 use crate::framework::fx::WarningSink;
@@ -42,6 +50,8 @@ pub const FAILING_TOKEN: &str = "redis_down";
 pub const DLQ_TOKEN: &str = "dlq_tok";
 /// Token forced to overflow by restrictions.
 pub const OVERFLOW_TOKEN: &str = "overflow_tok";
+/// Concurrency ceiling for the async stages (high enough to run every group/item at once).
+pub const MAX_CONCURRENCY: usize = 16;
 
 /// Which sub-chain an event takes. Adding a variant here turns [`route_branch`]'s
 /// `match` into a non-exhaustive-match compile error until it is handled — the
@@ -55,18 +65,15 @@ pub enum Route {
 }
 
 type ClassifyFn = fn(&Validated<ParsedEvent>) -> Route;
-type RouteFn = fn(
-    Route,
-    Validated<ParsedEvent>,
-    &mut AnalyticsFx,
-) -> StepResult<Restricted<Validated<ParsedEvent>>, AnalyticsOutputs>;
+type RouteFn =
+    fn(Route, Validated<ParsedEvent>, &mut AnalyticsFx) -> StepResult<Survivor, AnalyticsOutputs>;
+type GroupKeyFn = fn(&Survivor) -> String;
 
 /// The demo's branching step: classify by event name, route to one of two sub-chains
 /// that both produce `Restricted<Validated<ParsedEvent>>`.
 pub type BranchStep = Branching<Route, ClassifyFn, RouteFn>;
 
 fn classify_branch(event: &Validated<ParsedEvent>) -> Route {
-    // `$$`-prefixed events (e.g. `$$heatmap`) are the heatmap-like split.
     if event.event_name().starts_with("$$") {
         Route::Heatmap
     } else {
@@ -78,33 +85,46 @@ fn route_branch(
     route: Route,
     event: Validated<ParsedEvent>,
     fx: &mut AnalyticsFx,
-) -> StepResult<Restricted<Validated<ParsedEvent>>, AnalyticsOutputs> {
+) -> StepResult<Survivor, AnalyticsOutputs> {
     match route {
-        // Standard events go through the real restriction policy (may redirect).
         Route::Standard => ApplyRestrictions {
             dlq_token: DLQ_TOKEN,
             overflow_token: OVERFLOW_TOKEN,
         }
         .apply(event, fx),
-        // Heatmaps skip restrictions entirely and are stamped skip-person.
         Route::Heatmap => StepResult::Continue(Restricted::new(event, true, Some("heatmap"))),
     }
 }
 
-/// The fully monomorphized sync segment. The nested `Chain<Chain<…>>` type — with the
-/// `FailOpen` and `Branching` combinators visible — is the static-dispatch proof: no
-/// `Box`, no vtable, one flat struct. (The complexity lint is silenced because the
-/// verbosity is the point.)
+// The sync segment (fused into one pass) preceding the first async stage.
+type SyncSeg =
+    Chain<Chain<Chain<Identity<ParsedEvent>, Validate>, FailOpen<ApplyQuota>>, BranchStep>;
+type Grouped = GroupedStage<GroupKeyFn, OverflowCheck, AnalyticsOutputs>;
+type Concurrent = ConcurrentStage<GeoAnnotate, AnalyticsOutputs>;
+
+/// The fully monomorphized pipeline: sync segment, grouped async stage, and per-item
+/// async stage, all spelled out as one flat struct — the static-dispatch proof, now
+/// covering the async stages too (no `Box`, no `dyn`). The complexity lint is silenced
+/// because the verbosity is the point.
 #[allow(clippy::type_complexity)]
-pub type AnalyticsPipeline = Pipeline<
-    Chain<Chain<Chain<Identity<ParsedEvent>, Validate>, FailOpen<ApplyQuota>>, BranchStep>,
+pub type AnalyticsPipeline = Built<
+    Then<
+        Then<
+            Then<
+                IdentityBatch<ParsedEvent, AnalyticsOutputs>,
+                Then<SyncStage<SyncSeg, AnalyticsOutputs>, Grouped>,
+            >,
+            Then<SyncStage<Identity<Survivor>, AnalyticsOutputs>, Concurrent>,
+        >,
+        SyncStage<Identity<Survivor>, AnalyticsOutputs>,
+    >,
 >;
 
-/// Build the analytics sync pipeline. `fail_open` is generic and the builder's `.step`
-/// is unconstrained, so those types are named here; the return-type alias then pins the
-/// whole composed shape.
-pub fn build_analytics_pipeline() -> AnalyticsPipeline {
-    builder::<ParsedEvent>()
+/// Compose the analytics pipeline in one fluent chain. The two async stage processors
+/// are passed in so a caller (a test) can hold a shared probe handle; the composition
+/// itself lives entirely here.
+pub fn build_analytics_pipeline(overflow: OverflowCheck, geo: GeoAnnotate) -> AnalyticsPipeline {
+    batch_builder::<ParsedEvent, AnalyticsOutputs>()
         .step(Validate)
         .step(
             FallibleStepExt::<Validated<ParsedEvent>, AnalyticsFx>::fail_open(ApplyQuota {
@@ -115,5 +135,7 @@ pub fn build_analytics_pipeline() -> AnalyticsPipeline {
             classify_branch as ClassifyFn,
             route_branch as RouteFn,
         ))
+        .grouped_stage(MAX_CONCURRENCY, group_key as GroupKeyFn, overflow)
+        .stage(MAX_CONCURRENCY, geo)
         .build()
 }

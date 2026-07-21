@@ -9,13 +9,13 @@ use futures::stream::{self, StreamExt};
 /// flight at once (`buffered` caps concurrency while preserving order).
 ///
 /// `max_concurrency` is clamped to at least 1; pass `items.len()` for "unbounded".
-pub async fn concurrently<In, P>(
+pub async fn concurrently<P>(
     max_concurrency: usize,
     processor: &P,
-    items: Vec<In>,
+    items: Vec<P::In>,
 ) -> Vec<StepResult<P::Out, P::Outputs>>
 where
-    P: AsyncProcessor<In>,
+    P: AsyncProcessor,
 {
     let max = max_concurrency.max(1);
     stream::iter(items)
@@ -28,12 +28,12 @@ where
 /// Process each item strictly one at a time, in order. This is the async analog of the
 /// default sync chain (`.step().step()`), provided for symmetry with [`concurrently`];
 /// for sync steps, sequential composition *is* the default and needs no combinator.
-pub async fn sequentially<In, P>(
+pub async fn sequentially<P>(
     processor: &P,
-    items: Vec<In>,
+    items: Vec<P::In>,
 ) -> Vec<StepResult<P::Out, P::Outputs>>
 where
-    P: AsyncProcessor<In>,
+    P: AsyncProcessor,
 {
     let mut out = Vec::with_capacity(items.len());
     for item in items {

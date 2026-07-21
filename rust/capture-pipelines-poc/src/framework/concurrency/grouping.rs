@@ -16,22 +16,22 @@ use std::hash::Hash;
 /// cross-group concurrency are identical to Node.
 ///
 /// `max_groups` is clamped to at least 1; pass the group count for "unbounded".
-pub async fn concurrently_per_group<In, K, F, P>(
+pub async fn concurrently_per_group<K, F, P>(
     max_groups: usize,
     key_of: F,
     processor: &P,
-    items: Vec<In>,
+    items: Vec<P::In>,
 ) -> Vec<StepResult<P::Out, P::Outputs>>
 where
-    F: Fn(&In) -> K,
+    F: Fn(&P::In) -> K,
     K: Eq + Hash + Clone,
-    P: AsyncProcessor<In>,
+    P: AsyncProcessor,
 {
     let total = items.len();
 
     // Route into per-key queues, remembering original positions and first-seen order.
     let mut first_seen: Vec<K> = Vec::new();
-    let mut groups: HashMap<K, Vec<(usize, In)>> = HashMap::new();
+    let mut groups: HashMap<K, Vec<(usize, P::In)>> = HashMap::new();
     for (idx, item) in items.into_iter().enumerate() {
         let key = key_of(&item);
         if !groups.contains_key(&key) {
@@ -40,7 +40,7 @@ where
         groups.entry(key).or_default().push((idx, item));
     }
 
-    let group_lists: Vec<Vec<(usize, In)>> = first_seen
+    let group_lists: Vec<Vec<(usize, P::In)>> = first_seen
         .into_iter()
         .map(|k| groups.remove(&k).expect("key was just inserted"))
         .collect();
