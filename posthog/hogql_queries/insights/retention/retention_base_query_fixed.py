@@ -82,11 +82,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def apply_breakdown(self, base_query: ast.SelectQuery) -> None:
         select_from = base_query.select_from
         if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
-            # Two-arm shapes resolve breakdown_value against their UNION ALL arms themselves
-            # (build_base_query_dwh via _dwh_breakdown_value_arm_expr, build_base_query_legacy
-            # against the arms' breakdown_value column). The parent implementation appends
-            # events.properties.*-referencing exprs to this outer query, where only the
-            # arms' columns are in scope, so it must not run here.
+            # Two-arm queries (build_base_query_dwh and build_base_query_legacy) resolve
+            # breakdown_value inside their UNION ALL arms. The parent implementation reads
+            # event properties, which are not available above the union, so skip it here.
             return
 
         super().apply_breakdown(base_query)
@@ -801,13 +799,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
         if two_arm and has_breakdown_filter(self.query.breakdownFilter):
-            # apply_breakdown appends exprs reading events.properties.*, which the tag-column
-            # arms don't carry; mirror its semantics against the arms' breakdown_value column.
+            # apply_breakdown reads event properties, which the arms don't carry; resolve the
+            # breakdown against the arms' breakdown_value column instead.
             if self.is_first_ever_occurrence:
-                # Bucket each actor by the value on their earliest start event. is_start = 1
-                # rows are the unfiltered start stream, so this matches the parent's
-                # argMinIf over start_entity_expr_no_props; the return arm's empty-bucket
-                # rows are excluded by the condition, keeping the start arm the sole authority.
+                # Bucket each person by the value on their earliest start event. The is_start
+                # condition excludes return-arm rows, so they can never change the bucket.
                 select_fields.append(
                     ast.Alias(
                         alias="breakdown_value",
@@ -815,8 +811,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     )
                 )
             else:
-                # Per-row value carried by both arms; grouping by it preserves the per-value
-                # cohort partitioning of the single scan.
+                # Group by the per-row value so each bucket keeps its own start and return
+                # events, exactly like the single scan.
                 select_fields.append(
                     ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["events", "breakdown_value"]))
                 )
@@ -854,10 +850,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return inner_query
 
     def _legacy_first_time_two_arm_scan(self) -> bool:
-        # Property aggregation reads per-row property values the tag-column arms don't carry.
-        # Value breakdowns resolve breakdown_value inside each arm, so they can split; cohort
-        # breakdowns filter via the InCohort clause in _event_filters, which the arms don't
-        # apply, so they keep the single scan.
+        # Property aggregation reads property values the arms don't carry. Cohort breakdowns
+        # need the cohort filter from _event_filters, which the arms don't apply. Other
+        # breakdowns are fine: each arm carries its own breakdown_value column.
         return (
             self._first_time_split_shrinks_scan()
             and not self.has_property_aggregation
@@ -905,10 +900,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         breakdown_extract = self.breakdown_extract_expr_for_query()
         if breakdown_extract is not None:
-            # First-ever buckets each actor by their earliest start event's value — the outer
-            # argMinIf only reads is_start = 1 rows — so the return arm's values are never
-            # read. Emit the empty bucket there to skip the property read and keep the start
-            # arm the sole authority (mirrors _dwh_breakdown_value_arm_expr).
+            # For first-ever, only start-arm values decide a person's bucket (see the outer
+            # argMinIf in build_base_query_legacy), so the return arm skips the property read.
             breakdown_value_expr: ast.Expr = (
                 ast.Constant(value="")
                 if query_kind == "return" and self.is_first_ever_occurrence

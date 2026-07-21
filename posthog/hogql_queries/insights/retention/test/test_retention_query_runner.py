@@ -3171,10 +3171,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
     def test_retention_first_time_matching_filters_with_event_breakdown(self):
-        # First-occurrence-matching-filters retention partitions per breakdown value: an actor
-        # cohorts in each value bucket at their first start event carrying that value, and only
-        # same-value return events count. Guards the per-value anchor (a pre-window first
-        # occurrence excludes the actor from that bucket) and cross-value isolation.
+        # Each person joins a bucket on their first start event with that breakdown value,
+        # and only return events with the same value count toward that bucket.
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
         _create_person(team_id=self.team.pk, distinct_ids=["person3"])
@@ -3186,15 +3184,15 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             self.team, [("person1", _date(2), {"plan": "free"}), ("person1", _date(4), {"plan": "free"})], "$pageview"
         )
 
-        # Person2: first paid signup day 2, paid pageview day 3; the free pageview day 4 must
-        # not count anywhere (person2 has no free signup)
+        # Person2: paid signup day 2, paid pageview day 3; their free pageview day 4 must
+        # not count anywhere because they have no free signup
         _create_events(self.team, [("person2", _date(2), {"plan": "paid"})], "$user_signed_up")
         _create_events(
             self.team, [("person2", _date(3), {"plan": "paid"}), ("person2", _date(4), {"plan": "free"})], "$pageview"
         )
 
-        # Person3: first free signup before the window, so the in-window day-3 signup and
-        # day-4 pageview must not create a free cohort
+        # Person3: their first free signup happened before the date range, so the day-3
+        # signup and day-4 pageview must not count in the free bucket
         _create_events(
             self.team,
             [("person3", _date(-5), {"plan": "free"}), ("person3", _date(3), {"plan": "free"})],
@@ -3202,8 +3200,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         _create_events(self.team, [("person3", _date(4), {"plan": "free"})], "$pageview")
 
-        # Person4: first free signup day 1 (returns day 2), first paid signup day 3 — cohorts
-        # in both buckets independently
+        # Person4: free signup day 1 (returns day 2) and paid signup day 3, so they land in
+        # both buckets independently
         _create_events(
             self.team,
             [("person4", _date(1), {"plan": "free"}), ("person4", _date(3), {"plan": "paid"})],
@@ -3238,7 +3236,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
                 [2, 2, 0, 1, 0, 0, 0],  # Day 1: person1 + person4, both return day 2, person1 also day 4
                 [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person3's free signup is not their first (pre-window)
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person3's free signup is not their first
                 [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
                 [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
@@ -8328,12 +8326,11 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
         self.assertIn("breakdown_value", outer_aliases)
         group_by_chains = [f.chain for f in (base_query.group_by or []) if isinstance(f, ast.Field)]
 
-        # The start arm always reads the per-row property value.
         self.assertIsInstance(arm_breakdown_expr(start_arm), ast.Call)
 
         if retention_type == "retention_first_ever_occurrence":
-            # The start arm is the sole authority for the actor's bucket: the return arm
-            # emits the empty bucket and the outer argMinIf only reads start-arm rows.
+            # Only the start arm decides which bucket a person lands in: the return arm
+            # emits an empty value and the outer query picks the value from start rows.
             return_arm_breakdown = arm_breakdown_expr(return_arm)
             self.assertIsInstance(return_arm_breakdown, ast.Constant)
             self.assertEqual(return_arm_breakdown.value, "")  # type: ignore[attr-defined]
@@ -8342,7 +8339,6 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
             self.assertEqual(outer_breakdown.name, "argMinIf")  # type: ignore[attr-defined]
             self.assertNotIn(["breakdown_value"], group_by_chains)
         else:
-            # Per-value partitioning: both arms carry the row value and the outer groups by it.
             self.assertIsInstance(arm_breakdown_expr(return_arm), ast.Call)
             self.assertIn(["breakdown_value"], group_by_chains)
 
@@ -8359,7 +8355,6 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
             ),
             ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None),
             (
-                # The InCohort filter lives in _event_filters, which the arms don't apply.
                 "cohort_breakdown",
                 "retention_first_time",
                 None,
