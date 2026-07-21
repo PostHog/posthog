@@ -8,7 +8,6 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "0001_initial"),
         ("conversations", "0050_alter_ticket_priority"),
     ]
 
