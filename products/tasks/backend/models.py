@@ -1105,6 +1105,12 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    # The original creator, immutable. `created_by` doubles as the current owner and is reassigned by
+    # ownership takeover; `creator` is not, so it stays the authority for the destructive/visibility
+    # operations (delete, un-share) that takeover must not confer on whoever grabbed the loop.
+    creator = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     visibility = models.CharField(max_length=16, choices=Visibility, default=Visibility.PERSONAL)

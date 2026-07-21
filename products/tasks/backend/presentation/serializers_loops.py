@@ -187,6 +187,10 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
     parts = normalized_repository.split("/")
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise serializers.ValidationError({"repository": "Repository must be in the format organization/repository."})
+    if not loops_facade.repository_accessible_via_integration(team_id, github_integration_id, normalized_repository):
+        raise serializers.ValidationError(
+            {"repository": "Repository is not accessible via the selected GitHub integration."}
+        )
 
     events = config.get("events")
     if not isinstance(events, list) or not events:

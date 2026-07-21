@@ -460,6 +460,12 @@ def _is_owner(loop: Loop, user: User | None) -> bool:
     return user is not None and loop.created_by_id == user.id
 
 
+def _is_creator(loop: Loop, user: User | None) -> bool:
+    # `creator` is immutable (unlike `created_by`, which takeover reassigns), so it is the authority
+    # for destructive/visibility operations that a takeover must not confer on whoever grabbed the loop.
+    return user is not None and loop.creator_id == user.id
+
+
 def _is_team_admin(loop: Loop, user: User | None) -> bool:
     if user is None:
         return False
@@ -507,7 +513,13 @@ def _authorize_update(loop: Loop, user: User | None, validated_data: dict) -> No
     # Team loop: any member may edit non-identity fields; identity-bearing fields
     # (see IDENTITY_FIELDS) require ownership or an explicit takeover, which isn't
     # wired as a separate API surface yet.
-    if any(field_name in IDENTITY_FIELDS for field_name in validated_data):
+    identity_edits = {field_name for field_name in validated_data if field_name in IDENTITY_FIELDS}
+    if identity_edits:
+        # A project admin may change a team loop's visibility (the un-share / kill-switch authority,
+        # further gated to team->personal in `update_loop`), but every other identity edit still
+        # requires ownership.
+        if identity_edits <= {"visibility"} and _is_team_admin(loop, user):
+            return
         raise LoopPermissionError(
             "Only the loop owner may change identity-bearing configuration (instructions, "
             "repositories, connectors, behaviors, model config, or triggers)."
@@ -549,6 +561,26 @@ def team_github_integration_ids(team_id: int) -> set[int]:
     """Every GitHub integration id for a team. Lets loop-repository validation tell
     'this project has none' apart from 'you passed the wrong id'."""
     return set(Integration.objects.filter(team_id=team_id, kind="github").values_list("id", flat=True))
+
+
+def repository_accessible_via_integration(team_id: int, integration_id: int, full_name: str) -> bool:
+    """Whether `full_name` (`owner/name`) is a repository the given GitHub integration can actually
+    reach. A GitHub App installation can be shared across projects, so verifying only that the
+    integration row belongs to the team is not enough: a member could otherwise point a loop at
+    another project's private repo and have it read or written through the installation-wide token.
+    Match against the integration's cached accessible-repository list. A populated cache that lacks
+    the repo is a hard reject; a cache that was never synced stays permissive rather than blocking
+    creation on a cold cache (mirrors `_user_integration_has_repository` in the task run path)."""
+    integration = Integration.objects.filter(team_id=team_id, kind="github", id=integration_id).first()
+    if integration is None:
+        return False
+    normalized = full_name.strip().lower()
+    cached = integration.repository_cache
+    if isinstance(cached, list) and any(
+        isinstance(repo, dict) and str(repo.get("full_name", "")).lower() == normalized for repo in cached
+    ):
+        return True
+    return integration.repository_cache_updated_at is None
 
 
 def _desktop_node_exists(team_id: int, node_id: str, *, node_type: str) -> bool:
@@ -679,6 +711,19 @@ def validate_loop_write(team_id: int, data: dict) -> None:
             missing = integration_ids - owned
             if missing:
                 raise LoopValidationError(f"GitHub integration(s) not found for this team: {sorted(missing)}.")
+        # Bind each repository to its integration's accessible list, not just the team: a shared
+        # installation must not let a loop reach a repo the selected integration can't.
+        for entry in repositories:
+            if not isinstance(entry, dict):
+                continue
+            entry_integration_id = entry.get("github_integration_id")
+            full_name = entry.get("full_name")
+            if entry_integration_id is None or not full_name:
+                continue
+            if not repository_accessible_via_integration(team_id, int(entry_integration_id), str(full_name)):
+                raise LoopValidationError(
+                    f"Repository '{full_name}' is not accessible via the selected GitHub integration."
+                )
 
     sandbox_environment_id = data.get("sandbox_environment_id")
     if sandbox_environment_id is not None:
@@ -725,6 +770,7 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
         loop = Loop.objects.create(
             team_id=team_id,
             created_by_id=getattr(user, "id", None),
+            creator_id=getattr(user, "id", None),
             name=data["name"],
             description=data.get("description", ""),
             visibility=data.get("visibility", Loop.Visibility.PERSONAL),
@@ -788,6 +834,16 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
         loop.created_by_id = user.id
 
     _authorize_update(loop, user, data)
+    # Un-sharing a team loop (team -> personal) removes it from the team while letting the actor keep
+    # its config privately. Restrict that to a project admin, so a member who took a shared loop over
+    # can't then privatize it out from under the team. The same-request takeover guard above only
+    # covers the one-PATCH version; this also catches doing it in a second request as the new owner.
+    if (
+        data.get("visibility") == Loop.Visibility.PERSONAL
+        and loop.visibility == Loop.Visibility.TEAM
+        and not (_is_creator(loop, user) or _is_team_admin(loop, user))
+    ):
+        raise LoopPermissionError("Only the loop's creator or a project admin may make a shared team loop personal.")
     validate_loop_write(team_id, data)
 
     trigger_payloads = data.pop("triggers", None)
@@ -848,7 +904,13 @@ def soft_delete_loop(loop_id: str | UUID, team_id: int, user: User | None) -> bo
     if loop is None:
         return False
 
-    if not (_is_owner(loop, user) or _is_team_admin(loop, user)):
+    # Deleting a team loop removes a shared automation the whole team may rely on, so it takes admin
+    # authority (the documented kill switch) rather than mere ownership — otherwise a member who took
+    # the loop over could delete it. A personal loop stays deletable by its owner.
+    if loop.visibility == Loop.Visibility.TEAM:
+        if not (_is_creator(loop, user) or _is_team_admin(loop, user)):
+            raise LoopPermissionError("Only the loop's creator or a project admin may delete a shared team loop.")
+    elif not (_is_owner(loop, user) or _is_team_admin(loop, user)):
         raise LoopPermissionError("Only the owner or a project admin may delete a loop.")
 
     loop.deleted = True
@@ -1140,6 +1202,7 @@ __all__ = [
     "pause_loops_for_deactivated_user",
     "pause_loops_referencing_integrations",
     "preview_loop",
+    "repository_accessible_via_integration",
     "sandbox_environment_queryset",
     "soft_delete_loop",
     "update_loop",

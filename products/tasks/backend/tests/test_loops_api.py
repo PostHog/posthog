@@ -11,7 +11,15 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import FileSystem, Organization, PersonalAPIKey, ProjectSecretAPIKey, Team, User
+from posthog.models import (
+    FileSystem,
+    Organization,
+    OrganizationMembership,
+    PersonalAPIKey,
+    ProjectSecretAPIKey,
+    Team,
+    User,
+)
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
@@ -378,6 +386,43 @@ class LoopVisibilityAPITest(LoopsAPITestCase):
         loop = Loop.objects.unscoped().get(id=loop_id)
         self.assertEqual(loop.visibility, "team")
         self.assertEqual(loop.created_by_id, self.owner.id)
+
+    def test_member_cannot_privatize_a_team_loop_after_taking_ownership(self):
+        # The two-request version of the hijack: take ownership (allowed, so a member can edit a
+        # teammate's loop), then privatize as the new owner in a second request. Un-sharing a team
+        # loop is admin-only, so it must still fail.
+        loop_id = self._create_loop(self.owner_client, visibility="team")["id"]
+        taken = self.peer_client.patch(
+            self._loop_url(loop_id), {"instructions": "mine now", "take_ownership": True}, format="json"
+        )
+        self.assertEqual(taken.status_code, status.HTTP_200_OK, taken.content)
+
+        response = self.peer_client.patch(self._loop_url(loop_id), {"visibility": "personal"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop_id).visibility, "team")
+
+    def test_member_cannot_delete_a_team_loop_after_taking_ownership(self):
+        loop_id = self._create_loop(self.owner_client, visibility="team")["id"]
+        self.peer_client.patch(
+            self._loop_url(loop_id), {"instructions": "mine now", "take_ownership": True}, format="json"
+        )
+
+        response = self.peer_client.delete(self._loop_url(loop_id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(Loop.objects.unscoped().get(id=loop_id).deleted)
+
+    def test_admin_may_privatize_a_team_loop(self):
+        OrganizationMembership.objects.filter(user=self.peer, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        loop_id = self._create_loop(self.owner_client, visibility="team")["id"]
+
+        response = self.peer_client.patch(self._loop_url(loop_id), {"visibility": "personal"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop_id).visibility, "personal")
 
 
 class LoopContextVisibilityAPITest(LoopsAPITestCase):
