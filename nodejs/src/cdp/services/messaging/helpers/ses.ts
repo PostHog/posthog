@@ -593,6 +593,23 @@ export class SesWebhookHandler {
                     properties,
                     timestamp,
                 })
+
+                // email_bounced counts every bounce type, but AWS's account bounce rate — the
+                // number the email reputation feature is calibrated against — counts only hard
+                // (Permanent) bounces. Emit those additionally under their own metric so
+                // reputation can match AWS without changing email_bounced for its consumers.
+                if (rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+                    metrics.push({
+                        functionId,
+                        invocationId,
+                        actionId,
+                        parentRunId,
+                        distinctId,
+                        metricName: 'email_bounced_hard',
+                        properties,
+                        timestamp,
+                    })
+                }
             }
 
             // Allowlist actionId before interpolating into the [Action:…] rich-log token,

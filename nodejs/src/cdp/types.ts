@@ -236,6 +236,7 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounced_hard'
         | 'email_bounce_prevented'
         | 'email_suppressed'
         | 'email_blocked'
