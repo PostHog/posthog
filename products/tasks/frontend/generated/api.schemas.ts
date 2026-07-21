@@ -131,6 +131,20 @@ export interface SandboxCustomImageWriteApi {
 }
 
 /**
+ * Request body for renaming / re-describing a custom sandbox base image.
+ */
+export interface PatchedSandboxCustomImageUpdateApi {
+    /**
+     * New display name for the custom image. Omit to leave unchanged.
+     * @minLength 1
+     * @maxLength 255
+     */
+    name?: string
+    /** New description. Omit to leave unchanged; pass an empty string to clear it. */
+    description?: string
+}
+
+/**
  * Request body for scanning and building a custom sandbox base image.
  */
 export interface SandboxCustomImageBuildApi {
@@ -912,6 +926,16 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /**
+     * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
+    /**
+     * Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
      *
      * * `acp` - ACP
@@ -2863,6 +2887,16 @@ export interface WarmTaskRequestApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Optional sandbox environment to provision before the task is submitted.
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
+    /**
+     * Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.
+     * @nullable
+     */
+    custom_image_id?: string | null
 }
 
 /**

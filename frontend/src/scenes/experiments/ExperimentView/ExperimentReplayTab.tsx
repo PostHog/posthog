@@ -12,6 +12,7 @@ import { Experiment } from '~/types'
 import { isLaunched } from '../experimentStatus'
 import { EXPOSURE_UNLINKABLE_REASON, METRIC_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
+import { VariantTag } from './VariantTag'
 
 // LemonSegmentedButton values must be strings; the logic stores null for "All". Variant keys are
 // restricted to [a-zA-Z0-9_-], so the '$' prefix guarantees no collision with a real variant — a
@@ -47,7 +48,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     onChange={(value) => setSelectedVariantKey(value === ALL_VARIANTS ? null : value)}
                     options={[
                         { value: ALL_VARIANTS, label: 'All' },
-                        ...variantKeys.map((key) => ({ value: key, label: key })),
+                        ...variantKeys.map((key) => ({ value: key, label: <VariantTag variantKey={key} /> })),
                     ]}
                 />
                 {metricOptions.length > 0 && (
