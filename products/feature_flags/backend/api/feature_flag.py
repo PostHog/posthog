@@ -295,9 +295,10 @@ def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
         return False
 
 
-def _describe_behavioral_properties(behavioral_props: list[Property]) -> str:
+def _describe_behavioral_properties(behavioral_props: list[Property]) -> str | None:
     """Human-readable summary of which condition(s) on a cohort are behavioral, so a
-    validation error can point at the specific thing to fix instead of a bare cohort name."""
+    validation error can point at the specific thing to fix instead of a bare cohort name.
+    Returns None if no properties parsed into a description (caller falls back to generic wording)."""
     seen: set[tuple[str, str]] = set()
     descriptions = []
     for prop in behavioral_props:
@@ -307,10 +308,12 @@ def _describe_behavioral_properties(behavioral_props: list[Property]) -> str:
         seen.add(marker)
         descriptions.append(f"'{prop.key}' ({prop.value})")
 
+    if not descriptions:
+        return None
     if len(descriptions) == 1:
         return descriptions[0]
     remaining = len(descriptions) - 1
-    return f"{descriptions[0]} and {remaining} other event-based condition{'s' if remaining != 1 else ''}"
+    return f"{descriptions[0]} and {remaining} other{'s' if remaining != 1 else ''}"
 
 
 def _validate_behavioral_cohort_for_feature_flag(
@@ -323,13 +326,14 @@ def _validate_behavioral_cohort_for_feature_flag(
     are permitted. Otherwise all behavioral cohorts are rejected.
     """
     condition_description = _describe_behavioral_properties(behavioral_props)
+    condition_clause = f" on {condition_description}" if condition_description else ""
 
     if allow_realtime_backfilled:
         if cohort.is_flag_compatible:
             return
         if cohort.cohort_type != CohortType.REALTIME:
             raise serializers.ValidationError(
-                detail=f"Cohort '{cohort.name}' has an event-based condition on {condition_description} and cannot be used in feature flags.",
+                detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
@@ -338,7 +342,7 @@ def _validate_behavioral_cohort_for_feature_flag(
         )
 
     raise serializers.ValidationError(
-        detail=f"Cohort '{cohort.name}' has an event-based condition on {condition_description} and cannot be used in feature flags.",
+        detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
         code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     )
 
@@ -1468,12 +1472,15 @@ class FeatureFlagSerializer(
                             # filters are display-only and never evaluated, so skip them.
                             if cohort.is_static:
                                 continue
-                            behavioral_props = [
-                                cohort_prop
-                                for cohort_prop in cohort.properties.flat
-                                if cohort_prop.type == "behavioral"
-                            ]
-                            if behavioral_props:
+                            # Walk the raw filter JSON rather than trusting cohort.properties.flat: that
+                            # property parses each leaf into a Property() object, so a leaf shape the
+                            # parser doesn't recognize would silently vanish from it and defeat this guard.
+                            if cohort._has_filter_type("behavioral"):
+                                behavioral_props = [
+                                    cohort_prop
+                                    for cohort_prop in cohort.properties.flat
+                                    if cohort_prop.type == "behavioral"
+                                ]
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
