@@ -15,7 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalFixVerification, SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.webhooks import _account_type, find_task_run
@@ -703,6 +703,31 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merged_pr_schedules_fix_verification(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        verification = SignalFixVerification.all_teams.get(report=self.report)
+        self.assertEqual(verification.status, SignalFixVerification.Status.PENDING)
+        self.assertEqual(verification.pr_url, "https://github.com/posthog/posthog/pull/42")
+        self.assertEqual(verification.task_id, self.task.id)
+
+    @patch("products.tasks.backend.webhooks.schedule_fix_verification", side_effect=RuntimeError("boom"))
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_fix_verification_failure_does_not_break_resolution(self, _mock_capture, mock_get_secret, _mock_schedule):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
 
 
 class TestExternalPRWebhook(TestCase):

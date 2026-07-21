@@ -246,6 +246,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalFixVerification
                               |SignalReport
                               |SignalReportArtefact
                               |SignalReportRefund
@@ -549,6 +550,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFixVerification
                         |SignalReport
                         |SignalReportArtefact
                         |SignalReportRefund

@@ -14,6 +14,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
+from products.signals.backend.fix_verification import schedule_fix_verification
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.models import TaskRun
@@ -414,6 +415,16 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
             )
             continue
         report.save(update_fields=updated_fields)
+        # Resolution is a claim, not proof: schedule the post-merge check that settles
+        # whether the fix held. Best-effort for the same reason the loop is tolerant.
+        try:
+            schedule_fix_verification(report, task_id=task_id, pr_url=pr_url)
+        except Exception:
+            logger.exception(
+                "github_pr_webhook_fix_verification_schedule_failed",
+                report_id=str(report.id),
+                pr_url=pr_url,
+            )
         logger.info(
             "github_pr_webhook_signal_report_resolved",
             report_id=str(report.id),
