@@ -598,9 +598,9 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
-        This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-        callers (personal API keys, OAuth) only receive it when passing the
-        `include_dashboards=true` query parameter. Do not rely on it being present.
+        This field is omitted from session-authenticated responses unless `include_dashboards=true`
+        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+        must opt in the same way. Do not rely on it being present.
         """,
         many=True,
         required=False,
@@ -1012,6 +1012,10 @@ class InsightSerializer(InsightBasicSerializer):
                     request=self.context["request"],
                 )
 
+        # Dashboard membership is mutated through separate querysets above, so the instance's
+        # prefetched relation no longer reflects what was persisted. The response serializer must
+        # reload it because session callers now derive membership exclusively from dashboard_tiles.
+        instance._prefetched_objects_cache.pop("dashboard_tiles", None)
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     @extend_schema_field(OpenApiTypes.ANY)
