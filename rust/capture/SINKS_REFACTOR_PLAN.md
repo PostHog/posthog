@@ -385,7 +385,7 @@ The orchestrator commits each step. No `--no-verify` — pre-commit hooks must p
 | Step | Status | Commit subject | Notes |
 | --- | --- | --- | --- |
 | 0 · This plan doc | done | `docs(capture): sinks-everywhere refactor plan` | Working contract; first commit of the draft PR |
-| 1 · Consolidate routing goldens | todo | `test(capture): consolidate routing golden oracle` | Extend existing `assert_routing`; headers + rerouted counters |
+| 1 · Consolidate routing goldens | done | `test(capture): consolidate routing golden oracle` | `assert_routing` now pins topic + key + every stamped header (`force_disable_person_processing`, `skip_heatmap_processing`, content-encoding, DLQ reason/step/RFC-3339 timestamp) + the `capture_events_rerouted_dlq`/`_custom_topic` counters via a thread-local recorder; folded the two standalone DLQ-header tests into the oracle and added skip-heatmap + lz4 content-encoding goldens |
 | 2 · Extract pure `route()` | todo | `refactor(capture): extract routing into pure route()` | Serialization stays in sink |
 | 3 · OutputRegistry + startup check | todo | `refactor(capture): output registry with startup completeness check` | #68719 seam; introduces the check |
 | 4 · Promote `Sink`; `Event` shim | todo | `refactor(capture): promote Sink trait, make Event a shim` | Prereq: hoist serialize+prepare for v0 path |

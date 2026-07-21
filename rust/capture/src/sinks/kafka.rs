@@ -1198,13 +1198,25 @@ mod tests {
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
 
+        /// Which reroute counter (if any) an event must increment. DLQ and
+        /// custom-topic redirects are mutually exclusive at the sink because DLQ
+        /// takes strict priority, so a single event fires at most one counter.
+        #[derive(Clone, Copy, PartialEq, Debug)]
+        enum Rerouted {
+            None,
+            Dlq,
+            CustomTopic,
+        }
+
         struct EventInput {
             data_type: DataType,
             force_overflow: bool,
             skip_person_processing: bool,
+            skip_heatmap_processing: bool,
             redirect_to_dlq: bool,
             redirect_to_topic: Option<String>,
             overflow_reason: Option<OverflowReason>,
+            compression: EnvelopeCompression,
         }
 
         impl Default for EventInput {
@@ -1213,9 +1225,11 @@ mod tests {
                     data_type: DataType::AnalyticsMain,
                     force_overflow: false,
                     skip_person_processing: false,
+                    skip_heatmap_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                     overflow_reason: None,
+                    compression: EnvelopeCompression::None,
                 }
             }
         }
@@ -1246,55 +1260,181 @@ mod tests {
                 skip_person_processing: input.skip_person_processing,
                 redirect_to_dlq: input.redirect_to_dlq,
                 redirect_to_topic: input.redirect_to_topic.clone(),
-                skip_heatmap_processing: false,
+                skip_heatmap_processing: input.skip_heatmap_processing,
                 overflow_reason: input.overflow_reason.clone(),
             };
 
             ProcessedEvent { event, metadata }
         }
 
+        /// The full routing fingerprint of one event: topic + partition key +
+        /// every header the sink can stamp + which reroute counter (if any)
+        /// fires. This is the golden oracle every later refactor step diffs
+        /// against, so each field is stated explicitly rather than re-derived
+        /// from the input. Fields default to the "normal main-topic" outcome so
+        /// each case only spells out what makes it different.
         struct ExpectedRouting<'a> {
             topic: &'a str,
             has_key: bool,
             force_disable_person_processing: Option<bool>,
+            skip_heatmap_processing: Option<bool>,
+            content_encoding: Option<&'a str>,
+            dlq_headers: bool,
+            rerouted: Rerouted,
+        }
+
+        impl Default for ExpectedRouting<'_> {
+            fn default() -> Self {
+                Self {
+                    topic: "",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                    skip_heatmap_processing: None,
+                    content_encoding: None,
+                    dlq_headers: false,
+                    rerouted: Rerouted::None,
+                }
+            }
         }
 
         async fn assert_routing(input: EventInput, expected: ExpectedRouting<'_>) {
+            // Capture reroute counters on a thread-local recorder. `assert_routing`
+            // runs on the default current-thread test runtime and `send` prepares
+            // the record inline before the first await, so the guard stays visible
+            // when `prepare_record` increments the counter.
+            let recorder = metrics_util::debugging::DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            let _guard = metrics::set_default_local_recorder(&recorder);
+
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer_and_compression(
+                producer.clone(),
+                test_topics(),
+                input.compression,
+            );
 
             let event = create_test_event(&input);
             sink.send(event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
-            assert_eq!(
-                records[0].topic,
-                expected.topic,
-                "Wrong topic for {:?} (overflow={}, skip_person={}, dlq={})",
+            let record = &records[0];
+            let headers = &record.headers;
+
+            let ctx = format!(
+                "{:?} (force_overflow={}, skip_person={}, skip_heatmap={}, dlq={}, redirect_to_topic={:?}, overflow_reason={:?})",
                 input.data_type,
                 input.force_overflow,
                 input.skip_person_processing,
-                input.redirect_to_dlq
+                input.skip_heatmap_processing,
+                input.redirect_to_dlq,
+                input.redirect_to_topic,
+                input.overflow_reason,
             );
+
+            assert_eq!(record.topic, expected.topic, "wrong topic for {ctx}");
             assert_eq!(
-                records[0].key.is_some(),
+                record.key.is_some(),
                 expected.has_key,
-                "Wrong key presence for {:?} (overflow={}, skip_person={}, dlq={})",
-                input.data_type,
-                input.force_overflow,
-                input.skip_person_processing,
-                input.redirect_to_dlq
+                "wrong key presence for {ctx}"
             );
             assert_eq!(
-                records[0].headers.force_disable_person_processing,
-                expected.force_disable_person_processing,
-                "Wrong header for {:?} (overflow={}, skip_person={}, dlq={})",
-                input.data_type,
-                input.force_overflow,
-                input.skip_person_processing,
-                input.redirect_to_dlq
+                headers.force_disable_person_processing, expected.force_disable_person_processing,
+                "wrong force_disable_person_processing header for {ctx}"
             );
+            assert_eq!(
+                headers.skip_heatmap_processing, expected.skip_heatmap_processing,
+                "wrong skip_heatmap_processing header for {ctx}"
+            );
+            assert_eq!(
+                headers.content_encoding.as_deref(),
+                expected.content_encoding,
+                "wrong content_encoding header for {ctx}"
+            );
+
+            // DLQ headers travel as a set: a reason, a step, and a valid RFC-3339
+            // timestamp when the event is routed to the DLQ; all three absent on
+            // every other route.
+            if expected.dlq_headers {
+                assert_eq!(
+                    headers.dlq_reason.as_deref(),
+                    Some("event_restriction"),
+                    "wrong dlq_reason for {ctx}"
+                );
+                assert_eq!(
+                    headers.dlq_step.as_deref(),
+                    Some("capture"),
+                    "wrong dlq_step for {ctx}"
+                );
+                let ts = headers
+                    .dlq_timestamp
+                    .as_deref()
+                    .unwrap_or_else(|| panic!("dlq_timestamp missing for {ctx}"));
+                chrono::DateTime::parse_from_rfc3339(ts).unwrap_or_else(|e| {
+                    panic!("dlq_timestamp '{ts}' is not valid RFC 3339 for {ctx}: {e}")
+                });
+            } else {
+                assert_eq!(
+                    headers.dlq_reason, None,
+                    "dlq_reason must be absent for {ctx}"
+                );
+                assert_eq!(headers.dlq_step, None, "dlq_step must be absent for {ctx}");
+                assert_eq!(
+                    headers.dlq_timestamp, None,
+                    "dlq_timestamp must be absent for {ctx}"
+                );
+            }
+
+            // Exactly one reroute counter fires per redirected event; neither
+            // fires on the normal per-datatype or overflow paths.
+            let snapshot = snapshotter.snapshot().into_vec();
+            let count = |name: &str| -> Option<u64> {
+                snapshot.iter().find_map(|(key, _, _, value)| {
+                    if key.key().name() != name {
+                        return None;
+                    }
+                    match value {
+                        metrics_util::debugging::DebugValue::Counter(v) => Some(*v),
+                        _ => None,
+                    }
+                })
+            };
+            let dlq_count = count("capture_events_rerouted_dlq");
+            let custom_count = count("capture_events_rerouted_custom_topic");
+            match expected.rerouted {
+                Rerouted::None => {
+                    assert_eq!(
+                        dlq_count, None,
+                        "capture_events_rerouted_dlq must not fire for {ctx}"
+                    );
+                    assert_eq!(
+                        custom_count, None,
+                        "capture_events_rerouted_custom_topic must not fire for {ctx}"
+                    );
+                }
+                Rerouted::Dlq => {
+                    assert_eq!(
+                        dlq_count,
+                        Some(1),
+                        "capture_events_rerouted_dlq must fire once for {ctx}"
+                    );
+                    assert_eq!(
+                        custom_count, None,
+                        "capture_events_rerouted_custom_topic must not fire for {ctx}"
+                    );
+                }
+                Rerouted::CustomTopic => {
+                    assert_eq!(
+                        custom_count,
+                        Some(1),
+                        "capture_events_rerouted_custom_topic must fire once for {ctx}"
+                    );
+                    assert_eq!(
+                        dlq_count, None,
+                        "capture_events_rerouted_dlq must not fire for {ctx}"
+                    );
+                }
+            }
         }
 
         // ==================== AnalyticsMain ====================
@@ -1304,16 +1444,11 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1325,15 +1460,11 @@ mod tests {
                 EventInput {
                     data_type: DataType::AnalyticsMain,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1347,14 +1478,13 @@ mod tests {
                     data_type: DataType::AnalyticsMain,
                     force_overflow: true,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1366,16 +1496,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1386,16 +1514,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1408,15 +1534,14 @@ mod tests {
                 EventInput {
                     data_type: DataType::AnalyticsMain,
                     force_overflow: true,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1427,16 +1552,16 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1451,13 +1576,14 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1471,16 +1597,11 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsHistorical,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1493,15 +1614,11 @@ mod tests {
                 EventInput {
                     data_type: DataType::AnalyticsHistorical,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1512,16 +1629,13 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsHistorical,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1532,16 +1646,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsHistorical,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1556,13 +1668,14 @@ mod tests {
                     force_overflow: true,
                     skip_person_processing: true,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1575,16 +1688,11 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::SnapshotMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1596,15 +1704,11 @@ mod tests {
                 EventInput {
                     data_type: DataType::SnapshotMain,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1618,14 +1722,12 @@ mod tests {
                     data_type: DataType::SnapshotMain,
                     force_overflow: true,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1636,16 +1738,13 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::SnapshotMain,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1656,16 +1755,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::SnapshotMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1677,15 +1774,53 @@ mod tests {
                 EventInput {
                     data_type: DataType::SnapshotMain,
                     force_overflow: true,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn snapshot_lz4_sets_content_encoding_header() {
+            // With envelope compression on, a snapshot event carries the
+            // `content-encoding: lz4` header alongside its normal main-topic
+            // routing. The compressed-payload bytes are covered by the lz4
+            // payload goldens below; here the oracle pins just the header.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    compression: EnvelopeCompression::Lz4,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: MAIN_TOPIC,
+                    content_encoding: Some("lz4"),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_lz4_leaves_content_encoding_unset() {
+            // Envelope compression only applies to snapshots: a non-snapshot
+            // event under the same sink config carries no content-encoding.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    compression: EnvelopeCompression::Lz4,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: MAIN_TOPIC,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1699,16 +1834,11 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::HeatmapMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1720,15 +1850,11 @@ mod tests {
                 EventInput {
                     data_type: DataType::HeatmapMain,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1739,16 +1865,54 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::HeatmapMain,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn heatmap_skip_heatmap_processing_sets_header() {
+            // The skip_heatmap_processing metadata flag stamps its own header,
+            // independent of the routing topic and the person-processing flag.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::HeatmapMain,
+                    skip_heatmap_processing: true,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: HEATMAPS_TOPIC,
+                    skip_heatmap_processing: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn analytics_main_skip_heatmap_processing_sets_header() {
+            // skip_heatmap_processing is not gated on data type: it rides through
+            // for AnalyticsMain too, orthogonally to skip_person_processing.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    skip_heatmap_processing: true,
+                    skip_person_processing: true,
+                    ..Default::default()
+                },
+                ExpectedRouting {
+                    topic: MAIN_TOPIC,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
+                    skip_heatmap_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1759,16 +1923,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::HeatmapMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1782,16 +1944,11 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::ExceptionErrorTracking,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1803,15 +1960,11 @@ mod tests {
                 EventInput {
                     data_type: DataType::ExceptionErrorTracking,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1822,16 +1975,13 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::ExceptionErrorTracking,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: ERROR_TRACKING_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1842,16 +1992,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::ExceptionErrorTracking,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1865,16 +2013,11 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::ClientIngestionWarning,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1886,15 +2029,11 @@ mod tests {
                 EventInput {
                     data_type: DataType::ClientIngestionWarning,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1905,16 +2044,13 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::ClientIngestionWarning,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -1925,16 +2061,14 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::ClientIngestionWarning,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
-                    redirect_to_topic: None,
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1948,16 +2082,13 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1968,16 +2099,15 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
                     redirect_to_dlq: true,
                     redirect_to_topic: Some("custom_topic".to_string()),
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -1989,15 +2119,13 @@ mod tests {
                 EventInput {
                     data_type: DataType::AnalyticsMain,
                     force_overflow: true,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2008,16 +2136,15 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::AnalyticsMain,
-                    force_overflow: false,
                     skip_person_processing: true,
-                    redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
-                    has_key: true,
                     force_disable_person_processing: Some(true),
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2028,77 +2155,16 @@ mod tests {
             assert_routing(
                 EventInput {
                     data_type: DataType::SnapshotMain,
-                    force_overflow: false,
-                    skip_person_processing: false,
-                    redirect_to_dlq: false,
                     redirect_to_topic: Some("custom_topic".to_string()),
-                    overflow_reason: None,
+                    ..Default::default()
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
-        }
-
-        // ==================== DLQ Header Tests ====================
-        // Verify that DLQ-specific headers (reason, step, timestamp) are set
-        // when routing to DLQ, and absent for all other routes.
-
-        #[tokio::test]
-        async fn dlq_headers_set_when_redirect_to_dlq() {
-            let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-
-            let event = create_test_event(&EventInput {
-                data_type: DataType::AnalyticsMain,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: true,
-                redirect_to_topic: None,
-                overflow_reason: None,
-            });
-            sink.send(event).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            let headers = &records[0].headers;
-
-            assert_eq!(headers.dlq_reason.as_deref(), Some("event_restriction"));
-            assert_eq!(headers.dlq_step.as_deref(), Some("capture"));
-            assert!(
-                headers.dlq_timestamp.is_some(),
-                "dlq_timestamp should be set"
-            );
-
-            // Verify the timestamp is a valid RFC 3339 string
-            let ts = headers.dlq_timestamp.as_deref().unwrap();
-            chrono::DateTime::parse_from_rfc3339(ts)
-                .unwrap_or_else(|e| panic!("dlq_timestamp '{ts}' is not valid RFC 3339: {e}"));
-        }
-
-        #[tokio::test]
-        async fn dlq_headers_absent_for_normal_analytics() {
-            let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
-
-            let event = create_test_event(&EventInput {
-                data_type: DataType::AnalyticsMain,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: false,
-                redirect_to_topic: None,
-                overflow_reason: None,
-            });
-            sink.send(event).await.unwrap();
-
-            let records = producer.get_records();
-            let headers = &records[0].headers;
-            assert_eq!(headers.dlq_reason, None);
-            assert_eq!(headers.dlq_step, None);
-            assert_eq!(headers.dlq_timestamp, None);
         }
 
         // ==================== overflow_reason routing tests ====================
@@ -2121,6 +2187,7 @@ mod tests {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
+                    ..Default::default()
                 },
             )
             .await;
@@ -2138,8 +2205,7 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2158,7 +2224,7 @@ mod tests {
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2178,8 +2244,7 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2195,8 +2260,7 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2219,8 +2283,7 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2239,8 +2302,9 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    dlq_headers: true,
+                    rerouted: Rerouted::Dlq,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2260,8 +2324,8 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: "custom_topic",
-                    has_key: true,
-                    force_disable_person_processing: None,
+                    rerouted: Rerouted::CustomTopic,
+                    ..Default::default()
                 },
             )
             .await;
@@ -2285,11 +2349,7 @@ mod tests {
                 .map(|_| {
                     create_test_event(&EventInput {
                         data_type: DataType::AnalyticsMain,
-                        force_overflow: false,
-                        skip_person_processing: false,
-                        redirect_to_dlq: false,
-                        redirect_to_topic: None,
-                        overflow_reason: None,
+                        ..Default::default()
                     })
                 })
                 .collect();
@@ -2348,11 +2408,7 @@ mod tests {
                 .map(|_| {
                     create_test_event(&EventInput {
                         data_type: DataType::AnalyticsMain,
-                        force_overflow: false,
-                        skip_person_processing: false,
-                        redirect_to_dlq: false,
-                        redirect_to_topic: None,
-                        overflow_reason: None,
+                        ..Default::default()
                     })
                 })
                 .collect();
@@ -2362,11 +2418,7 @@ mod tests {
             // session_id lookup in the SnapshotMain branch.
             let mut bad = create_test_event(&EventInput {
                 data_type: DataType::SnapshotMain,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: false,
-                redirect_to_topic: None,
-                overflow_reason: None,
+                ..Default::default()
             });
             bad.metadata.session_id = None;
             events[2] = bad;
