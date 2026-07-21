@@ -1,11 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { cloneElement, ReactElement } from 'react'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,9 +14,10 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import type { VisionActionApi } from '../../generated/api.schemas'
+import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
 
@@ -43,24 +45,26 @@ function humanizeSchedule(action: VisionActionApi): string {
     return humanizeCadence(parseRruleToCadence(rrule))
 }
 
-// Every write control on this tab gates on the same Editor access — wrap once. Pass `userAccessLevel`
-// when a specific action's effective level is known, for object-level overrides.
+// Every write control on this tab needs replay_scanner editor access; all but delete also need
+// session_recording viewer access, since they configure or trigger processing of recording-derived
+// data (delete doesn't). Pass `userAccessLevel` when a specific action's effective level is known, for
+// object-level overrides. Can't use `AccessControlAction` here since it only checks one resource.
 function EditorGate({
     children,
     userAccessLevel,
+    requireSessionRecording = true,
 }: {
-    children: JSX.Element
+    children: ReactElement<AccessControlActionChildrenProps>
     userAccessLevel?: AccessControlLevel
+    requireSessionRecording?: boolean
 }): JSX.Element {
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.ReplayScanner}
-            minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={userAccessLevel}
-        >
-            {children}
-        </AccessControlAction>
-    )
+    const disabledReason = requireSessionRecording
+        ? getReplayVisionEditDisabledReason(userAccessLevel)
+        : getReplayVisionDeleteDisabledReason(userAccessLevel)
+    return cloneElement(children, {
+        disabled: children.props.disabled ?? !!disabledReason,
+        disabledReason: children.props.disabledReason ?? disabledReason,
+    })
 }
 
 function deliverySummary(action: VisionActionApi): string {
@@ -159,7 +163,7 @@ function VisionActionsTable({
             key: 'enabled',
             render: (_, action) => (
                 <div className="flex items-center gap-2">
-                    <EditorGate userAccessLevel={(action.user_access_level as AccessControlLevel | null) ?? undefined}>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonSwitch
                             checked={!!action.enabled}
                             onChange={() => toggleActionEnabled(action.id)}
@@ -198,7 +202,7 @@ function VisionActionsTable({
             width: 0, // shrink to content so the buttons hug the right instead of floating in a wide column
             render: (_, action) => (
                 <div className="flex gap-1">
-                    <EditorGate userAccessLevel={(action.user_access_level as AccessControlLevel | null) ?? undefined}>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -208,7 +212,7 @@ function VisionActionsTable({
                             to={urls.replayVisionActionEdit(action.id)}
                         />
                     </EditorGate>
-                    <EditorGate userAccessLevel={(action.user_access_level as AccessControlLevel | null) ?? undefined}>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined} requireSessionRecording={false}>
                         <LemonButton
                             size="small"
                             type="secondary"

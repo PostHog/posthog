@@ -4,11 +4,10 @@ import { useState } from 'react'
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import type { ReplayObservationLabelApi } from '../generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { observationLabelLogic } from './observationLabelLogic'
 
 export interface ObservationLabelProps {
@@ -23,13 +22,9 @@ export interface ObservationLabelProps {
 const FEEDBACK_PLACEHOLDER = 'Optional: what did it get right or wrong, and why? Used to improve the prompt.'
 
 function useEditAccess(scannerUserAccessLevel?: AccessControlLevel | null): string | null {
-    // Editing the shared rating mutates team-wide data, so it needs editor access to the scanner — same
-    // `replay_scanner` requirement as the "Edit scanner" gate and the backend label/prompt-suggestion writes.
-    return getAccessControlDisabledReason(
-        AccessControlResourceType.ReplayScanner,
-        AccessControlLevel.Editor,
-        scannerUserAccessLevel ?? undefined
-    )
+    // Editing the shared rating mutates team-wide data derived from a recording, so it needs the same
+    // bar as the backend label write: replay_scanner editor AND session_recording viewer.
+    return getReplayVisionEditDisabledReason(scannerUserAccessLevel)
 }
 
 function FeedbackEditor({

@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -16,11 +15,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCredits } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
@@ -90,21 +89,16 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 Improve scanner prompt
                             </LemonButton>
                         )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.ReplayScanner}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={scanner.user_access_level ?? undefined}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.replayVisionScannerConfigure(scannerId)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                            data-attr="vision-scanner-edit"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={urls.replayVisionScannerConfigure(scannerId)}
-                                data-attr="vision-scanner-edit"
-                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                            >
-                                Edit scanner
-                            </LemonButton>
-                        </AccessControlAction>
+                            Edit scanner
+                        </LemonButton>
                         <ReplayVisionFeedbackButton />
                     </>
                 }

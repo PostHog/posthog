@@ -12,7 +12,6 @@ import {
 } from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,12 +26,13 @@ import {
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCredits } from '../../utils/credits'
 import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -236,20 +236,15 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         </LabeledRow>
                         <LabeledRow label="Status">
                             <div className="flex items-center gap-2">
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.ReplayScanner}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={scanner.user_access_level ?? undefined}
-                                >
-                                    <LemonSwitch
-                                        checked={scanner.enabled}
-                                        onChange={() => toggleEnabled()}
-                                        loading={togglingEnabled}
-                                        data-attr="vision-scanner-toggle-enabled"
-                                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                                    />
-                                </AccessControlAction>
+                                <LemonSwitch
+                                    checked={scanner.enabled}
+                                    onChange={() => toggleEnabled()}
+                                    loading={togglingEnabled}
+                                    disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                                    data-attr="vision-scanner-toggle-enabled"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                                    data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                                />
                                 <span className="text-muted text-xs">
                                     {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
                                 </span>

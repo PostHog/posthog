@@ -31,6 +31,7 @@ import {
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
 } from '../generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
 import { DEFAULT_CADENCE } from './cadence'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -550,6 +551,10 @@ export function ActionEditorSceneComponent(): JSX.Element {
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    // Hooks can't be skipped, and effectiveScannerId can be empty before the action/scanner resolve —
+    // 'new' is the sentinel replayScannerLogic already uses to skip its fetch, a harmless placeholder
+    // until the real id is available and the logic remounts keyed on it.
+    const { scanner } = useValues(replayScannerLogic({ id: effectiveScannerId || 'new' }))
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
@@ -691,7 +696,10 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     htmlType="submit"
                                     form="action-editor-form"
                                     loading={isActionFormSubmitting}
-                                    disabledReason={!isAlert && noDays ? 'Pick at least one day to run on' : undefined}
+                                    disabledReason={
+                                        getReplayVisionEditDisabledReason(scanner?.user_access_level) ??
+                                        (!isAlert && noDays ? 'Pick at least one day to run on' : undefined)
+                                    }
                                     data-attr="vision-action-editor-save"
                                 >
                                     {isNew ? (isAlert ? 'Create alert' : 'Create summary') : 'Save'}

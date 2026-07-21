@@ -2,7 +2,8 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.replay_vision.backend.models.vision_action import VisionAction
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.replay_vision.backend.tests.test_vision_actions_api import _VisionActionAPITestCase
 
@@ -199,16 +200,75 @@ class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
         resp = self.client.get(f"{self.actions_url}{action.id}/access_controls/")
         self.assertEqual(resp.status_code, 404, resp.json())
 
-    def test_user_access_level_exposed_on_vision_action(self) -> None:
-        self._set_replay_scanner_resource_default("viewer")
-        self.client.force_login(self.other_user)
+    def test_retrieve_blocked_when_selection_scanner_is_denied(self) -> None:
+        # `selection.scanner_ids` lets an action pull observations from scanners beyond the one it's
+        # bound to — retrieving the action must authorize those too, not just the bound scanner. The
+        # bound scanner rides the ambient default ("editor", unrestricted); only `other_scanner` gets an
+        # explicit object-level denial, isolating the new selection-scanner check from the bound one.
+        other_scanner = self._create_scanner(name="other-scanner")
+        self._grant_scanner_access(self.other_user, str(other_scanner.id), "none")
+        action = VisionAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            created_by=self.user,
+            name="digest",
+            scanner=self.scanner,
+            selection={"scanner_ids": [str(self.scanner.id), str(other_scanner.id)]},
+        )
 
-        VisionAction.objects.for_team(self.team.id).create(
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.actions_url}{action.id}/")
+        self.assertEqual(resp.status_code, 403, resp.json())
+
+    def test_update_revalidates_selection_scanner_when_only_delivery_changes(self) -> None:
+        # A PATCH that touches neither `scanner` nor `selection` must still revalidate the action's
+        # existing selection — otherwise an editor of the bound scanner could freely rewrite delivery
+        # destinations on an action whose (untouched) selection reads from a scanner they can't access.
+        other_scanner = self._create_scanner(name="other-scanner")
+        self._grant_scanner_access(self.other_user, str(other_scanner.id), "none")
+        action = VisionAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            created_by=self.user,
+            name="digest",
+            scanner=self.scanner,
+            selection={"scanner_ids": [str(self.scanner.id), str(other_scanner.id)]},
+        )
+
+        self.client.force_login(self.other_user)
+        resp = self.client.patch(
+            f"{self.actions_url}{action.id}/",
+            data={"delivery_config": [{"type": "slack", "integration_id": self.integration.id, "channel": "#new"}]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        action.refresh_from_db()
+        self.assertEqual(action.delivery_config, [])
+
+    def test_run_report_blocked_when_observation_scanner_is_denied(self) -> None:
+        # A run's observation_ids reflect whatever scanners it actually drew from at run time. If
+        # `selection` is edited later (or access is revoked), a historical run can still cite an
+        # observation from a scanner the caller can no longer see — the report must not expose it, even
+        # though the action's current selection and bound scanner remain fully accessible.
+        other_scanner = self._create_scanner(name="other-scanner")
+        self._grant_scanner_access(self.other_user, str(other_scanner.id), "none")
+        action = VisionAction.objects.for_team(self.team.id).create(
             team=self.team, created_by=self.user, name="digest", scanner=self.scanner
         )
-        resp = self.client.get(self.actions_url)
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["results"][0]["user_access_level"], "viewer")
+        observation = ReplayObservation.objects.create(scanner=other_scanner, session_id="sess-1")
+        run = VisionActionRun.all_teams.create(
+            team=self.team,
+            vision_action=action,
+            idempotency_key="run-1",
+            status=VisionActionRunStatus.COMPLETED,
+            observation_ids=[str(observation.id)],
+        )
+
+        self.client.force_login(self.other_user)
+        runs_url = f"{self.actions_url}{action.id}/runs/"
+        list_resp = self.client.get(runs_url)
+        self.assertEqual(list_resp.status_code, 200, list_resp.json())  # lightweight rows carry no report body
+
+        retrieve_resp = self.client.get(f"{runs_url}{run.id}/")
+        self.assertEqual(retrieve_resp.status_code, 403, retrieve_resp.json())
 
     def test_update_cannot_rebind_action_onto_a_restricted_scanner(self) -> None:
         # Editor on `self.scanner`, but only viewer on `other_scanner` — enough to read it (so the

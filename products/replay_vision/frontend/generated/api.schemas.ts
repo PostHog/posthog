@@ -299,11 +299,6 @@ export interface VisionActionApi {
     /** User who created the action. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
 }
 
 export interface PaginatedVisionActionListApi {
@@ -371,11 +366,6 @@ export interface PatchedVisionActionApi {
     /** User who created the action. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level?: string | null
 }
 
 /**
