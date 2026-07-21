@@ -17,7 +17,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { type BulkSelectionContext } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -62,16 +61,14 @@ interface SupportTicketsTableProps {
     embedded?: boolean
 }
 
-function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, string> }): JSX.Element {
-    const { bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
+function SupportTicketsBulkActions(): JSX.Element {
+    const { selectedTicketIds, selectedTickets, bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus, bulkAddTags, setBulkTagsToAdd } = useActions(supportTicketsSceneLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const [dropdownOpen, setDropdownOpen] = useState(false)
 
-    const selectedIds = [...ctx.selectedKeys]
-    // Status is derived from the selected rows visible on the current page; a selection spanning
-    // pages will show 'mixed' if the on-page rows disagree, which is the safe default.
-    const currentStatus = ctx.selectedRecords
+    const hasSelection = selectedTicketIds.length > 0
+    const currentStatus = selectedTickets
         .map((t) => t.status)
         .reduce<TicketStatus | 'mixed' | null>((acc, s) => {
             if (acc === null) {
@@ -93,9 +90,6 @@ function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, 
             closeOnClickInside={false}
             overlay={
                 <div className="p-2 min-w-64 flex flex-col gap-2">
-                    <span className="text-muted text-xs">
-                        Update {ctx.selectedCount} selected ticket{ctx.selectedCount === 1 ? '' : 's'}
-                    </span>
                     <div className="flex flex-col gap-1">
                         <span className="text-muted text-xs">Mark as</span>
                         <div className="flex flex-col gap-px">
@@ -109,9 +103,8 @@ function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, 
                                     loading={bulkUpdating}
                                     onClick={() => {
                                         if (o.value !== currentStatus) {
-                                            bulkUpdateStatus(selectedIds, o.value as TicketStatus)
+                                            bulkUpdateStatus(selectedTicketIds, o.value as TicketStatus)
                                         }
-                                        ctx.clearSelection()
                                         setDropdownOpen(false)
                                     }}
                                 >
@@ -140,8 +133,7 @@ function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, 
                             loading={bulkUpdating}
                             disabledReason={bulkTagsToAdd.length === 0 ? 'Select at least one tag' : undefined}
                             onClick={() => {
-                                bulkAddTags(selectedIds, bulkTagsToAdd)
-                                ctx.clearSelection()
+                                bulkAddTags(selectedTicketIds, bulkTagsToAdd)
                                 setDropdownOpen(false)
                             }}
                         >
@@ -151,32 +143,69 @@ function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, 
                 </div>
             }
         >
-            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronDown />}
+                disabledReason={!hasSelection ? 'Select tickets to update' : undefined}
+                data-attr="support-tickets-bulk-actions"
+            >
                 Update tickets
             </LemonButton>
         </LemonDropdown>
     )
 }
 
-export function SupportTicketsTable({
-    embedded = false,
-    bulkActionsTarget,
-}: SupportTicketsTableProps & { bulkActionsTarget?: HTMLElement | null }): JSX.Element {
+export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
-    const { setCurrentPage, setSorting } = useActions(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
+    const { setCurrentPage, setSorting, toggleTicketSelected, toggleSelectAllOnPage } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
-    const columns = useMemo<LemonTableColumns<Ticket>>(
-        () => buildTicketColumns(visibleColumns, { aiEnabled, embedded }),
-        [visibleColumns, aiEnabled, embedded]
-    )
+    const selectedSet = useMemo(() => new Set(selectedTicketIds), [selectedTicketIds])
+    const pageIds = useMemo(() => tickets.map((t) => t.id), [tickets])
+    const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedSet.has(id))
+    const someOnPageSelected = !allOnPageSelected && pageIds.some((id) => selectedSet.has(id))
+
+    const columns = useMemo<LemonTableColumns<Ticket>>(() => {
+        const selectColumn: LemonTableColumns<Ticket>[number] = {
+            key: 'ticket-select' as any,
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={someOnPageSelected ? 'indeterminate' : allOnPageSelected}
+                    onChange={() => toggleSelectAllOnPage(pageIds)}
+                    aria-label="Select all tickets on this page"
+                    stopPropagation
+                />
+            ),
+            render: (_, ticket: Ticket) => (
+                <LemonCheckbox
+                    checked={selectedSet.has(ticket.id)}
+                    onChange={() => toggleTicketSelected(ticket.id)}
+                    aria-label={`Select ticket ${ticket.ticket_number}`}
+                    stopPropagation
+                />
+            ),
+        }
+        return [selectColumn, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded })]
+    }, [
+        visibleColumns,
+        aiEnabled,
+        embedded,
+        selectedSet,
+        allOnPageSelected,
+        someOnPageSelected,
+        pageIds,
+        toggleSelectAllOnPage,
+        toggleTicketSelected,
+    ])
 
     return (
-        <LemonTable<Ticket, string>
+        <LemonTable<Ticket>
             dataSource={tickets}
             rowKey="id"
             loading={ticketsLoading}
@@ -187,14 +216,6 @@ export function SupportTicketsTable({
             sorting={sorting}
             onSort={(newSorting) => setSorting(newSorting)}
             noSortingCancellation
-            bulkSelection={{
-                getKey: (ticket: Ticket): string => ticket.id,
-                rowAriaLabel: (ticket: Ticket) => `Select ticket ${ticket.ticket_number}`,
-                headerAriaLabel: 'Select all tickets on this page',
-                noun: ['ticket', 'tickets'],
-                barPortalTarget: bulkActionsTarget,
-                renderActions: (ctx) => <SupportTicketsBulkActions ctx={ctx} />,
-            }}
             pagination={{
                 controlled: true,
                 currentPage,
@@ -237,10 +258,7 @@ export function SupportTicketsTable({
     )
 }
 
-export function SupportTicketsTableFilters({
-    embedded = false,
-    bulkSelectionBarRef,
-}: SupportTicketsTableProps & { bulkSelectionBarRef?: (element: HTMLDivElement | null) => void }): JSX.Element {
+export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
         searchQuery,
@@ -544,7 +562,7 @@ export function SupportTicketsTableFilters({
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
             <div className="flex items-center gap-2">
-                <div ref={bulkSelectionBarRef} className="flex items-center gap-2 empty:hidden" />
+                <SupportTicketsBulkActions />
                 <TicketColumnsDropdown aiEnabled={aiEnabled} embedded={embedded} />
                 <SavedViewsButton id="SupportTicketsScene" />
                 <LemonButton
@@ -566,9 +584,6 @@ export function SupportTicketsTableFilters({
 export function SupportTicketsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const conversationsDisabled = !!currentTeam && !currentTeam.conversations_enabled
-    // Render the bulk-action bar into the filters toolbar rather than above the table, so
-    // selecting tickets doesn't insert a row that pushes the table down.
-    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     return (
         <SceneContent className="pb-4">
@@ -582,8 +597,8 @@ export function SupportTicketsScene(): JSX.Element {
             />
             <ScenesTabs />
             {conversationsDisabled ? <ConversationsDisabledBanner /> : null}
-            <SupportTicketsTableFilters bulkSelectionBarRef={setBulkBarTarget} />
-            <SupportTicketsTable bulkActionsTarget={bulkBarTarget} />
+            <SupportTicketsTableFilters />
+            <SupportTicketsTable />
         </SceneContent>
     )
 }
