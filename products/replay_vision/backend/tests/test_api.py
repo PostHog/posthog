@@ -1948,12 +1948,12 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             self._ingest_session(days_ago=index + 1)
         self._ingest_session(days_ago=40)
 
-        resp = self.client.post(self.estimate_url, data={"model": "gemini-3.1-pro-preview"}, format="json")
+        resp = self.client.post(self.estimate_url, data={"model": "gemini-3.5-flash-lite"}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
-        self.assertEqual(body["credits_per_observation"], 20)
-        self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 20)
+        self.assertEqual(body["credits_per_observation"], 2)
+        self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 2)
 
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):

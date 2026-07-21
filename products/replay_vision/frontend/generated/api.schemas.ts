@@ -703,14 +703,12 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3.6-flash` - Gemini 3.6 Flash
- * * `gemini-3.1-pro-preview` - Gemini 3.1 Pro
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini36Flash: 'gemini-3.6-flash',
-    Gemini31ProPreview: 'gemini-3.1-pro-preview',
 } as const
 
 export interface FeedbackThemeSessionApi {
@@ -782,8 +780,7 @@ export interface ReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash
-     * * `gemini-3.1-pro-preview` - Gemini 3.1 Pro */
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -866,8 +863,7 @@ export interface PatchedReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash
-     * * `gemini-3.1-pro-preview` - Gemini 3.1 Pro */
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -1299,8 +1295,7 @@ export interface EstimateRequestApi {
     /** Proposed model; determines `credits_per_observation` in the response.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash
-     * * `gemini-3.1-pro-preview` - Gemini 3.1 Pro */
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
 }
 

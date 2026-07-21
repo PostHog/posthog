@@ -31,41 +31,34 @@ GeminiTier = Literal["flash lite", "flash", "pro"]
 
 @dataclass(frozen=True)
 class GeminiModelInfo:
-    tier: GeminiTier  # Google's model tier
+    tier: GeminiTier
     input_usd_per_1m: float  # Google list price per 1M input tokens
     output_usd_per_1m: float  # Google list price per 1M output tokens
     credits_per_observation: int  # what we charge (1 credit = $0.01)
-    retired: bool = False  # no longer selectable; kept because frozen snapshots/receipts outlive the lineup
+    retired: bool = False  # unselectable, but frozen snapshots/receipts still need its price
 
 
-# Everything we know per Gemini model, current and retired, in one place. The current lineup
-# (non-retired rows) offers one model per Google tier and must mirror `ScannerModel`.
+# Per-model source of truth. Non-retired rows are the lineup, one model per Google tier, and must
+# mirror `ScannerModel`. No pro option on purpose: Google's only pro model is a preview id, and
+# preview retirements have burned us before.
 #
 # | model                        | tier       | $/1M in | $/1M out | credits/observation |
 # |------------------------------|------------|---------|----------|---------------------|
 # | gemini-3.5-flash-lite        | flash lite |    0.30 |     2.50 |                   2 |
 # | gemini-3.6-flash             | flash      |    1.50 |     7.50 |                  15 |
-# | gemini-3.1-pro-preview       | pro        |    2.00 |    12.00 |                  20 |
 # | gemini-2.5-flash             | (retired)  |    0.30 |     2.50 |                   2 |
 # | gemini-3-flash-preview       | (retired)  |    0.50 |     3.00 |                   5 |
 # | gemini-3.5-flash             | (retired)  |    1.50 |     9.00 |                  15 |
 # | gemini-3.1-flash-lite-preview| (retired)  |    0.25 |     1.50 |                   2 |
 #
-# Credit prices are hand-set to stay on the price points users already know from the previous
-# lineup (2 for the budget tier, 15 for flash); pro scales flash by the input-price ratio
-# (15 x $2.00/$1.50 = 20), since observations are video-input dominated.
-# `suggested_observation_credits` is the derivation tool for repricing: it turns token prices +
-# a target margin into a credit price, and lands on 15/20 for flash/pro at TARGET_MARGIN (the
-# budget tier is pinned at its historical 2, a ~2.5x margin).
+# Credit prices are hand-set to keep the price points users already know (2 budget, 15 flash);
+# `suggested_observation_credits` reproduces 15 at TARGET_MARGIN and is the tool for repricing.
 GEMINI_MODELS: dict[str, GeminiModelInfo] = {
     ScannerModel.GEMINI_3_5_FLASH_LITE: GeminiModelInfo(
         tier="flash lite", input_usd_per_1m=0.30, output_usd_per_1m=2.50, credits_per_observation=2
     ),
     ScannerModel.GEMINI_3_6_FLASH: GeminiModelInfo(
         tier="flash", input_usd_per_1m=1.50, output_usd_per_1m=7.50, credits_per_observation=15
-    ),
-    ScannerModel.GEMINI_3_1_PRO: GeminiModelInfo(
-        tier="pro", input_usd_per_1m=2.00, output_usd_per_1m=12.00, credits_per_observation=20
     ),
     "gemini-2.5-flash": GeminiModelInfo(
         tier="flash", input_usd_per_1m=0.30, output_usd_per_1m=2.50, credits_per_observation=2, retired=True
@@ -81,15 +74,12 @@ GEMINI_MODELS: dict[str, GeminiModelInfo] = {
     ),
 }
 
-# Typical observation shape, measured from production LLM analytics: the rasterized session video
-# dominates input (~25k tokens, sent to the provider once per observation at the standard input
-# rate), and structured findings are small (~200 output tokens).
+# Typical observation shape, measured from production LLM analytics; the rasterized video dominates input.
 AVG_INPUT_TOKENS_PER_OBSERVATION = 25_000
 AVG_OUTPUT_TOKENS_PER_OBSERVATION = 200
 
-# Sale price = provider token cost x this multiplier. The headroom above 1x pays for everything the
-# token prices don't: rasterizing the recording to video, provider-side video cache storage, retries,
-# and PostHog margin.
+# Sale price = provider token cost x this. The headroom pays for what token prices don't cover
+# (rasterizing, video cache storage, retries) plus margin.
 TARGET_MARGIN = 3.75
 
 

@@ -145,13 +145,11 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
     [ScannerModelEnumApi.Gemini36Flash]: 15,
-    [ScannerModelEnumApi.Gemini31ProPreview]: 20,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
-    [ScannerModelEnumApi.Gemini31ProPreview]: 'Gemini 3.1 Pro',
 }
 
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(

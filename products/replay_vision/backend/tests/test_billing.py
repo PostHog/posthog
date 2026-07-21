@@ -42,12 +42,12 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         end = now + timedelta(days=1)
         # Two in-window at different model prices, one out-of-window, one for another team.
         self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
-        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_1_PRO)
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_5_FLASH_LITE)
         self._receipt(team_id=self.team.id, created_at=now - timedelta(days=3))
         self._receipt(team_id=self.team.id + 1, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
 
         result = dict(get_replay_vision_credits_by_team(begin, end))
-        assert result == {self.team.id: 15 + 20, self.team.id + 1: 15}
+        assert result == {self.team.id: 15 + 2, self.team.id + 1: 15}
 
     def test_sums_frozen_receipt_credits_not_live_prices(self) -> None:
         # A receipt priced before a table change keeps billing at its frozen amount.

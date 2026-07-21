@@ -111,7 +111,6 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         [
             (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_5_FLASH_LITE, 2),
             (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_6_FLASH, 15),
-            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_1_PRO, 20),
             (ObservationStatus.PENDING, ScannerModel.GEMINI_3_5_FLASH_LITE, 2),
             (ObservationStatus.RUNNING, ScannerModel.GEMINI_3_6_FLASH, 15),
             (ObservationStatus.FAILED, ScannerModel.GEMINI_3_6_FLASH, 0),
