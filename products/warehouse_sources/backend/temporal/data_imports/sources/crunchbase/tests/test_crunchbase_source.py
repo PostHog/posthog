@@ -119,6 +119,8 @@ class TestCrunchbaseSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_cb_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "organizations"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
         manager = mock.MagicMock()
@@ -129,6 +131,8 @@ class TestCrunchbaseSource:
         kwargs = mock_cb_source.call_args.kwargs
         assert kwargs["api_key"] == "user-key"
         assert kwargs["endpoint"] == "organizations"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
