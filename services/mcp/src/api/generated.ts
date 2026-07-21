@@ -35501,6 +35501,8 @@ export namespace Schemas {
      * * `team_rate_capped` - team_rate_capped
      * * `disabled` - disabled
      * * `gate_blocked` - gate_blocked
+     * * `owner_inactive` - owner_inactive
+     * * `owner_changed` - owner_changed
      */
     export type LoopFireResultReasonEnum = typeof LoopFireResultReasonEnum[keyof typeof LoopFireResultReasonEnum];
 
@@ -35513,6 +35515,8 @@ export namespace Schemas {
       TeamRateCapped: 'team_rate_capped',
       Disabled: 'disabled',
       GateBlocked: 'gate_blocked',
+      OwnerInactive: 'owner_inactive',
+      OwnerChanged: 'owner_changed',
     } as const;
 
     /**
@@ -35528,7 +35532,9 @@ export namespace Schemas {
        * * `rate_capped` - rate_capped
        * * `team_rate_capped` - team_rate_capped
        * * `disabled` - disabled
-       * * `gate_blocked` - gate_blocked */
+       * * `gate_blocked` - gate_blocked
+       * * `owner_inactive` - owner_inactive
+       * * `owner_changed` - owner_changed */
       reason: LoopFireResultReasonEnum;
       /**
          * Id of the created task, when `created` is true.

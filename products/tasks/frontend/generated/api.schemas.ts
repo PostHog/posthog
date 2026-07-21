@@ -516,6 +516,8 @@ export interface LoopPreviewDTOApi {
  * * `team_rate_capped` - team_rate_capped
  * * `disabled` - disabled
  * * `gate_blocked` - gate_blocked
+ * * `owner_inactive` - owner_inactive
+ * * `owner_changed` - owner_changed
  */
 export type LoopFireResultReasonEnumApi = (typeof LoopFireResultReasonEnumApi)[keyof typeof LoopFireResultReasonEnumApi]
 
@@ -527,6 +529,8 @@ export const LoopFireResultReasonEnumApi = {
     TeamRateCapped: 'team_rate_capped',
     Disabled: 'disabled',
     GateBlocked: 'gate_blocked',
+    OwnerInactive: 'owner_inactive',
+    OwnerChanged: 'owner_changed',
 } as const
 
 /**
@@ -542,7 +546,9 @@ export interface LoopFireResultApi {
      * * `rate_capped` - rate_capped
      * * `team_rate_capped` - team_rate_capped
      * * `disabled` - disabled
-     * * `gate_blocked` - gate_blocked */
+     * * `gate_blocked` - gate_blocked
+     * * `owner_inactive` - owner_inactive
+     * * `owner_changed` - owner_changed */
     reason: LoopFireResultReasonEnumApi
     /**
      * Id of the created task, when `created` is true.

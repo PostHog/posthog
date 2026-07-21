@@ -30,11 +30,30 @@ function LoopReviewContent({ data, app }: { data: LoopReviewData; app: App | nul
         }
         setState({ loading: true, error: null, createdName: null })
         try {
-            // Forward the reviewed config unchanged — `loops-review`'s schema is the
-            // `loops-create` body, so `data` is already a valid create payload.
-            const result = await app.callServerTool({
-                name: 'loops-create',
+            // `loops-create` is a confirmed action (prepare/execute), so an agent can't plant a
+            // persistent loop without an explicit human step. This button IS that step: prepare with
+            // the reviewed config unchanged (`loops-review`'s schema is the `loops-create` body),
+            // then execute with the returned hash — the click supplies the confirmation.
+            const prepared = await app.callServerTool({
+                name: 'loops-create-prepare',
                 arguments: data as Record<string, unknown>,
+            })
+            if (prepared.isError) {
+                const message =
+                    prepared.content?.find((c): c is { type: 'text'; text: string } => c.type === 'text')?.text ??
+                    'Failed to create the loop.'
+                setState({ loading: false, error: message, createdName: null })
+                return
+            }
+            const confirmationHash = (prepared.structuredContent as { confirmation_hash?: string } | undefined)
+                ?.confirmation_hash
+            if (!confirmationHash) {
+                setState({ loading: false, error: 'Failed to create the loop.', createdName: null })
+                return
+            }
+            const result = await app.callServerTool({
+                name: 'loops-create-execute',
+                arguments: { confirmation_hash: confirmationHash, confirmation: 'confirm' },
             })
             if (result.isError) {
                 const message =
