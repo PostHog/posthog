@@ -96,16 +96,16 @@ describe('settingsSceneLogic', () => {
     })
 
     it('redirects internal-user-filtering deep links to its new section', async () => {
-        // The setting moved from the product analytics section to General; links in docs,
+        // The setting moved from the product analytics section to Customization; links in docs,
         // CDP filter warnings, and bookmarks still point at the old section.
         router.actions.push('/settings/project-product-analytics', {}, { 'internal-user-filtering': true })
 
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
-            selectedSectionId: 'project-details',
+            selectedSectionId: 'project-customization',
         })
 
-        expect(router.values.location.pathname).toContain('/settings/project-details')
+        expect(router.values.location.pathname).toContain('/settings/project-customization')
         expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
 
         // Level-only URLs (as emitted by CDP filter warnings) redirect too.
@@ -113,10 +113,10 @@ describe('settingsSceneLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
-            selectedSectionId: 'project-details',
+            selectedSectionId: 'project-customization',
         })
 
-        expect(router.values.location.pathname).toContain('/settings/project-details')
+        expect(router.values.location.pathname).toContain('/settings/project-customization')
         expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
     })
 
