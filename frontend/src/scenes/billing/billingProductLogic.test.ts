@@ -14,13 +14,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    BillingPlan,
-    BillingProductV2AddonType,
-    BillingProductV2Type,
-    BillingType,
-    SurveyEventName,
-} from '~/types'
+import { BillingPlan, BillingProductV2AddonType, BillingProductV2Type, BillingType, SurveyEventName } from '~/types'
 
 const productByType = (type: string): BillingProductV2Type =>
     billingJson.products.find((p) => p.type === type) as BillingProductV2Type
