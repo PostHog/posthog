@@ -239,6 +239,28 @@ class TestCertificationAPI(APIBaseTest):
         assert certified.status_code == status.HTTP_200_OK
         assert certified.json()["status"] == CertificationStatus.CERTIFIED
 
+    def test_ambiguous_table_name_returns_409_with_candidates(self) -> None:
+        # The conflict must render through the HTTP exception handler — a shape it can't
+        # serialize turns every ambiguous propose into a 500 and hides the candidate ids
+        # the caller needs to disambiguate.
+        first = _table(self.team, name="dupe")
+        second = _table(self.team, name="dupe")
+        response = self.client.post(self.url, {"table_name": "dupe"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        body = response.json()
+        assert body["code"] == "catalog_conflict"
+        assert "Multiple tables named 'dupe'" in body["detail"]
+        assert {c["id"] for c in body["extra"]["candidates"]} == {str(first.id), str(second.id)}
+
+    def test_duplicate_target_returns_409(self) -> None:
+        table = _table(self.team)
+        assert self.client.post(self.url, {"table_id": str(table.id)}, format="json").status_code == 201
+        response = self.client.post(self.url, {"table_id": str(table.id)}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        body = response.json()
+        assert body["code"] == "catalog_conflict"
+        assert "already marked" in body["detail"]
+
     def test_certify_requires_approval_scope(self) -> None:
         table = _table(self.team)
         cert = propose_certification(team=self.team, user=self.user, table_id=str(table.id))

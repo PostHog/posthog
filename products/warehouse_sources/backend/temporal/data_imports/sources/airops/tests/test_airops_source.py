@@ -8,7 +8,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.source import AirOpsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AirOpsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airops import AirOpsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -93,7 +93,7 @@ class TestAirOpsSource:
             result = AirOpsSource().source_for_pipeline(_config("key-123"), inputs)
 
         assert result is sentinel
-        mock_source.assert_called_once_with(api_key="key-123", endpoint="executions", logger=inputs.logger)
+        mock_source.assert_called_once_with(api_key="key-123", endpoint="executions", team_id=1, job_id="job-1")
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # `lists_tables_without_credentials=True` powers the public docs table catalog; it must resolve

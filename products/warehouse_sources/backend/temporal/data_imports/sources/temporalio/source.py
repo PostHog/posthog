@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
+    TemporalIOSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

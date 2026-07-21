@@ -1,8 +1,7 @@
-import base64
-
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -10,8 +9,8 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     GitHubSandboxCredential,
     build_sandbox_credentials,
     github_refresh_interval_seconds,
+    replace_sandbox_credentials,
     set_git_remote_token,
-    update_sandbox_env_file,
 )
 
 
@@ -60,6 +59,16 @@ class TestSetGitRemoteToken:
         assert "x-access-token:ghs_new" in command
         assert "explore-science/paper-wizard-frontend" in command
 
+    def test_removes_stale_token_when_current_credential_is_missing(self):
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok()
+
+        assert set_git_remote_token(sandbox, "owner/repo", None) is True
+
+        command = sandbox.execute.call_args[0][0]
+        assert "https://github.com/owner/repo.git" in command
+        assert "x-access-token" not in command
+
     def test_returns_false_on_failure(self):
         sandbox = MagicMock()
         sandbox.execute.return_value = ExecutionResult(stdout="", stderr="not a git repo", exit_code=128)
@@ -67,39 +76,38 @@ class TestSetGitRemoteToken:
         assert set_git_remote_token(sandbox, "owner/repo", "ghs_new") is False
 
 
-class TestUpdateSandboxEnvFile:
-    def test_preserves_other_keys_and_replaces_updated_ones(self):
+class TestReplaceSandboxCredentials:
+    def test_replaces_each_credential_domain_without_reading_existing_state(self):
         sandbox = MagicMock()
-        existing = b"PATH=/usr/bin\x00GITHUB_TOKEN=ghs_old\x00HOME=/root\x00"
-        sandbox.execute.return_value = _ok(base64.b64encode(existing).decode())
+        sandbox.execute.return_value = _ok()
         sandbox.write_file.return_value = _ok()
 
-        assert update_sandbox_env_file(sandbox, {"GITHUB_TOKEN": "ghs_new", "GH_TOKEN": "ghs_new"}) is True
+        assert replace_sandbox_credentials(sandbox, "ghs_new", "oauth_new") is True
 
-        _, payload = sandbox.write_file.call_args[0]
-        entries = {e.split(b"=", 1)[0]: e.split(b"=", 1)[1] for e in payload.split(b"\x00") if e}
-        # Untouched keys survive, updated key is replaced, new key is appended.
-        assert entries[b"PATH"] == b"/usr/bin"
-        assert entries[b"HOME"] == b"/root"
-        assert entries[b"GITHUB_TOKEN"] == b"ghs_new"
-        assert entries[b"GH_TOKEN"] == b"ghs_new"
+        assert sandbox.write_file.call_args_list[0].args == (
+            GITHUB_ENV_FILE,
+            b"GITHUB_TOKEN=ghs_new\x00GH_TOKEN=ghs_new\x00",
+        )
+        assert sandbox.write_file.call_args_list[1].args == (
+            OAUTH_ENV_FILE,
+            b"POSTHOG_PERSONAL_API_KEY=oauth_new\x00",
+        )
+        assert [call.args[0] for call in sandbox.execute.call_args_list] == [
+            f"chmod 600 {GITHUB_ENV_FILE}",
+            f"chmod 600 {OAUTH_ENV_FILE}",
+        ]
 
-    def test_noop_when_no_updates(self):
+    def test_empty_current_credentials_clear_both_files(self):
         sandbox = MagicMock()
-        assert update_sandbox_env_file(sandbox, {}) is True
-        sandbox.execute.assert_not_called()
-        sandbox.write_file.assert_not_called()
-
-    def test_writes_updates_when_env_file_absent(self):
-        sandbox = MagicMock()
-        # base64 of empty file (the `|| true` path yields empty stdout).
-        sandbox.execute.return_value = _ok("")
+        sandbox.execute.return_value = _ok()
         sandbox.write_file.return_value = _ok()
 
-        assert update_sandbox_env_file(sandbox, {"GH_TOKEN": "ghs_new"}) is True
+        assert replace_sandbox_credentials(sandbox, None, None) is True
 
-        _, payload = sandbox.write_file.call_args[0]
-        assert payload == b"GH_TOKEN=ghs_new\x00"
+        assert [call.args for call in sandbox.write_file.call_args_list] == [
+            (GITHUB_ENV_FILE, b""),
+            (OAUTH_ENV_FILE, b""),
+        ]
 
 
 class TestGitHubSandboxCredential:

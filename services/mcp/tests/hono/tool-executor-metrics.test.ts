@@ -210,16 +210,18 @@ describe('ToolExecutor metrics', () => {
                 'Invalid input for tool: date_from (invalid_type)',
             ],
             [
-                'a PostHogValidationError (first-party API validation text)',
+                'a PostHogValidationError (controlled code + field only, never the detail body)',
                 new PostHogValidationError({
-                    detail: 'Column "foo" not found',
+                    // detail echoes the caller's offending expression; a query tool caller can
+                    // hide a secret here, so it must never reach analytics.
+                    detail: 'Unable to resolve field: SECRET=sk_live_abc123',
                     attr: 'query',
                     code: 'invalid_input',
                     extra: undefined,
                     url: 'https://us.posthog.com/api/environments/2/query/',
                     method: 'POST',
                 }),
-                'Validation error: Column "foo" not found (field: query)',
+                'Validation error: invalid_input (field: query)',
             ],
             [
                 'a TimeoutError',
@@ -263,21 +265,16 @@ describe('ToolExecutor metrics', () => {
         it('truncates $mcp_error_message and strips control characters, keeping newlines', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('fail-tool', async () => {
-                    throw new PostHogValidationError({
-                        detail: `line2\x00\x08${'x'.repeat(3000)}`,
-                        attr: undefined,
-                        code: undefined,
-                        extra: undefined,
-                        url: 'https://us.posthog.com/api/environments/2/query/',
-                        method: 'POST',
-                    })
+                    // ToolInputValidationError.message is passed through verbatim, so it exercises
+                    // the sanitizer/truncation path in extractErrorMessage.
+                    throw new ToolInputValidationError(`line2\x00\x08${'x'.repeat(3000)}`, { fields: ['date_from'] })
                 }) as any
             )
 
             await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
 
             const message = trackToolCallExtras('fail-tool')?.$mcp_error_message as string
-            expect(message.startsWith('Validation error: line2xxx')).toBe(true)
+            expect(message.startsWith('line2xxx')).toBe(true)
             expect(message).toHaveLength(2048)
         })
 
