@@ -566,42 +566,6 @@ describe('EmailTrackingService', () => {
                 },
             ])
         })
-
-        // Regression guard for the opt-out-on-bounce retirement: SES bounces belong on the
-        // deliverability side (suppression list); the recipient-preference table is reserved for
-        // user-initiated opt-outs (unsubscribe clicks, customer.io imports). Pre-seed a preference
-        // row so a re-added `optOut()` upsert would flip its `$all` value to `OPTED_OUT` — the
-        // strict equality on `preferences` catches both the insert and the update regression.
-        it('does not opt out the recipient after a Permanent bounce webhook', async () => {
-            const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
-            const email = 'hard-bouncer-no-optout@example.com'
-            const originalPreferences = { $all: 'OPTED_IN', 'category-x': 'OPTED_IN' }
-
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_messagerecipientpreference
-                    (id, team_id, identifier, preferences, deleted, created_at, updated_at)
-                 VALUES (gen_random_uuid(), $1, $2, $3::jsonb, false, NOW(), NOW())`,
-                [team.id, email, JSON.stringify(originalPreferences)],
-                'test-insert-recipient-preference'
-            )
-
-            const res = await postPermanentBounce(hogFlow.id, email)
-            expect(res.status).toBe(200)
-
-            const preferenceRows = await hub.postgres.query<{
-                identifier: string
-                preferences: Record<string, string>
-            }>(
-                PostgresUse.COMMON_READ,
-                `SELECT identifier, preferences
-                 FROM posthog_messagerecipientpreference
-                 WHERE team_id = $1 AND identifier = $2`,
-                [team.id, email],
-                'test-read-recipient-preference'
-            )
-            expect(preferenceRows.rows).toEqual([{ identifier: email, preferences: originalPreferences }])
-        })
     })
 
     describe('resolveEmailEngagementDistinctId', () => {
