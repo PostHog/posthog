@@ -40327,6 +40327,7 @@ export namespace Schemas {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
+     * * `github_mention` - GitHub Mention
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -40350,6 +40351,7 @@ export namespace Schemas {
       ImageBuilder: 'image_builder',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      GithubMention: 'github_mention',
     } as const;
 
     /**
@@ -52655,7 +52657,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `github_mention` - GitHub Mention */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -66928,7 +66931,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `github_mention` - GitHub Mention */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -67910,7 +67914,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `github_mention` - GitHub Mention */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

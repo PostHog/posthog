@@ -72,11 +72,7 @@ class Migration(migrations.Migration):
                 "verbose_name": "GitHub mention task mapping",
                 "verbose_name_plural": "GitHub mention task mappings",
                 "default_manager_name": "all_teams",
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("task_run",), name="uniq_github_mention_task_mapping"
-                    )
-                ],
+                "constraints": [models.UniqueConstraint(fields=("task_run",), name="uniq_github_mention_task_mapping")],
             },
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),
