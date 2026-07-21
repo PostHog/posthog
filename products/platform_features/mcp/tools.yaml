@@ -258,7 +258,6 @@ tools:
     organization-enforce-2fa:
         operation: partial_update
         enabled: true
-        feature_entitlement: 2fa_enforcement
         scopes:
             - organization:write
         annotations:
@@ -285,6 +284,7 @@ tools:
                 description: >
                     Set to true to require every organization member to have 2FA enabled; false to lift the requirement.
                     Applies org-wide and takes effect immediately.
+        feature_entitlement: 2fa_enforcement
         response:
             include:
                 - enforce_2fa
