@@ -165,6 +165,17 @@ describe('extractBlobs', () => {
         expect(Object.getPrototypeOf(result.value)).toBe(Object.prototype)
     })
 
+    it('caps traversal depth instead of overflowing the stack on deeply nested payloads', () => {
+        let deep: unknown = 'leaf'
+        for (let i = 0; i < 100000; i++) {
+            deep = [deep]
+        }
+        const input = { shallow: { image_url: { url: `data:image/png;base64,${PNG_B64}` } }, deep }
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect((result.value as { deep: unknown }).deep).toBe(deep)
+    })
+
     it('leaves data URIs with non-canonical base64 inline instead of truncated-decoding them', () => {
         const url = `data:image/png;base64,AAAA=${PNG_B64}`
         const result = extractBlobs({ image_url: { url } }, OPTS)

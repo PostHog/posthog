@@ -122,10 +122,16 @@ function providerBlob(obj: Record<string, unknown>, parentKey: string | null): P
     return null
 }
 
+// Stack safety: recursing without a bound would throw RangeError on adversarially
+// nested payloads, and unclassified errors crash the consumer after retries.
+// Content nested deeper passes through untouched, like every other miss.
+const MAX_DEPTH = 256
+
 function extractFromObject(
     state: Extraction,
     obj: Record<string, unknown>,
-    parentKey: string | null
+    parentKey: string | null,
+    depth: number
 ): Record<string, unknown> {
     let base = obj
     const match = providerBlob(obj, parentKey)
@@ -139,7 +145,7 @@ function extractFromObject(
     let changed = base !== obj
     const entries: [string, unknown][] = []
     for (const [key, child] of Object.entries(base)) {
-        const newChild = extractFromNode(state, child, key)
+        const newChild = extractFromNode(state, child, key, depth + 1)
         entries.push([key, newChild])
         if (newChild !== child) {
             changed = true
@@ -149,16 +155,19 @@ function extractFromObject(
     return changed ? Object.fromEntries(entries) : obj
 }
 
-function extractFromNode(state: Extraction, node: unknown, parentKey: string | null): unknown {
+function extractFromNode(state: Extraction, node: unknown, parentKey: string | null, depth: number): unknown {
     if (typeof node === 'string') {
         return extractFromString(state, node)
     }
+    if (depth >= MAX_DEPTH) {
+        return node
+    }
     if (Array.isArray(node)) {
-        const rewritten = node.map((child) => extractFromNode(state, child, parentKey))
+        const rewritten = node.map((child) => extractFromNode(state, child, parentKey, depth + 1))
         return rewritten.some((child, i) => child !== node[i]) ? rewritten : node
     }
     if (node !== null && typeof node === 'object') {
-        return extractFromObject(state, node as Record<string, unknown>, parentKey)
+        return extractFromObject(state, node as Record<string, unknown>, parentKey, depth)
     }
     return node
 }
@@ -171,7 +180,7 @@ export function extractBlobs(value: unknown, opts: { minBase64Length: number }):
         belowFloorBytes: 0,
         minBase64Length: opts.minBase64Length,
     }
-    const rewritten = extractFromNode(state, value, null)
+    const rewritten = extractFromNode(state, value, null, 0)
     return {
         value: rewritten,
         blobs: [...state.blobsByHash.values()],

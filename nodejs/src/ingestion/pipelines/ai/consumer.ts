@@ -65,6 +65,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_S3_TIMEOUT_MS'
         | 'AI_BLOB_OFFLOAD_TEAMS'
         | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
+        | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
         | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
