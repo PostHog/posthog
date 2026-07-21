@@ -678,8 +678,8 @@ def visible_loop_ids(team_id: int, user: User | None) -> set[str]:
     if user_id is not None:
         visibility_q |= Q(created_by_id=user_id)
     loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=False).filter(visibility_q)
-    loops = _rbac_filter_visible(loops, team_id, user)
-    return {str(loop_id) for loop_id in loops.values_list("id", flat=True)}
+    visible = _rbac_filter_visible(loops, team_id, user)
+    return {str(loop_id) for loop_id in visible.values_list("id", flat=True)}
 
 
 def hidden_personal_loop_ids_for_org(organization_id: str | UUID, user: User | None) -> set[str]:
