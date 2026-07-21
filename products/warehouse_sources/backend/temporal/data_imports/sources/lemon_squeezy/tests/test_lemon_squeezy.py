@@ -8,6 +8,7 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy import (
     LemonSqueezyPaginator,
     LemonSqueezyResumeConfig,
@@ -552,8 +553,14 @@ class TestCredentialLeakHardening:
         assert client["allowed_hosts"] == []
         assert client["allow_redirects"] is False
         # Response bodies carry PII, license keys, and signed URLs — never captured as samples.
-        assert client["session"].get_adapter(BASE_URL)._capture is False
+        assert _adapter_capture(client["session"]) is False
 
     def test_make_session_disables_capture(self):
         # Webhook responses carry the signing secret and store/customer data.
-        assert _make_session("key").get_adapter(BASE_URL)._capture is False
+        assert _adapter_capture(_make_session("key")) is False
+
+
+def _adapter_capture(session: Any) -> bool:
+    adapter = session.get_adapter(BASE_URL)
+    assert isinstance(adapter, TrackedHTTPAdapter)
+    return adapter._capture
