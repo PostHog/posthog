@@ -7,6 +7,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconFlask,
     IconHome,
     IconLive,
@@ -21,7 +22,6 @@ import {
     IconPulse,
     IconRewindPlay,
     IconRocket,
-    IconSearch,
     IconSpotlight,
     IconToggle,
     IconToolbar,
@@ -80,7 +80,7 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'property_definition':
             return <IconApps />
         case 'replay_scanner':
-            return <IconSearch />
+            return <IconEye />
         case 'revenue_analytics':
             return <IconPiggyBank />
         case 'session_recording':
