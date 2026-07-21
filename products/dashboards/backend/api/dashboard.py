@@ -69,6 +69,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
@@ -2192,6 +2193,7 @@ class DashboardsViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        context["compute_surface"] = ComputeSurface.DASHBOARD_DETAIL
 
         return context
 
@@ -2436,6 +2438,7 @@ class DashboardsViewSet(
                 "dashboard": dashboard,
                 "dashboard_access_method": access_method,
                 "raw_results_supported": True,
+                "compute_surface": ComputeSurface.DASHBOARD_STREAM,
             }
         )
 
@@ -2892,6 +2895,7 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = access_method
+        context["compute_surface"] = ComputeSurface.DASHBOARD_RUN_INSIGHTS
         # _format_insight_for_llm consumes results as Python data, so raw cached
         # result bytes (orjson.Fragment) must not be used here.
         context["require_parsed_results"] = True
