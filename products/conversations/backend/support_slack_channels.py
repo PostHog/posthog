@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 from slack_sdk import WebClient
 
-from products.conversations.backend.facade.contracts import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
 from products.conversations.backend.support_slack import get_support_slack_bot_token
 
 if TYPE_CHECKING:
@@ -20,6 +19,14 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 MAX_CHANNEL_PAGES = 100
+
+
+class SupportSlackNotConfigured(Exception):
+    """The team has no SupportHog bot token configured."""
+
+
+class SupportSlackChannelsUnavailable(Exception):
+    """The bot's channel list could not be resolved (Slack error or too many pages)."""
 
 
 def list_support_bot_channels(team: "Team", *, members_only: bool = False) -> list[dict[str, Any]]:

@@ -8,20 +8,39 @@ team's Slack credentials directly.
 
 from typing import Any
 
+from pydantic.dataclasses import dataclass
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.contracts import (
-    SupportChannel,
-    SupportMessageSendError,
-    SupportSlackChannelsUnavailable,
-    SupportSlackNotConfigured,
-)
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack_channels import (
+    SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
+    SupportSlackNotConfigured as SupportSlackNotConfigured,
     list_support_bot_channels as _list_support_bot_channels,
 )
+
+
+class SupportMessageSendError(Exception):
+    """Slack rejected a SupportHog bot message.
+
+    ``code`` is the Slack error code (e.g. ``not_in_channel``); ``retry_after`` carries
+    the requested wait in seconds when Slack rate-limited the post, else None.
+    """
+
+    def __init__(self, code: str, retry_after: float | None = None) -> None:
+        super().__init__(code)
+        self.code = code
+        self.retry_after = retry_after
+
+
+@dataclass(frozen=True)
+class SupportChannel:
+    """A Slack channel visible to the SupportHog bot."""
+
+    id: str
+    name: str
+    is_member: bool
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
@@ -50,7 +69,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     configured bot display name and icon. Returns the posted message's Slack ts.
 
     Raises :class:`SupportSlackNotConfigured` when the bot isn't connected and
-    :class:`SupportMessageSendError` when Slack rejects the post.
+    :class:`SupportMessageSendError` when the post fails.
     """
     try:
         team = Team.objects.get(id=team_id)
@@ -77,4 +96,10 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
             except (TypeError, ValueError):
                 retry_after = None
         raise SupportMessageSendError(error_code, retry_after=retry_after)
-    return str(response.get("ts") or "")
+    except Exception:
+        # Transport failures (connection/timeout) must not cross the boundary as slack_sdk types.
+        raise SupportMessageSendError("transport_error")
+    ts = str(response.get("ts") or "")
+    if not ts:
+        raise SupportMessageSendError("missing_ts")
+    return ts
