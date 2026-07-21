@@ -10,7 +10,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LogzIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logzio import LogzIOSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.logz_io import LogzIOResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.settings import (
     ENDPOINTS,

@@ -26,7 +26,7 @@ import {
     contextMillRevalidationsTotal,
 } from './metrics'
 
-export type ContextMillRevalidationSource = 'warmup' | 'initialize'
+export type ContextMillRevalidationSource = 'warmup' | 'initialize' | 'discover'
 
 export class ResourceCatalog {
     private readonly env: Env

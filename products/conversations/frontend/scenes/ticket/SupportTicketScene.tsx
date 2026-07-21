@@ -58,6 +58,12 @@ function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
     return undefined
 }
 
+const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; label: string }[] = [
+    { value: 'pending', label: 'Send and set pending' },
+    { value: 'on_hold', label: 'Send and set on hold' },
+    { value: 'resolved', label: 'Send and set resolved' },
+]
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
@@ -79,6 +85,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
+        unsavedTicketChanges,
+        ticketUpdating,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -215,6 +223,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         draftMode={draftModeEnabled}
                         onDraftModeChange={setDraftModeEnabled}
                         sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
+                        sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
+                        unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
@@ -458,6 +468,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 type="primary"
                                 size="small"
                                 onClick={() => updateTicket()}
+                                loading={ticketUpdating}
                                 disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
                             >
                                 Save changes

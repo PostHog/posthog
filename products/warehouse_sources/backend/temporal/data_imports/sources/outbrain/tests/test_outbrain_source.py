@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OutbrainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
+    OutbrainSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import OutbrainResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.settings import (
     ENDPOINTS,

@@ -97,6 +97,13 @@ RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
 
 
 CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
+    # GLM 5.2 is a Cloudflare-served model driven through the `claude` runtime adapter: the LLM
+    # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
+    # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
+    "@cf/zai-org/glm-5.2": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,

@@ -13,6 +13,7 @@ from posthog.models import Organization, Team
 
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
@@ -74,10 +75,17 @@ def setup_data():
 
 
 @pytest.fixture
-def grandfathered(setup_data, settings):
-    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
-    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
-    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
+def active_key_config(setup_data):
+    """Give the team a healthy active provider key so a null-config judge resolves via DefaultModelSpec."""
+    team = setup_data["team"]
+    key = LLMProviderKey.objects.create(
+        team=team,
+        provider="openai",
+        name="openai key",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "sk-test"},
+    )
+    EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
 
 def evaluation_dict(setup_data: dict, **overrides: Any) -> dict[str, Any]:
@@ -258,7 +266,7 @@ class TestFetchTraceForEvaluation:
 
 class TestExecuteTraceLLMJudgeActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_judges_full_trace_transcript(self, setup_data, grandfathered):
+    def test_judges_full_trace_transcript(self, setup_data, active_key_config):
         trace = create_trace(
             [
                 create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),
