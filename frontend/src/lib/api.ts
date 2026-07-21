@@ -139,6 +139,7 @@ import {
     ExternalDataSchemaWithSource,
     ExternalDataSource,
     ExternalDataSourceCreatePayload,
+    ExternalDataSourceFileUpload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
@@ -5911,6 +5912,11 @@ const api = {
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
+        },
+        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
+        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
+        async uploadFile(data: FormData): Promise<ExternalDataSourceFileUpload> {
+            return await new ApiRequest().externalDataSources().withAction('upload_file').create({ data })
         },
         async delete(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).delete()

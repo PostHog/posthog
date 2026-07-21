@@ -42,6 +42,7 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    FILEUPLOAD = "FileUpload", "FileUpload"
     ASHBY = "Ashby", "Ashby"
     SUPABASE = "Supabase", "Supabase"
     CUSTOMERIO = "CustomerIO", "CustomerIO"

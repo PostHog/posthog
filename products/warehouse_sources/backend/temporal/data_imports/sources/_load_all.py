@@ -254,6 +254,7 @@ from .fastly.source import FastlySource
 from .fauna.source import FaunaSource
 from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
+from .file_upload.source import FileUploadSource
 from .fillout.source import FilloutSource
 from .finage.source import FinageSource
 from .financial_modelling.source import FinancialModellingSource

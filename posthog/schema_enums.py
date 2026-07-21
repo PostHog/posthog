@@ -1184,6 +1184,7 @@ class ExperimentStatsValidationFailure(StrEnum):
 
 
 class ExternalDataSourceType(StrEnum):
+    FILE_UPLOAD = "FileUpload"
     ASHBY = "Ashby"
     SUPABASE = "Supabase"
     CUSTOMER_IO = "CustomerIO"

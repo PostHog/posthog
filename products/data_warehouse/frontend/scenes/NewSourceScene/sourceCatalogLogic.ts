@@ -51,6 +51,23 @@ const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
 // them to request a source we already support. Matches the formats the link form accepts.
 const FILE_STORAGE_FORMAT_KEYWORDS = ['csv', 'parquet', 'delta', 'file', 'files', 'flat file']
 
+// One `FileUpload` source config backs three catalog tiles: users look for "CSV", not for a
+// generic "File upload". The chosen format rides along in the URL and seeds the upload form.
+export const FILE_UPLOAD_SOURCE_NAME: ExternalDataSourceType = 'FileUpload'
+
+export type FileUploadFormat = 'csv' | 'json' | 'parquet'
+
+export const FILE_UPLOAD_FORMATS: { format: FileUploadFormat; label: string; keywords: string[] }[] = [
+    { format: 'csv', label: 'CSV file', keywords: ['csv', 'spreadsheet', 'excel export', 'comma separated', 'upload'] },
+    { format: 'json', label: 'JSON file', keywords: ['json', 'ndjson', 'jsonl', 'upload'] },
+    { format: 'parquet', label: 'Parquet file', keywords: ['parquet', 'pqt', 'columnar', 'upload'] },
+]
+
+export function fileUploadSourceUrl(format: FileUploadFormat): string {
+    const url = urls.dataWarehouseSourceNew(FILE_UPLOAD_SOURCE_NAME)
+    return `${url}${url.includes('?') ? '&' : '?'}format=${format}`
+}
+
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
 export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
@@ -1966,7 +1983,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             ): CatalogItem[] => {
                 const managed = Object.values(availableSources ?? {})
                     .filter((c) => !allowedSources || allowedSources.includes(c.name))
-                    .map((connector: SourceConfig): CatalogItem => {
+                    .flatMap((connector: SourceConfig): CatalogItem[] => {
                         // Mirror nonHogFunctionTemplatesLogic: a declared-but-absent flag reads as
                         // off (featureFlagLogic only exposes truthy flags), so flag-gated sources
                         // render as coming-soon ("Notify me") until the user is in the rollout.
@@ -1980,19 +1997,38 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                                 ? connector.releaseStatus
                                 : undefined
 
-                        return {
-                            name: connector.name,
-                            label: connector.label ?? connector.name,
+                        const base = {
                             iconType: connector.name,
                             iconClassName: connector.iconClassName,
                             category: connector.category ?? MANUAL_SOURCE_CATEGORY,
-                            keywords: connector.keywords ?? [],
                             status,
                             releaseStatus,
-                            url: urls.dataWarehouseSourceNew(connector.name),
                             disabledReason: connector.disabledReason,
                             existingSource: connector.existingSource,
                         }
+
+                        // File upload is one source but three tiles, one per file format.
+                        if (connector.name === FILE_UPLOAD_SOURCE_NAME) {
+                            return FILE_UPLOAD_FORMATS.map(
+                                ({ format, label, keywords }): CatalogItem => ({
+                                    ...base,
+                                    name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                                    label,
+                                    keywords,
+                                    url: fileUploadSourceUrl(format),
+                                })
+                            )
+                        }
+
+                        return [
+                            {
+                                ...base,
+                                name: connector.name,
+                                label: connector.label ?? connector.name,
+                                keywords: connector.keywords ?? [],
+                                url: urls.dataWarehouseSourceNew(connector.name),
+                            },
+                        ]
                     })
 
                 const selfManaged = manualConnectors.map(

@@ -6957,6 +6957,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'FileUpload',
     'Ashby',
     'Supabase',
     'CustomerIO',

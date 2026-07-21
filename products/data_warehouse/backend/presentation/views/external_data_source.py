@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from openai import APIConnectionError
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -82,6 +84,7 @@ from products.data_warehouse.backend.facade.api import (
     get_namespaced_resource_adapter,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_s3_client,
     get_webhook_url,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
@@ -109,7 +112,12 @@ from products.data_warehouse.backend.presentation.views.source_api_versions impo
     api_version_deprecation_payload,
 )
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
-from products.warehouse_sources.backend.facade.api import validate_source_prefix
+from products.warehouse_sources.backend.facade.api import (
+    MAX_FILE_UPLOAD_SIZE_BYTES,
+    SUPPORTED_FILE_FORMATS,
+    build_file_upload_s3_path,
+    validate_source_prefix,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -1440,6 +1448,15 @@ class SourceCredentialSerializer(serializers.Serializer):
     )
 
 
+class SourceFileUploadSerializer(serializers.Serializer):
+    upload_id = serializers.UUIDField(
+        help_text="Id of the stored upload. Pass it in the source payload as {'upload_id': <id>} when creating the source."
+    )
+    filename = serializers.CharField(help_text="Sanitized name the file was stored under.")
+    file_format = serializers.CharField(help_text="Format the file will be parsed as: 'csv', 'json', or 'parquet'.")
+    size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
+
+
 def _find_unresolved_secret_refs(payload: Any) -> list[str]:
     """Return payload keys whose value is an unresolved secret reference.
 
@@ -1672,6 +1689,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "database_schema",
         "setup",
         "store_credentials",
+        "upload_file",
         "source_prefix",
         "revenue_analytics_config",
         "create_webhook",
@@ -3384,6 +3402,94 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 None,
             )
         return None, source_config
+
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string", "format": "binary", "description": "The file to upload."},
+                    "file_format": {
+                        "type": "string",
+                        "enum": list(SUPPORTED_FILE_FORMATS),
+                        "description": "How the file should be parsed when it is imported.",
+                    },
+                },
+                "required": ["file", "file_format"],
+            }
+        },
+        responses={201: SourceFileUploadSerializer},
+        summary="Upload a file for a new data warehouse source",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_file(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Store an uploaded file in PostHog's object storage so a source can be created from it.
+
+        The source-create endpoint is JSON-only and needs the file to already exist (it discovers
+        schemas at create time), so uploading is a separate first step: this returns an `upload_id`
+        that the caller passes in the source payload. The file is written under a team-scoped prefix,
+        so a source can only ever read back its own team's uploads.
+        """
+        if not settings.DATAWAREHOUSE_BUCKET:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Object storage must be available to upload files."},
+            )
+
+        if "file" not in request.FILES:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        file = request.FILES["file"]
+
+        file_format = request.data.get("file_format")
+        if file_format not in SUPPORTED_FILE_FORMATS:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(SUPPORTED_FILE_FORMATS)}"},
+            )
+
+        if file.size > MAX_FILE_UPLOAD_SIZE_BYTES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"File size exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
+                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                },
+            )
+
+        # Django strips path separators via os.path.basename in UploadedFile._set_name; restricting
+        # further to safe characters is defense-in-depth for the S3 key.
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name or "")
+        if not safe_filename or safe_filename.startswith("."):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Invalid filename"})
+
+        upload_id = uuid.uuid4()
+        path = build_file_upload_s3_path(self.team_id, str(upload_id), safe_filename)
+
+        try:
+            s3 = get_s3_client()
+            with s3.open(path, "wb") as destination:
+                for chunk in file.chunks():
+                    destination.write(chunk)
+        except Exception as e:
+            capture_exception(e)
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
+
+        return Response(
+            status=status.HTTP_201_CREATED,
+            data=SourceFileUploadSerializer(
+                {
+                    "upload_id": upload_id,
+                    "filename": safe_filename,
+                    "file_format": file_format,
+                    "size_bytes": file.size,
+                }
+            ).data,
+        )
 
     @extend_schema(request=SourceCredentialCreateSerializer, responses={201: SourceCredentialSerializer})
     @action(methods=["POST"], detail=False)

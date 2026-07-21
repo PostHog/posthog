@@ -6181,6 +6181,14 @@ export interface ExternalDataSourceCreatePayload {
     payload: Record<string, any>
 }
 
+/** Response of `POST external_data_sources/upload_file` — the stored file a FileUpload source points at. */
+export interface ExternalDataSourceFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
+}
+
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
