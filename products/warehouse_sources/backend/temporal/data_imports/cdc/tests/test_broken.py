@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import pytest
 from unittest.mock import patch
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
@@ -34,21 +35,22 @@ def _cdc_schema(team, source, *, name="users", should_sync=True, sync_type=Exter
 
 @contextmanager
 def _mocked_boundaries():
-    # Patch the true boundaries mark_cdc_broken reaches (Temporal, Kafka, analytics) at their source
-    # modules, since broken.py imports the schedule/notification helpers lazily.
+    # Patch the true boundaries mark_cdc_broken reaches (Temporal, Celery, Kafka, analytics) at
+    # their source modules, since broken.py imports the schedule/notification helpers lazily.
     with (
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
+        patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
         patch("products.notifications.backend.facade.api.create_notification") as mock_notify,
         patch("posthoganalytics.capture") as mock_capture,
     ):
-        yield mock_pause, mock_notify, mock_capture
+        yield mock_pause, mock_digest, mock_notify, mock_capture
 
 
 def test_persists_broken_state_on_source_and_schemas(team):
     source = _source(team)
     schema = _cdc_schema(team, source)
 
-    with _mocked_boundaries() as (mock_pause, mock_notify, mock_capture):
+    with _mocked_boundaries() as (mock_pause, mock_digest, mock_notify, mock_capture):
         mark_cdc_broken(source, "auto_dropped_critical_lag", "lag too high", lag_mb=4096.0)
 
     source.refresh_from_db()
@@ -64,10 +66,54 @@ def test_persists_broken_state_on_source_and_schemas(team):
     # The locked merge must preserve unrelated sync_type_config keys.
     assert schema.sync_type_config["cdc_mode"] == "streaming"
 
+    # Breakage usually happens outside a run (the sweeper), so mark_cdc_broken must leave the
+    # FAILED job row the failure digest email and daily catch-up key off — and schedule the digest.
+    job = ExternalDataJob.objects.get(schema=schema)
+    assert job.status == ExternalDataJob.Status.FAILED
+    assert job.latest_error == "lag too high"
+    assert job.finished_at is not None
+    mock_digest.assert_called_once_with(team.pk, trigger="cdc")
+
     mock_pause.assert_called_once_with(str(source.id))
     mock_notify.assert_called_once()
     mock_capture.assert_called_once()
     assert mock_capture.call_args.kwargs["event"] == "cdc marked broken"
+
+
+@pytest.mark.parametrize(
+    "second_reason,expects_new_evidence",
+    [
+        ("critical_lag_self_managed", False),  # sweeper re-marking an ongoing condition
+        ("slot_missing", True),  # a different breakage is new evidence
+    ],
+)
+def test_re_marking_reports_once_per_reason(team, second_reason, expects_new_evidence):
+    # The sweeper calls mark_cdc_broken on every sweep while the condition persists; only a
+    # schema newly entering a broken state may add digest evidence, or an unrepaired source
+    # would re-email the team daily and pile a synthetic failed run per sweep onto the Syncs tab.
+    source = _source(team)
+    schema = _cdc_schema(team, source)
+
+    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+        mark_cdc_broken(source, "critical_lag_self_managed", "lag too high", pause=False)
+        mark_cdc_broken(source, second_reason, "still broken", pause=False)
+
+    expected_evidence_rounds = 2 if expects_new_evidence else 1
+    assert ExternalDataJob.objects.filter(schema=schema).count() == expected_evidence_rounds
+    assert mock_digest.call_count == expected_evidence_rounds
+
+
+def test_visibility_jobs_can_be_disabled_for_in_run_callers(team):
+    # The extraction activity records its own FAILED rows; a second set from mark_cdc_broken
+    # would render every incident as two identical failed runs.
+    source = _source(team)
+    schema = _cdc_schema(team, source)
+
+    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+        mark_cdc_broken(source, "slot_missing", "slot gone", create_visibility_jobs=False)
+
+    assert not ExternalDataJob.objects.filter(schema=schema).exists()
+    mock_digest.assert_called_once()
 
 
 @pytest.mark.parametrize("pause", [True, False])
@@ -75,7 +121,7 @@ def test_pause_flag_controls_schedule_pause(team, pause):
     source = _source(team)
     _cdc_schema(team, source)
 
-    with _mocked_boundaries() as (mock_pause, _notify, _capture):
+    with _mocked_boundaries() as (mock_pause, _digest, _notify, _capture):
         mark_cdc_broken(source, "critical_lag_self_managed", "msg", pause=pause)
 
     assert mock_pause.called is pause
@@ -96,3 +142,6 @@ def test_only_active_cdc_schemas_are_marked(team):
     for untouched in (paused, incremental):
         untouched.refresh_from_db()
         assert "cdc_broken" not in untouched.sync_type_config
+    # Visibility job rows follow the same scoping — a user-paused schema must not resurface
+    # in the failure digest.
+    assert list(ExternalDataJob.objects.values_list("schema_id", flat=True)) == [active.id]
