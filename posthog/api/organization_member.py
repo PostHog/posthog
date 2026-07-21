@@ -222,6 +222,14 @@ class OrganizationMemberViewSet(
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        organization = self.organization
+        if not organization.members_can_see_org_members:
+            requesting_membership = OrganizationMembership.objects.filter(
+                organization=organization, user_id=cast(User, self.request.user).id
+            ).first()
+            if requesting_membership is None or requesting_membership.level < OrganizationMembership.Level.ADMIN:
+                queryset = queryset.filter(user_id=cast(User, self.request.user).id)
+
         if self.action == "list":
             params = self.request.GET.dict()
 

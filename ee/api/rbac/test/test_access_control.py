@@ -2008,6 +2008,33 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert project["inherited_access_level"] == "member"
         assert project["inherited_access_level_reason"] == "project_default"
 
+    def test_members_without_project_access_hidden_when_org_restricts_member_list_visibility(self):
+        user3 = self._create_user("user3@example.com")
+        user3_membership = user3.organization_memberships.get(organization=self.organization)
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"organization_member": str(user3_membership.id), "access_level": "none"})
+
+        # Non-editor with default visibility: full roster (current behavior preserved)
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        assert self._find_member(res.json()["results"], user3_membership.id) is not None
+
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        # Non-editor with restricted visibility: members without project access are hidden
+        res = self.client.get("/api/projects/@current/access_control_members")
+        data = res.json()
+        assert data["can_edit"] is False
+        assert self._find_member(data["results"], user3_membership.id) is None
+        assert self._find_member(data["results"], self.user2_membership.id) is not None
+        assert self._find_member(data["results"], self.organization_membership.id) is not None
+
+        # Editors (org admins) always see the full roster so they can grant access
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        assert self._find_member(res.json()["results"], user3_membership.id) is not None
+
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
         from ee.models.rbac.access_control import AccessControl
