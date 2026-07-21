@@ -191,12 +191,18 @@ def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) ->
     runs_failed: list[dict[str, Any]] = []
     total_failed_batches = 0
     for run_uuid, team_id, schema_id, job_id, workflow_run_id, non_terminal_batches in stranded:
+        # Batches are failed LAST — the inverse of the takeover ordering, which is
+        # safe here because these batches are past CLAIM_ELIGIBILITY_INTERVAL and
+        # can never be claimed. Failing them first would flip the very state this
+        # sweep uses to rediscover the run, so a crash between the two DBs
+        # (autocommit, no cross-DB atomicity) would strand the job invisibly.
+        mark_job_failed_if_not_terminal(job_id=job_id, team_id=team_id, error=RETENTION_STRANDED_ERROR)
+        lock_released: bool | None = None
+        if workflow_run_id:
+            lock_released = release_v3_pipeline_lock(team_id, schema_id, workflow_run_id)
         total_failed_batches += BatchQueue.fail_batches_for_job_sync(
             conn, job_id=job_id, reason=RETENTION_STRANDED_ERROR
         )
-        mark_job_failed_if_not_terminal(job_id=job_id, team_id=team_id, error=RETENTION_STRANDED_ERROR)
-        if workflow_run_id:
-            release_v3_pipeline_lock(team_id, schema_id, workflow_run_id)
         runs_failed.append(
             {
                 "run_uuid": run_uuid,
@@ -204,6 +210,9 @@ def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) ->
                 "schema_id": schema_id,
                 "job_id": job_id,
                 "non_terminal_batches": non_terminal_batches,
+                # False also covers benign cases (already expired / taken over),
+                # so this is observability only — never gate the drop on it.
+                "lock_released": lock_released,
             }
         )
 

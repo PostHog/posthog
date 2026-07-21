@@ -424,6 +424,21 @@ def test_terminalize_fails_each_stranded_run_and_releases_its_lock() -> None:
     release_lock.assert_called_once_with(1, "schema-a", "wf-run-1")
 
 
+def test_terminalize_keeps_batches_non_terminal_when_job_fail_write_errors() -> None:
+    # The queue-batch fail must come last: it flips the very state the sweep uses
+    # to rediscover a stranded run, so committing it before a failed app-DB write
+    # would make tomorrow's retry see an all-terminal partition and drop the
+    # evidence with the job still RUNNING.
+    conn = _StrandedQueryConn([("run-1", 1, "schema-a", "job-1", "wf-run-1", 3)])
+
+    with _patched_terminalize_collaborators() as (batch_queue, mark_failed, _release_lock):
+        mark_failed.side_effect = RuntimeError("app db unavailable")
+        with pytest.raises(RuntimeError):
+            _terminalize_stranded_runs(conn, "sourcebatch_20000101")  # type: ignore[arg-type]
+
+    batch_queue.fail_batches_for_job_sync.assert_not_called()
+
+
 def test_terminalize_makes_no_writes_for_all_terminal_partition() -> None:
     with _patched_terminalize_collaborators() as (batch_queue, mark_failed, release_lock):
         _terminalize_stranded_runs(_StrandedQueryConn([]), "sourcebatch_20000101")  # type: ignore[arg-type]
