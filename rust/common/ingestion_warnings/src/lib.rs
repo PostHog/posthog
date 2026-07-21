@@ -1,13 +1,18 @@
 //! Best-effort, fire-and-forget emission of ingestion warnings to Kafka.
 //!
-//! Producers (capture today; other Rust services later, see [`WarningSource`])
-//! call [`WarningEmitter::emit`] with the offending event's API token, a
-//! source, a registered [`WarningType`], and caller context; the emitter
-//! throttles per `(token, type)`, builds a `$$client_ingestion_warning`
-//! [`common_types::CapturedEvent`] envelope, and enqueues it to a producer
-//! without ever awaiting delivery. Everything fails open: a throttled,
-//! unserializable, or unenqueueable warning is counted and dropped — the
-//! caller's hot path is never blocked or failed.
+//! Two transports share the registry ([`WarningType`], generated from the
+//! Node.js source of truth): services that only know API tokens (capture)
+//! emit through the `$$client_ingestion_warning` event envelope below, and
+//! services that know `team_id` (personhog leader/writer) build the final
+//! topic payload themselves via [`direct::build_direct_warning_payload`].
+//!
+//! Envelope producers call [`WarningEmitter::emit`] with the offending
+//! event's API token, a source, a registered [`WarningType`], and caller
+//! context; the emitter throttles per `(token, type)`, builds a
+//! `$$client_ingestion_warning` [`common_types::CapturedEvent`] envelope,
+//! and enqueues it to a producer without ever awaiting delivery. Everything
+//! fails open: a throttled, unserializable, or unenqueueable warning is
+//! counted and dropped — the caller's hot path is never blocked or failed.
 //!
 //! The producer is a `common_kafka` `ThreadedProducer` (built by
 //! [`common_kafka::kafka_producer::create_threaded_kafka_producer`]) rather
@@ -25,6 +30,7 @@
 //! identical; see [`serializer`] and
 //! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
+pub mod direct;
 pub mod registry;
 pub mod serializer;
 pub mod test_support;
@@ -65,17 +71,22 @@ pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_
 /// `source` metric label) and must be a value a reader of the ClickHouse
 /// table can rely on; `path` is metric-only, for attributing volume to a
 /// specific emit site within one service (e.g. `v1_analytics` vs `legacy`)
-/// without inflating the message schema.
+/// without inflating the message schema; `pipeline_step` is stamped into the
+/// warning's details as `pipelineStep` — a producer-declared value, since
+/// which stage a warning comes from is a property of the emit site, not of
+/// the warning type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WarningSource {
     pub service: &'static str,
     pub path: &'static str,
+    pub pipeline_step: &'static str,
 }
 
 /// Capture's v1 analytics validation pipeline (`rust/capture/src/v1/analytics`).
 pub const CAPTURE_V1_ANALYTICS: WarningSource = WarningSource {
     service: serializer::SOURCE_CAPTURE,
     path: "v1_analytics",
+    pipeline_step: "capture_validation",
 };
 
 /// Sink-agnostic emitter seam. The Kafka implementation is

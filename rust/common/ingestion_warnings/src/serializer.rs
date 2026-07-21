@@ -58,7 +58,7 @@ pub fn build_warning_event(
     extra_details.insert("count".to_string(), json!(count));
     // The consumer lifts `pipelineStep` out of details into the warning's
     // top-level pipeline_step column, so it must live inside details here.
-    extra_details.insert("pipelineStep".to_string(), json!(warning.pipeline_step()));
+    extra_details.insert("pipelineStep".to_string(), json!(source.pipeline_step));
 
     let mut properties: HashMap<String, Value> = HashMap::new();
     properties.insert(PROP_TYPE.to_string(), json!(warning.as_str()));
@@ -183,6 +183,7 @@ mod tests {
         let other = WarningSource {
             service: "batch_import",
             path: "some_path",
+            pipeline_step: "batch_import_validation",
         };
         let event = build_warning_event(
             "phc_test_token",
