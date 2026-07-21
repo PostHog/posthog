@@ -1,3 +1,7 @@
+from collections.abc import Callable
+
+from posthog.temporal.common.base import PostHogWorkflow
+
 from products.error_tracking.backend.temporal.fingerprint_embedding_result import (
     ACTIVITIES as FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES,
     WORKFLOWS as FINGERPRINT_EMBEDDING_RESULT_WORKFLOWS,
@@ -37,8 +41,8 @@ ACTIVITIES = (
     + FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES
 )
 
-LIFECYCLE_WORKFLOWS = []
-LIFECYCLE_ACTIVITIES = []
+LIFECYCLE_WORKFLOWS: list[type[PostHogWorkflow]] = []
+LIFECYCLE_ACTIVITIES: list[Callable[..., object]] = []
 
 __all__ = [
     "ACTIVITIES",
