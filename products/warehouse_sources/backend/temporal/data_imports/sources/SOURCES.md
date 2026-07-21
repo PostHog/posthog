@@ -318,6 +318,7 @@ the row lists both.
 | leadfeeder                       | HTTP                        | requests                                                        | ✅                          |
 | lemlist                          | HTTP                        | requests                                                        | ✅                          |
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
+| lightfield                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
 | linear                           | HTTP                        | requests                                                        | ✅                          |
 | linearb                          | HTTP                        | requests                                                        | ✅                          |
@@ -786,7 +787,6 @@ doesn't conflict with concurrent PRs.
 - lemon_squeezy
 - lever
 - liana
-- lightfield
 - lingo_dev
 - linkedin_pages
 - linnworks
