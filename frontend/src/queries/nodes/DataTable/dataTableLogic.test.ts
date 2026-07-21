@@ -34,6 +34,18 @@ function getDataTableQuery(extras?: {
     })
 }
 
+// Shared by tests that mock a `*, event, timestamp` EventsQuery response — only `results` varies.
+const responseFor = (results: any[][]): Record<string, any> => ({
+    columns: ['*', 'event', 'timestamp'],
+    types: [
+        "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+        'String',
+        "DateTime64(6, 'UTC')",
+    ],
+    results,
+    hasMore: false,
+})
+
 describe('dataTableLogic', () => {
     let logic: ReturnType<typeof dataTableLogic.build>
 
@@ -391,17 +403,6 @@ describe('dataTableLogic', () => {
                 '2022-12-24T16:00:41.165000Z',
             ],
         ]
-        const responseFor = (results: any[][]): Record<string, any> => ({
-            columns: ['*', 'event', 'timestamp'],
-            types: [
-                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
-                'String',
-                "DateTime64(6, 'UTC')",
-            ],
-            results,
-            hasMore: false,
-        })
-
         ;(performQuery as any).mockResolvedValueOnce(responseFor(makeResults()))
         const dataTableQuery = getDataTableQuery()
         logic = dataTableLogic({
@@ -488,17 +489,6 @@ describe('dataTableLogic', () => {
             'pageview',
             timestamp,
         ]
-        const responseFor = (results: any[][]): Record<string, any> => ({
-            columns: ['*', 'event', 'timestamp'],
-            types: [
-                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
-                'String',
-                "DateTime64(6, 'UTC')",
-            ],
-            results,
-            hasMore: false,
-        })
-
         const mountWith = (results: any[][]): DataTableNode => {
             ;(performQuery as any).mockResolvedValueOnce(responseFor(results))
             const dataTableQuery = getDataTableQuery()
