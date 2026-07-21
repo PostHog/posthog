@@ -72,10 +72,22 @@ class TestGetLocalPosthogCodePackages:
 
 
 def test_resolves_default_catalog_runtime_dependencies(fake_monorepo: Path) -> None:
-    (fake_monorepo / "pnpm-workspace.yaml").write_text("catalog:\n  catalog-runtime: 1.2.3\n")
+    (fake_monorepo / "pnpm-workspace.yaml").write_text(
+        "catalog:\n"
+        "  catalog-runtime: 1.2.3\n"
+        "  star-catalog-runtime: 2.3.4\n"
+        "catalogs:\n"
+        "  build:\n"
+        "    named-catalog-runtime: 3.4.5\n"
+    )
     agent_source_path = fake_monorepo / "packages" / "agent"
     (agent_source_path / "package.json").write_text(
-        '{"dependencies":{"catalog-runtime":"catalog:","registry-runtime":"^4.5.6"}}'
+        '{"dependencies":{'
+        '"catalog-runtime":"catalog:",'
+        '"star-catalog-runtime":"catalog:*",'
+        '"named-catalog-runtime":"catalog:build",'
+        '"registry-runtime":"^4.5.6"'
+        "}}"
     )
     package = LocalPackage(
         name="agent",
@@ -84,5 +96,10 @@ def test_resolves_default_catalog_runtime_dependencies(fake_monorepo: Path) -> N
     )
 
     assert get_local_package_runtime_dependencies((package,)) == {
-        "agent": {"catalog-runtime": "1.2.3", "registry-runtime": "^4.5.6"}
+        "agent": {
+            "catalog-runtime": "1.2.3",
+            "named-catalog-runtime": "3.4.5",
+            "registry-runtime": "^4.5.6",
+            "star-catalog-runtime": "2.3.4",
+        }
     }
