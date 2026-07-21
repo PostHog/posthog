@@ -1,6 +1,6 @@
 [package]
 name = "posthog-replay-anonymizer"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "PII scrubber for rrweb session-replay events: text/URL redaction, native image blur, and canvas/cv neutralization"
 license = "MIT"
