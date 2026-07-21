@@ -74,8 +74,9 @@ pub struct IngestionConsumerOptions {
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
-    /// Upper bound on how long `complete_oldest_batch` retries flushing a batch's
-    /// deferred groups before failing the batch. `new` takes it from
+    /// No-progress bound on flushing a batch's deferred groups: the deadline
+    /// resets whenever any of the batch's messages land, and the batch fails
+    /// only after a full window with zero progress. `new` takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
@@ -402,28 +403,35 @@ impl IngestionConsumer {
     /// Flush a completed batch's deferred groups (keys whose worker was
     /// draining/dead), re-routing them to healthy workers and accumulating the
     /// accepted count. Retries with backoff while a flush can't route (no healthy
-    /// worker yet), bounded by `deferred_flush_timeout`. Called serialized,
-    /// oldest-first, so a key's deferred messages flush in Kafka order.
+    /// worker yet). Called serialized, oldest-first, so a key's deferred
+    /// messages flush in Kafka order.
+    ///
+    /// `deferred_flush_timeout` bounds **stalls, not total time**: the deadline
+    /// resets whenever any of the batch's messages are accepted (scatter or
+    /// eager path), so a large backlog draining slowly under saturation keeps
+    /// going, and the batch only fails — exiting the process and replaying —
+    /// when flushing is truly wedged: nothing landed for a full timeout
+    /// (nothing routable, or a flapping worker re-deferring every send).
+    /// Failing the whole process for a mere slow drain amplified today's
+    /// saturation: each restart replayed all its partitions into an already
+    /// overloaded pool.
     ///
     /// With eager flushing enabled, some (or all) of the batch's deferred
     /// groups may instead be in flight on the eager path — the loop also waits
-    /// those out, and their acceptances are credited from the dispatcher's
-    /// ledger at the end.
+    /// those out, crediting their acceptances (and counting them as progress)
+    /// as they land.
     async fn flush_deferred(
         &self,
         batch_id: &str,
         processed: &mut ProcessedBatch,
     ) -> anyhow::Result<()> {
         if self.dispatcher.has_unfinished_flush(batch_id) {
-            let deadline = Instant::now() + self.deferred_flush_timeout;
+            let mut stall_deadline = Instant::now() + self.deferred_flush_timeout;
             while self.dispatcher.has_unfinished_flush(batch_id) {
-                // Bound the whole loop, not just the no-healthy-worker branch: a
-                // flapping worker (visible in `healthy_workers` but failing sends)
-                // re-defers on every scatter and would otherwise spin here forever,
-                // pinning this batch's offsets indefinitely.
-                if Instant::now() >= deadline {
-                    anyhow::bail!("deferred messages could not be flushed within timeout");
+                if Instant::now() >= stall_deadline {
+                    anyhow::bail!("deferred messages made no progress within the flush timeout");
                 }
+                let mut accepted_this_round = 0u32;
                 let sub_batches = self.dispatcher.flush_deferred(batch_id);
                 if sub_batches.is_empty() {
                     // Nothing routable right now (no healthy worker), or the
@@ -434,21 +442,29 @@ impl IngestionConsumer {
                         }
                         _ = tokio::time::sleep(Duration::from_millis(200)) => {}
                     }
-                    continue;
+                } else {
+                    accepted_this_round += Self::scatter(
+                        &self.dispatcher,
+                        &self.transport,
+                        batch_id,
+                        sub_batches,
+                        true,
+                    )
+                    .await?;
                 }
-                processed.total_accepted += Self::scatter(
-                    &self.dispatcher,
-                    &self.transport,
-                    batch_id,
-                    sub_batches,
-                    true,
-                )
-                .await?;
+                // Eager-path acceptances count as progress too — a batch whose
+                // remaining groups are all draining through eager chains must
+                // not time out while they are landing.
+                accepted_this_round += self.dispatcher.take_eager_accepted(batch_id);
+                processed.total_accepted += accepted_this_round;
+                if accepted_this_round > 0 {
+                    stall_deadline = Instant::now() + self.deferred_flush_timeout;
+                }
             }
         }
         // Credit messages the eager path accepted on this batch's behalf —
-        // even when nothing is deferred anymore: a fast eager chain may have
-        // drained the batch's groups before this ran.
+        // even when nothing was deferred by completion time: a fast eager
+        // chain may have drained the batch's groups before this ran.
         processed.total_accepted += self.dispatcher.take_eager_accepted(batch_id);
         Ok(())
     }

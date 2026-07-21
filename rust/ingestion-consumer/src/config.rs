@@ -121,10 +121,12 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
-    /// Upper bound on retrying a batch's deferred messages (held because no
-    /// worker was routable) before failing the batch (milliseconds). Bounds how
-    /// long a full worker outage holds offsets before the process exits and
-    /// restarts.
+    /// No-progress bound on flushing a batch's deferred messages
+    /// (milliseconds): the deadline resets whenever any of the batch's
+    /// messages are accepted, so a slow drain keeps going and the batch only
+    /// fails (exiting the process) after a full window with nothing landed —
+    /// e.g. no worker routable at all. Bounds how long a genuine wedge holds
+    /// offsets before the process exits and restarts.
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
