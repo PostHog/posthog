@@ -49,6 +49,13 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
+# The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
+# base URL is what selects it: no product slug on the path, attribution as one
+# X-PostHog-Properties blob. SANDBOX_AI_GATEWAY_PRODUCTS limits the switch to named
+# ai_product values so one product migrates without moving every other sandbox caller.
+# Both must be set; clearing either rolls back to the Python gateway.
+SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard

@@ -22,6 +22,8 @@ INFRASTRUCTURE_DOMAINS = [
     "api.anthropic.com",
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
+    "ai-gateway.us.posthog.com",
+    "ai-gateway.eu.posthog.com",
 ]
 
 
@@ -63,6 +65,7 @@ def _port_from_url(url: str | None) -> int | None:
 _DEBUG_SANDBOX_URL_SETTINGS = (
     "SANDBOX_API_URL",
     "SANDBOX_LLM_GATEWAY_URL",
+    "SANDBOX_AI_GATEWAY_URL",
     "SANDBOX_MCP_URL",
 )
 
@@ -412,6 +415,8 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "JWT_PUBLIC_KEY",
                 "GITHUB_TOKEN",
                 "LLM_GATEWAY_URL",
+                "AI_GATEWAY_URL",
+                "AI_GATEWAY_PRODUCTS",
                 "IS_SANDBOX",
                 "PYTHONPATH",
             ],
