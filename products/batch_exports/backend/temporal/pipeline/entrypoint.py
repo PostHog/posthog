@@ -137,8 +137,12 @@ async def execute_batch_export_using_internal_stage(
 
     if TEST:
         maximum_attempts = 1
+        # Disable heartbeat timeouts in tests: the time-skipping workflow environment
+        # can advance simulated time faster than real time, causing spurious heartbeat
+        # timeouts while activities perform real I/O (e.g. Parquet upload to MinIO).
+        heartbeat_timeout_seconds = None
 
-    if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):
+    if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int) and not TEST:
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     override_start_to_close_timeout_timedelta = dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0)
