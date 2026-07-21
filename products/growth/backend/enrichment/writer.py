@@ -43,7 +43,7 @@ def write_organization_enrichment(
     fields: EnrichmentFields,
     pha_client: Client,
     icp_score: Optional[int] = None,
-    distinct_id: Optional[str] = None,
+    mirror_distinct_id: Optional[str] = None,
 ) -> None:
     """Persist enrichment to Postgres and project it onto the organization group.
 
@@ -52,10 +52,14 @@ def write_organization_enrichment(
     - ClickHouse: project `enrichment_*` group properties via group_identify.
 
     The score rides along on both stores when the caller computed one, version-stamped so a
-    later formula revision is distinguishable. It is also set on the signer's person profile:
-    that is where Clay writes its score, and the live consumers (the ICP-threshold cohorts and
-    their dashboards) read the person property — without this write they freeze when Clay stops.
-    The org group property is the new canonical surface consumers migrate to.
+    later formula revision is distinguishable. `mirror_distinct_id`, when the caller passes
+    one, also sets the score on that person's profile: that is where Clay writes its own score,
+    and the live consumers (the ICP-threshold cohorts and their dashboards) read the person
+    property. The caller decides whether mirroring is safe here — this function just writes
+    what it's told; see enrich_organization for the policy (mirror is a coverage write for orgs
+    Clay didn't score itself, deferred to the delayed recheck pass, and never sent when it would
+    overwrite a Clay-written person score). The org group property is the new canonical surface
+    consumers migrate to.
 
     No-op when there are no set fields, so a Harmonic miss leaves the stores untouched.
     """
@@ -78,9 +82,9 @@ def write_organization_enrichment(
         properties=properties,
     )
 
-    if icp_score is not None and distinct_id:
+    if icp_score is not None and mirror_distinct_id:
         pha_client.set(
-            distinct_id=distinct_id,
+            distinct_id=mirror_distinct_id,
             properties={"icp_score": icp_score, "icp_score_version": SCORE_VERSION},
         )
 

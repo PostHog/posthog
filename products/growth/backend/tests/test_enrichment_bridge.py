@@ -39,6 +39,7 @@ class TestEnrichmentBridge(BaseTest):
         assert inputs == ClayBridgeInputs(
             est_revenue=25_000_000.0,
             company_type="private",
+            clay_processed=True,
         )
         assert get_group.call_args.kwargs["group_type_index"] == 3
         assert get_group.call_args.kwargs["group_key"] == "org-1"
@@ -46,10 +47,19 @@ class TestEnrichmentBridge(BaseTest):
     def test_org_with_no_group_yet_reads_as_all_absent(self):
         inputs, _ = self._read(None)
         assert inputs == ClayBridgeInputs()
+        assert inputs.clay_processed is False
 
     def test_group_without_clays_columns_reads_as_all_absent(self):
         inputs, _ = self._read(Group(group_properties={"icp_employees": 750}))
         assert inputs == ClayBridgeInputs()
+        assert inputs.clay_processed is False
+
+    def test_clay_processed_true_even_when_the_company_type_value_itself_is_unusable(self):
+        # clay_processed is a raw key-presence check, not the coerced value — Clay fills this
+        # column on essentially every row it writes, so presence alone is the ran/didn't-run signal.
+        inputs, _ = self._read(Group(group_properties={"icp_company_type": 12}))
+        assert inputs.company_type is None
+        assert inputs.clay_processed is True
 
     @parameterized.expand(
         [

@@ -11,22 +11,21 @@ first-party signal.
 
 Every read is best-effort in coverage but strict about failure: an org Clay never processed
 simply has no properties (a real null, and Clay scored nothing for it either), whereas an
-unreachable group store raises — scoring an org on inputs we failed to fetch would write a
-silently-too-low score, which is worse than writing none.
+unreachable group store raises. Scoring an org on inputs we failed to fetch would write a
+silently-too-low score, which is worse than writing none — so callers degrade to writing
+firmographics without a score on a raise, and get another chance at the delayed recheck.
 """
 
 import dataclasses
 from typing import Any, Optional
+
+from django.conf import settings
 
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
-
-# The internal project the enrichment group properties are projected onto, and the same one
-# the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
-INTERNAL_TEAM_ID = 2
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
@@ -42,6 +41,9 @@ class ClayBridgeInputs:
 
     est_revenue: Optional[float] = None
     company_type: Optional[str] = None
+    # Presence of the company-type key, not its coerced value — Clay fills that column on
+    # essentially every row it writes, making raw key-presence a reliable ran/didn't-run signal.
+    clay_processed: bool = False
 
 
 def _numeric(value: Any) -> Optional[float]:
@@ -74,7 +76,9 @@ def _organization_group_type_index(team: Team) -> int:
 
 def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     """Fetch the Clay-written score inputs for one org. Raises if the group store can't be read."""
-    team = Team.objects.get(id=INTERNAL_TEAM_ID)
+    # The internal project the enrichment group properties are projected onto, and the same one
+    # the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
+    team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)
     group = get_group_by_key(
         team_id=team.id,
         group_type_index=_organization_group_type_index(team),
@@ -87,4 +91,5 @@ def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     return ClayBridgeInputs(
         est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
         company_type=_text(properties.get(CLAY_COMPANY_TYPE_PROPERTY)),
+        clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
     )
