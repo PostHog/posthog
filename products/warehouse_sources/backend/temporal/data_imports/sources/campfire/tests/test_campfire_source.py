@@ -15,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.source import CampfireSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CampfireSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campfire import (
+    CampfireSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

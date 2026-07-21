@@ -1195,6 +1195,8 @@ function generateToolCode(
             schemaDecl,
             originalHandlerBody: handlerBody,
             resultType,
+            needsProjectId,
+            needsOrgId,
         })
         return {
             code: wrapped.code,
@@ -1254,8 +1256,8 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
 
 /**
  * Emit prepare + execute factories for a tool that declares `confirmed_action`.
- * Returns the combined `code` block — the two factories plus the extended
- * schema used by `-execute`. The base schema is emitted exactly as the
+ * Returns the combined `code` block — the two factories plus the strict
+ * confirmation schema used by `-execute`. The base schema is emitted exactly as the
  * non-confirmed path does it, so the prepare variant reuses it directly.
  */
 function buildConfirmedActionFactories(args: {
@@ -1265,8 +1267,11 @@ function buildConfirmedActionFactories(args: {
     schemaDecl: string
     originalHandlerBody: string
     resultType: string
+    needsProjectId: boolean
+    needsOrgId: boolean
 }): { code: string } {
-    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType } = args
+    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType, needsProjectId, needsOrgId } =
+        args
     const baseFactory = toCamelCase(toolName)
     const prepareName = `${toolName}-prepare`
     const executeName = `${toolName}-execute`
@@ -1276,52 +1281,89 @@ function buildConfirmedActionFactories(args: {
     const actionLabel = config.confirmed_action?.action_label ?? config.title ?? toolName
     const messageTemplate = config.confirmed_action?.message ?? `Confirm ${actionLabel}?`
 
-    // Execute schema = base schema extended with the two framework fields.
+    // Execute accepts only the two framework fields. The action arguments
+    // were validated and signed at prepare time; accepting them again would
+    // advertise mutable inputs that the runtime intentionally discards.
     // `confirmation` is z.string() not z.literal('confirm') on purpose: the
     // runtime checks the value and refuses with a structured tool-call
     // result + metric counter. A literal would raise a generic zod parse
     // error before our guard runs, losing the metric and the
     // user-targetted refusal text.
-    const executeSchemaDecl = `const ${executeSchemaName} = ${schemaName}.extend({
+    const executeSchemaDecl = `const ${executeSchemaName} = z.strictObject({
     confirmation_hash: z.string().describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
 })`
 
+    // Bound scope: the active project/org is signed at prepare time and
+    // re-checked at execute time so a confirmation can't be replayed against
+    // a different project after `switch-project`. Resolved into locally-named
+    // consts so the `-execute` variant never collides with the `projectId`
+    // the original handler body declares.
+    const scopeResolveLines: string[] = []
+    const scopeParts: string[] = []
+    if (needsOrgId) {
+        scopeResolveLines.push(`        const __scopeOrgId = await context.stateManager.getOrgID()`)
+        scopeParts.push('orgId: String(__scopeOrgId)')
+    }
+    if (needsProjectId) {
+        scopeResolveLines.push(`        const __scopeProjectId = await context.stateManager.getProjectId()`)
+        scopeParts.push('projectId: String(__scopeProjectId)')
+    }
+    const hasScope = scopeParts.length > 0
+    const scopeResolveBlock = hasScope ? scopeResolveLines.join('\n') + '\n' : ''
+    const prepareScopeField = hasScope ? `            boundScope: { ${scopeParts.join(', ')} },\n` : ''
+    const executeScopeField = hasScope ? `            expectedScope: { ${scopeParts.join(', ')} },\n` : ''
+
+    // The original handler body re-reads project/org from state to build the
+    // API path. In the execute variant that would be a second, independent
+    // read after the scope check — MCP handles batched requests concurrently,
+    // so a `switch-project` racing between the scope check and the path build
+    // could retarget the request at a different project than the one the
+    // confirmation was bound to. Alias the path IDs to the scope values we
+    // captured once (and verified against `expectedScope`) so the check and
+    // the request always agree.
+    let executeHandlerBody = originalHandlerBody
+    if (needsOrgId) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const orgId = await context.stateManager.getOrgID()\n',
+            '        const orgId = __scopeOrgId\n'
+        )
+    }
+    if (needsProjectId) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const projectId = await context.stateManager.getProjectId()\n',
+            '        const projectId = __scopeProjectId\n'
+        )
+    }
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
-    // verbatim — bound to user identity + purpose.
+    // verbatim — bound to user identity + purpose (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-        return await prepareConfirmedAction(context, {
+${scopeResolveBlock}        return await prepareConfirmedAction(context, {
             args: params,
             purpose: ${JSON.stringify(toolName)},
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
-        })
+${prepareScopeField}        })
 `
 
     // Execute handler: guard, then re-run the original handler body with
-    // the verified args. `params` is reassigned to the verified payload so
-    // the rest of the original code path (which reads from `params.*`)
-    // works unchanged. The cast pins the type so TS knows the original
-    // shape survives.
+    // the signed, verified args under the same `params` name the generated
+    // request code expects.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<typeof ${schemaName}>>(context, {
+            incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
-        })
+${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-${originalHandlerBody}`
+        const params = __guard.verifiedArgs
+${executeHandlerBody}`
 
     const prepareBody = `{
     name: '${prepareName}',
@@ -1333,7 +1375,7 @@ ${prepareHandler}    },
     const executeBody = `{
     name: '${executeName}',
     schema: ${executeSchemaName},
-    handler: async (context: Context, params: z.infer<typeof ${executeSchemaName}>) => {
+    handler: async (context: Context, confirmationParams: z.infer<typeof ${executeSchemaName}>) => {
 ${executeHandler}    },
 }`
 

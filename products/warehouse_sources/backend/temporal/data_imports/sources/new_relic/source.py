@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewRelicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newrelic import (
+    NewRelicSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic import (
     NewRelicResumeConfig,
     new_relic_source,

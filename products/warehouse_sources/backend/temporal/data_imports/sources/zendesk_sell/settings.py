@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class ZendeskSellEndpointConfig:
@@ -58,3 +60,8 @@ ZENDESK_SELL_ENDPOINTS: dict[str, ZendeskSellEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(ZENDESK_SELL_ENDPOINTS.keys())
+
+# Every endpoint is full refresh: the Core API exposes no server-side `updated_after`/`since` filter,
+# so there are no incremental cursor fields. An empty list keeps `build_endpoint_schemas` marking each
+# table full-refresh (supports_incremental / supports_append both False).
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

@@ -16,7 +16,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+        PostgresSourceConfig,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
