@@ -20,7 +20,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
-from products.replay_vision.backend.prompt_suggestions import _LlmPromptSuggestion, generate_prompt_suggestion
+from products.replay_vision.backend.prompt_suggestions import generate_prompt_suggestion
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _CANNED_THEMES = _LlmFeedbackThemes(
@@ -116,7 +116,7 @@ class TestFeedbackThemes(_VisionAPITestCase):
             self._rate(f"sess-{i}", False, f"feedback {i}")
         with patch(
             "products.replay_vision.backend.prompt_suggestions._generate_agentic",
-            return_value=_LlmPromptSuggestion(suggested_prompt="new prompt", rationale="tightened"),
+            return_value={"suggested_prompt": "new prompt", "allow_inconclusive": False, "rationale": "tightened"},
         ) as mock_agentic:
             generate_prompt_suggestion(self.scanner)
         user_content = mock_agentic.call_args.kwargs["user_content"]
@@ -132,7 +132,7 @@ class TestFeedbackThemes(_VisionAPITestCase):
         self.mock_summarize.side_effect = RuntimeError("provider down")
         with patch(
             "products.replay_vision.backend.prompt_suggestions._generate_agentic",
-            return_value=_LlmPromptSuggestion(suggested_prompt="new prompt", rationale="tightened"),
+            return_value={"suggested_prompt": "new prompt", "allow_inconclusive": False, "rationale": "tightened"},
         ):
             suggestion = generate_prompt_suggestion(self.scanner)
         self.assertEqual(suggestion.suggested_prompt, "new prompt")
