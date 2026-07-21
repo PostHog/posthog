@@ -10978,6 +10978,7 @@ export namespace Schemas {
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
+     * * `hogql` - Hogql
      */
     export type ModelEnum = typeof ModelEnum[keyof typeof ModelEnum];
 
@@ -10986,6 +10987,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -11366,7 +11368,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
@@ -12213,7 +12216,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
@@ -15546,7 +15550,24 @@ export namespace Schemas {
       data_interval_end: string;
     }
 
-    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
+    export type FileDownloadHogQLRequestModel = typeof FileDownloadHogQLRequestModel[keyof typeof FileDownloadHogQLRequestModel];
+
+
+    export const FileDownloadHogQLRequestModel = {
+      Hogql: 'hogql',
+    } as const;
+
+    /**
+     * Typed configuration for the hogql model.
+     */
+    export interface FileDownloadHogQLRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadHogQLRequestModel;
+      /** HogQL SELECT query whose results are exported. Placeholders are not supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of the time the export starts; events ingested moments before may not be included yet. */
+      hogql_query: string;
+    }
+
+    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest | FileDownloadHogQLRequest;
 
     /**
      * * `cost` - cost
@@ -28600,6 +28621,7 @@ export namespace Schemas {
      * * `events` - events
      * * `persons` - persons
      * * `sessions` - sessions
+     * * `hogql` - hogql
      */
     export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
 
@@ -28608,6 +28630,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -28618,8 +28641,12 @@ export namespace Schemas {
       model: FileDownloadBatchExportOnDemandModelEnum;
       include?: string[];
       exclude?: string[];
-      data_interval_start: string;
-      data_interval_end: string;
+      /** HogQL SELECT query whose results are exported. Placeholders are not supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of the time the export starts; events ingested moments before may not be included yet. */
+      hogql_query?: string;
+      /** Start of the data interval to export */
+      data_interval_start?: string;
+      /** End of the data interval to export */
+      data_interval_end?: string;
     }
 
     /**
@@ -28630,6 +28657,16 @@ export namespace Schemas {
 
     export const FileDownloadEventsRequestModelEnum = {
       Events: 'events',
+    } as const;
+
+    /**
+     * * `hogql` - hogql
+     */
+    export type FileDownloadHogQLRequestModelEnum = typeof FileDownloadHogQLRequestModelEnum[keyof typeof FileDownloadHogQLRequestModelEnum];
+
+
+    export const FileDownloadHogQLRequestModelEnum = {
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -42972,7 +43009,8 @@ export namespace Schemas {
        *
        * * `events` - Events
        * * `persons` - Persons
-       * * `sessions` - Sessions */
+       * * `sessions` - Sessions
+       * * `hogql` - Hogql */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
