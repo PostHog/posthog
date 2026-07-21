@@ -181,6 +181,9 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert len(additions) == 1
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
 
+    # An APPROVED verdict never hands off to ReviewHog — the reviewhog label is a refusal-only signal.
+    assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sandbox_destroy_failure_does_not_mask_a_completed_review(team, stamphog_chain: StamphogChain) -> None:
@@ -1057,6 +1060,50 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
         assert label_removals == [{"kind": "remove_label", "repo": REPO, "number": 101, "label": "stamphog"}]
     else:
         assert label_removals == []
+
+    # A refused PR hands off to ReviewHog by adding its trigger label, in both review modes —
+    # stamphog couldn't sign off, so a deeper second-opinion review is wanted regardless of how the
+    # review was triggered.
+    label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
+    assert label_adds == [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["reviewhog"]}]
+
+
+@pytest.mark.parametrize(
+    "add_status,comment",
+    [
+        (422, "label does not exist on the repo (ReviewHog not enabled)"),
+        (500, "transient GitHub error"),
+    ],
+    ids=["swallows_missing_label", "best_effort_on_transient_error"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
+    team, stamphog_chain: StamphogChain, add_status: int, comment: str
+) -> None:
+    # The ReviewHog handoff is a secondary, cross-product notification: a failed handoff must never
+    # jeopardize the refusal verdict. A 422 (label missing on the repo — a vendored stamphog in another
+    # repo, or a repo without ReviewHog) is swallowed inside the client; a 500 is caught at the call
+    # site. Either way the run reaches REFUSED, not FAILED.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-refused-handoff"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(add_status, text=comment)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": _refused_engine_output()},
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.REFUSED
 
 
 @pytest.mark.parametrize(

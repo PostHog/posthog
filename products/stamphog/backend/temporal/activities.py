@@ -41,7 +41,11 @@ from posthog.temporal.oauth import create_oauth_access_token_for_user
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.github_client import (
+    StamphogGitHubClient,
+    StamphogGitHubError,
+    expected_app_bot_login,
+)
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -55,6 +59,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
     STAMPHOG_REVIEW_GUIDANCE_PATH,
+    STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_OWNERS_DIR,
@@ -759,6 +764,25 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         ReviewVerdict.ESCALATE,
     ):
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
+
+    # Hand a refused/escalated PR to ReviewHog regardless of review mode: stamphog couldn't sign off,
+    # so a deeper, second-opinion review is wanted. Adding the ReviewHog trigger label fires its
+    # workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
+    # strip it). Same verdict condition as the trigger-label strip above, for the same reason — a
+    # gate-blocked refusal counts. This is a secondary, cross-product notification that must never
+    # jeopardize the verdict, so it is best-effort: a 404/422 (label/repo unavailable) is swallowed
+    # inside the client, and any other failure is caught here so the refusal still lands. A transient
+    # 5xx still benefits from the activity retry before giving up — the sticky upsert above is
+    # idempotent, so a re-run re-posts it harmlessly.
+    if parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        try:
+            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
+        except StamphogGitHubError:
+            activity.logger.exception(
+                "stamphog: reviewhog handoff failed; verdict still posted",
+                repo=repo,
+                pr_number=pull_request.pr_number,
+            )
 
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at

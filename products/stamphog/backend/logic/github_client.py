@@ -1024,6 +1024,39 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
             )
 
+    def add_pr_label(self, repo: str, number: int, label: str) -> None:
+        """Add a label to a PR (``POST .../issues/{number}/labels``).
+
+        Hands a refused/escalated PR to ReviewHog by adding its trigger label, which the
+        ``review-hog.yml`` workflow routes to a fresh review (stamphog is the one sanctioned bot
+        exempted from that workflow's bot-labeler-skip). The handoff is a secondary, cross-product
+        notification — it must never jeopardize the verdict — so this method is best-effort: a 404 (repo
+        not found) or 422 (the label does not exist on the repo, i.e. ReviewHog isn't enabled there) is
+        swallowed, so a vendored stamphog in another repo never raises over a missing label. A transient
+        non-success raises so the activity retries, but callers must wrap the call so a persistent failure
+        still lets the verdict land (see post_verdict).
+        """
+        path = f"/repos/{repo}/issues/{number}/labels"
+        response = self._request(
+            "POST",
+            path,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels",
+            json_body={"labels": [label]},
+        )
+        if response.status_code in (404, 422):
+            logger.info(
+                "stamphog github: reviewhog label unavailable on repo, skipping handoff",
+                repo=repo,
+                pr_number=number,
+                status_code=response.status_code,
+            )
+            return
+        if response.status_code not in (200, 201):
+            raise StamphogGitHubError(
+                f"Failed to add label to {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+
     def dismiss_pr_review(self, repo: str, pr_number: int, review_id: int, message: str) -> None:
         """Dismiss a previously submitted review (``PUT .../reviews/{review_id}/dismissals``).
 
