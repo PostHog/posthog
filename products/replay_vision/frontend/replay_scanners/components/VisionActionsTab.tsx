@@ -270,7 +270,7 @@ function VisionActionsTable({
                         New summary
                     </LemonButton>
                 </EditorGate>
-                <EditorGate>
+                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
