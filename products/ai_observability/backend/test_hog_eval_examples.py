@@ -188,6 +188,30 @@ class TestHogEvalExamplesBehavior:
 
         assert result["verdict"] is False
 
+    @parameterized.expand([("Output not empty",), ("Min output length",), ("Output quality",)])
+    def test_generation_quality_checks_fail_without_generation_events(self, label: str) -> None:
+        bytecode = compile_hog(_get_source(label), "destination")
+        trace = LLMTrace(
+            id="trace-123",
+            createdAt=CLEAN_EVENT["timestamp"],
+            distinctId="test-user",
+            events=[
+                LLMTraceEvent(
+                    id="span-1",
+                    event="$ai_span",
+                    createdAt=CLEAN_EVENT["timestamp"],
+                    properties={"$ai_span_name": "agent"},
+                )
+            ],
+        )
+
+        result = execute_hog_eval_bytecode(
+            bytecode, build_trace_hog_globals(trace, trace.id, bytecode=bytecode), allows_na=False
+        )
+
+        assert result["verdict"] is False
+        assert "No generation events found" in result["reasoning"]
+
     @parameterized.expand([([{"type": "text", "text": ""}],), ({"choices": [{"text": ""}]},)])
     def test_output_not_empty_fails_on_empty_text_choice(self, output_choices):
         bytecode = compile_hog(_get_source("Output not empty"), "destination")

@@ -6,6 +6,7 @@ import structlog
 import temporalio
 from temporalio.exceptions import ApplicationError
 
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
@@ -20,15 +21,6 @@ from common.hogvm.python.operation import Operation
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
-
-HOG_EVENT_HEAVY_PROPERTY_KEYS = {
-    "$ai_input",
-    "$ai_output",
-    "$ai_output_choices",
-    "$ai_input_state",
-    "$ai_output_state",
-    "$ai_tools",
-}
 
 
 def coerce_hog_io_value(value: Any) -> str:
@@ -48,6 +40,31 @@ def _extract_hog_message_text(messages: Any) -> str:
     return str(messages)
 
 
+def _get_hog_output_choice_content(choice: dict[str, Any]) -> Any:
+    for key in ("content", "refusal", "text"):
+        value = choice.get(key)
+        if value is None or (isinstance(value, str | list | dict) and not value):
+            continue
+        return value
+    return None
+
+
+def _normalize_hog_output_choice(choice: dict[str, Any]) -> dict[str, Any] | None:
+    message = choice.get("message")
+    if isinstance(message, dict):
+        choice = message
+
+    if not any(key in choice for key in ("content", "refusal", "text", "tool_calls")):
+        return choice
+
+    content = _get_hog_output_choice_content(choice)
+    if content is None and not choice.get("tool_calls"):
+        return None
+    if content is not None and not isinstance(content, str | list | dict):
+        content = coerce_hog_io_value(content)
+    return {"content": content, "tool_calls": choice.get("tool_calls")}
+
+
 def _extract_hog_output_text(output: Any) -> str:
     if isinstance(output, dict) and isinstance(output.get("choices"), list):
         output = output["choices"]
@@ -55,24 +72,9 @@ def _extract_hog_output_text(output: Any) -> str:
     messages: list[Any] = []
     for choice in output if isinstance(output, list) else [output]:
         if isinstance(choice, dict):
-            message = choice.get("message")
-            if isinstance(message, dict):
-                choice = message
-            if "content" in choice or "refusal" in choice or "text" in choice or "tool_calls" in choice:
-                content = next(
-                    (
-                        value
-                        for key in ("content", "refusal", "text")
-                        if (value := choice.get(key)) is not None
-                        and (not isinstance(value, str | list | dict) or bool(value))
-                    ),
-                    None,
-                )
-                if content is None and not choice.get("tool_calls"):
-                    continue
-                if content is not None and not isinstance(content, str | list | dict):
-                    content = coerce_hog_io_value(content)
-                choice = {"content": content, "tool_calls": choice.get("tool_calls")}
+            choice = _normalize_hog_output_choice(choice)
+            if choice is None:
+                continue
         elif not isinstance(choice, str):
             choice = coerce_hog_io_value(choice)
         messages.append(choice)
@@ -108,7 +110,7 @@ def build_hog_event_global(
         "timestamp": timestamp,
         "input": coerce_hog_io_value(input_raw),
         "output": coerce_hog_io_value(output_raw),
-        "properties": {key: value for key, value in properties.items() if key not in HOG_EVENT_HEAVY_PROPERTY_KEYS},
+        "properties": {key: value for key, value in properties.items() if key not in HEAVY_PROPERTY_NAMES},
     }
     if include_text:
         event_global["input_text"] = _extract_hog_message_text(input_raw)

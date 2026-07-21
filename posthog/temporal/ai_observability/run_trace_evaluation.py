@@ -264,6 +264,7 @@ def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[An
     references_evaluation_events = bytecode is not None and hog_bytecode_references_global(
         bytecode, "evaluation_events"
     )
+    can_skip_compatibility_events = (references_target or references_evaluation_events) and not references_events
     globals_dict: dict[str, Any] = {
         "trace": {"id": trace_id, "event_count": len(trace_events)},
     }
@@ -274,7 +275,7 @@ def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[An
             "total_cost_usd": trace.totalCost,
             "total_latency_seconds": trace.totalLatency,
         }
-    if bytecode is None or references_events or not (references_target or references_evaluation_events):
+    if bytecode is None or not can_skip_compatibility_events:
         globals_dict["events"] = [
             build_hog_event_global(
                 event.event,

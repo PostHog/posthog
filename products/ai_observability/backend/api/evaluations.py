@@ -923,6 +923,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 ast.Field(chain=["event"]),
                 ast.Field(chain=["properties"]),
                 ast.Field(chain=["distinct_id"]),
+                ast.Field(chain=["timestamp"]),
                 *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
@@ -969,7 +970,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         for row in query_results:
             event_uuid = str(row[0])
             event_type = row[1]
-            heavy_values = row[4 : 4 + len(HEAVY_COLUMN_NAMES)]
+            timestamp = row[4]
+            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
             heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))
             properties = merge_heavy_properties(row[2], heavy_columns)
             distinct_id = row[3]
@@ -979,6 +981,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "event": event_type,
                 "properties": properties,
                 "distinct_id": distinct_id or "",
+                "timestamp": timestamp,
             }
 
             result = run_hog_eval(bytecode, event_data, allows_na=allows_na)

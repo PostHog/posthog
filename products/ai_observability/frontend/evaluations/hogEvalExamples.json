@@ -12,7 +12,7 @@
     {
         "key": "min_output_length",
         "label": "Min output length",
-        "source": "// Require every generation output to be at least 100 characters\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation' and length(item.output_text) < 100) {\n        print('Output too short:', length(item.output_text), 'chars')\n        return false\n    }\n}\nreturn true"
+        "source": "// Require every generation output to be at least 100 characters\nlet generation_count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        generation_count := generation_count + 1\n        if (length(item.output_text) < 100) {\n            print('Output too short:', length(item.output_text), 'chars')\n            return false\n        }\n    }\n}\nif (generation_count == 0) {\n    print('No generation events found')\n    return false\n}\nreturn true"
     },
     {
         "key": "contains_keywords",
@@ -37,7 +37,7 @@
     {
         "key": "output_quality",
         "label": "Output quality",
-        "source": "// Require every generation output to contain 50 to 10,000 characters\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        let output_length := length(item.output_text)\n        if (output_length < 50) {\n            print('Response too short:', output_length, 'chars')\n            return false\n        }\n        if (output_length > 10000) {\n            print('Response suspiciously long:', output_length, 'chars')\n            return false\n        }\n    }\n}\nreturn true"
+        "source": "// Require every generation output to contain 50 to 10,000 characters\nlet generation_count := 0\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        generation_count := generation_count + 1\n        let output_length := length(item.output_text)\n        if (output_length < 50) {\n            print('Response too short:', output_length, 'chars')\n            return false\n        }\n        if (output_length > 10000) {\n            print('Response suspiciously long:', output_length, 'chars')\n            return false\n        }\n    }\n}\nif (generation_count == 0) {\n    print('No generation events found')\n    return false\n}\nreturn true"
     },
     {
         "key": "tools_called",

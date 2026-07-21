@@ -946,6 +946,8 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
+    EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
+
     def _mock_hogql_response(self, count=1):
         from posthog.hogql.query import HogQLQueryResponse
 
@@ -962,13 +964,14 @@ class TestTestHogEndpoint(APIBaseTest):
                 "$ai_generation",
                 {"$ai_model": "gpt-5-mini"},
                 "user-1",
+                self.EVENT_TIMESTAMP,
                 *heavy_values,
             )
             for _ in range(count)
         ]
         return HogQLQueryResponse(
             results=rows,
-            columns=["uuid", "event", "properties", "distinct_id", *HEAVY_COLUMN_NAMES],
+            columns=["uuid", "event", "properties", "distinct_id", "timestamp", *HEAVY_COLUMN_NAMES],
         )
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
@@ -977,7 +980,13 @@ class TestTestHogEndpoint(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "return evaluation_events.1.output_text == '4'", "sample_count": 2},
+            {
+                "source": (
+                    "return evaluation_events.1.output_text == '4' "
+                    f"and evaluation_events.1.timestamp == '{self.EVENT_TIMESTAMP}'"
+                ),
+                "sample_count": 2,
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -994,7 +1003,8 @@ class TestTestHogEndpoint(APIBaseTest):
 
         query = mock_query.call_args.kwargs["query"]
         self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
-        self.assertEqual([field.chain for field in query.select[4:]], [[name] for name in HEAVY_COLUMN_NAMES])
+        self.assertEqual(query.select[4].chain, ["timestamp"])
+        self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
 
     def test_test_hog_compilation_error(self):
         response = self.client.post(
