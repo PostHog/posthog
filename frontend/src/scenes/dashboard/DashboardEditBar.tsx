@@ -9,9 +9,9 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -58,8 +58,7 @@ export function DashboardIntervalFilter(): JSX.Element {
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
     const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setFilterTestAccounts, setDashboardMode } =
-        useActions(dashboardLogic)
+    const { setDates, setProperties, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
@@ -180,22 +179,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 </BindLogic>
             </div>
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                <TestAccountFilterSwitch
-                    size="small"
-                    checked={effectiveEditBarFilters.filterTestAccounts ?? 'indeterminate'}
-                    onChange={(checked) => {
-                        if (dashboardMode !== DashboardMode.Edit) {
-                            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                        }
-                        setFilterTestAccounts(checked)
-                    }}
-                    onReset={() => {
-                        if (dashboardMode !== DashboardMode.Edit) {
-                            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                        }
-                        setFilterTestAccounts(null)
-                    }}
-                />
+                <DashboardEditBarAdvancedFilters />
             </div>
 
             <VariablesForDashboard />
