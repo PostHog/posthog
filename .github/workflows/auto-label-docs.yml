@@ -1,0 +1,44 @@
+name: Auto Label Docs
+
+# Adds the `docs` label to PRs opened by the Inkeep docs bot, or whose title uses
+# the conventional-commit `docs` type (`docs:` / `docs(scope):`). The website
+# team's project board uses this label to exclude docs PRs, since GitHub project
+# filters can't match on author.
+#
+# Uses `pull_request_target` so it gets a write token for PRs from any author
+# (including the Inkeep app). It never checks out or runs PR code, the PR title
+# is only read inside `if:` expressions (never interpolated into a shell), and
+# the only mutation is applying one fixed, pre-approved label — so an untrusted
+# PR has nothing to inject. As with the other *_target labelers, changes here
+# only take effect once merged to master.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        types: [opened, reopened, ready_for_review, edited]
+
+permissions:
+    contents: read
+    pull-requests: write
+    issues: write
+
+# A PR opened then quickly edited (title/base) queues redundant runs. Labeling
+# is idempotent, so drop any in-flight run for the same PR.
+concurrency:
+    group: auto-label-docs-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    label-docs:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: >-
+            github.event.pull_request.user.login == 'inkeep[bot]' ||
+            startsWith(github.event.pull_request.title, 'docs:') ||
+            startsWith(github.event.pull_request.title, 'docs(')
+        steps:
+            - name: Add docs label
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label docs
