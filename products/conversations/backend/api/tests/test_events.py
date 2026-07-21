@@ -1025,9 +1025,12 @@ class TestConversationEvents(BaseTest):
         assert self.ticket.organization_id is None
         capture_ticket_created(self.ticket)
 
-        self.ticket.refresh_from_db()
-        assert self.ticket.organization_id == str(person_org.id)
-        assert self.ticket.organization_id_source == OrganizationIdSource.PERSON
+        # Fetch a fresh instance: refresh_from_db() on self.ticket would leave mypy's
+        # None-narrowing from the precondition assert in place, making the equality
+        # assert "unreachable".
+        stored = Ticket.objects.get(id=self.ticket.id)
+        assert stored.organization_id == str(person_org.id)
+        assert stored.organization_id_source == OrganizationIdSource.PERSON
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._resolve_org_groups")

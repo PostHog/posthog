@@ -25,6 +25,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Prefetch, Q
 
+import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
@@ -82,6 +83,8 @@ from . import contracts
 
 # The "Update account property" workflow action (Hog template) stores the custom property values it
 # sets keyed by definition id under its ``properties`` input — the link we resolve into references.
+logger = structlog.get_logger(__name__)
+
 _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
 _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
@@ -252,19 +255,29 @@ def get_account(
 def get_account_ref_by_slack_channel_id(team_id: int, slack_channel_id: str) -> contracts.AccountRef | None:
     """Fetch the team's account whose ``slack_channel_id`` property matches the given channel.
 
-    The channel → account mapping is expected to be one-to-one; if several accounts
-    claim the same channel, the oldest wins so the result is deterministic.
+    The channel → account mapping is expected to be one-to-one; the property has no
+    uniqueness constraint, so if several accounts claim the same channel the mapping is
+    ambiguous (an import or config mistake) and attributing to any one of them risks
+    tagging tickets with the wrong customer — return None instead.
     """
     if not slack_channel_id:
         return None
-    row = (
+    rows = list(
         Account.objects.for_team(team_id)
         .filter(_properties__slack_channel_id=slack_channel_id)
-        .order_by("created_at")
-        .values("id", "name", "external_id")
-        .first()
+        .values("id", "name", "external_id")[:2]
     )
-    return _to_account_ref(row) if row else None
+    if not rows:
+        return None
+    if len(rows) > 1:
+        logger.warning(
+            "multiple_accounts_claim_slack_channel",
+            team_id=team_id,
+            slack_channel_id=slack_channel_id,
+        )
+        return None
+    row = rows[0]
+    return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
 
 
 # --- External (CDP worker) account API ---

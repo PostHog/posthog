@@ -103,7 +103,14 @@ export function RelatedGroups({
                 },
             },
         ],
-        [aggregationLabel, highlightGroupKey, highlightLabel, highlightLabelTooltip, highlightStale, highlightStaleTooltip]
+        [
+            aggregationLabel,
+            highlightGroupKey,
+            highlightLabel,
+            highlightLabelTooltip,
+            highlightStale,
+            highlightStaleTooltip,
+        ]
     )
 
     const nouns: [string, string] =

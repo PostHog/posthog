@@ -45,9 +45,13 @@ export function shouldShowCreationFallback(
 
 // `organization_id` is always a key of the "organization" group type (set that way at creation),
 // so we can resolve its index by name when the group isn't in a live related list.
-function useOrgGroupTypeIndex(): number | null {
-    const { groupTypes } = useValues(groupsModel)
-    return Array.from(groupTypes.values()).find((gt) => gt.group_type === 'organization')?.group_type_index ?? null
+function useOrgGroupTypeIndex(): { orgGroupTypeIndex: number | null; groupTypesLoading: boolean } {
+    const { groupTypes, groupTypesLoading } = useValues(groupsModel)
+    return {
+        orgGroupTypeIndex:
+            Array.from(groupTypes.values()).find((gt) => gt.group_type === 'organization')?.group_type_index ?? null,
+        groupTypesLoading,
+    }
 }
 
 function toGroupActor(group: Group): GroupActorType {
@@ -73,7 +77,7 @@ function PersonRelatedGroups({
     const { relatedActors, relatedActorsLoading } = useValues(
         relatedGroupsLogic({ groupTypeIndex: null, id: personUuid })
     )
-    const orgGroupTypeIndex = useOrgGroupTypeIndex()
+    const { orgGroupTypeIndex } = useOrgGroupTypeIndex()
 
     const { group: creationGroup } = useValues(
         creationGroupLogic({ groupTypeIndex: orgGroupTypeIndex, groupKey: organizationId ?? null })
@@ -115,12 +119,14 @@ function CreationGroupOnly({
     organizationId: string
     fromChannelAccount: boolean
 }): JSX.Element {
-    const orgGroupTypeIndex = useOrgGroupTypeIndex()
+    const { orgGroupTypeIndex, groupTypesLoading } = useOrgGroupTypeIndex()
     const { group: creationGroup, groupLoading } = useValues(
         creationGroupLogic({ groupTypeIndex: orgGroupTypeIndex, groupKey: organizationId })
     )
 
-    if (groupLoading) {
+    // While group types are loading, the index is transiently null and the group lookup
+    // no-ops — hold the loading state rather than flashing the empty state.
+    if (groupTypesLoading || groupLoading) {
         return <Spinner />
     }
     if (!creationGroup) {

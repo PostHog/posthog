@@ -84,6 +84,10 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert facade.get_account_ref_by_slack_channel_id(self.team.id, "C999") is None
         assert facade.get_account_ref_by_slack_channel_id(self.team.id, "") is None
 
+        # Two accounts claiming the same channel is a config error: attribution is ambiguous, so bail.
+        create_account(team_id=self.team.id, name="Acme Duplicate", _properties={"slack_channel_id": "C123"})
+        assert facade.get_account_ref_by_slack_channel_id(self.team.id, "C123") is None
+
     def test_get_account_context_data_bundles_tags_and_notes(self):
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
