@@ -335,6 +335,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.notifications",
+    "products.signals",
     "products.warehouse_sources",
 ]
 layer = "modules"
