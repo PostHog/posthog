@@ -349,7 +349,8 @@ jobs:
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
-        timeout-minutes: 60
+        # Healthy shards finish well under 15 minutes; the cap exists so a wedged shard fails fast.
+        timeout-minutes: 30
         container:
             image: ghcr.io/posthog/playwright:v1.60.0
         strategy:
