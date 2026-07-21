@@ -64,14 +64,14 @@ def _put(session: requests.Session, url: str, token: str, body: dict[str, str]) 
         raise click.ClickException(f"GitHub request failed: {exc}")
 
 
-def _upload(path: Path, key: str, token: str, session: requests.Session) -> str:
+def _upload(path: Path, key: str, token: str, session: requests.Session, message: str = _COMMIT_MESSAGE) -> str:
     """PUT the file to the contents API, returning the created commit sha.
 
     Retries once on HTTP 409 with the same key, since concurrent commits to the repo's
     default branch can race.
     """
     url = f"https://api.github.com/repos/{_REPO}/contents/{key}"
-    body = {"message": _COMMIT_MESSAGE, "content": _encode_base64(path)}
+    body = {"message": message, "content": _encode_base64(path)}
 
     resp = _put(session, url, token, body)
     if resp.status_code == 409:
