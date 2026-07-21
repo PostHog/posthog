@@ -30365,6 +30365,27 @@ export namespace Schemas {
       workflow?: HogFlow | null;
     }
 
+    export interface HogFlowRevision {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFlowRevisionBasic {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+    }
+
+    export interface HogFlowRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
+    }
+
     /**
      * @nullable
      */
@@ -38091,6 +38112,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
+    }
+
+    export interface PaginatedHogFlowRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowRevisionBasic[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -68111,6 +68141,36 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type EnvironmentsHogFlowsRevisionsListParams = {
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsRevisionsListStatus;
+    updated_at?: string;
+    };
+
+    export type EnvironmentsHogFlowsRevisionsListStatus = typeof EnvironmentsHogFlowsRevisionsListStatus[keyof typeof EnvironmentsHogFlowsRevisionsListStatus];
+
+
+    export const EnvironmentsHogFlowsRevisionsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
+
     export type EnvironmentsHogFlowsMetricsGlobalRetrieveParams = {
     /**
      * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
@@ -75736,6 +75796,36 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    export type HogFlowsRevisionsListParams = {
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: HogFlowsRevisionsListStatus;
+    updated_at?: string;
+    };
+
+    export type HogFlowsRevisionsListStatus = typeof HogFlowsRevisionsListStatus[keyof typeof HogFlowsRevisionsListStatus];
+
+
+    export const HogFlowsRevisionsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
     } as const;
 
     export type HogFlowsMetricsGlobalRetrieveParams = {

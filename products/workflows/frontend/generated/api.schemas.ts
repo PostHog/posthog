@@ -973,6 +973,36 @@ export interface HogInvocationRerunResponseApi {
     skipped_count: number
 }
 
+export interface HogFlowRevisionBasicApi {
+    /** Workflow version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedHogFlowRevisionBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowRevisionBasicApi[]
+}
+
+export interface HogFlowRevisionApi {
+    /** Workflow version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+    readonly content: unknown
+}
+
+export interface HogFlowRevisionRestoreRequestApi {
+    /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+    overwrite?: boolean
+}
+
 export interface PatchedHogFlowScheduleApi {
     readonly id?: string
     /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
@@ -1366,6 +1396,35 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Hour: 'hour',
     Day: 'day',
     Week: 'week',
+} as const
+
+export type HogFlowsRevisionsListParams = {
+    created_at?: string
+    created_by?: number
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: HogFlowsRevisionsListStatus
+    updated_at?: string
+}
+
+export type HogFlowsRevisionsListStatus = (typeof HogFlowsRevisionsListStatus)[keyof typeof HogFlowsRevisionsListStatus]
+
+export const HogFlowsRevisionsListStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
 } as const
 
 export type HogFlowsMetricsGlobalRetrieveParams = {
