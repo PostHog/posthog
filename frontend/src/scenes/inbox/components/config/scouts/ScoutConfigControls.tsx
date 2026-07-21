@@ -104,14 +104,22 @@ export function ScoutConfigForm({
                         </span>
                     </div>
                     <LemonInput
+                        key={config.run_time_of_day ?? 'unset'}
                         type="time"
+                        step={60}
                         size="small"
-                        value={config.run_time_of_day?.slice(0, 5) ?? ''}
+                        defaultValue={config.run_time_of_day?.slice(0, 5) ?? ''}
                         disabledReason={
                             updating ? 'Saving scout settings' : config.enabled ? undefined : 'Enable the scout first'
                         }
                         className="w-36"
-                        onChange={(value) => onUpdate(config.id, { run_time_of_day: value ? `${value}:00` : null })}
+                        onBlur={(event) => {
+                            const value = event.currentTarget.value
+                            const runTimeOfDay = value ? `${value}:00` : null
+                            if (runTimeOfDay !== config.run_time_of_day) {
+                                onUpdate(config.id, { run_time_of_day: runTimeOfDay })
+                            }
+                        }}
                     />
                 </div>
             ) : null}
