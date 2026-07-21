@@ -4,21 +4,17 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import type { OrganizationType } from '~/types'
 
-import { billingAlertNotificationLogic, createPendingBillingDestinations } from './billingAlertNotificationLogic'
+import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
+import type { PendingBillingAlertDestination } from './billingAlertNotificationLogic'
 import { billingAlertsLogic } from './billingAlertsLogic'
-import {
-    billingAlertsCreate,
-    billingAlertsDestroy,
-    billingAlertsPartialUpdate,
-    billingAlertsRetrieve,
-} from './generated/api'
+import { billingAlertsCreate, billingAlertsPartialUpdate } from './generated/api'
 import type {
     BillingAlertConfigurationApi,
-    CheckIntervalHoursEnumApi,
     PatchedBillingAlertConfigurationApi,
     ThresholdTypeEnumApi,
 } from './generated/api.schemas'
@@ -33,12 +29,59 @@ export interface BillingAlertFormValues {
     minimumValue: number
     baselineWindowDays: number
     evaluationDelayHours: number
-    checkIntervalHours: CheckIntervalHoursEnumApi
     cooldownHours: number
 }
 
 export interface BillingAlertFormLogicProps {
     alert: BillingAlertConfigurationApi | null
+}
+
+const API_FIELD_TO_FORM_FIELD: Record<string, keyof BillingAlertFormValues> = {
+    name: 'name',
+    description: 'description',
+    enabled: 'enabled',
+    threshold_type: 'thresholdType',
+    threshold_percentage: 'thresholdPercentage',
+    threshold_value: 'thresholdValue',
+    minimum_value: 'minimumValue',
+    baseline_window_days: 'baselineWindowDays',
+    evaluation_delay_hours: 'evaluationDelayHours',
+    cooldown_hours: 'cooldownHours',
+}
+
+function firstErrorMessage(value: unknown): string | undefined {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (Array.isArray(value)) {
+        return value.map(firstErrorMessage).find(Boolean)
+    }
+    if (value && typeof value === 'object') {
+        return Object.values(value).map(firstErrorMessage).find(Boolean)
+    }
+    return undefined
+}
+
+export function formErrorsFromApiError(error: unknown): Record<string, string> {
+    if (!(error instanceof ApiError) || !error.data || typeof error.data !== 'object' || Array.isArray(error.data)) {
+        return {}
+    }
+    return Object.fromEntries(
+        Object.entries(error.data)
+            .map(([field, value]) => {
+                const formField = API_FIELD_TO_FORM_FIELD[field]
+                const message = firstErrorMessage(value)
+                return formField && message ? [formField, message] : null
+            })
+            .filter((entry): entry is [string, string] => entry !== null)
+    )
+}
+
+export function billingAlertSaveErrorMessage(error: unknown): string {
+    if (error instanceof ApiError) {
+        return error.detail || firstErrorMessage(error.data) || error.message || 'Failed to save billing alert.'
+    }
+    return error instanceof Error ? error.message : 'Failed to save billing alert.'
 }
 
 function numberValue(value: string | null | undefined, fallback: number): number {
@@ -57,12 +100,14 @@ function formDefaults(alert: BillingAlertConfigurationApi | null): BillingAlertF
         minimumValue: numberValue(alert?.minimum_value, 0),
         baselineWindowDays: alert?.baseline_window_days ?? 7,
         evaluationDelayHours: alert?.evaluation_delay_hours ?? 6,
-        checkIntervalHours: alert?.check_interval_hours ?? 24,
         cooldownHours: alert?.cooldown_hours ?? 24,
     }
 }
 
-function payload(form: BillingAlertFormValues): PatchedBillingAlertConfigurationApi {
+export function billingAlertWritePayload(
+    form: BillingAlertFormValues,
+    pending: PendingBillingAlertDestination[]
+): PatchedBillingAlertConfigurationApi {
     return {
         name: form.name.trim(),
         description: form.description.trim(),
@@ -73,8 +118,8 @@ function payload(form: BillingAlertFormValues): PatchedBillingAlertConfiguration
         minimum_value: String(form.minimumValue),
         baseline_window_days: form.baselineWindowDays,
         evaluation_delay_hours: form.evaluationDelayHours,
-        check_interval_hours: form.checkIntervalHours,
         cooldown_hours: form.cooldownHours,
+        ...(pending.length > 0 ? { destination_changes: { create: pending.map(({ payload }) => payload) } } : {}),
     }
 }
 
@@ -99,9 +144,6 @@ export interface billingAlertFormLogicValues {
 export interface billingAlertFormLogicActions {
     closeEditor: () => {
         value: true
-    } // billingAlertsLogic
-    editAlert: (alert: BillingAlertConfigurationApi) => {
-        alert: BillingAlertConfigurationApi
     } // billingAlertsLogic
     loadAlerts: () => void // billingAlertsLogic
     resetAlertForm: (values?: BillingAlertFormValues) => {
@@ -159,7 +201,7 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
     key(({ alert }) => alert?.id ?? 'new'),
     connect({
         values: [billingLogic, ['currentOrganization']],
-        actions: [billingAlertsLogic, ['loadAlerts', 'closeEditor', 'editAlert']],
+        actions: [billingAlertsLogic, ['loadAlerts', 'closeEditor']],
     }),
     afterMount(({ actions, props }) => {
         actions.resetAlertForm(formDefaults(props.alert))
@@ -186,9 +228,6 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                     form.evaluationDelayHours < 0 || form.evaluationDelayHours > 72
                         ? 'Use a delay between 0 and 72 hours.'
                         : undefined,
-                checkIntervalHours: !([1, 2, 3, 4, 6, 8, 12, 24] as number[]).includes(form.checkIntervalHours)
-                    ? 'Choose a supported check interval.'
-                    : undefined,
                 cooldownHours:
                     form.cooldownHours < 0 || form.cooldownHours > 720
                         ? 'Use a cooldown between 0 and 720 hours.'
@@ -207,56 +246,29 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                     throw new Error('A notification destination is required.')
                 }
 
-                let created: BillingAlertConfigurationApi | null = null
-                let createdDestinationKeys: string[] = []
                 try {
-                    const formPayload = payload(form)
-                    const saved = props.alert
-                        ? await billingAlertsPartialUpdate(organizationId, props.alert.id, formPayload)
-                        : await billingAlertsCreate(organizationId, {
-                              ...formPayload,
-                              enabled: false,
-                          } as Parameters<typeof billingAlertsCreate>[1])
-                    created = props.alert ? null : saved
-
-                    const destinationResult = await createPendingBillingDestinations(organizationId, saved.id, pending)
-                    const { createdKeys } = destinationResult
-                    createdDestinationKeys = createdKeys
-                    if (destinationResult.error) {
-                        if (props.alert) {
-                            notificationLogic.actions.clearCreatedDestinations(createdKeys)
-                            try {
-                                actions.editAlert(await billingAlertsRetrieve(organizationId, saved.id))
-                            } catch {
-                                actions.loadAlerts()
-                            }
-                        }
-                        throw destinationResult.error
+                    const pendingKeys = pending.map(({ key }) => key)
+                    const formPayload = billingAlertWritePayload(form, pending)
+                    if (props.alert) {
+                        await billingAlertsPartialUpdate(organizationId, props.alert.id, formPayload)
+                    } else {
+                        await billingAlertsCreate(
+                            organizationId,
+                            formPayload as Parameters<typeof billingAlertsCreate>[1]
+                        )
                     }
-                    if (!props.alert && form.enabled) {
-                        await billingAlertsPartialUpdate(organizationId, saved.id, { enabled: true })
-                    }
-                    notificationLogic.actions.clearCreatedDestinations(createdKeys)
+                    notificationLogic.actions.clearCreatedDestinations(pendingKeys)
 
                     lemonToast.success(props.alert ? 'Billing alert updated.' : 'Billing alert created.')
                     actions.loadAlerts()
                     actions.closeEditor()
                     return form
                 } catch (error) {
-                    if (created) {
-                        try {
-                            await billingAlertsDestroy(organizationId, created.id)
-                        } catch {
-                            notificationLogic.actions.clearCreatedDestinations(createdDestinationKeys)
-                            try {
-                                actions.editAlert(await billingAlertsRetrieve(organizationId, created.id))
-                            } catch {
-                                actions.editAlert(created)
-                            }
-                            lemonToast.warning('The alert was saved disabled. Add its destination and enable it.')
-                        }
+                    const fieldErrors = formErrorsFromApiError(error)
+                    if (Object.keys(fieldErrors).length > 0) {
+                        actions.setAlertFormManualErrors(fieldErrors)
                     }
-                    const message = error instanceof Error ? error.message : 'Failed to save billing alert.'
+                    const message = billingAlertSaveErrorMessage(error)
                     lemonToast.error(message)
                     throw error
                 }

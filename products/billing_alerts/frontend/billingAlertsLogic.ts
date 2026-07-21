@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'
 
@@ -16,6 +17,50 @@ const EMPTY_ALERTS_PAGE: PaginatedBillingAlertConfigurationListApi = {
     next: null,
     previous: null,
     results: [],
+}
+
+function offsetFromPageLink(link: string | null | undefined, fallback: number): number {
+    if (!link) {
+        return fallback
+    }
+    try {
+        const offset = Number(new URL(link, 'https://app.posthog.com').searchParams.get('offset'))
+        return Number.isSafeInteger(offset) && offset >= 0 ? offset : fallback
+    } catch {
+        return fallback
+    }
+}
+
+export function mergeUniqueAlerts(
+    current: BillingAlertConfigurationApi[],
+    incoming: BillingAlertConfigurationApi[]
+): BillingAlertConfigurationApi[] {
+    const knownIds = new Set(current.map((alert) => alert.id))
+    return [
+        ...current,
+        ...incoming.filter((alert) => {
+            if (knownIds.has(alert.id)) {
+                return false
+            }
+            knownIds.add(alert.id)
+            return true
+        }),
+    ]
+}
+
+export const CHECK_NOW_CONFIRMATION_DESCRIPTION =
+    'This evaluates live billing data and may send Slack, Microsoft Teams, or webhook notifications.'
+
+export function openBillingAlertCheckNowConfirmation(onConfirm: () => void): void {
+    LemonDialog.open({
+        title: 'Check billing alert now?',
+        description: CHECK_NOW_CONFIRMATION_DESCRIPTION,
+        primaryButton: {
+            children: 'Check now',
+            onClick: onConfirm,
+        },
+        secondaryButton: { children: 'Cancel' },
+    })
 }
 
 function errorMessage(error: unknown): string {
@@ -52,9 +97,18 @@ export interface billingAlertsLogicActions {
     editAlert: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
     closeEditor: () => { value: true }
     checkNow: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
+    runCheckNow: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
     deleteAlert: (alert: BillingAlertConfigurationApi) => { alert: BillingAlertConfigurationApi }
     setCheckingAlertId: (alertId: string | null) => { alertId: string | null }
     setDeletingAlertId: (alertId: string, deleting: boolean) => { alertId: string; deleting: boolean }
+    resetOrganizationState: () => { value: true }
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    }
 }
 
 export type billingAlertsLogicType = MakeLogicType<billingAlertsLogicValues, billingAlertsLogicActions>
@@ -63,15 +117,18 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
     path(['products', 'billingAlerts', 'frontend', 'billingAlertsLogic']),
     connect({
         values: [billingLogic, ['canAccessBilling', 'currentOrganization']],
+        actions: [organizationLogic, ['loadCurrentOrganizationSuccess']],
     }),
     actions({
         createAlert: true,
         editAlert: (alert: BillingAlertConfigurationApi) => ({ alert }),
         closeEditor: true,
         checkNow: (alert: BillingAlertConfigurationApi) => ({ alert }),
+        runCheckNow: (alert: BillingAlertConfigurationApi) => ({ alert }),
         deleteAlert: (alert: BillingAlertConfigurationApi) => ({ alert }),
         setCheckingAlertId: (alertId: string | null) => ({ alertId }),
         setDeletingAlertId: (alertId: string, deleting: boolean) => ({ alertId, deleting }),
+        resetOrganizationState: true,
     }),
     reducers({
         selectedAlert: [
@@ -79,6 +136,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             {
                 createAlert: () => null,
                 editAlert: (_, { alert }) => alert,
+                resetOrganizationState: () => null,
             },
         ],
         isEditorOpen: [
@@ -87,17 +145,53 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 createAlert: () => true,
                 editAlert: () => true,
                 closeEditor: () => false,
+                resetOrganizationState: () => false,
             },
         ],
-        checkingAlertId: [null as string | null, { setCheckingAlertId: (_, { alertId }) => alertId }],
+        checkingAlertId: [
+            null as string | null,
+            { setCheckingAlertId: (_, { alertId }) => alertId, resetOrganizationState: () => null },
+        ],
         deletingAlertIds: [
             new Set<string>(),
             {
                 setDeletingAlertId: (state, { alertId, deleting }) =>
                     deleting ? new Set([...state, alertId]) : new Set([...state].filter((id) => id !== alertId)),
+                resetOrganizationState: () => new Set(),
             },
         ],
     }),
+    loaders(({ values }) => ({
+        alertsPage: [
+            EMPTY_ALERTS_PAGE,
+            {
+                loadAlerts: async (_, breakpoint) => {
+                    if (!values.currentOrganization?.id || !values.canAccessBilling) {
+                        return EMPTY_ALERTS_PAGE
+                    }
+                    await breakpoint()
+                    const page = await billingAlertsList(values.currentOrganization.id, { limit: 30 })
+                    await breakpoint()
+                    return page
+                },
+                loadMoreAlerts: async (_, breakpoint) => {
+                    if (!values.currentOrganization?.id || !values.alertsPage.next) {
+                        return values.alertsPage
+                    }
+                    await breakpoint()
+                    const nextPage = await billingAlertsList(values.currentOrganization.id, {
+                        limit: 30,
+                        offset: offsetFromPageLink(values.alertsPage.next, values.alertsPage.results.length),
+                    })
+                    await breakpoint()
+                    return {
+                        ...nextPage,
+                        results: mergeUniqueAlerts(values.alertsPage.results, nextPage.results),
+                    }
+                },
+            },
+        ],
+    })),
     selectors({
         alerts: [
             (selectors) => [selectors.alertsPage],
@@ -105,32 +199,6 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 alertsPage.results,
         ],
     }),
-    loaders(({ values }) => ({
-        alertsPage: [
-            EMPTY_ALERTS_PAGE,
-            {
-                loadAlerts: async () => {
-                    if (!values.currentOrganization?.id || !values.canAccessBilling) {
-                        return EMPTY_ALERTS_PAGE
-                    }
-                    return billingAlertsList(values.currentOrganization.id, { limit: 30 })
-                },
-                loadMoreAlerts: async () => {
-                    if (!values.currentOrganization?.id || !values.alertsPage.next) {
-                        return values.alertsPage
-                    }
-                    const nextPage = await billingAlertsList(values.currentOrganization.id, {
-                        limit: 30,
-                        offset: values.alertsPage.results.length,
-                    })
-                    return {
-                        ...nextPage,
-                        results: [...values.alertsPage.results, ...nextPage.results],
-                    }
-                },
-            },
-        ],
-    })),
     listeners(({ actions, values }) => ({
         loadAlertsFailure: ({ error, errorObject }) => {
             lemonToast.error(errorMessage(errorObject ?? error))
@@ -138,36 +206,60 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         loadMoreAlertsFailure: ({ error, errorObject }) => {
             lemonToast.error(errorMessage(errorObject ?? error))
         },
-        checkNow: async ({ alert }) => {
-            if (!values.currentOrganization?.id || values.checkingAlertId) {
+        loadCurrentOrganizationSuccess: () => {
+            actions.resetOrganizationState()
+            actions.loadAlertsSuccess(EMPTY_ALERTS_PAGE)
+            actions.loadAlerts()
+        },
+        checkNow: ({ alert }) => {
+            openBillingAlertCheckNowConfirmation(() => actions.runCheckNow(alert))
+        },
+        runCheckNow: async ({ alert }) => {
+            const organizationId = values.currentOrganization?.id
+            if (!organizationId || values.checkingAlertId) {
                 return
             }
             actions.setCheckingAlertId(alert.id)
             try {
-                const result = await billingAlertsCheckNowCreate(values.currentOrganization.id, alert.id)
+                const result = await billingAlertsCheckNowCreate(organizationId, alert.id)
+                if (values.currentOrganization?.id !== organizationId) {
+                    return
+                }
                 lemonToast.success(result.event.kind === 'firing' ? 'Billing alert fired.' : 'Billing alert checked.')
                 actions.closeEditor()
                 actions.loadAlerts()
             } catch (error) {
-                lemonToast.error(errorMessage(error))
+                if (values.currentOrganization?.id === organizationId) {
+                    lemonToast.error(errorMessage(error))
+                }
             } finally {
-                actions.setCheckingAlertId(null)
+                if (values.currentOrganization?.id === organizationId && values.checkingAlertId === alert.id) {
+                    actions.setCheckingAlertId(null)
+                }
             }
         },
         deleteAlert: async ({ alert }) => {
-            if (!values.currentOrganization?.id || values.deletingAlertIds.has(alert.id)) {
+            const organizationId = values.currentOrganization?.id
+            if (!organizationId || values.deletingAlertIds.has(alert.id)) {
                 return
             }
             actions.setDeletingAlertId(alert.id, true)
             try {
-                await billingAlertsDestroy(values.currentOrganization.id, alert.id)
+                await billingAlertsDestroy(organizationId, alert.id)
+                if (values.currentOrganization?.id !== organizationId) {
+                    return
+                }
                 lemonToast.success('Billing alert deleted.')
                 actions.closeEditor()
                 actions.loadAlerts()
             } catch (error) {
-                lemonToast.error(errorMessage(error))
+                if (values.currentOrganization?.id === organizationId) {
+                    lemonToast.error(errorMessage(error))
+                }
             } finally {
-                actions.setDeletingAlertId(alert.id, false)
+                if (values.currentOrganization?.id === organizationId) {
+                    actions.setDeletingAlertId(alert.id, false)
+                }
             }
         },
     })),

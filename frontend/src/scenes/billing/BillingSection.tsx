@@ -35,25 +35,35 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
     { key: 'alerts', label: 'Alerts' },
 ]
 
+export function shouldRedirectFromBillingAlerts(
+    pathname: string,
+    receivedFeatureFlags: boolean,
+    billingAlertsEnabled: boolean
+): boolean {
+    return pathname.includes('alerts') && receivedFeatureFlags && !billingAlertsEnabled
+}
+
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
-    const tabs = billingAlertsEnabled ? allTabs : allTabs.filter((tab) => tab.key !== 'alerts')
+    const alertsRequested = location.pathname.includes('alerts')
+    const billingAlertsPending = alertsRequested && !receivedFeatureFlags
+    const tabs = billingAlertsEnabled || billingAlertsPending ? allTabs : allTabs.filter((tab) => tab.key !== 'alerts')
 
     const section = location.pathname.includes('spend')
         ? 'spend'
         : location.pathname.includes('usage')
           ? 'usage'
-          : location.pathname.includes('alerts') && billingAlertsEnabled
+          : alertsRequested && (billingAlertsEnabled || billingAlertsPending)
             ? 'alerts'
             : 'overview'
 
     useEffect(() => {
-        if (location.pathname.includes('alerts') && !billingAlertsEnabled) {
+        if (shouldRedirectFromBillingAlerts(location.pathname, receivedFeatureFlags, billingAlertsEnabled)) {
             router.actions.replace(urls.organizationBillingSection('overview'))
         }
-    }, [billingAlertsEnabled, location.pathname])
+    }, [billingAlertsEnabled, location.pathname, receivedFeatureFlags])
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -91,7 +101,7 @@ export function BillingSection(): JSX.Element {
             {section === 'spend' && <BillingSpendView />}
             {section === 'alerts' && (
                 <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
-                    <BillingAlerts />
+                    {billingAlertsPending ? <Spinner className="text-3xl mx-auto my-8" /> : <BillingAlerts />}
                 </Suspense>
             )}
         </div>

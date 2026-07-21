@@ -4,6 +4,8 @@ from decimal import Decimal
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.utils import absolute_uri
+
 from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.billing_alerts.backend.logic.notifications import (
     commit_pending_billing_alert_dispatch,
@@ -111,6 +113,7 @@ class TestBillingAlertNotifications(BaseTest):
         assert event.targets_notified == {"hog_functions": [str(destination.id)]}
         assert produce.call_args.kwargs["event_name"] == EVENT_KIND_CONFIG["firing"].event_id
         assert produce.call_args.kwargs["uuid"] == str(event.claim.delivery_uuid)
+        assert produce.call_args.kwargs["properties"]["alert_url"] == absolute_uri("/organization/billing/alerts")
         assert "billing_alert_destination_ids" not in produce.call_args.kwargs["properties"]
         flush.assert_called_once()
         delivered.assert_called_once_with(

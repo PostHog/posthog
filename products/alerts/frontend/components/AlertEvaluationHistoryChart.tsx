@@ -16,7 +16,7 @@ export interface AlertEvaluationHistoryPoint {
     label: string
     value: number
     firedAtTime?: boolean
-    wouldFireUnderCurrentConfiguration?: boolean
+    wouldFireUnderCurrentConfiguration?: boolean | null
 }
 
 export interface AlertEvaluationThreshold {

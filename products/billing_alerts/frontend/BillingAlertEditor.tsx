@@ -21,17 +21,6 @@ import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
 import { BillingAlertNotifications } from './BillingAlertNotifications'
 import { billingAlertsLogic } from './billingAlertsLogic'
 
-const CHECK_INTERVAL_OPTIONS = [
-    { value: 1 as const, label: 'Every hour' },
-    { value: 2 as const, label: 'Every 2 hours' },
-    { value: 3 as const, label: 'Every 3 hours' },
-    { value: 4 as const, label: 'Every 4 hours' },
-    { value: 6 as const, label: 'Every 6 hours' },
-    { value: 8 as const, label: 'Every 8 hours' },
-    { value: 12 as const, label: 'Every 12 hours' },
-    { value: 24 as const, label: 'Every 24 hours' },
-]
-
 export function BillingAlertEditor(props: BillingAlertFormLogicProps): JSX.Element {
     const notificationProps = { alert: props.alert }
 
@@ -53,7 +42,6 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
     const enabledAdvancedOptionsCount =
         Number(alertForm.minimumValue > 0) +
         Number(alertForm.evaluationDelayHours !== 6) +
-        Number(alertForm.checkIntervalHours !== 24) +
         Number(alertForm.cooldownHours !== 24)
 
     return (
@@ -66,7 +54,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
         >
             <AlertEditor
                 title={props.alert ? 'Edit billing alert' : 'New billing alert'}
-                description="Billing alerts evaluate organization spend against a daily threshold."
+                description="Billing alerts evaluate organization spend daily against a configured threshold."
                 onBack={closeEditor}
                 isEditing={props.alert !== null}
                 isSubmitting={isAlertFormSubmitting}
@@ -99,8 +87,8 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                         enabled={{ checked: alertForm.enabled, dataAttr: 'billing-alert-enabled' }}
                         nameDataAttr="billing-alert-name"
                     />
-                    <LemonField name="description" label="Description">
-                        <LemonTextArea placeholder="What should your team do when this fires?" />
+                    <LemonField name="description" label="Internal note">
+                        <LemonTextArea placeholder="Only visible in PostHog." />
                     </LemonField>
 
                     <AlertEditorSection
@@ -201,14 +189,6 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                                     value={alertForm.evaluationDelayHours}
                                     onChange={(value) => setAlertFormValue('evaluationDelayHours', value ?? 0)}
                                     suffix={<span>hours</span>}
-                                />
-                            </LemonField>
-                            <LemonField name="checkIntervalHours" label="Check interval">
-                                <LemonSelect
-                                    fullWidth
-                                    value={alertForm.checkIntervalHours}
-                                    onChange={(value) => setAlertFormValue('checkIntervalHours', value)}
-                                    options={CHECK_INTERVAL_OPTIONS}
                                 />
                             </LemonField>
                             <LemonField name="cooldownHours" label="Notification cooldown">

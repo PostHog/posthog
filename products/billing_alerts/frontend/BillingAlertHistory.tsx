@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -63,20 +63,32 @@ function chartThreshold(alert: BillingAlertConfigurationApi): AlertEvaluationThr
     return [{ direction: 'upper', value, label }]
 }
 
+export function historyPoint(
+    alert: BillingAlertConfigurationApi,
+    event: BillingAlertEventApi
+): AlertEvaluationHistoryPoint | null {
+    const value = eventValue(alert, event)
+    if (value === null) {
+        return null
+    }
+    return {
+        label: dayjs(event.created_at).format('MMM D, HH:mm'),
+        value,
+        firedAtTime: event.kind === 'firing',
+        wouldFireUnderCurrentConfiguration:
+            event.configuration_revision === alert.configuration_revision ? wouldFire(alert, event) : null,
+    }
+}
+
 function chartPoints(
     alert: BillingAlertConfigurationApi,
     events: BillingAlertEventApi[]
 ): AlertEvaluationHistoryPoint[] {
     return events
-        .map((event) => ({ event, value: eventValue(alert, event) }))
-        .filter((item): item is { event: BillingAlertEventApi; value: number } => item.value !== null)
-        .sort((left, right) => left.event.created_at.localeCompare(right.event.created_at))
-        .map(({ event, value }) => ({
-            label: dayjs(event.created_at).format('MMM D, HH:mm'),
-            value,
-            firedAtTime: event.state_after === 'firing',
-            wouldFireUnderCurrentConfiguration: wouldFire(alert, event),
-        }))
+        .slice()
+        .sort((left, right) => left.created_at.localeCompare(right.created_at))
+        .map((event) => historyPoint(alert, event))
+        .filter((point): point is AlertEvaluationHistoryPoint => point !== null)
 }
 
 function eventTag(event: BillingAlertEventApi): { label: string; type: LemonTagType } {
@@ -87,7 +99,7 @@ function eventTag(event: BillingAlertEventApi): { label: string; type: LemonTagT
         return { label: 'Resolved', type: 'success' }
     }
     if (event.kind === 'errored' || event.kind === 'broken_config') {
-        return { label: event.kind === 'errored' ? 'Errored' : 'Broken', type: 'warning' }
+        return { label: event.kind === 'errored' ? 'Errored' : 'Auto-disabled', type: 'warning' }
     }
     return { label: 'Check', type: 'default' }
 }
@@ -101,8 +113,8 @@ export function BillingAlertHistory({ alert }: { alert: BillingAlertConfiguratio
 }
 
 function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfigurationApi }): JSX.Element {
-    const { eventsPage, eventsPageLoading } = useValues(billingAlertHistoryLogic)
-    const { loadMoreEvents } = useActions(billingAlertHistoryLogic)
+    const { currentPage, eventsPage, eventsPageLoading } = useValues(billingAlertHistoryLogic)
+    const { loadMoreEvents, loadPreviousEvents } = useActions(billingAlertHistoryLogic)
     const points = chartPoints(alert, eventsPage.results.slice(0, 50))
     const valueLabel =
         alert.threshold_type === 'relative_increase'
@@ -158,14 +170,17 @@ function BillingAlertHistoryContent({ alert }: { alert: BillingAlertConfiguratio
                     loading={eventsPageLoading}
                     size="small"
                     emptyState="No evaluations yet."
+                    nouns={['evaluation', 'evaluations']}
+                    pagination={{
+                        controlled: true,
+                        hideOnSinglePage: false,
+                        currentPage,
+                        pageSize: 50,
+                        entryCount: eventsPage.count,
+                        onForward: eventsPage.next ? () => loadMoreEvents(undefined) : undefined,
+                        onBackward: eventsPage.previous ? () => loadPreviousEvents(undefined) : undefined,
+                    }}
                 />
-                {eventsPage.next ? (
-                    <div className="flex justify-center">
-                        <LemonButton type="secondary" loading={eventsPageLoading} onClick={loadMoreEvents}>
-                            Load older evaluations
-                        </LemonButton>
-                    </div>
-                ) : null}
             </div>
         </AlertEditorSection>
     )

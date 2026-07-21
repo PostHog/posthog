@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.kafka_client.client import ProduceResult
+from posthog.utils import absolute_uri
 
 from products.alerts.backend.destinations import (
     alert_internal_event_delivered,
@@ -58,6 +59,7 @@ def _properties(event: BillingAlertEvent, now: datetime, *, consecutive_failures
     return {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
+        "alert_url": absolute_uri("/organization/billing/alerts"),
         "metric": event.metric,
         "threshold_type": alert.threshold_type,
         "threshold_percentage": str(event.threshold_percentage_snapshot)
