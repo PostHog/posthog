@@ -33,6 +33,9 @@ tools:
     sandbox-custom-images-list:
         operation: sandbox_custom_images_list
         enabled: false
+    sandbox-custom-images-partial-update:
+        operation: sandbox_custom_images_partial_update
+        enabled: false
     sandbox-custom-images-retrieve:
         operation: sandbox_custom_images_retrieve
         enabled: false
