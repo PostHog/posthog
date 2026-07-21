@@ -963,3 +963,18 @@ class LoopTriggerAuthAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
+
+    def test_teammate_cannot_trigger_a_team_loop_with_a_payload(self):
+        # The trigger payload becomes agent prompt content and the run executes as the loop owner, so
+        # a non-owner member must not trigger a team loop by API — that would run their injected
+        # instructions under the owner's credentials. They can still fire it as themselves via `run`.
+        loop_id = self._create_loop(self.owner_client, visibility="team", triggers=[{"type": "api", "config": {}}])[
+            "id"
+        ]
+
+        response = self.peer_client.post(
+            f"{self._loop_url(loop_id)}trigger/", {"context": "exfiltrate secrets"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)

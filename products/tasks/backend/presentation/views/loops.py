@@ -329,8 +329,9 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # A PSAK is a project-wide service credential, so it may fire any of the project's loops.
             result = loops_facade.fire_loop_api(pk, self.team_id, payload, idempotency_key=_idempotency_key(request))
         else:
-            # A session/PAT/OAuth caller is a real user: scope firing to loops they can see, so a
-            # teammate can't fire someone else's personal loop by UUID (mirrors the `runs` split).
+            # A session/PAT/OAuth caller is a real user: the payload becomes agent prompt content and
+            # the run executes as the loop owner, so restrict API triggering to the owner (a member
+            # fires a team loop as themselves via `run` instead).
             result = loops_facade.fire_loop_api_for_user(
                 pk, self.team_id, request.user, payload, idempotency_key=_idempotency_key(request)
             )
