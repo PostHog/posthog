@@ -993,6 +993,36 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_uses_instance_url_for_sandbox(self, mock_post, mock_reload):
+        # Sandbox integrations are stored as kind="salesforce" (the sandbox is a token-exchange
+        # fallback in the OAuth callback), so the config's instance_url is the only signal that
+        # the refresh must go to test.salesforce.com or the org's own host rather than the
+        # hardcoded prod token URL. Salesforce rejects a sandbox refresh_token posted to
+        # login.salesforce.com, which shows up to users as "Authentication token could not be
+        # refreshed. Please reconnect." within a few hours of connecting.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 3600,
+        }
+
+        sandbox_instance_url = "https://ryan-co--sandbox.sandbox.my.salesforce.com"
+        integration = self.create_integration(
+            kind="salesforce",
+            config={"instance_url": sandbox_instance_url},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        called_url = mock_post.call_args.args[0]
+        assert called_url == f"{sandbox_instance_url}/services/oauth2/token"
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
     def test_non_salesforce_refresh_access_token_preserves_none_expires_in(self, mock_post, mock_reload):
         """Test that non-Salesforce integrations preserve None expires_in from refresh response"""
         mock_post.return_value.status_code = 200

@@ -1368,8 +1368,18 @@ class OauthIntegration:
                 timeout=10,
             )
         else:
+            token_url = oauth_config.token_url
+            # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is
+            # only a token-exchange fallback in the OAuth callback), so the static prod token
+            # URL would refuse a sandbox-issued refresh_token. Refresh at the org's own
+            # instance host instead - it serves oauth2/token and matches prod or sandbox.
+            # Mirrors the revoke path in unlink().
+            instance_url = self.integration.config.get("instance_url")
+            if kind == "salesforce" and instance_url:
+                token_url = f"{instance_url.rstrip('/')}/services/oauth2/token"
+
             return requests.post(
-                oauth_config.token_url,
+                token_url,
                 data={
                     "client_id": client_id,
                     "client_secret": client_secret,
