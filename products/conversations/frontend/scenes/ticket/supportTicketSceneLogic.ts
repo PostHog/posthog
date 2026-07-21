@@ -178,6 +178,7 @@ export interface supportTicketSceneLogicValues {
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     draftContent: JSONContent | null
+    pendingComposerInsert: JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
     emailReplyBlockedReason: EmailReplyBlockedReason | null
@@ -317,6 +318,12 @@ export interface supportTicketSceneLogicActions {
     }
     setDraftContent: (content: JSONContent | null) => {
         content: JSONContent | null
+    }
+    insertIntoComposer: (content: JSONContent) => {
+        content: JSONContent
+    }
+    composerInsertConsumed: () => {
+        value: true
     }
     setDraftIsPrivate: (isPrivate: boolean) => {
         isPrivate: boolean
@@ -485,6 +492,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
+        // Imperatively push content into the reply composer (e.g. a generated merch-code message).
+        insertIntoComposer: (content: JSONContent) => ({ content }),
+        composerInsertConsumed: true,
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
         setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
@@ -680,6 +690,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as JSONContent | null,
             {
                 setDraftContent: (_, { content }) => content,
+            },
+        ],
+        pendingComposerInsert: [
+            null as JSONContent | null,
+            {
+                insertIntoComposer: (_, { content }) => content,
+                composerInsertConsumed: () => null,
             },
         ],
         draftIsPrivate: [
