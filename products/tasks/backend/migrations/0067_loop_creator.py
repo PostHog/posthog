@@ -3,12 +3,6 @@
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
-from django.db.models import F
-
-
-def backfill_creator(apps, schema_editor):
-    Loop = apps.get_model("tasks", "Loop")
-    Loop.objects.filter(creator_id__isnull=True).update(creator_id=F("created_by_id"))
 
 
 class Migration(migrations.Migration):
@@ -30,5 +24,4 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
-        migrations.RunPython(backfill_creator, migrations.RunPython.noop),
     ]
