@@ -106,8 +106,16 @@ export type cohortsStaffToolsLogicType = MakeLogicType<
 >
 
 export function parseCohortIds(input: string): number[] {
-    // Tolerant of comma/space/newline separated ids, deduped preserving order.
-    return Array.from(new Set((input.match(/\d+/g) ?? []).map(Number)))
+    // Tolerant of comma/space/newline separated ids, deduped preserving order. Each token must be
+    // a plain non-negative integer on its own: a digit-run match (e.g. `\d+` over the whole
+    // string) would silently turn "-123" into cohort 123 and "123.5" into cohorts 123 and 5.
+    const ids = new Set<number>()
+    for (const token of input.split(/[\s,]+/)) {
+        if (token && /^\d+$/.test(token)) {
+            ids.add(Number(token))
+        }
+    }
+    return Array.from(ids)
 }
 
 export const cohortsStaffToolsLogic = kea<cohortsStaffToolsLogicType>([
@@ -194,6 +202,8 @@ export const cohortsStaffToolsLogic = kea<cohortsStaffToolsLogicType>([
         },
         recalculateCohortsSuccess: ({ recalculateResult }) => {
             const queued = recalculateResult?.queued_cohort_ids ?? []
+            const partial = recalculateResult?.partial_cohort_ids ?? []
+            const failed = recalculateResult?.failed_cohort_ids ?? []
             const skipped = recalculateResult?.skipped ?? []
             const notFound = recalculateResult?.not_found_cohort_ids ?? []
             if (queued.length > 0) {
@@ -201,6 +211,16 @@ export const cohortsStaffToolsLogic = kea<cohortsStaffToolsLogicType>([
                     `Recalculation enqueued for cohort${queued.length === 1 ? '' : 's'} ${queued.join(', ')}. ` +
                         'Refresh in a bit to see progress.'
                 )
+            }
+            if (partial.length > 0) {
+                lemonToast.warning(
+                    `Dependency resolution failed for cohort${partial.length === 1 ? '' : 's'} ${partial.join(
+                        ', '
+                    )}; only the cohort itself was enqueued, not its dependents or dependencies. Those may still be stale.`
+                )
+            }
+            for (const { cohort_id, error } of failed) {
+                lemonToast.error(`Cohort ${cohort_id} could not be enqueued: ${error}`)
             }
             for (const { cohort_id, reason } of skipped) {
                 lemonToast.warning(`Cohort ${cohort_id} was not enqueued: ${reason}`)

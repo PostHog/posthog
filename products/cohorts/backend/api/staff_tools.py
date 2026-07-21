@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.mixins import validated_request
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
 from posthog.permissions import IsStaffUser
@@ -110,11 +111,28 @@ class StaffCohortSkippedSerializer(serializers.Serializer):
     reason = serializers.CharField(help_text="Why the cohort was not enqueued for recalculation.")
 
 
+class StaffCohortFailedSerializer(serializers.Serializer):
+    cohort_id = serializers.IntegerField(help_text="Cohort id that raised while being enqueued.")
+    error = serializers.CharField(help_text="Error message from the failed enqueue attempt.")
+
+
 @extend_schema_serializer(many=False)
 class StaffCohortRecalculateResponseSerializer(serializers.Serializer):
     queued_cohort_ids = serializers.ListField(
         child=serializers.IntegerField(),
         help_text="Cohort ids for which a recalculation was enqueued (including their dependency chains).",
+    )
+    partial_cohort_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="Subset of queued_cohort_ids whose dependency chain failed to resolve, so only the cohort "
+        "itself (not its dependents/dependencies) was enqueued. Those related cohorts are still stale; "
+        "re-request recalculation for them explicitly once the dependency issue is fixed.",
+    )
+    failed_cohort_ids = StaffCohortFailedSerializer(
+        many=True,
+        help_text="Cohort ids that raised while being enqueued and were not queued at all. Cohorts listed "
+        "elsewhere in this response already had their enqueue attempted; retry only these ids rather than "
+        "the whole batch.",
     )
     skipped = StaffCohortSkippedSerializer(
         many=True, help_text="Cohorts that exist but were not enqueued, with the reason."
@@ -187,6 +205,8 @@ class CohortsStaffToolsViewSet(viewsets.ViewSet):
         cohorts_by_id = {cohort.id: cohort for cohort in Cohort.objects.filter(id__in=cohort_ids)}
 
         queued_ids: list[int] = []
+        partial_ids: list[int] = []
+        failed: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
         not_found_ids: list[int] = []
         for cohort_id in cohort_ids:
@@ -200,20 +220,41 @@ class CohortsStaffToolsViewSet(viewsets.ViewSet):
             else:
                 # Deliberately no is_calculating guard: stuck cohorts are the whole point, and
                 # the pending_version bump supersedes any stale in-flight run.
-                # IsAuthenticated + IsStaffUser guarantee a real User here.
-                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=cast(User, request.user))
-                queued_ids.append(cohort_id)
+                # Caught per-cohort so one bad cohort doesn't 500 the whole batch and hide which
+                # of the earlier cohorts in the loop already had their version bumped and task
+                # enqueued (those must not be retried; only failed_cohort_ids should be).
+                try:
+                    # IsAuthenticated + IsStaffUser guarantee a real User here.
+                    fully_resolved = increment_version_and_enqueue_calculate_cohort(
+                        cohort, initiating_user=cast(User, request.user)
+                    )
+                except Exception as e:
+                    logger.exception("cohorts_staff_recalculate_enqueue_failed", cohort_id=cohort_id, error=str(e))
+                    capture_exception(e)
+                    failed.append({"cohort_id": cohort_id, "error": str(e)})
+                else:
+                    queued_ids.append(cohort_id)
+                    if not fully_resolved:
+                        partial_ids.append(cohort_id)
 
         logger.info(
             "cohorts_staff_recalculate",
             staff_user_id=request.user.id,
             was_impersonated=is_impersonated(request),
             queued_cohort_ids=queued_ids,
+            partial_cohort_ids=partial_ids,
+            failed_cohort_ids=[f["cohort_id"] for f in failed],
             skipped=skipped,
             not_found_cohort_ids=not_found_ids,
         )
 
         return response.Response(
-            {"queued_cohort_ids": queued_ids, "skipped": skipped, "not_found_cohort_ids": not_found_ids},
+            {
+                "queued_cohort_ids": queued_ids,
+                "partial_cohort_ids": partial_ids,
+                "failed_cohort_ids": failed,
+                "skipped": skipped,
+                "not_found_cohort_ids": not_found_ids,
+            },
             status=status.HTTP_202_ACCEPTED,
         )

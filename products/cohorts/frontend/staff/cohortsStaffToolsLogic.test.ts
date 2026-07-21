@@ -14,6 +14,9 @@ describe('cohortsStaffToolsLogic', () => {
             ['128418 34012\n99', [128418, 34012, 99]], // tolerant of space/newline separators
             ['', []],
             ['no ids here', []],
+            ['-123', []], // rejects rather than silently parsing as cohort 123
+            ['123.5', []], // rejects rather than silently parsing as cohorts 123 and 5
+            ['123, -456, 789', [123, 789]], // malformed tokens are dropped, valid ones still parsed
         ])('parses %s as %s', (input, expected) => {
             expect(parseCohortIds(input)).toEqual(expected)
         })

@@ -146,3 +146,42 @@ class TestCohortsStaffToolsAPI(APIBaseTest):
     def test_recalculate_rejects_more_than_max_cohorts(self):
         response = self.client.post("/api/cohorts_staff/recalculate/", {"cohort_ids": list(range(1, 12))})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.cohorts.backend.api.staff_tools.increment_version_and_enqueue_calculate_cohort")
+    def test_recalculate_reports_partial_when_dependency_resolution_falls_back(self, mock_increment):
+        # increment_version_and_enqueue_calculate_cohort returns False when it fell back to
+        # enqueueing just this cohort because resolving its dependency chain failed. The
+        # cohort is still queued, but the operator needs to know the dependency chain was skipped.
+        mock_increment.return_value = False
+        cohort = Cohort.objects.create(team=self.team, name="Cohort", pending_version=1)
+
+        response = self.client.post("/api/cohorts_staff/recalculate/", {"cohort_ids": [cohort.id]})
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+        data = response.json()
+        self.assertEqual(data["queued_cohort_ids"], [cohort.id])
+        self.assertEqual(data["partial_cohort_ids"], [cohort.id])
+
+    @patch("products.cohorts.backend.api.staff_tools.increment_version_and_enqueue_calculate_cohort")
+    def test_recalculate_continues_batch_and_reports_failure_when_one_cohort_errors(self, mock_increment):
+        # A raise for one cohort must not 500 the whole request: earlier cohorts in the batch
+        # already had their version bumped and task enqueued, so losing that in a 500 would make
+        # a caller retry the full batch and double-enqueue them.
+        cohort_ok = Cohort.objects.create(team=self.team, name="Ok", pending_version=1)
+        cohort_bad = Cohort.objects.create(team=self.team, name="Bad", pending_version=1)
+
+        def side_effect(cohort, *, initiating_user):
+            if cohort.id == cohort_bad.id:
+                raise RuntimeError("boom")
+            return True
+
+        mock_increment.side_effect = side_effect
+
+        response = self.client.post("/api/cohorts_staff/recalculate/", {"cohort_ids": [cohort_ok.id, cohort_bad.id]})
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+        data = response.json()
+        self.assertEqual(data["queued_cohort_ids"], [cohort_ok.id])
+        (failed,) = data["failed_cohort_ids"]
+        self.assertEqual(failed["cohort_id"], cohort_bad.id)
+        self.assertIn("boom", failed["error"])

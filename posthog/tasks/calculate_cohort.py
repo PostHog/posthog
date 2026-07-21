@@ -348,7 +348,12 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         logger.exception("failed_to_update_cohort_metrics", error=str(e))
 
 
-def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> bool:
+    """
+    Returns False if dependency resolution failed and only `cohort` itself was enqueued instead
+    of its full dependency chain, so callers that need to (e.g. the staff recalculate endpoint)
+    can tell a caller the request wasn't fully honored. Callers that don't care can ignore it.
+    """
     dependent_cohorts = get_all_cohort_dependents(cohort)
     dependency_cohorts = get_all_cohort_dependencies(cohort)
     related_cohorts = dependent_cohorts + dependency_cohorts
@@ -375,7 +380,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             # Fall back to calculating just this cohort without dependencies
             logger.warning("cohort_fallback_to_single_calculation", cohort_id=cohort.id)
             _enqueue_single_cohort_calculation(cohort, initiating_user)
-            return
+            return False
 
         # Create a chain of tasks to ensure sequential execution.
         # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
@@ -399,6 +404,8 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
     else:
         logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
         _enqueue_single_cohort_calculation(cohort, initiating_user)
+
+    return True
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:

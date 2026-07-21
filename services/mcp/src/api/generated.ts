@@ -60460,6 +60460,13 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface StaffCohortFailed {
+      /** Cohort id that raised while being enqueued. */
+      cohort_id: number;
+      /** Error message from the failed enqueue attempt. */
+      error: string;
+    }
+
     export interface StaffCohortLookupResponse {
       /** Requested cohorts, in request order. */
       results: StaffCohort[];
@@ -60486,6 +60493,10 @@ export namespace Schemas {
     export interface StaffCohortRecalculateResponse {
       /** Cohort ids for which a recalculation was enqueued (including their dependency chains). */
       queued_cohort_ids: number[];
+      /** Subset of queued_cohort_ids whose dependency chain failed to resolve, so only the cohort itself (not its dependents/dependencies) was enqueued. Those related cohorts are still stale; re-request recalculation for them explicitly once the dependency issue is fixed. */
+      partial_cohort_ids: number[];
+      /** Cohort ids that raised while being enqueued and were not queued at all. Cohorts listed elsewhere in this response already had their enqueue attempted; retry only these ids rather than the whole batch. */
+      failed_cohort_ids: StaffCohortFailed[];
       /** Cohorts that exist but were not enqueued, with the reason. */
       skipped: StaffCohortSkipped[];
       /** Requested cohort ids that do not exist. */
