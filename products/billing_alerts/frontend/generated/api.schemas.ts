@@ -82,9 +82,13 @@ export interface BillingAlertDestinationCreateDataApi {
      * * `webhook` - webhook
      * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
+    /** Slack integration ID in the alert execution project. */
     slack_workspace_id?: number
+    /** Slack channel ID for alert delivery. */
     slack_channel_id?: string
+    /** Optional Slack channel name shown in the UI. */
     slack_channel_name?: string
+    /** HTTPS webhook URL for webhook or Microsoft Teams delivery. */
     webhook_url?: string
 }
 
@@ -158,11 +162,13 @@ export interface BillingAlertConfigurationApi {
      */
     minimum_value?: string
     /**
+     * Number of preceding UTC billing dates averaged for relative and absolute increase baselines.
      * @minimum 1
      * @maximum 90
      */
     baseline_window_days?: number
     /**
+     * Hours after a UTC billing date ends before it becomes eligible for evaluation.
      * @minimum 0
      * @maximum 72
      */
@@ -173,11 +179,15 @@ export interface BillingAlertConfigurationApi {
      * * `24` - 24 */
     check_interval_hours?: CheckIntervalHoursEnumApi
     /**
+     * Minimum hours between repeated firing notifications.
      * @minimum 0
      * @maximum 720
      */
     cooldown_hours?: number
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
+     * @nullable
+     */
     snooze_until?: string | null
     /** @nullable */
     readonly next_check_at: string | null
@@ -264,11 +274,13 @@ export interface PatchedBillingAlertConfigurationApi {
      */
     minimum_value?: string
     /**
+     * Number of preceding UTC billing dates averaged for relative and absolute increase baselines.
      * @minimum 1
      * @maximum 90
      */
     baseline_window_days?: number
     /**
+     * Hours after a UTC billing date ends before it becomes eligible for evaluation.
      * @minimum 0
      * @maximum 72
      */
@@ -279,11 +291,15 @@ export interface PatchedBillingAlertConfigurationApi {
      * * `24` - 24 */
     check_interval_hours?: CheckIntervalHoursEnumApi
     /**
+     * Minimum hours between repeated firing notifications.
      * @minimum 0
      * @maximum 720
      */
     cooldown_hours?: number
-    /** @nullable */
+    /**
+     * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
+     * @nullable
+     */
     snooze_until?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
@@ -422,9 +438,13 @@ export interface BillingAlertCreateDestinationApi {
      * * `webhook` - webhook
      * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
+    /** Slack integration ID in the alert execution project. */
     slack_workspace_id?: number
+    /** Slack channel ID for alert delivery. */
     slack_channel_id?: string
+    /** Optional Slack channel name shown in the UI. */
     slack_channel_name?: string
+    /** HTTPS webhook URL for webhook or Microsoft Teams delivery. */
     webhook_url?: string
 }
 

@@ -1386,6 +1386,36 @@
             "readOnlyHint": true
         }
     },
+    "billing-alert-create": {
+        "description": "Create a daily spend alert in the active organization. The caller must be an organization Admin or Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle, scheduling, destinations, and delivery. Choose exactly one threshold rule: relative_increase uses threshold_percentage, while absolute_value and absolute_increase use threshold_value. Values are USD in the first version. Optional destination_changes can create Slack, Microsoft Teams, or HTTPS webhook destinations atomically with the alert.",
+        "category": "Billing alerts",
+        "feature": "billing_alerts",
+        "summary": "Create billing alert",
+        "title": "Create billing alert",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "billing-alerts"
+    },
+    "billing-alert-update": {
+        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. Match threshold_percentage with relative_increase and threshold_value with absolute_value or absolute_increase. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates destinations creates another destination group.",
+        "category": "Billing alerts",
+        "feature": "billing_alerts",
+        "summary": "Update billing alert",
+        "title": "Update billing alert",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "billing-alerts"
+    },
     "business-knowledge-document-window-retrieve": {
         "description": "Returns a window of content chunks from a business knowledge document, centered around a specific ordinal. Use after searching knowledge to get more surrounding context for a specific result.",
         "category": "Business knowledge",
