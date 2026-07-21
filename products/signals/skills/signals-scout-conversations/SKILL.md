@@ -49,9 +49,12 @@ If `$conversation_ticket_created` is absent from `top_events` (and `$conversatio
 ```sql
 SELECT event, count() AS c, max(timestamp) AS last_seen
 FROM events
-WHERE event LIKE '$conversation_ticket%' OR event LIKE '$conversation_message%'
+WHERE (startsWith(event, '$conversation_ticket') OR startsWith(event, '$conversation_message'))
+  AND timestamp > now() - INTERVAL 30 DAY
 GROUP BY event ORDER BY c DESC
 ```
+
+Use `startsWith`, not `LIKE '$conversation_ticket%'` — in `LIKE`, `_` is a single-character wildcard, so the pattern would also match unintended events; `startsWith` keeps the probe to the singular lifecycle family and excludes the plural `$conversations_`-prefixed widget events.
 
 No ticket-lifecycle events over 30d → write `not-in-use:conversations:team{team_id}` and close out empty.
 Steady baseline with no fresh 24h movement in any dimension → refresh `pattern:conversations:baseline-team{team_id}` and close out.
@@ -134,7 +137,7 @@ FROM first_in i INNER JOIN first_reply r ON i.tid=r.tid WHERE r.reply_at >= i.in
 GROUP BY day ORDER BY day
 ```
 
-Signal: recent days' p90 (or the share still unanswered past a soak window) rising well above the trailing, same-weekday baseline. Grouping by day is what lets you compare the latest complete day against baseline — a single window-wide percentile hides a fresh blowout behind weeks of normal responses. A long, growing first-response tail is a coverage problem worth a human's attention.
+Signal: recent days' p90 rising well above the trailing, same-weekday baseline. Grouping by day is what lets you compare the latest complete day against baseline — a single window-wide percentile hides a fresh blowout behind weeks of normal responses. The query above measures **answered** tickets only (inner join), so compute the **unanswered share separately** — inbound tickets whose `ticket_id` has no `$conversation_message_sent` after `in_at` past your soak window — because a coverage gap where customers are still waiting never enters the percentiles at all, and it's the sharpest signal here. A long, growing first-response tail (or a rising never-answered share) is a coverage problem worth a human's attention.
 
 #### Backlog: inflow vs resolution
 
@@ -151,7 +154,7 @@ WHERE event IN ('$conversation_ticket_created','$conversation_ticket_status_chan
 GROUP BY day ORDER BY day
 ```
 
-`net` adds `reopened` (transitions **out of** `resolved`) back in, so a resolve → reopen → resolve cycle nets to one removal instead of two — otherwise churn on reopened tickets makes a flat or growing backlog look like it's shrinking. Signal: `net` sustained clearly positive across several days (backlog compounding), or an inflow spike far above baseline. A single day where resolutions outpace creation is healthy, not a finding.
+`net` adds `reopened` (transitions **out of** `resolved`) back in, so a resolve → reopen → resolve cycle nets to one removal instead of two — otherwise churn on reopened tickets makes a flat or growing backlog look like it's shrinking. Caveat: status changes made through the external Conversations API or workflow automation don't always emit `$conversation_ticket_status_changed`, so on a team that resolves/reopens that way the `resolved`/`reopened` counts undercount and inflate `net` — corroborate a compounding-backlog finding against current ticket state (e.g. the count of non-resolved tickets) before reporting, rather than trusting the event delta alone. Signal: `net` sustained clearly positive across several days (backlog compounding), or an inflow spike far above baseline. A single day where resolutions outpace creation is healthy, not a finding.
 
 #### Channel / assignment / priority concentration
 
@@ -162,7 +165,7 @@ Break `$conversation_ticket_created` down by `channel_source` for a surge concen
 Write a scratchpad entry whenever you observe something a future run should know. Encode the category in the key prefix so a single `text=` search finds it:
 
 - key `pattern:conversations:baseline` — _"Normal shape: SLA breach ~15–20% of active-SLA replies, first-response p50 ~60min / p90 ~30h, daily inflow ~50 tickets slightly above resolution, channel mix email > slack > widget ≫ teams. Weekends dip. Score against this."_
-- key `dedupe:conversations:sla-breach-2026-07-17` — _"2026-07-17: breach share hit 27% (baseline ~18%) over 44 active-SLA replies, concentrated on email. If still elevated next run, edit the report; if back to baseline, treat as surfaced."_
+- key `dedupe:conversations:sla-breach` — _"2026-07-17: breach share hit 27% (baseline ~18%) over 44 active-SLA replies, concentrated on email. Keep the key stable (the dimension) and the date in the content, so a persisting breach re-checks and edits one entry instead of minting a new key each day. If still elevated next run, edit the report; if back to baseline, treat as surfaced."_
 - key `noise:conversations:widget-events` — "The plural `$conversations_`-prefixed events (`$conversations_loaded`, `$conversations_widget_loaded`) are UI/widget telemetry, NOT ticket lifecycle — never mix them into operational metrics."
 - key `report:conversations:sla-breach` — the `report_id` of the SLA-breach report you authored, so the next run edits it instead of duplicating.
 - key `reviewer:conversations:support` — the resolved owner (bare lowercase GitHub login) for the support/inbox area.
