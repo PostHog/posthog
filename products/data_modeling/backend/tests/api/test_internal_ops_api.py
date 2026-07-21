@@ -31,7 +31,11 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
             ("wrong_audience", lambda: mint_oidc_token(audience="some-other-client-id")),
             ("wrong_issuer", lambda: mint_oidc_token(issuer="https://evil.example.com")),
             ("unverified_email", lambda: mint_oidc_token(email_verified=False)),
-            ("wrong_domain", lambda: mint_oidc_token(email="ops@example.com")),
+            ("wrong_email_domain", lambda: mint_oidc_token(email="ops@example.com")),
+            # A consumer Google account can verify an address on our domain but carries no
+            # hosted-domain claim, so Workspace offboarding would never revoke it.
+            ("missing_hosted_domain", lambda: mint_oidc_token(hosted_domain=None)),
+            ("wrong_hosted_domain", lambda: mint_oidc_token(hosted_domain="example.com")),
         ]
     )
     def test_rejects_invalid_tokens(self, _name, token_factory):
@@ -40,7 +44,7 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
 
     @override_settings(DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS=["ops-bot@proj.iam.gserviceaccount.com"])
     def test_allow_listed_service_account_bypasses_domain_check(self):
-        token = mint_oidc_token(email="ops-bot@proj.iam.gserviceaccount.com", email_verified=False)
+        token = mint_oidc_token(email="ops-bot@proj.iam.gserviceaccount.com", email_verified=False, hosted_domain=None)
         response = self._get("/overview", token)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

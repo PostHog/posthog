@@ -25,20 +25,20 @@ def mint_oidc_token(
     issuer: str | None = None,
     expiry_delta: timedelta = timedelta(minutes=5),
     email_verified: bool = True,
+    hosted_domain: str | None = "posthog.com",
     **extra_claims: Any,
 ) -> str:
-    return jwt.encode(
-        {
-            "aud": audience or settings.DATA_MODELING_OPS_OIDC_AUDIENCES[0],
-            "iss": issuer or settings.DATA_MODELING_OPS_OIDC_ISSUER,
-            "exp": datetime.now(tz=UTC) + expiry_delta,
-            "email": email,
-            "email_verified": email_verified,
-            **extra_claims,
-        },
-        _PRIVATE_KEY,
-        algorithm="RS256",
-    )
+    claims: dict[str, Any] = {
+        "aud": audience or settings.DATA_MODELING_OPS_OIDC_AUDIENCES[0],
+        "iss": issuer or settings.DATA_MODELING_OPS_OIDC_ISSUER,
+        "exp": datetime.now(tz=UTC) + expiry_delta,
+        "email": email,
+        "email_verified": email_verified,
+        **extra_claims,
+    }
+    if hosted_domain is not None:
+        claims["hd"] = hosted_domain
+    return jwt.encode(claims, _PRIVATE_KEY, algorithm="RS256")
 
 
 class OidcAuthTestMixin:

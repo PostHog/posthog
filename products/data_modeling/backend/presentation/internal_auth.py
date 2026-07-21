@@ -1,14 +1,15 @@
 """OIDC authentication for the data_modeling_ops internal API.
 
 The modeling-ops admin app sits behind SSO and forwards the operator's OIDC ID token;
-Django verifies it against the issuer's JWKS — signature, issuer, audience, expiry, and
-the email domain. There is no shared signing secret to provision or rotate, a compromised
+Django verifies it against the issuer's JWKS — signature, issuer, audience, expiry, and the
+hosted domain. There is no shared signing secret to provision or rotate, a compromised
 caller cannot mint credentials, and ``acting_user`` in the audit log is the verified email
 claim rather than a self-asserted string.
 
 Service (no-human) callers present ID tokens from the same issuer (e.g. a service
 account's identity token); their emails are allow-listed via
-DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS and exempt from the domain check.
+DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS and exempt from the domain check, which
+service-account tokens could not satisfy — they carry no hosted-domain claim.
 
 Local dev: DATA_MODELING_OPS_OIDC_AUDIENCES defaults (DEBUG/TEST) to the gcloud CLI's
 public OAuth client ID, so ``gcloud auth print-identity-token`` yields a working token
@@ -81,8 +82,15 @@ class DataModelingOpsOIDCAuthentication(InternalAPIAuthentication):
 
         if not claims.get("email_verified"):
             raise AuthenticationFailed("Token identity is not verified.")
-        domain = email.rsplit("@", 1)[-1]
-        if domain not in settings.DATA_MODELING_OPS_OIDC_ALLOWED_DOMAINS:
+        # Trust the issuer-controlled hosted-domain claim, not the email string: a consumer
+        # Google account can hold a verified address on an allowed domain while sitting outside
+        # the managed Workspace, so suspending the employee would not revoke it. Same check as
+        # the Django admin OIDC gate in ee/middleware.py.
+        allowed_domains = settings.DATA_MODELING_OPS_OIDC_ALLOWED_DOMAINS
+        hosted_domain = claims.get("hd")
+        if not hosted_domain or hosted_domain not in allowed_domains:
+            raise AuthenticationFailed("Token identity is not allowed.")
+        if email.rsplit("@", 1)[-1] not in allowed_domains:
             raise AuthenticationFailed("Token identity is not allowed.")
         return email
 
