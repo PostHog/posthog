@@ -15,7 +15,7 @@ _MATCHES_ONLY_SET_VALUES = _POSITIVE_EXACT_OPERATORS | {
 _INCOMPARABLE_FILTER_TYPES = ("cohort", "hogql")
 
 
-def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
+def filters_contradict(filter_a: Any, filter_b: Any) -> bool:
     """Whether two property filters on the same property provably contradict — ANDing them could never
     match any value (e.g. `utm_medium = abc` vs `utm_medium != abc`, or `= google` vs `= facebook`).
 
@@ -23,6 +23,10 @@ def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
     replacing the other. Anything not provably contradictory is treated as compatible.
 
     """
+    # Legacy/malformed filter data can hold bare strings instead of dicts; treat anything non-dict as
+    # non-contradictory so a stray value is skipped rather than crashing the request.
+    if not isinstance(filter_a, dict) or not isinstance(filter_b, dict):
+        return False
     if not _same_property(filter_a, filter_b):
         return False
     op_a, values_a = _operator_and_values(filter_a)
