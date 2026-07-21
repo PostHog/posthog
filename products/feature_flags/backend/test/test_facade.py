@@ -7,6 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -177,6 +178,15 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         flag.refresh_from_db()
         assert flag.active is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_system_write_rejects_user_bearing_request(self):
+        flag = self._create_flag(active=True)
+
+        with self.assertRaises(ValueError):
+            update_flag(flag, {"active": False}, team=self.team, user=None, request=ServiceRequest(self.user))
+
+        flag.refresh_from_db()
+        assert flag.active is True
 
 
 class TestRollOutVariant:
