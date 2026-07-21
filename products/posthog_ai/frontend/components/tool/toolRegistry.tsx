@@ -67,11 +67,6 @@ export interface ToolRegistryEntry {
      * registers its own preview via `registerToolRenderers` from its scene entrypoint.
      */
     renderPermissionPreview?: (record: PermissionRequestRecord) => ReactNode | null
-}
-
-/** A registry entry resolved for the card path — `lookupToolRenderer` guarantees a `Renderer`. */
-export interface ResolvedToolRegistryEntry extends ToolRegistryEntry {
-    Renderer: ToolRendererComponent
     /**
      * When set, this entry only matches a call that came through the trusted single-exec PostHog
      * server — one whose inner tool name we parsed out of the exec command. The product data-tool
@@ -82,6 +77,11 @@ export interface ResolvedToolRegistryEntry extends ToolRegistryEntry {
      * through to the generic MCP card instead.
      */
     requiresPostHogOrigin?: boolean
+}
+
+/** A registry entry resolved for the card path — `lookupToolRenderer` guarantees a `Renderer`. */
+export interface ResolvedToolRegistryEntry extends ToolRegistryEntry {
+    Renderer: ToolRendererComponent
 }
 
 export interface ToolRegistry {
