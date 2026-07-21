@@ -11,7 +11,7 @@ from posthog.api.mixins import TypedRequest, validated_request
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import FLAKY_TEST_SIGNAL_CAVEAT, QuarantineRequest
-from products.engineering_analytics.backend.presentation.serializers import (
+from products.engineering_analytics.backend.presentation.serializers.test_health import (
     BrokenTestsResultSerializer,
     FlakyTestListSerializer,
     QuarantineFileSerializer,
