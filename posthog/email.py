@@ -128,7 +128,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "password_changed": "42",
     "login_notification": "44",
     "personal_api_key_exposed": "45",
-    "email_mfa_link": "48",
+    "code_based_verification": "75",
     "project_secret_api_key_exposed": "49",
     "oauth_token_exposed": "50",
     "passkey_added": "51",
@@ -148,6 +148,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "baa_signed_ai_disabled": "68",
     "integration_access_requested": "70",
     "posthog_ai_access_requested": "72",
+    "wizard_pr_ready": "74",
 }
 
 

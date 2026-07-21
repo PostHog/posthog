@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SegmentSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
+    SegmentSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -42,6 +44,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
+    api_docs_url = "https://docs.segmentapis.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SEGMENT
@@ -53,7 +57,6 @@ class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Segment",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Twilio Segment workspace-scoped Public API token to pull your Segment workspace configuration into the PostHog Data warehouse.
 
 Create a **Public API token** in your Segment workspace under **Settings → Access Management → Tokens**, and pick the region your workspace lives in.

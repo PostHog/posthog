@@ -250,6 +250,7 @@ export function InsightVizDisplay({
                 <InsightValidationError
                     query={query}
                     detail={validationError}
+                    validationErrorCode={validationErrorCode}
                     onRetry={
                         cta
                             ? undefined
@@ -322,8 +323,8 @@ export function InsightVizDisplay({
     })()
 
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
-    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts do
-    // when the quill in-chart legend is on (`usesInChartLegend`).
+    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
+    // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
@@ -360,7 +361,14 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.FUNNELS:
-                return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
+                return (
+                    <Funnel
+                        context={context}
+                        inCardView={embedded}
+                        inSharedMode={inSharedMode}
+                        showPersonsModal={!inSharedMode}
+                    />
+                )
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer

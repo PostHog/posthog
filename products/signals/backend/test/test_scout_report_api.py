@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 import pytest
@@ -5,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,14 +15,18 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.artefact_schemas import SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
+    REPORT_KIND_FINDING,
+    REPORT_KIND_SELF_IMPROVEMENT,
     EditReportResult,
     InvalidScoutReportError,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
+    _report_classification_props,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
@@ -185,6 +191,38 @@ class TestScoutReportAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
+        # The run link on the report's work log dedupes the same way: emit linked the run once, and
+        # the two edits must not append duplicate `task_run` rows for it.
+        assert (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+            ).count()
+            == 1
+        )
+
+    def test_edit_report_links_editing_run_to_report_it_did_not_author(self) -> None:
+        # `edit_report` can target any inbox report (pipeline-authored included) — the edit must link
+        # the editing scout run on the report's work log so its transcript is reachable from the
+        # report, not just from the run-side `edited_report_ids` tally. Per-task dedupe: a second
+        # run editing the same report gets its own link.
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline report")
+        first_run = _make_run(self.team)
+        second_run = _make_run(self.team)
+        for i, run in enumerate((first_run, second_run)):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": str(report.id), "append_note": f"scout context {i}"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        artefacts = SignalReportArtefact.objects.filter(
+            report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).order_by("created_at")
+        contents = [TaskRunArtefact.model_validate_json(a.content) for a in artefacts]
+        assert [(c.task_id, c.run_id) for c in contents] == [
+            (str(run.task_run.task_id), str(run.task_run_id)) for run in (first_run, second_run)
+        ]
+        assert all(c.product == "signals" and c.type == "scout" for c in contents)
 
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")
@@ -255,6 +293,45 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
+
+    def test_edit_report_reason_only_reroute_keeps_commit_evidence(self) -> None:
+        # A scout re-route rebuilds entries from logins, so without merge-forward a reason-only edit
+        # would wipe the pipeline-derived relevant_commits (and prior name) the precedent-weighing
+        # guidance runs on. Kept logins must keep their evidence; new logins start clean.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        commit = {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "touched the hot path"}
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=SuggestedReviewers.model_validate(
+                [{"github_login": "alice", "github_name": "Alice A.", "relevant_commits": [commit]}]
+            ),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        with patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "suggested_reviewers": [
+                        {"github_login": "alice", "reason": "confirmed owner via human correction"},
+                        {"github_login": "dave"},
+                    ],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        stored = {entry["github_login"]: entry for entry in json.loads(artefact.content)}
+        assert stored["alice"]["relevant_commits"] == [commit]
+        assert stored["alice"]["github_name"] == "Alice A."
+        assert stored["alice"]["reason"] == "confirmed owner via human correction"
+        assert stored["dave"]["relevant_commits"] == []
 
     def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
         # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any
@@ -329,6 +406,9 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["title"] == "Checkout p99 regressed after 4.2"
         assert props["summary"] == "The /checkout endpoint p99 doubled after the 4.2 deploy."
         assert props["actionability"] == "immediately_actionable"
+        # A regular finding classifies as such (the self-improvement path has its own test below).
+        assert props["report_kind"] == REPORT_KIND_FINDING
+        assert props["is_self_improvement_report"] is False
         # The customer-facing copy must land in the team's *own* project (their token), never create a
         # person (it's the scout's output, not a user action), and carry a report deep link when a report
         # exists — that link is what a CDP Slack destination templates the message from.
@@ -361,6 +441,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["title"] == "new title"
         assert props["note"] == "re-validated"
         assert props["summary"] is None
+        assert props["is_self_improvement_report"] is False
         # The edit also fans out to the team's own project, deep-linking the edited report.
         forward = next(
             c for c in self.capture_internal_mock.call_args_list if c.kwargs["event_name"] == "$scout_report_edited"
@@ -368,6 +449,25 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+
+    def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
+        # Classification must ride both lifecycle events: stamped from the authored title on emit, and
+        # resolved from the *stored* report title on a note-only edit (the payload carries no title) —
+        # the path that breaks if `_do_edit_report` stops resolving the report's effective title.
+        run = _make_run(self.team)
+        title = "Scout self-improvement: signals-scout-general – dead quick-close trigger"
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(title=title), format="json")
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created.json()["report_id"], "append_note": "re-confirmed on this run"},
+                format="json",
+            )
+        emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        for props in (emitted.kwargs["properties"], edited.kwargs["properties"]):
+            assert props["report_kind"] == REPORT_KIND_SELF_IMPROVEMENT
+            assert props["is_self_improvement_report"] is True
 
     def test_reviewer_edit_event_uuid_keys_on_reviewers(self) -> None:
         # A reviewer-only edit carries no `updated_fields` and no title/summary/note, so two distinct
@@ -463,6 +563,22 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         assert result is not None
         assert [e.github_login for e in result.root] == ["octocat"]
 
+    def test_reason_persists_on_resolved_entries(self) -> None:
+        # The resolver rebuilds entries from resolved logins — a refactor that drops `reason` there
+        # silently reverts reviewer routing to unexplained picks. Whitespace-only normalizes to None.
+        result = _build_suggested_reviewers(
+            self.team.id,
+            [
+                ReviewerInput(github_login="alice", reason="Top recent author on the affected surface"),
+                ReviewerInput(github_login="bob", reason="   "),
+            ],
+        )
+        assert result is not None
+        assert [(e.github_login, e.reason) for e in result.root] == [
+            ("alice", "Top recent author on the affected surface"),
+            ("bob", None),
+        ]
+
     def test_resolves_user_uuid_to_linked_login(self) -> None:
         member = self._github_member("ghhandle")
         result = _build_suggested_reviewers(self.team.id, [ReviewerInput(user_uuid=str(member.uuid))])
@@ -515,3 +631,24 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         with patch(resolver) as resolve_mock, pytest.raises(InvalidScoutReportError):
             _build_suggested_reviewers(self.team.id, entries)
         resolve_mock.assert_not_called()
+
+
+class TestReportClassificationProps(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("exact_prefix", "Scout self-improvement: my-scout – dead trigger", True),
+            # LLM-authored titles drift in case/whitespace; the classifier must tolerate that.
+            ("case_and_whitespace_drift", "  scout SELF-improvement: my-scout – topic", True),
+            ("space_before_colon", "Scout self-improvement : my-scout – topic", True),
+            ("hyphen_dropped", "Scout self improvement: my-scout – topic", True),
+            ("finding_title", "Checkout p99 regressed after 4.2", False),
+            # The phrase mid-title (e.g. a finding *about* the escalation flow) is not a prefix match.
+            ("prefix_mid_title", "Fix the Scout self-improvement: escalation flow", False),
+            ("no_title", None, False),
+        ]
+    )
+    def test_classifies_by_title_prefix(self, _name: str, title: str | None, is_self_improvement: bool) -> None:
+        props = _report_classification_props(title)
+        assert props["is_self_improvement_report"] is is_self_improvement
+        expected_kind = REPORT_KIND_SELF_IMPROVEMENT if is_self_improvement else REPORT_KIND_FINDING
+        assert props["report_kind"] == expected_kind

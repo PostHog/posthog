@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -27,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.settings import (
     ALLOWED_TYPEFORM_API_BASE_URLS,
     DEFAULT_TYPEFORM_API_BASE_URL,
+    LANDED_AT_FIELD,
+    RESPONSE_TYPE_COMPLETED_ONLY,
     TYPEFORM_ENDPOINTS,
     TypeformEndpointConfig,
 )
@@ -266,7 +267,19 @@ def get_resource(
     }
 
 
-def _make_source_response(endpoint_config: TypeformEndpointConfig, items_fn) -> SourceResponse:
+def _ensure_response_timestamps(row: dict[str, Any]) -> dict[str, Any]:
+    # Partial/started responses omit `submitted_at`; only completed ones carry it. Guarantee both
+    # timestamp columns always exist (null when absent) so the pipeline's cursor/partition column
+    # access never KeyErrors on an all-partial batch, whatever field the schema is configured for.
+    row.setdefault("submitted_at", None)
+    row.setdefault("landed_at", None)
+    return row
+
+
+def _make_source_response(
+    endpoint_config: TypeformEndpointConfig, items_fn, partition_key: str | None = None
+) -> SourceResponse:
+    partition_key = partition_key or endpoint_config.partition_key
     return SourceResponse(
         name=endpoint_config.name,
         items=items_fn,
@@ -276,9 +289,9 @@ def _make_source_response(endpoint_config: TypeformEndpointConfig, items_fn) -> 
         sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if partition_key else None,
+        partition_format="week" if partition_key else None,
+        partition_keys=[partition_key] if partition_key else None,
     )
 
 
@@ -291,21 +304,34 @@ def typeform_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    response_types: str = RESPONSE_TYPE_COMPLETED_ONLY,
 ) -> SourceResponse:
     endpoint_config = TYPEFORM_ENDPOINTS[endpoint]
     base_api_url = _validated_api_base_url(api_base_url)
 
+    # Partial/started responses have no `submitted_at`, so the all-responses mode is full-refresh
+    # only (see get_schemas) and partitions on `landed_at`, present on every response type.
+    include_partials = response_types != RESPONSE_TYPE_COMPLETED_ONLY
+
+    # The watermark drives the paginator's `submitted_at`-based early stop, so it only applies to
+    # completed-only incremental syncs — never when partials are included (that mode full-refreshes
+    # and has no watermark), even if the schema's stored incremental field still reads
+    # `submitted_at` (e.g. a not-yet-reset connection).
     incremental_watermark: str | None = None
     if (
         should_use_incremental_field
         and db_incremental_field_last_value is not None
+        and not include_partials
         and (incremental_field or endpoint_config.default_incremental_field) == "submitted_at"
     ):
         incremental_watermark = _start_param_for_typeform(db_incremental_field_last_value)
 
     if endpoint_config.fanout:
-        dependent_resource = cast(
-            Iterable[Any],
+        child_params_extra = {"response_type": response_types} if include_partials else None
+        partition_key = LANDED_AT_FIELD if include_partials else None
+
+        responses_resource = cast(
+            Any,
             build_dependent_resource(
                 endpoint_configs=TYPEFORM_ENDPOINTS,
                 child_endpoint=endpoint,
@@ -327,9 +353,10 @@ def typeform_source(
                     "paginator": TypeformResponsesPaginator(stop_when_older_than=incremental_watermark),
                     "data_selector": "items",
                 },
+                child_params_extra=child_params_extra,
             ),
-        )
-        return _make_source_response(endpoint_config, lambda: dependent_resource)
+        ).add_map(_ensure_response_timestamps)
+        return _make_source_response(endpoint_config, lambda: responses_resource, partition_key=partition_key)
 
     config: RESTAPIConfig = {
         "client": _rest_api_client_config(base_api_url, auth_token),

@@ -1,0 +1,120 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "computers": {
+        "description": "Inventory record for each managed computer, including general, hardware, operating system, user and location, security, disk encryption, purchasing, storage, and group membership sections.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-computers-inventory",
+        "columns": {
+            "id": "Unique identifier of the computer in Jamf Pro.",
+            "udid": "Unique device identifier (UDID) of the computer.",
+            "report_date": "Timestamp of the most recent inventory submission, copied from general.reportDate.",
+            "general": "General inventory section: name, last contact time, report date, enrollment details, management state, and remote management settings.",
+            "hardware": "Hardware inventory section: model, model identifier, serial number, processor, memory, and network adapters.",
+            "operatingSystem": "Operating system inventory section: name, version, build, and software update status.",
+            "userAndLocation": "Assigned user and location details: username, real name, email, position, department, and building.",
+            "security": "Security inventory section: SIP status, Gatekeeper status, XProtect version, firewall, and Activation Lock state.",
+            "diskEncryption": "FileVault disk encryption state, including boot partition encryption details and recovery key validity.",
+            "purchasing": "Purchasing information: PO number, vendor, warranty, lease, and applecare details.",
+            "storage": "Storage inventory section: disks, partitions, and available space.",
+            "groupMemberships": "Smart and static computer groups the computer is a member of.",
+        },
+    },
+    "mobile_devices": {
+        "description": "Managed mobile devices (iPhone, iPad, Apple TV) with their identity fields.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-devices",
+        "columns": {
+            "id": "Unique identifier of the mobile device in Jamf Pro.",
+            "name": "Display name of the device.",
+            "serialNumber": "Hardware serial number of the device.",
+            "udid": "Unique device identifier (UDID) of the device.",
+            "wifiMacAddress": "Wi-Fi MAC address of the device.",
+            "phoneNumber": "Phone number assigned to the device, if any.",
+            "model": "Human-readable device model (e.g. iPad Pro).",
+            "modelIdentifier": "Apple model identifier (e.g. iPad8,9).",
+            "username": "Username of the user assigned to the device.",
+            "type": "Device type (e.g. ios, tvos).",
+            "managementId": "Management identifier used by the MDM protocol.",
+        },
+    },
+    "buildings": {
+        "description": "Buildings defined in Jamf Pro, used to organize devices and users by physical location.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-buildings",
+        "columns": {
+            "id": "Unique identifier of the building.",
+            "name": "Name of the building.",
+            "streetAddress1": "First street address line.",
+            "streetAddress2": "Second street address line.",
+            "city": "City of the building.",
+            "stateProvince": "State or province of the building.",
+            "zipPostalCode": "ZIP or postal code of the building.",
+            "country": "Country of the building.",
+        },
+    },
+    "departments": {
+        "description": "Departments defined in Jamf Pro, used to organize devices and users organizationally.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-departments",
+        "columns": {
+            "id": "Unique identifier of the department.",
+            "name": "Name of the department.",
+        },
+    },
+    "categories": {
+        "description": "Categories used to organize policies, packages, scripts, and configuration profiles in Jamf Pro.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-categories",
+        "columns": {
+            "id": "Unique identifier of the category.",
+            "name": "Name of the category.",
+            "priority": "Display priority of the category in Self Service.",
+        },
+    },
+    "sites": {
+        "description": "Sites defined in Jamf Pro, used to segment devices, users, and settings across organizational units.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-sites",
+        "columns": {
+            "id": "Unique identifier of the site.",
+            "name": "Name of the site.",
+        },
+    },
+    "computer_groups": {
+        "description": "Smart and static computer groups defined in Jamf Pro.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-computer-groups",
+        "columns": {
+            "id": "Unique identifier of the computer group.",
+            "name": "Name of the computer group.",
+            "smartGroup": "Whether the group is a smart group (criteria-based) rather than a static group.",
+        },
+    },
+    "scripts": {
+        "description": "Scripts stored in Jamf Pro for use in policies, including their full contents.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-scripts",
+        "columns": {
+            "id": "Unique identifier of the script.",
+            "name": "Name of the script.",
+            "info": "Information text shown for the script.",
+            "notes": "Notes about the script.",
+            "priority": "Execution priority relative to other actions in a policy (BEFORE, AFTER, AT_REBOOT).",
+            "categoryId": "Identifier of the category the script belongs to.",
+            "categoryName": "Name of the category the script belongs to.",
+            "osRequirements": "Operating system requirements for the script to run.",
+            "scriptContents": "Full contents of the script.",
+        },
+    },
+    "packages": {
+        "description": "Software packages stored in Jamf Pro for distribution to managed devices.",
+        "docs_url": "https://developer.jamf.com/jamf-pro/reference/get_v1-packages",
+        "columns": {
+            "id": "Unique identifier of the package.",
+            "packageName": "Display name of the package.",
+            "fileName": "File name of the package on the distribution point.",
+            "categoryId": "Identifier of the category the package belongs to.",
+            "info": "Information text shown for the package.",
+            "notes": "Notes about the package.",
+            "priority": "Installation priority relative to other packages.",
+            "size": "Size of the package file in bytes.",
+            "md5": "MD5 checksum of the package file.",
+            "sha256": "SHA-256 checksum of the package file.",
+        },
+    },
+}

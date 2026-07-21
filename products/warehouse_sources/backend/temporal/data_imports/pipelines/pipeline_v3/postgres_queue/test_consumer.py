@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+    batch_consumer as batch_consumer_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
 )
@@ -143,6 +147,7 @@ class TestProcessSingle:
         [
             "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
             "Primary key required for incremental syncs",
+            "Source column type changed: 'price' has values that no longer fit its stored type int64",
         ],
     )
     @pytest.mark.asyncio
@@ -330,6 +335,8 @@ class TestProcessGroup:
     @pytest.mark.asyncio
     async def test_abandons_group_when_lease_lost_before_dispatch(self):
         consumer = _make_consumer()
+        process_mock = AsyncMock()
+        consumer._process_batch = process_mock
         batch = _make_batch()
 
         with (
@@ -347,7 +354,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), [batch])
 
         # Another pod owns the group now — processing it here would double-write.
-        cast(AsyncMock, consumer._process_batch).assert_not_called()
+        process_mock.assert_not_called()
         mock_unlock.assert_called_once()
 
 
@@ -733,6 +740,99 @@ class TestFailRun:
         mock_status.assert_called_once()
 
 
+class TestShouldProcessBatch:
+    @pytest.mark.parametrize("job_status", ["Failed", "BillingLimitReached"], ids=["failed", "billing_limited"])
+    @pytest.mark.asyncio
+    async def test_dead_job_fails_run_and_skips(self, job_status):
+        # Cancel (or any failure) marks the job terminal while batches are still queued:
+        # the loader must not load them, and must clear the run + release the pipeline lock.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch(metadata={"workflow_run_id": "wf-run-1"})
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=(job_status, "connection lost"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is False
+        mock_queue_fail.assert_awaited_once()
+        assert mock_queue_fail.call_args.kwargs["run_uuid"] == batch.run_uuid
+        mock_release.assert_called_once_with(team_id=batch.team_id, schema_id=batch.schema_id, token="wf-run-1")
+
+    @pytest.mark.parametrize(
+        "status_row",
+        [
+            ("Running", None),
+            ("Completed", None),
+            None,
+            # A takeover-failed job stays loadable: the sentinel unseals Failed -> Completed
+            # in update_external_job_status, so skipping its batches here would close that
+            # deliberate in-flight recovery window.
+            ("Failed", LOCK_TAKEOVER_LATEST_ERROR),
+        ],
+        ids=["running", "completed", "missing", "takeover_failed"],
+    )
+    @pytest.mark.asyncio
+    async def test_loadable_job_is_processed(self, status_row):
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=status_row,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_status_check_db_error_fails_open(self):
+        # An app-DB hiccup must not wedge the loader: process the batch as if the job were alive.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                side_effect=Exception("db down"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_called()
+
+
 class TestReconcileFailedRuns:
     @pytest.mark.asyncio
     async def test_reconcile_reports_queue_freshness_gauge(self):
@@ -821,6 +921,41 @@ class TestReconcileFailedRuns:
 
         mock_mark.assert_called_once_with(job_id=ref.job_id, team_id=ref.team_id, error=ref.reason)
         mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
+
+    @pytest.mark.asyncio
+    async def test_sweeps_stragglers_even_for_already_terminal_run(self):
+        # A batch enqueued into a run after fail_run swept it stays 'pending' forever
+        # (unclaimable, but it pins the freshness gauge and holds the CDC backpressure
+        # guard down) unless the reconcile sweep re-fails the run — seen in production.
+        # The sweep must run before the already-terminal gate, not behind it.
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+                return_value=1,
+            ) as mock_fail_run,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ),
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_fail_run.assert_called_once()
+        assert mock_fail_run.call_args.kwargs["run_uuid"] == ref.run_uuid
+        assert mock_fail_run.call_args.kwargs["team_id"] == ref.team_id
+        assert mock_fail_run.call_args.kwargs["schema_id"] == ref.schema_id
 
     @pytest.mark.asyncio
     async def test_skips_already_terminal_run(self):
@@ -1343,6 +1478,47 @@ class TestOwnershipVerification:
         mock_verify.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_process_batch_receives_working_precommit_ownership_check(self):
+        # Guards the wiring: without a working check handed to the processor,
+        # a write could start (or post-load run) after a takeover.
+        config = ConsumerConfig(database_url="postgres://unused:unused@localhost/unused")
+        captured: dict[str, Any] = {}
+
+        async def fake_process(batch, verify_ownership=None):
+            captured["check"] = verify_ownership
+
+        consumer = BatchConsumer(config=config, process_batch=fake_process)
+        await consumer._process_batch(_make_batch())
+
+        check = captured["check"]
+        assert check is not None
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+            return_value=True,
+        ):
+            check()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+                return_value=False,
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            check()
+
+        # Fail-closed: an unverifiable lease must not be treated as owned.
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_group_lease_sync",
+                side_effect=Exception("queue db unreachable"),
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            check()
+
+    @pytest.mark.asyncio
     async def test_heartbeat_stops_when_lease_renewal_fails(self):
         # A lost lease (another pod reclaimed the group) must end the heartbeat so the
         # group isn't double-processed while still re-stamping executing.
@@ -1372,7 +1548,8 @@ class TestOwnershipVerification:
     @pytest.mark.asyncio
     async def test_heartbeat_renews_lease_then_restamps_executing(self):
         # The success path: a held lease is renewed and the executing-status grace
-        # window is refreshed on the same beat. update_status raising ends the loop.
+        # window is refreshed on the same beat. The lease returning False on the
+        # second iteration terminates the loop so we can assert the first cycle ran.
         consumer = _make_consumer()
         consumer._config.recovery_grace_seconds = 30
         batch = _make_batch()
@@ -1382,24 +1559,19 @@ class TestOwnershipVerification:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
                 new_callable=AsyncMock,
-                return_value=True,
+                side_effect=[True, False],
             ) as mock_renew,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
                 new_callable=AsyncMock,
-                side_effect=Exception("stop the loop"),
             ) as mock_status,
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             await consumer._batch_heartbeat(lock_conn, batch, attempt=2)
 
-        mock_renew.assert_awaited_once_with(
-            lock_conn,
-            team_id=batch.team_id,
-            schema_id=batch.schema_id,
-            owner_token=consumer._owner_token,
-            lease_ttl_seconds=consumer._lease_ttl_seconds,
-        )
+        mock_renew.assert_awaited()
+        assert mock_renew.await_count == 2
+        # First iteration: lease renewed -> status refreshed; second: lease lost -> exit.
         mock_status.assert_awaited_once()
 
 
@@ -1482,18 +1654,51 @@ class TestDispatchGroups:
             await task
 
 
-class TestClaimPathWiring:
-    def test_claim_path_config_reaches_the_adapter(self):
-        # A flag that parses but never reaches the adapter would leave the
-        # fleet silently on the legacy path after the flip.
-        state = BatchConsumer(
-            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", claim_path="state"),
-            process_batch=AsyncMock(),
-        )
-        legacy = BatchConsumer(
-            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused"),
-            process_batch=AsyncMock(),
-        )
+class TestBatchHeartbeat:
+    @pytest.mark.asyncio
+    async def test_transient_renewal_failure_does_not_end_heartbeat(self):
+        # A single pgbouncer/network blip previously killed the heartbeat
+        # silently for the rest of the batch: renewals stopped, the lease
+        # expired under a healthy owner, and another pod could re-claim the
+        # batch mid-apply. The loop must survive transient errors and only
+        # stop when the lease is genuinely lost.
+        consumer = _make_consumer()
+        renew = AsyncMock(side_effect=[ConnectionError("blip"), True, False])
+        refresh = AsyncMock()
 
-        assert cast(DeltaBatchConsumerAdapter, state._adapter)._use_state is True
-        assert cast(DeltaBatchConsumerAdapter, legacy._adapter)._use_state is False
+        sleep_count = 0
+
+        async def fast_sleep(_seconds):
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count > 10:
+                raise AssertionError("heartbeat loop did not exit after lease loss")
+
+        with (
+            patch.object(consumer._adapter, "renew_lease", renew),
+            patch.object(consumer._adapter, "update_status", refresh),
+            patch.object(batch_consumer_module.asyncio, "sleep", fast_sleep),
+        ):
+            await consumer._batch_heartbeat(AsyncMock(), _make_batch(), attempt=1)
+
+        # blip -> continue; renewed -> status refresh; lease lost -> stop
+        assert renew.await_count == 3
+        refresh.assert_awaited_once()
+
+
+class TestIsRetryableError:
+    # A dropped pattern silently reverts a permanent error (deleted schema/job,
+    # data that can never fit) to burning all retry attempts before failing.
+
+    @pytest.mark.parametrize(
+        ("message", "retryable"),
+        [
+            ("value is too large to store in a Decimal128 of precision 24", False),
+            ("Primary key required for incremental syncs", False),
+            ("ExternalDataSchema matching query does not exist.", False),
+            ("ExternalDataJob matching query does not exist.", False),
+            ("connection reset by peer", True),
+        ],
+    )
+    def test_pattern_classification(self, message: str, retryable: bool):
+        assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable

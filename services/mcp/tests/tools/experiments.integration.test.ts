@@ -169,9 +169,13 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-            expect(experiment.parameters?.feature_flag_variants).toHaveLength(3)
-            expect(experiment.parameters?.feature_flag_variants?.[0]?.key).toBe('control')
-            expect(experiment.parameters?.feature_flag_variants?.[0]?.split_percent).toBe(33)
+
+            // create response omits feature_flag; fetch the full object to read the flag's variant split
+            const retrieved = parseToolResponse(await getTool.handler(context, { id: experiment.id }))
+            const flagVariants = retrieved.feature_flag?.filters?.multivariate?.variants
+            expect(flagVariants).toHaveLength(3)
+            expect(flagVariants?.[0]?.key).toBe('control')
+            expect(flagVariants?.[0]?.rollout_percentage).toBe(33)
         })
 
         it('should create an experiment with mean metric', async () => {
@@ -654,7 +658,6 @@ describe('Experiments', { concurrent: false }, () => {
             // Verify creation
             expect(createdExperiment.id).toBeTruthy()
             expect(createdExperiment.name).toBe(createParams.name)
-            expect(createdExperiment.parameters?.feature_flag_variants).toHaveLength(2)
             expect(createdExperiment.metrics).toHaveLength(2)
             expect(createdExperiment.metrics_secondary).toHaveLength(1)
 
@@ -664,6 +667,8 @@ describe('Experiments', { concurrent: false }, () => {
             })
             const retrievedExperiment = parseToolResponse(getResult)
             expect(retrievedExperiment.id).toBe(createdExperiment.id)
+            // feature_flag is only on the full get response, not the update projection
+            expect(retrievedExperiment.feature_flag?.filters?.multivariate?.variants).toHaveLength(2)
 
             // Verify it appears in list
             const listResult = await listTool.handler(context, {})

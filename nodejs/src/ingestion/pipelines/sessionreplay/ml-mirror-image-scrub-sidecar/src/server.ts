@@ -2,17 +2,14 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { type Server } from 'node:http'
 
-import { UndecodableImageError, blurOnly } from './blur.ts'
+import { UndecodableImageError } from './blur.ts'
 import { ScrubMetrics, register } from './metrics.ts'
 
 class ConsumerHungUpError extends Error {}
 
-async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
-    if (signal.aborted) {
-        throw new ConsumerHungUpError()
-    }
-    return blurOnly(input)
-}
+/** The scrub implementation is injected (main.ts wires advancedScrub over its loaded models; tests
+ *  inject the model-free blur) so the HTTP plumbing stays testable without the ML runtime. */
+export type ScrubFn = (input: Buffer) => Promise<Buffer>
 
 export interface SidecarServers {
     // /scrub, bound to loopback — the pod IP must never expose it.
@@ -25,8 +22,16 @@ export function startServer(
     port: number,
     metricsPort: number,
     maxConcurrency: number,
-    maxBodyBytes: number
+    maxBodyBytes: number,
+    scrubFn: ScrubFn
 ): SidecarServers {
+    async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
+        if (signal.aborted) {
+            throw new ConsumerHungUpError()
+        }
+        return scrubFn(input)
+    }
+
     let inFlight = 0
     const app = express()
     app.disable('x-powered-by')

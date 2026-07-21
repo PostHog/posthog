@@ -333,10 +333,10 @@ class TestFailureStreak:
     def test_mark_primed_resets_streak(self):
         candidate = _sink_state(self._team(), _State.BACKFILLING)
         DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
-            consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom"
+            consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom", backfill_run_uuid="run-1"
         )
 
-        backfill_module.mark_primed(str(candidate.schema_id))
+        backfill_module.mark_primed(str(candidate.schema_id), run_uuid="run-1")
 
         candidate.refresh_from_db()
         assert candidate.state == _State.PRIMED
@@ -599,3 +599,44 @@ class TestEnqueueLockTimeout:
         assert any("SET lock_timeout" in query for query in executed)
         assert any("RESET lock_timeout" in query for query in executed)
         assert not any("INSERT INTO" in query for query in executed)
+
+
+# transaction=True: mark_schema_diverged does thread-entry close_old_connections
+# (it is called from the consumer via sync_to_async), which severs the
+# TestCase-style transaction-wrapped connection.
+@pytest.mark.django_db(transaction=True)
+class TestMarkSchemaDiverged:
+    def _team(self) -> Team:
+        return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+
+    def test_primed_schema_parks_as_failing_needs_resync(self):
+        row = _sink_state(self._team(), _State.PRIMED)
+
+        backfill_module.mark_schema_diverged(str(row.schema_id), run_uuid="run-x", error="poison batch")
+
+        row.refresh_from_db()
+        assert row.state == _State.NEEDS_RESYNC
+        assert row.consecutive_failures >= backfill_module.FAILING_THRESHOLD
+        assert row.first_failed_at is not None
+        assert "run-x" in (row.last_error or "")
+
+        # Second terminal failure must not clobber the streak anchor or error:
+        # the CAS is PRIMED-only.
+        anchor = row.first_failed_at
+        backfill_module.mark_schema_diverged(str(row.schema_id), run_uuid="run-y", error="later failure")
+        row.refresh_from_db()
+        assert row.first_failed_at == anchor
+        assert "run-x" in (row.last_error or "")
+
+    def test_non_primed_states_are_untouched(self):
+        # BACKFILLING failures are the reconciler's to escalate; a pending
+        # schema has no divergence to record.
+        team = self._team()
+        for state in (_State.BACKFILLING, _State.PENDING_BACKFILL):
+            row = _sink_state(team, state)
+
+            backfill_module.mark_schema_diverged(str(row.schema_id), run_uuid="run-x", error="boom")
+
+            row.refresh_from_db()
+            assert row.state == state
+            assert row.consecutive_failures == 0

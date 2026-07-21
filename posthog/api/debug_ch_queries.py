@@ -34,7 +34,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -85,36 +85,15 @@ def _cache_table_stats() -> list[dict]:
     ttl_only_drop_parts=1, so each partition id is the day the partition drops — the
     per-partition breakdown doubles as a TTL/growth timeline.
     """
+    # Each sharded table's parts live on the cluster its Distributed table targets: exposures on
+    # the main cluster, metric_events on the aux cluster — so system.parts must be read per cluster.
     tables = {
-        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
-        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): (DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(), CLICKHOUSE_CLUSTER),
+        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): (
+            DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+            CLICKHOUSE_AUX_CLUSTER,
+        ),
     }
-    # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
-    # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
-    # parts — rows/bytes would be multiplied by the replica count.
-    response = sync_execute(
-        """
-        SELECT
-            table,
-            partition,
-            sum(rows) AS rows,
-            sum(bytes_on_disk) AS bytes_on_disk,
-            count() AS parts
-        FROM cluster(%(cluster)s, system, parts)
-        WHERE
-            database = %(database)s
-            AND table IN %(tables)s
-            AND active
-        GROUP BY table, partition
-        ORDER BY table, partition
-        SETTINGS skip_unavailable_shards=1
-        """,
-        {
-            "cluster": CLICKHOUSE_CLUSTER,
-            "database": CLICKHOUSE_DATABASE,
-            "tables": list(tables.keys()),
-        },
-    )
 
     stats: dict[str, dict[str, Any]] = {
         sharded: {
@@ -127,19 +106,56 @@ def _cache_table_stats() -> list[dict]:
             "newest_partition": None,
             "partitions": [],
         }
-        for sharded, base in tables.items()
+        for sharded, (base, _) in tables.items()
     }
-    for table, partition, rows, bytes_on_disk, parts in response:
-        entry = stats.get(table)
-        if entry is None:
+
+    for cluster in dict.fromkeys(cluster for _, cluster in tables.values()):
+        cluster_tables = [sharded for sharded, (_, c) in tables.items() if c == cluster]
+        # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
+        # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
+        # parts — rows/bytes would be multiplied by the replica count.
+        try:
+            response = sync_execute(
+                """
+                SELECT
+                    table,
+                    partition,
+                    sum(rows) AS rows,
+                    sum(bytes_on_disk) AS bytes_on_disk,
+                    count() AS parts
+                FROM cluster(%(cluster)s, system, parts)
+                WHERE
+                    database = %(database)s
+                    AND table IN %(tables)s
+                    AND active
+                GROUP BY table, partition
+                ORDER BY table, partition
+                SETTINGS skip_unavailable_shards=1
+                """,
+                {
+                    "cluster": cluster,
+                    "database": CLICKHOUSE_DATABASE,
+                    "tables": cluster_tables,
+                },
+            )
+        except Exception:
+            # One cluster being unreachable (or absent in a single-cluster deployment) must not
+            # take down the stats read from the healthy cluster.
+            logger.exception("cache_health: failed to read system.parts from cluster %s", cluster)
+            for sharded in cluster_tables:
+                stats[sharded]["unavailable"] = True
             continue
-        entry["total_rows"] += rows
-        entry["bytes_on_disk"] += bytes_on_disk
-        entry["active_parts"] += parts
-        entry["partition_count"] += 1
-        entry["partitions"].append(
-            {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
-        )
+        for table, partition, rows, bytes_on_disk, parts in response:
+            entry = stats.get(table)
+            if entry is None:
+                continue
+            entry["total_rows"] += rows
+            entry["bytes_on_disk"] += bytes_on_disk
+            entry["active_parts"] += parts
+            entry["partition_count"] += 1
+            entry["partitions"].append(
+                {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
+            )
     for entry in stats.values():
         if entry["partitions"]:
             entry["oldest_partition"] = entry["partitions"][0]["partition"]
@@ -702,7 +718,13 @@ class DebugCHQueries(viewsets.ViewSet):
     # Skip reasons the runner tags on reads that never attempted precompute. An empty reason on a
     # direct-scan read means precompute WAS attempted but the data wasn't ready (build failed/slow) —
     # that read paid for the build AND the full events scan, so it's the bucket to watch.
-    _PRECOMPUTE_SKIP_REASONS = ("team_disabled", "min_runtime", "override_direct", "data_warehouse")
+    _PRECOMPUTE_SKIP_REASONS = (
+        "team_disabled",
+        "min_runtime",
+        "override_direct",
+        "data_warehouse",
+        "group_aggregation",
+    )
 
     @action(detail=False, methods=["GET"], url_path="precompute_overview", required_scopes=["query_performance:read"])
     def precompute_overview(self, request):
@@ -909,6 +931,140 @@ class DebugCHQueries(viewsets.ViewSet):
                 },
                 "builds": builds,
                 "jobs": jobs,
+            }
+        )
+
+    @action(detail=False, methods=["GET"], url_path="precompute_timeseries", required_scopes=["query_performance:read"])
+    def precompute_timeseries(self, request):
+        """Bucketed history of the precompute overview's headline numbers, for the trend charts.
+
+        Returns arrays aligned to `buckets` (zero-filled, so charts get a continuous axis):
+        read counts by path outcome, failed-build counts by exit code, and bytes wasted on
+        failed builds. Hourly buckets up to 48h, daily beyond; window capped at 21 days
+        (query_log_archive retention).
+        """
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view the precompute timeseries.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 168))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 504))  # clamp to 1h–21d
+
+        bucket_fn = "toStartOfHour" if hours <= 48 else "toStartOfDay"
+        bucket_delta = timedelta(hours=1) if hours <= 48 else timedelta(days=1)
+        interval = "hour" if hours <= 48 else "day"
+
+        params: dict = {
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        reads_sql = f"""
+            SELECT
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
+                count() AS reads,
+                countIf(exposures_path = 'precomputed') AS precomputed_reads,
+                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads
+            FROM (
+                SELECT
+                    event_time,
+                    coalesce(
+                        nullIf(toString(log_comment.experiment_exposures_path), ''),
+                        ifNull(toString(log_comment.experiment_execution_path), '')
+                    ) AS exposures_path,
+                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
+                FROM query_log_archive
+                WHERE
+                    event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                    AND event_time > now() - INTERVAL %(hours)s HOUR
+                    AND lc_product = 'experiments'
+                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND is_initial_query
+                    AND toInt8(type) > 1
+                    AND query NOT LIKE %(not_query)s
+            )
+            GROUP BY bucket
+            SETTINGS skip_unavailable_shards=1
+            """
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        builds_sql = f"""
+            SELECT
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
+                exception_code,
+                count() AS builds,
+                sum(read_bytes) AS read_bytes
+            FROM query_log_archive
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND is_initial_query
+                AND toInt8(type) > 1
+                AND query NOT LIKE %(not_query)s
+            GROUP BY bucket, exception_code
+            SETTINGS skip_unavailable_shards=1
+            """
+        reads_response = sync_execute(reads_sql, params)
+        builds_response = sync_execute(builds_sql, params)
+
+        # Zero-filled bucket axis from window start to now (UTC, matching toStartOfHour/Day above).
+        window_start = datetime.now(UTC) - timedelta(hours=hours)
+        if interval == "hour":
+            first_bucket = window_start.replace(minute=0, second=0, microsecond=0)
+        else:
+            first_bucket = window_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        buckets: list[datetime] = []
+        cursor = first_bucket
+        end = datetime.now(UTC)
+        while cursor <= end:
+            buckets.append(cursor)
+            cursor += bucket_delta
+        # Buckets are matched as ISO strings: the SQL formats them in explicit UTC, so no
+        # assumption about the ClickHouse server timezone or driver naive/aware behavior is needed.
+        bucket_keys = [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets]
+        index_by_bucket = {key: i for i, key in enumerate(bucket_keys)}
+        n = len(buckets)
+
+        reads = [0] * n
+        precomputed_reads = [0] * n
+        fallback_reads = [0] * n
+        failed_build_read_bytes = [0] * n
+        failed_builds_by_code: dict[str, list[int]] = {}
+        for bucket, bucket_reads, bucket_precomputed, bucket_fallback in reads_response:
+            i = index_by_bucket.get(bucket)
+            if i is None:
+                continue
+            reads[i] = bucket_reads
+            precomputed_reads[i] = bucket_precomputed
+            fallback_reads[i] = bucket_fallback
+        for bucket, exception_code, bucket_builds, bucket_read_bytes in builds_response:
+            i = index_by_bucket.get(bucket)
+            if i is None or exception_code == 0:
+                continue
+            failed_build_read_bytes[i] += bucket_read_bytes
+            code_series = failed_builds_by_code.setdefault(str(exception_code), [0] * n)
+            code_series[i] += bucket_builds
+
+        return Response(
+            {
+                "hours": hours,
+                "interval": interval,
+                "buckets": bucket_keys,
+                "reads": {
+                    "total": reads,
+                    "precomputed": precomputed_reads,
+                    "fallback": fallback_reads,
+                },
+                "builds": {
+                    "failed_by_code": failed_builds_by_code,
+                    "failed_read_bytes": failed_build_read_bytes,
+                },
             }
         )
 

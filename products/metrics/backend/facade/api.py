@@ -14,6 +14,7 @@ from posthog.models import Team
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
+    IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
     MetricEventSample,
@@ -23,7 +24,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryRequest,
     MetricSeries,
 )
-from products.metrics.backend.facade.enums import MetricAggregation
+from products.metrics.backend.facade.enums import FilterOp, MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -179,6 +180,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             group_by=clause.group_by,
             interval=request.interval,
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
+            metric_type=clause.metric_type.value if clause.metric_type is not None else None,
         )
         rows_by_clause[clause.name] = runner.run()
 
@@ -371,4 +373,26 @@ def investigate(
         filters=filters,
         candidate_keys=candidate_keys,
         companions=companions,
+    )
+
+
+def investigate_incident(*, team: Team, context: IncidentContext) -> InvestigationResult:
+    """Investigate a fired alert's metric with no timestamp math on the caller.
+
+    Derives the anomaly window straight from `context.fired_at` (an explicit
+    UTC instant) — no parsing a fire time out of prose, no timezone guesswork —
+    scopes to the implicated service, and runs the full investigation. Returns
+    the same `InvestigationResult` as `investigate()`. This is the entry point
+    an alert's "Investigate" action calls.
+    """
+    filters: tuple[MetricFilter, ...] = ()
+    if context.service_name:
+        filters = (MetricFilter(key="service_name", op=FilterOp.EQ, value=context.service_name),)
+    return _investigate(
+        team=team,
+        metric_name=context.metric_name,
+        anomaly_from=context.fired_at - context.lookback,
+        anomaly_to=context.fired_at + context.leadout,
+        filters=filters,
+        companions=context.companions,
     )

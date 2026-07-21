@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -26,13 +26,13 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
         ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
@@ -41,6 +41,54 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
+    labeled: zod
+        .string()
+        .optional()
+        .describe(
+            'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    order_by: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
+        ),
+    recording_subject: zod
+        .string()
+        .optional()
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
+    session_id: zod
+        .string()
+        .optional()
+        .describe('Filter to observations of one or more session recordings. Accepts a comma-separated list.'),
+    status: zod.string().optional().describe('Filter by observation status. Accepts a comma-separated list.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    triggered_by: zod
+        .string()
+        .optional()
+        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+    verdict: zod
+        .string()
+        .optional()
+        .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
 })
 
 /**
@@ -115,7 +163,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
+            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.'
         ),
     scanner_type: zod
         .string()
@@ -195,12 +243,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
         .describe(
-            '* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            '* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
         )
         .describe(
-            'Concrete model to use for this scanner.\n\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            'Concrete model to use for this scanner.\n\n* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
         ),
     enabled: zod
         .boolean()
@@ -298,13 +346,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
         .describe(
-            '* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            '* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
         )
         .optional()
         .describe(
-            'Concrete model to use for this scanner.\n\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+            'Concrete model to use for this scanner.\n\n* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
         ),
     enabled: zod
         .boolean()
@@ -328,6 +376,91 @@ export const VisionScannersDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
+ */
+export const VisionScannersAffectedCohortCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const visionScannersAffectedCohortCreateBodyWindowDaysDefault = 30
+export const visionScannersAffectedCohortCreateBodyWindowDaysMax = 90
+
+export const visionScannersAffectedCohortCreateBodyTagMax = 100
+
+export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
+    .object({
+        window_days: zod
+            .number()
+            .min(1)
+            .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
+            .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
+            .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        tag: zod
+            .string()
+            .max(visionScannersAffectedCohortCreateBodyTagMax)
+            .nullish()
+            .describe(
+                'Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.'
+            ),
+        min_score: zod
+            .number()
+            .nullish()
+            .describe(
+                'Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.'
+            ),
+        max_score: zod
+            .number()
+            .nullish()
+            .describe('Scorer scanners only: count sessions scoring at or below this value.'),
+    })
+    .describe('Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.')
+
+/**
+ * Affected sessions and users for this scanner over the trailing window.
+ */
+export const VisionScannersImpactRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this replay scanner.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const visionScannersImpactRetrieveQueryTagMax = 100
+
+export const visionScannersImpactRetrieveQueryWindowDaysDefault = 30
+export const visionScannersImpactRetrieveQueryWindowDaysMax = 90
+
+export const VisionScannersImpactRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    max_score: zod.number().nullish().describe('Scorer scanners only: count sessions scoring at or below this value.'),
+    min_score: zod
+        .number()
+        .nullish()
+        .describe(
+            'Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.'
+        ),
+    tag: zod
+        .string()
+        .max(visionScannersImpactRetrieveQueryTagMax)
+        .nullish()
+        .describe(
+            'Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.'
+        ),
+    window_days: zod
+        .number()
+        .min(1)
+        .max(visionScannersImpactRetrieveQueryWindowDaysMax)
+        .default(visionScannersImpactRetrieveQueryWindowDaysDefault)
+        .describe('Trailing window of observations to count. Defaults to 30 days.'),
 })
 
 /**
@@ -366,6 +499,16 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .boolean()
         .optional()
@@ -378,12 +521,12 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
         ),
     recording_subject: zod
         .string()
         .optional()
-        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()
@@ -398,7 +541,7 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.'),
+        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
     verdict: zod
         .string()
         .optional()
@@ -406,7 +549,7 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Read-only access to observations produced by a scanner.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),
@@ -416,6 +559,54 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
     scanner_id: zod.string(),
+})
+
+export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
+    labeled: zod
+        .string()
+        .optional()
+        .describe(
+            'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    order_by: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.'
+        ),
+    recording_subject: zod
+        .string()
+        .optional()
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
+    session_id: zod
+        .string()
+        .optional()
+        .describe('Filter to observations of one or more session recordings. Accepts a comma-separated list.'),
+    status: zod.string().optional().describe('Filter by observation status. Accepts a comma-separated list.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    triggered_by: zod
+        .string()
+        .optional()
+        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+    verdict: zod
+        .string()
+        .optional()
+        .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
 })
 
 /**
@@ -431,6 +622,16 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
 })
 
 export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()
@@ -446,7 +647,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
     recording_subject: zod
         .string()
         .optional()
-        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
+        .describe('Filter to observations whose person email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()
@@ -461,7 +662,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.'),
+        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
     verdict: zod
         .string()
         .optional()
@@ -534,6 +735,7 @@ export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
+export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -560,7 +762,16 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+                "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            ),
+        model: zod
+            .enum(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash'])
+            .describe(
+                '* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
+            )
+            .default(visionScannersEstimateCreateBodyModelDefault)
+            .describe(
+                'Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-2.5-flash` - Gemini 2.5 Flash\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.5-flash` - Gemini 3.5 Flash'
             ),
     })
     .describe('Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.')

@@ -47,6 +47,7 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
+from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -1005,25 +1006,29 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        return render_template(
-            "index.html",
-            request,
-            context={
-                "oauth_application": {
-                    "name": application.name,
-                    "client_id": application.client_id,
-                    "is_verified": application.is_verified,
-                    "logo_uri": application.logo_uri,
-                    "required_scopes": application.required_scopes,
-                    # The read-only form of a `*` grant, computed from the same ceiling
-                    # resolution `validate_scopes` enforces — the frontend's scope list
-                    # drifts from the server's (both over- and under-granting otherwise).
-                    "wildcard_read_scopes": sorted(
-                        scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
-                    ),
-                }
-            },
-        )
+        template_context: dict[str, object] = {
+            "oauth_application": {
+                "name": application.name,
+                "client_id": application.client_id,
+                "is_verified": application.is_verified,
+                "logo_uri": application.logo_uri,
+                "required_scopes": application.required_scopes,
+                # The read-only form of a `*` grant, computed from the same ceiling
+                # resolution `validate_scopes` enforces — the frontend's scope list
+                # drifts from the server's (both over- and under-granting otherwise).
+                "wildcard_read_scopes": sorted(
+                    scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                ),
+            }
+        }
+
+        requested_scope = (request.query_params.get("scope") or "").strip()
+        if not requested_scope:
+            oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
+            if oauth_mcp_consent is not None:
+                template_context["oauth_mcp_consent"] = oauth_mcp_consent
+
+        return render_template("index.html", request, context=template_context)
 
     def post(self, request, *args, **kwargs):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})

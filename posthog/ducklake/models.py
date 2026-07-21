@@ -47,6 +47,11 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Region travels with the bucket: set alongside it, left NULL when no bucket is
     # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
     bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
+    # Fleet-wide cap on the batch sink's concurrently processing groups for this
+    # org — each in-flight group holds at most one connection to the org's
+    # duckgres server, so this bounds the sink's connection footprint no matter
+    # how many consumer pods run. Soft cap: enforced at group-claim time.
+    sink_max_concurrency = models.IntegerField(default=4)
 
     class Meta:
         db_table = "posthog_duckgresserver"
@@ -170,6 +175,13 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         blank=True,
         db_constraint=False,
     )
+
+    # When the sink last applied a live (non-backfill) imported batch to duckgres for this
+    # schema, stamped by the sink at apply time. The web tier reads it from the main DB so
+    # the Data ops UI can report import activity without querying the warehouse-sources
+    # queue DB (which it has no access to). NULL = no live apply recorded since this field
+    # shipped. It's an event timestamp, not a liveness signal — history, never "stale".
+    queue_last_applied_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_duckgressinkschemastate"

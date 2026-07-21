@@ -263,6 +263,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -296,6 +305,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -647,7 +657,7 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack, webhook, or teams.
+    /** Notification destination type.
      *
      * * `slack` - slack
      * * `webhook` - webhook
@@ -659,7 +669,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+    /** HTTPS endpoint to post to. Required for webhook and teams. */
     webhook_url?: string
 }
 
@@ -671,6 +681,7 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
+     * @maxItems 4
      */
     hog_function_ids: string[]
 }
@@ -1067,13 +1078,24 @@ export interface _LogsFacetValuesResponseApi {
  * * `resource` - resource
  * * `column` - column
  */
-export type GroupBySourceEnumApi = (typeof GroupBySourceEnumApi)[keyof typeof GroupBySourceEnumApi]
+export type LogsGroupBySourceEnumApi = (typeof LogsGroupBySourceEnumApi)[keyof typeof LogsGroupBySourceEnumApi]
 
-export const GroupBySourceEnumApi = {
+export const LogsGroupBySourceEnumApi = {
     Log: 'log',
     Resource: 'resource',
     Column: 'column',
 } as const
+
+export interface _LogsGroupByDimensionApi {
+    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+    key: string
+    /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    source?: LogsGroupBySourceEnumApi
+}
 
 /**
  * * `log_count` - log_count
@@ -1099,14 +1121,20 @@ export interface _LogsGroupByBodyApi {
     searchTerm?: string
     /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
-    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
-    groupBy: string
-    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+    groupBy?: string
+    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
      *
      * * `log` - log
      * * `resource` - resource
      * * `column` - column */
-    groupBySource?: GroupBySourceEnumApi
+    groupBySource?: LogsGroupBySourceEnumApi
+    /**
+     * Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.
+     * @minItems 1
+     * @maxItems 4
+     */
+    groupBys?: _LogsGroupByDimensionApi[]
     /** Aggregate to rank groups by (descending): "log_count" for the noisiest groups, "error_count" for the most failing, "last_seen" for the most recent.
      *
      * * `log_count` - log_count
@@ -1127,8 +1155,10 @@ export interface _LogsGroupByRequestApi {
 }
 
 export interface _LogsGroupByGroupApi {
-    /** The grouped attribute value identifying this group. */
+    /** The first dimension's grouped value. Kept for single-dimension callers; prefer `values`. */
     value: string
+    /** This group's values, one per requested dimension, in request order. */
+    values: string[]
     /** Number of matching logs in this group. */
     log_count: number
     /** Number of matching logs in this group at severity "error" or "fatal". */
@@ -1146,6 +1176,87 @@ export interface _LogsGroupByResponseApi {
     total_logs: number
     /** True when more groups matched than were returned (total_groups > groups length). */
     truncated: boolean
+}
+
+export interface LogsMetricRuleApi {
+    /** Unique identifier for this metric rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+     * @maxLength 200
+     */
+    metric_name: string
+    /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+    enabled?: boolean
+    /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+    filter_group?: unknown
+    /**
+     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * @maxLength 512
+     * @nullable
+     */
+    value_attribute?: string | null
+    /**
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * @items.maxLength 512
+     */
+    group_by?: string[]
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsMetricRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsMetricRuleApi[]
+}
+
+export interface PatchedLogsMetricRuleApi {
+    /** Unique identifier for this metric rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+     * @maxLength 200
+     */
+    metric_name?: string
+    /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+    enabled?: boolean
+    /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+    filter_group?: unknown
+    /**
+     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * @maxLength 512
+     * @nullable
+     */
+    value_attribute?: string | null
+    /**
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * @items.maxLength 512
+     */
+    group_by?: string[]
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 export interface _LogsPatternsBodyApi {
@@ -1239,6 +1350,79 @@ export interface _LogsPatternsResponseApi {
     sample_coverage_pct: number
     /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
     sparkline_buckets: _LogsPatternsSparklineBucketApi[]
+}
+
+export interface _LogsPatternsDiffRequestApi {
+    /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
+    query: _LogsPatternsBodyApi
+    /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
+    baselineDateRange?: _DateRangeApi
+}
+
+/**
+ * * `new` - new
+ * * `rate_shift` - rate_shift
+ * * `gone` - gone
+ * * `unchanged` - unchanged
+ */
+export type ClassificationEnumApi = (typeof ClassificationEnumApi)[keyof typeof ClassificationEnumApi]
+
+export const ClassificationEnumApi = {
+    New: 'new',
+    RateShift: 'rate_shift',
+    Gone: 'gone',
+    Unchanged: 'unchanged',
+} as const
+
+export interface _LogPatternDiffEntryApi {
+    /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
+     *
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged */
+    classification: ClassificationEnumApi
+    /**
+     * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
+     * @nullable
+     */
+    rate_ratio: number | null
+    /** The mined pattern with full stats. Taken from the current window, or from the baseline window for "gone" entries. When template wobble split one message across several near-identical templates, this is the highest-volume representative and the entry's classification reflects their combined counts. */
+    pattern: _LogPatternApi
+    /**
+     * Estimated occurrences across the baseline window (extrapolated like `estimated_count`). Null when the pattern was not seen in the baseline sample.
+     * @nullable
+     */
+    baseline_estimated_count: number | null
+    /**
+     * Share of the baseline sample this pattern represented (0-100). Null when absent from the baseline.
+     * @nullable
+     */
+    baseline_volume_share_pct: number | null
+}
+
+export interface _LogsPatternsDiffWindowApi {
+    /** Log rows fed to the miner for this window (sample size). */
+    scanned_count: number
+    /** Total log rows matching the filters in this window. */
+    total_count: number
+    /** True when this window's counts are extrapolated from a sample rather than exact. */
+    sampled: boolean
+    /** Share of this window's rows eligible for sampling (0-100); below 100 the scan was time-slice bounded. */
+    sample_coverage_pct: number
+    /** Resolved window start (ISO 8601, inclusive). */
+    date_from: string
+    /** Resolved window end (ISO 8601, exclusive). */
+    date_to: string
+}
+
+export interface _LogsPatternsDiffResponseApi {
+    /** Classified diff entries, most interesting first: "new" (by estimated count), then "rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the baseline is matched to the current window by literal-content fingerprint, so a placeholder widening between runs does not read as one pattern vanishing and another appearing. */
+    entries: _LogPatternDiffEntryApi[]
+    /** Mining metadata for the current window. */
+    current: _LogsPatternsDiffWindowApi
+    /** Mining metadata for the baseline window. Check `total_count` before trusting a wall of "new" entries: an empty or tiny baseline (e.g. logging only started this week) makes everything look new. */
+    baseline: _LogsPatternsDiffWindowApi
 }
 
 /**
@@ -1615,6 +1799,52 @@ export interface _LogsValuesResponseApi {
 }
 
 /**
+ * * `timestamp` - timestamp
+ * * `level` - level
+ * * `source` - source
+ * * `trace_id` - trace_id
+ * * `span_id` - span_id
+ * * `message` - message
+ * * `custom` - custom
+ */
+export type LogsViewColumnTypeEnumApi = (typeof LogsViewColumnTypeEnumApi)[keyof typeof LogsViewColumnTypeEnumApi]
+
+export const LogsViewColumnTypeEnumApi = {
+    Timestamp: 'timestamp',
+    Level: 'level',
+    Source: 'source',
+    TraceId: 'trace_id',
+    SpanId: 'span_id',
+    Message: 'message',
+    Custom: 'custom',
+} as const
+
+export interface LogsViewColumnApi {
+    /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
+    id: string
+    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+     *
+     * * `timestamp` - timestamp
+     * * `level` - level
+     * * `source` - source
+     * * `trace_id` - trace_id
+     * * `span_id` - span_id
+     * * `message` - message
+     * * `custom` - custom */
+    type: LogsViewColumnTypeEnumApi
+    /** Header label override. Defaults to the built-in type's label, or to the expression for custom columns. */
+    name?: string
+    /** Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`. */
+    expression?: string
+    /**
+     * Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.
+     * @minimum 1
+     * @maximum 2000
+     */
+    width?: number
+}
+
+/**
  * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
 export type LogsViewApiFilters = { [key: string]: unknown }
@@ -1626,6 +1856,11 @@ export interface LogsViewApi {
     name: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: LogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1654,6 +1889,11 @@ export interface PatchedLogsViewApi {
     name?: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: PatchedLogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1662,6 +1902,10 @@ export interface PatchedLogsViewApi {
 }
 
 export type LogsAlertsListParams = {
+    /**
+     * Only return log alerts created by the user with this UUID.
+     */
+    created_by?: string
     /**
      * Number of results to return per page.
      */
@@ -1737,6 +1981,17 @@ export const LogsAttributesRetrieveAttributeType = {
 export type LogsExportCreate201 = { [key: string]: unknown }
 
 export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
+
+export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LogsSamplingRulesListParams = {
     /**

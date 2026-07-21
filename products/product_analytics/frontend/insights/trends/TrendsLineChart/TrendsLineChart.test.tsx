@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -292,18 +292,6 @@ describe('TrendsLineChart', () => {
             expect(tooltip.title()).toMatch(/Wednesday/i)
             expect(tooltip.title()).toMatch(/12.+Jun/)
         })
-
-        it('keeps the weekday in the quill tooltip (PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS on)', async () => {
-            renderInsight({
-                query: buildTrendsQuery({ interval: 'day' }),
-                featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: true },
-            })
-
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.title()).toMatch(/Wednesday/i)
-            expect(tooltip.title()).toMatch(/12.+Jun/)
-        })
     })
 
     describe('alert overlays', () => {
@@ -350,8 +338,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe('Signup date')
-            expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears (like referenceLines/valueLabels below), so read
+            // them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe('Signup date')
+                expect(getHogChart().yAxisLabel()).toBe('Unique users')
+            })
         })
     })
 
@@ -623,8 +616,7 @@ describe('TrendsLineChart', () => {
         })
     })
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesQuery = buildTrendsQuery({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -637,7 +629,7 @@ describe('TrendsLineChart', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
 
         it('renders the in-chart legend and suppresses the legacy side legend', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesQuery })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
@@ -649,7 +641,7 @@ describe('TrendsLineChart', () => {
         })
 
         it('keeps a toggled-off series listed and dimmed in the legend but out of the tooltip', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesQuery })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
@@ -675,7 +667,6 @@ describe('TrendsLineChart', () => {
         it('renders a static, non-interactive legend in shared mode', async () => {
             const { container } = renderInsight({
                 query: twoSeriesQuery,
-                featureFlags: quillLegendFlag,
                 inSharedMode: true,
             })
 
@@ -708,6 +699,23 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
+            })
+        })
+
+        it('reports a drag that stays within a single bucket as that bucket', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
+            const wrapper = await getChartWrapper()
+
+            // Both drag edges snap to the same label — the common case on sparse charts
+            // (e.g. a 3-bar monthly chart), where this used to be a silent no-op.
+            const step = dimensions.plotWidth / (totalLabels - 1)
+            const x = dimensions.plotLeft + step
+            const y = dimensions.plotTop + dimensions.plotHeight / 2
+            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-11')
             })
         })
 

@@ -26,6 +26,12 @@ export const BatchResolverStateSchema = z.object({
     }),
     variables: z.record(z.string(), z.unknown()),
     groupTypeIndex: z.number().int().optional(),
+    // When set, the Django audience query collapses persons sharing the same
+    // normalized email so an address receives the batch send only once. Decided
+    // once at enqueue time (flows containing an email action) and frozen here so
+    // mid-run flow edits can't flip dedup semantics between pages. Optional so
+    // jobs written by older deploys keep parsing (they run un-deduped).
+    dedupeKey: z.enum(['email']).optional(),
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),

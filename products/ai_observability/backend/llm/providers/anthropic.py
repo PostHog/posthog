@@ -16,9 +16,11 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -56,9 +58,9 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes expensive
+    # Models available in the PostHog-funded playground. Excludes expensive
     # opus tiers and includes one flagship sonnet for quality evaluation.
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ]
@@ -187,6 +189,8 @@ class AnthropicAdapter:
         except anthropic.BadRequestError as e:
             if _is_quota_or_billing_error(e):
                 raise QuotaExceededError(str(e)) from e
+            if is_context_window_error_message(str(e)):
+                raise ContextWindowExceededError(str(e)) from e
             raise
         except anthropic.RateLimitError as e:
             if _is_quota_or_billing_error(e):

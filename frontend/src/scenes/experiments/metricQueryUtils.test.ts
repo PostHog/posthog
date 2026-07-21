@@ -26,6 +26,18 @@ import {
     getQuery,
 } from './metricQueryUtils'
 
+// getQuery builds date_from/date_to from dayjs() at call time, formatted to the minute.
+// The expected values below recompute dayjs() independently, so a minute rollover between
+// the two reads makes the strings differ and toEqual flakes. Freeze the clock (no
+// advanceTimers, so it cannot move) to make both reads resolve to the same instant.
+beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-15T12:00:00'))
+})
+
+afterAll(() => {
+    jest.useRealTimers()
+})
+
 describe('getFilter', () => {
     it('returns the correct filter for an event', () => {
         const metric: ExperimentMetric = {

@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     cdc_pg_connection,
@@ -70,6 +72,18 @@ _HOST_IS_URL_ERROR = (
     "password, port, or path."
 )
 
+# ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
+# route to. The common cause is a host that only accepts IPv6 (PostHog egresses over IPv4) — for
+# example a Supabase direct-connection host — or a firewall dropping PostHog's IPs. Deterministic
+# for the configured host, so give an actionable message instead of the generic connect fallback.
+_HOST_UNREACHABLE_ERROR = (
+    "PostHog reached the network but couldn't open a connection to the database host. This usually "
+    "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+    "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+    "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+    "firewall allowlist, then try again."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -85,6 +99,29 @@ PostgresErrors = {
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
     ),
+    # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
+    # identify the project from SNI, so the pooler username must embed the project ref (for example
+    # "postgres.<project-ref>"). A plain "postgres" username leaves it nothing to route on and it
+    # rejects the connection with "FATAL: (ENOIDENTIFIER) no tenant identifier provided".
+    # `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "no tenant identifier provided": (
+        'Your connection pooler couldn\'t identify your project ("no tenant identifier provided"). '
+        "On the shared pooler host the username must include your project ref (for example "
+        '"postgres.<project-ref>"). Update the username to the pooler username shown in your '
+        "Supabase dashboard and try again."
+    ),
+    # Some poolers (for example Supabase's transaction pooler on port 6543) reject bad credentials
+    # during the SASL/SCRAM exchange with "FATAL: SASL authentication failed" instead of libpq's
+    # "password authentication failed for user", so none of the password keys above substring-match
+    # it. `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "SASL authentication failed": (
+        'Your database rejected the credentials during authentication ("SASL authentication '
+        'failed"). This usually means the username or password is wrong. Some connection poolers '
+        "(for example Supabase's transaction pooler) also require a pooler-specific username such "
+        "as postgres.<project-ref>. Check your credentials and try again."
+    ),
     "could not translate host name": "Could not connect to the host",
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
@@ -95,6 +132,12 @@ PostgresErrors = {
     # customer's unresolvable host as captured error noise.
     "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
+    # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
+    # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
+    # already treats both as non-retryable on the streaming path.
+    "Network is unreachable": _HOST_UNREACHABLE_ERROR,
+    "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
@@ -151,9 +194,24 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
     "persists, check that the foreign server is running and reachable from your source database."
 )
 
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
+# replace it with concrete guidance on both the validate and sync paths.
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+    "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
+    "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # xmin replication is Postgres-only; per-table availability is still decided by
+    # `SourceSchema.supports_xmin` at discovery.
+    supports_xmin = True
+
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
@@ -171,7 +229,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["postgresql"],
+            keywords=["postgresql", "sql"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
@@ -326,7 +384,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "and password configured for this source match what the proxy expects, then "
                 "re-enable the sync."
             ),
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
+            # The schema's sync type wants an incremental cursor (incremental/append) but no
+            # incremental field is stored in its config, so `_build_query`/`_build_count_query`
+            # raise this before emitting any SQL. The stored config is fixed until the customer
+            # changes it, so every retry re-hits the same wall — non-retryable, like the missing
+            # primary key above. Reset doesn't clear `incremental_field`, so this isn't a transient
+            # reset artifact.
+            "incremental_field and incremental_field_type can't be None": (
+                "This table is set to sync incrementally but has no incremental field configured, so "
+                "PostHog can't build its sync query. Choose an incremental field for the table in its "
+                "sync settings, or switch it to full table replication, then re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle
@@ -434,7 +507,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            "Could not establish session to SSH gateway": None,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
@@ -573,6 +646,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation's own definition writes to the database while we read it — a view or
+            # trigger that calls a function which runs REFRESH MATERIALIZED VIEW (or INSERT/UPDATE/DELETE).
+            # We read inside a read-only transaction and never write to the source, so Postgres rejects
+            # the write with SQLSTATE 25006 "cannot execute <stmt> in a read-only transaction". The write
+            # lives in the customer's schema and is deterministic, so retrying re-reads into the same
+            # wall. Match the stable read-only-transaction phrase and exclude the volatile statement
+            # kind and relation name; it appears in both the raw activity-level str(e) and the
+            # Temporal-wrapped "ReadOnlySqlTransaction: ..." workflow-level form.
+            "in a read-only transaction": (
+                "One of the tables or views you selected to sync tries to write to your database while "
+                "PostHog is reading it (for example a view or trigger that refreshes a materialized "
+                "view), and PostHog reads inside a read-only transaction so the write is rejected "
+                '("cannot execute ... in a read-only transaction"). PostHog never writes to your '
+                "source. Remove that relation from the sync, or change its definition so reading it "
+                "doesn't perform a write, then re-enable the sync."
+            ),
             # A selected relation is a postgres_fdw foreign table and the connecting role has no user
             # mapping for the foreign server it points at, so every SELECT fails with
             # "UndefinedObject: user mapping not found for user <user>, server <server>" (SQLSTATE
@@ -881,9 +970,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
+            raw = e.value or ""
+            if _SSH_GATEWAY_SESSION_ERROR in raw:
+                return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (
                 False,
-                e.value
+                raw
                 or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:

@@ -147,6 +147,7 @@ export function openConfirmationModal({
                     : type === 'rollout'
                       ? 'Update conditions'
                       : 'Save changes',
+            status: type === 'flag-status' && !activeNewValue ? 'danger' : 'default',
             onClick: hasBlockingDependentFlags ? undefined : onConfirm,
             disabled: hasBlockingDependentFlags,
         },

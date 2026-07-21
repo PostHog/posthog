@@ -112,11 +112,12 @@ def queries_to_keep_fresh(
                 AND team_id = %(team_id)s
                 AND (
                     startsWith(query_type, 'stats_table_')
+                    -- Overview strategy variants get their own tags (no_join today,
+                    -- session_id_set next); prefix-match like stats_table_ so new variants
+                    -- can't silently fall out of warming.
+                    OR startsWith(query_type, 'web_overview_')
                     OR query_type IN (
                     'web_goals_query',
-                    'web_overview_preaggregated_query',
-                    'web_overview_query',
-                    'web_overview_lazy_query',
                     'web_stats_paths_lazy_query',
                     'web_vitals_path_breakdown_query',
                     'web_vitals_paths_lazy_query',

@@ -26,7 +26,7 @@ from posthog.temporal.ai_observability.model_resolution import active_key_fallba
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
+from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -145,9 +145,18 @@ class ModelConfigurationSerializer(serializers.Serializer):
     provider_key_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.",
+        help_text=(
+            "Optional team provider key to run this evaluation with; it must use the same provider. "
+            "May be null when no key is pinned or after the selected key is removed."
+        ),
     )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        errors = {field: "This field is required." for field in ("provider", "model") if field not in data}
+        if errors:
+            raise serializers.ValidationError(errors, code="required")
+        return data
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
         if obj.provider_key:
@@ -182,7 +191,17 @@ class EvaluationConditionSerializer(serializers.Serializer):
 
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    model_configuration = ModelConfigurationSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. "
+            "To add or replace a model, provide both provider and model. On an existing configured llm_judge, "
+            "omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or "
+            "sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable "
+            "without adding one. The nested provider_key_id may be null."
+        ),
+    )
     status_reason_detail = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -290,6 +309,19 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 {"model_configuration": "This evaluation type does not use model configuration."}
             )
 
+        if evaluation_uses_model_configuration(evaluation_type) and model_configuration is None:
+            existing_uses_model_configuration = bool(
+                self.instance and evaluation_uses_model_configuration(self.instance.evaluation_type)
+            )
+            newly_requires_model_configuration = self.instance is None or not existing_uses_model_configuration
+            clears_existing_model_configuration = bool(
+                self.instance and self.instance.model_configuration_id and "model_configuration" in data
+            )
+            if newly_requires_model_configuration or clears_existing_model_configuration:
+                raise serializers.ValidationError(
+                    {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
+                )
+
         should_validate_configs = (
             self.instance is None
             or "evaluation_type" in data
@@ -392,55 +424,36 @@ class EvaluationSerializer(serializers.ModelSerializer):
         """Mirror the runtime model resolution for evals with no usable provider key (see
         `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
-        is left: a null config resolves via the team's active key, else PostHog-funded trial
-        inference while the team is still grandfathered; an explicit config that reached here has
-        no active-key fallback, so it resolves via funded inference only, and only for models on
-        the trial allowlist."""
+        is left: a null config resolves via the team's active key, and anything else must add a
+        provider key of its own."""
         add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
-        is_grandfathered = config is not None and config.is_trial_grandfathered
 
         explicit_config = self._effective_model_configuration(data)
-        if explicit_config is None:
-            active_key = config.active_provider_key if config else None
-            if active_key is not None:
-                # DefaultModelSpec never falls back to funded inference when an active key exists,
-                # so an unhealthy key blocks the enable regardless of grandfathering.
-                if active_key.state != LLMProviderKey.State.OK:
-                    raise serializers.ValidationError(
-                        {"enabled": "Attach a working provider API key to enable this evaluation."}
-                    )
-                if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
-                    raise serializers.ValidationError(
-                        {
-                            "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
-                        }
-                    )
-                return
-            if is_grandfathered:
-                return
+        if explicit_config is not None:
             raise serializers.ValidationError({"enabled": add_key_message})
 
-        if not is_grandfathered:
+        active_key = config.active_provider_key if config else None
+        if active_key is None:
             raise serializers.ValidationError({"enabled": add_key_message})
 
-        model = explicit_config.get("model")
-        if model and model not in TRIAL_MODEL_IDS:
+        if active_key.state != LLMProviderKey.State.OK:
+            raise serializers.ValidationError(
+                {"enabled": "Attach a working provider API key to enable this evaluation."}
+            )
+        if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
             raise serializers.ValidationError(
                 {
-                    "enabled": (
-                        f"Model '{model}' is not available on the trial plan. "
-                        "Either choose a supported trial model or add a provider API key."
-                    )
+                    "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
                 }
             )
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
         """The explicit model configuration the evaluation will have after this update, or None
-        when it defers to the team default (null config). An explicit `model_configuration: null`
-        detaches the stored config (see update()), so payload presence wins — membership, not
-        truthiness."""
+        when it defers to the team default (null config). Payload presence wins because an explicit
+        null is still accepted for legacy null-config evaluations and when switching to a type that
+        does not use a model."""
         if "model_configuration" in data:
             return data["model_configuration"]
         if self.instance is not None and self.instance.model_configuration is not None:
@@ -512,8 +525,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        # An explicit `model_configuration: null` detaches the config; a PATCH that omits the field must
-        # leave it untouched. pop()'s default can't tell the two apart, so check membership explicitly.
+        # Switching away from an LLM judge uses an explicit null to detach its config; omission leaves it untouched.
+        # pop()'s default can't tell the two apart, so check membership explicitly.
         model_config_provided = "model_configuration" in validated_data
         model_config_data = validated_data.pop("model_configuration", None)
         old_config = None
@@ -677,7 +690,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         with transaction.atomic():
             instance = serializer.save()
 
-            if evaluation_supports_reports(instance.output_type) and instance.target == EvaluationTarget.GENERATION:
+            if evaluation_supports_reports(instance.output_type, instance.target):
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.

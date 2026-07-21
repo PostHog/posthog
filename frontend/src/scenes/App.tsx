@@ -23,56 +23,11 @@ import { userLogic } from 'scenes/userLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { initKea } from '../initKea'
-import { loadPostHogJS } from '../loadPostHogJS'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
-
-let appBooted = false
-
-/**
- * One-time boot side effects for the app chunk, called from the entry's lazy factory
- * (frontend/src/index.tsx) after the chunk loads and before <App /> first renders.
- * A function rather than module-scope statements so that merely importing scenes/App
- * (storybook stories, jest) stays side-effect-free — the test harnesses manage their
- * own kea context, and an import-time initKea() would wipe it.
- */
-export function bootApp(): void {
-    if (appBooted) {
-        return
-    }
-    appBooted = true
-
-    loadPostHogJS()
-    // Kea must initialize before any component mounts
-    initKea()
-
-    const idle =
-        typeof window.requestIdleCallback === 'function'
-            ? window.requestIdleCallback.bind(window)
-            : (cb: () => void) => setTimeout(cb, 200)
-
-    idle(() => {
-        void import('./session-recordings/player/snapshot-processing/DecompressionWorkerManager')
-            .then(({ preWarmDecompression }) => preWarmDecompression())
-            .catch((error) => {
-                console.warn('[App] Failed to load DecompressionWorkerManager for pre-warm:', error)
-            })
-
-        // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
-        // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
-        // keep the two in sync. Detection is canvas-based and can throw on some browser states
-        // (e.g. Safari/macOS); it's purely cosmetic and best-effort.
-        void import('country-flag-emoji-polyfill')
-            .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
-            .catch((error) => {
-                console.warn('[App] Country flag emoji polyfill failed:', error)
-            })
-    })
-}
 
 /**
  * Wraps each rendered scene so that when the scene unmounts (on tab change
@@ -120,7 +75,7 @@ export function App(): JSX.Element | null {
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
-        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
             unmount = supportRouterLogic.mount()
         })
         return () => unmount?.()
