@@ -165,6 +165,27 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
                 self._check(use_precompute=True, properties=props)
 
 
+class TestCacheKeyVariesWithRolloutState(BaseTest):
+    _RUNNER_MOD = "products.web_analytics.backend.hogql_queries.web_analytics_query_runner"
+
+    def _cache_key(self) -> str:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
+        )
+        return runner.get_cache_key()
+
+    def test_flipping_enrollment_changes_cache_key(self) -> None:
+        # With default-on reads, disabling the rollout flag (the kill switch)
+        # must invalidate cached precompute-produced results — otherwise a bad
+        # rollout keeps serving from the result cache until it stales.
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=True):
+            key_enabled = self._cache_key()
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
+            key_disabled = self._cache_key()
+        assert key_enabled != key_disabled
+
+
 class TestHostFilterExpr(BaseTest):
     def test_empty_properties_is_true_constant(self) -> None:
         expr = host_filter_expr([], team=self.team)

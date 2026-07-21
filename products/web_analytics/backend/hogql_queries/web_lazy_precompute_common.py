@@ -1,7 +1,7 @@
 """Shared eligibility gate + helpers for web-analytics lazy precompute paths.
 
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
-share the same rollout/safety gate (org feature flag + per-query opt-in,
+share the same rollout/safety gate (org feature flag + per-query opt-out,
 whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
 at most one `$host` exact filter, bounded date range) and the same TTL /
 session-pad / UTC-day helpers. Keeping a single source of truth avoids
