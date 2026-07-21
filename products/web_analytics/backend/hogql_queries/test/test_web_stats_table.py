@@ -2610,6 +2610,14 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             # Breakdown value reads session-entry fields -> needs the join.
             ("initial_utm_source", WebStatsBreakdown.INITIAL_UTM_SOURCE, [], False),
             ("initial_channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE, [], False),
+            # Session-property FILTERS also need the join (the predicate reads
+            # session fields; routing to no-join would silently re-add the join).
+            (
+                "session_property_filter",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+                False,
+            ),
         ]
     )
     def test_simple_breakdown_no_join_selection(self, _name, breakdown_by, properties, expect_no_join):

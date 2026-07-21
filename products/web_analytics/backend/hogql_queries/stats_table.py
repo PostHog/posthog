@@ -214,13 +214,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # Simple breakdowns whose displayed columns are all event-derived don't
         # need the events↔sessions join at all — the join only supplies the
         # session grouping key and start timestamp, both recoverable from the
-        # UUIDv7 session id. Session-entry breakdowns (Initial*) and
-        # bounce/conversion variants keep the join.
-        if (
-            self.query.conversionGoal is None
-            and not self.query.includeBounceRate
-            and not self._breakdown_uses_session_fields()
-        ):
+        # UUIDv7 session id. Session-entry breakdowns (Initial*),
+        # session-property filters, and bounce/conversion variants keep
+        # the join.
+        if self.query.conversionGoal is None and not self.query.includeBounceRate and not self._uses_session_fields():
             return NoJoinSimpleBreakdownStrategy(self)
 
         return SimpleBreakdownStrategy(self)
@@ -325,10 +322,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
-    def _breakdown_uses_session_fields(self) -> bool:
-        """True when the breakdown value reads any `session.*` field — those
-        breakdowns (Initial* entry dimensions) need the events↔sessions join
-        for the value itself and are ineligible for the no-join fast path."""
+    def _uses_session_fields(self) -> bool:
+        """True when the breakdown value or any filter reads a `session.*`
+        field. Those queries need the events↔sessions join — Initial* entry
+        breakdowns for the value itself, session-property filters for the
+        predicate. Routing them to the no-join strategy would make HogQL
+        silently re-add the lazy join, mislabeling the query tag."""
         found = False
 
         class Visitor(TraversingVisitor):
@@ -337,7 +336,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 if node.chain and node.chain[0] == "session":
                     found = True
 
-        Visitor().visit(self._counts_breakdown_value())
+        visitor = Visitor()
+        visitor.visit(self._counts_breakdown_value())
+        visitor.visit(self._all_properties())
         return found
 
     def _period_comparison_tuple(self, column, alias, function_name):

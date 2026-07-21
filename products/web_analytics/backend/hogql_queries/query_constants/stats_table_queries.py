@@ -189,9 +189,10 @@ GROUP BY session_id, breakdown_value
 # recoverable from the UUIDv7 session id itself, so the join is pure overhead
 # (prod-measured 10x wall / ~400x memory on DeviceType for a large team).
 # Sessionless and malformed-session-id events still count — the join keeps
-# them too (NULL session row) — but only UUIDv7 ids yield a `start_timestamp`;
-# others get NULL, which excludes them from compare-period buckets exactly as
-# the join's NULL `session.$start_timestamp` does. The outer query is
+# them too (NULL session row). Non-UUIDv7 ids are lumped under a NULL
+# `session_id` (raw_sessions is v7-only, so the join's `session.session_id`
+# is NULL for all of them) and get a NULL `start_timestamp`, which excludes
+# them from compare-period buckets exactly as the join does. The outer query is
 # unchanged. Unlike the PAGE no-join variants, filters need no special
 # handling: with no sessions side, user and test-account filters apply inline
 # to the single events scan.
@@ -200,7 +201,11 @@ SELECT
     any(person_id) AS filtered_person_id,
     count() AS filtered_pageview_count,
     {breakdown_value} AS breakdown_value,
-    events.$session_id AS session_id,
+    if(
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        events.$session_id,
+        NULL
+    ) AS session_id,
     any(if(
         equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
         fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)),
