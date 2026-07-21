@@ -1,9 +1,13 @@
+import os
 import shlex
+import tempfile
+import subprocess
+from pathlib import Path
 from typing import Any
 
 from unittest.mock import Mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import yaml
 from parameterized import parameterized
@@ -14,6 +18,7 @@ from products.tasks.backend.logic.services.agentsh import (
     INFRASTRUCTURE_DOMAINS,
     build_audit_query_command,
     build_exec_prefix,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
@@ -243,6 +248,52 @@ class TestEnvWrapper(TestCase):
         self.assertNotIn("--use-env-proxy", wrapper)
 
 
+class TestBashEnvScript(SimpleTestCase):
+    def test_initialization_does_not_overwrite_refreshed_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            refreshed = b"GH_TOKEN=ghu_fresh\x00GITHUB_TOKEN=ghu_fresh\x00"
+            env_file.write_bytes(refreshed)
+            script_file.write_text(generate_bash_env_script(str(env_file)))
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={"PATH": os.environ["PATH"], "SAFE_BASE": "kept", "GH_TOKEN": "ghu_stale"},
+            )
+
+            self.assertEqual(env_file.read_bytes(), refreshed)
+
+            sourced = subprocess.run(
+                ["bash", "-c", 'printf "%s|%s" "$GH_TOKEN" "$GITHUB_TOKEN"'],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ["PATH"], "BASH_ENV": str(script_file)},
+            )
+            self.assertEqual(sourced.stdout, "ghu_fresh|ghu_fresh")
+
+    def test_initialization_captures_environment_when_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            script_file.write_text(generate_bash_env_script(str(env_file)))
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={"PATH": os.environ["PATH"], "SAFE_BASE": "kept"},
+            )
+
+            entries = {
+                entry.split(b"=", 1)[0]: entry.split(b"=", 1)[1]
+                for entry in env_file.read_bytes().split(b"\x00")
+                if entry
+            }
+            self.assertEqual(entries[b"SAFE_BASE"], b"kept")
+
+
 class TestBuildAuditQueryCommand(TestCase):
     def test_references_audit_db(self):
         cmd = build_audit_query_command()
@@ -285,8 +336,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        # Provisioning initializes the env file synchronously; legacy callers only fill a missing file.
-        self.assertIn("(test -f /tmp/agent-env || env -0 > /tmp/agent-env)", cmd)
+        self.assertIn("bash /tmp/agentsh-bash-env.sh", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
 
@@ -387,7 +437,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             allowed_domains=["example.com", "api.example.com"],
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertIn("(test -f /tmp/agent-env || env -0 > /tmp/agent-env)", cmd)
+        self.assertIn("bash /tmp/agentsh-bash-env.sh", cmd)
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)

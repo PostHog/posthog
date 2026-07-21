@@ -34,7 +34,6 @@ from products.tasks.backend.models import SandboxSnapshot
 
 from .agentsh import (
     BASH_ENV_SCRIPT,
-    ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
     build_exec_prefix,
@@ -852,7 +851,7 @@ class DockerSandbox(SandboxBase):
             'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
         )
         inner = f"cd /scripts && {no_proxy_export}{server_cmd} > /tmp/agent-server.log 2>&1"
-        initialize_env_file = f"(test -f {ENV_FILE} || env -0 > {ENV_FILE})"
+        initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
 
         if allowed_domains is not None:
             return (

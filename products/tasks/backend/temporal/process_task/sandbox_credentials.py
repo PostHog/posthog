@@ -118,23 +118,6 @@ def update_sandbox_env_file(sandbox: "SandboxBase", updates: dict[str, str]) -> 
     return True
 
 
-def initialize_sandbox_env_file(sandbox: "SandboxBase", environment_variables: dict[str, str]) -> bool:
-    """Capture the sandbox environment, then overlay the values resolved for this run.
-
-    This runs synchronously during provisioning so the agent cannot start before its
-    per-command shells have the same credentials as the agent-server process.
-    """
-    capture = sandbox.execute(f"env -0 > {shlex.quote(ENV_FILE)}", timeout_seconds=30)
-    if capture.exit_code != 0:
-        logger.warning(
-            "Failed to initialize sandbox env file",
-            extra={"sandbox_id": sandbox.id, "env_file": ENV_FILE, "stderr": capture.stderr},
-        )
-        return False
-
-    return update_sandbox_env_file(sandbox, environment_variables)
-
-
 def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str | None, github_token: str) -> None:
     """Re-inject a GitHub token into both places a running sandbox reads it from."""
     if repository:

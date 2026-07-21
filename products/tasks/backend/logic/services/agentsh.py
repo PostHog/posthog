@@ -113,16 +113,31 @@ exec "$@"
 """
 
 
-def generate_bash_env_script() -> str:
+def generate_bash_env_script(env_file: str = ENV_FILE) -> str:
     """
-    Generate the script sourced via ``BASH_ENV``.
+    Generate the script sourced via ``BASH_ENV`` and used to initialize its env file.
+
+    The explicit invocation runs inside the background agent-server launch. It
+    atomically captures the current sandbox environment only when the env file does
+    not already exist, so it cannot overwrite credentials refreshed by the backend.
+    Sourced invocations stay cheap and only export the GitHub credentials needed by
+    tool shells.
     """
+    quoted_env_file = shlex.quote(env_file)
     return f"""\
+if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
+  tmp_file={quoted_env_file}.tmp.$$
+  trap 'rm -f "$tmp_file"' EXIT
+  env -0 > "$tmp_file"
+  ln "$tmp_file" {quoted_env_file} 2>/dev/null || true
+  exit 0
+fi
+
 while IFS= read -r -d $'\\0' kv 2>/dev/null; do
   case "$kv" in
     GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;
   esac
-done < {ENV_FILE} 2>/dev/null
+done < {quoted_env_file} 2>/dev/null
 """
 
 

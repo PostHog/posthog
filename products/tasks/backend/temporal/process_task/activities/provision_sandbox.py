@@ -10,12 +10,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
-from products.tasks.backend.exceptions import (
-    GitHubAuthenticationError,
-    OAuthTokenError,
-    SandboxProvisionError,
-    TaskNotFoundError,
-)
+from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
@@ -33,7 +28,6 @@ from products.tasks.backend.temporal.metrics import (
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
-    initialize_sandbox_env_file,
     set_git_remote_token,
     update_sandbox_env_file,
 )
@@ -593,14 +587,6 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
 
         increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
-
-        if not initialize_sandbox_env_file(sandbox, prepared.environment_variables):
-            sandbox.destroy()
-            raise SandboxProvisionError(
-                "Failed to initialize sandbox environment",
-                {"task_id": ctx.task_id, "run_id": ctx.run_id, "sandbox_id": sandbox.id},
-                cause=RuntimeError("sandbox environment file initialization failed"),
-            )
 
         credentials = sandbox.get_connect_credentials()
 
