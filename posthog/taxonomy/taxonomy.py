@@ -531,6 +531,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "receiver_email": {
+            "label": "Receiver email",
+            "description": "The inbound email address a support ticket was sent to (e.g. support@, billing@). Use it to route or tag tickets by destination inbox.",
+            "examples": ["support@example.com", "tech-support@example.com"],
+            "type": "String",
+        },
         "$session_recording_masking": {
             "label": "Replay config - masking",
             "description": "The masking configuration for the session recording.",

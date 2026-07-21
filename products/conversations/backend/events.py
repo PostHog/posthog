@@ -267,6 +267,24 @@ def _groups_from_org_id(team: Team, organization_id: str) -> dict:
     return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
 
 
+def _get_receiver_properties(ticket: Ticket) -> dict:
+    """Identity of the inbound email channel the ticket arrived on.
+
+    Lets workflows route or tag tickets by which address they were sent to
+    (support@, billing@, tech-support@). Only email-channel tickets have an
+    ``email_config``, so these keys are absent for other channels.
+    """
+    if not ticket.email_config_id:
+        return {}
+    email_config = ticket.email_config
+    if email_config is None:
+        return {}
+    return {
+        "receiver_email": email_config.from_email,
+        "email_config_id": str(ticket.email_config_id),
+    }
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -275,6 +293,7 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "channel_detail": ticket.channel_detail,
         "status": ticket.status,
         "priority": ticket.priority,
+        **_get_receiver_properties(ticket),
     }
 
 

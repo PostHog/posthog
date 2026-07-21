@@ -23,7 +23,7 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailChannel, Ticket
 
 
 class TestConversationEvents(BaseTest):
@@ -249,6 +249,39 @@ class TestConversationEvents(BaseTest):
         assert props["channel_source"] == self.ticket.channel_source
         assert props["status"] == self.ticket.status
         assert props["priority"] == self.ticket.priority
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_ticket_created_stamps_receiver_email_for_email_channel(self, mock_capture):
+        channel = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token=uuid.uuid4().hex,
+            from_email="tech-support@example.com",
+            from_name="Tech Support",
+            domain="example.com",
+        )
+        email_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="customer-456",
+            channel_source="email",
+            status="new",
+            email_config=channel,
+            email_from="customer@acme.com",
+        )
+
+        capture_ticket_created(email_ticket)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["receiver_email"] == "tech-support@example.com"
+        assert props["email_config_id"] == str(channel.id)
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_ticket_created_omits_receiver_email_without_email_channel(self, mock_capture):
+        capture_ticket_created(self.ticket)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert "receiver_email" not in props
+        assert "email_config_id" not in props
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_message_content_truncated_to_1000_chars(self, mock_capture):
