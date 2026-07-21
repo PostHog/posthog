@@ -8,6 +8,7 @@ absent, so one scorer list spans all cases.
 
 from __future__ import annotations
 
+import re
 import json
 from typing import Any
 
@@ -31,7 +32,9 @@ SQL_TOOL = "execute-sql"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
-_POSTHOG_MCP_PREFIX = "mcp__posthog__"
+# Matches the PostHog MCP namespace across regional server names —
+# ``mcp__posthog__``, ``mcp__posthog_us__``, ``mcp__posthog_eu__``, etc.
+_POSTHOG_MCP_RE = re.compile(r"^mcp__posthog(_[a-z0-9]+)*__")
 _TOOL_DISCOVERY_COMMANDS = frozenset({"info", "learn", "schema", "search", "tools"})
 _TOOL_DISCOVERY_TOOLS = frozenset({"toolsearch", "tool_search"})
 _KNOWN_DATA_BEARING_TOOLS = frozenset({SQL_TOOL, METRIC_RUN_TOOL, "read-data-schema"})
@@ -83,7 +86,7 @@ def _is_data_bearing(call: ToolCall) -> bool:
         return False
     if call.name in _KNOWN_DATA_BEARING_TOOLS or call.name.startswith("query-"):
         return True
-    return call.raw_name.startswith(_POSTHOG_MCP_PREFIX)
+    return _POSTHOG_MCP_RE.match(call.raw_name) is not None
 
 
 class MetricsCatalogQueried(Scorer):
@@ -243,14 +246,17 @@ class CanonicalMetricRun(Scorer):
             call.position for call in parser.get_tool_calls(SQL_TOOL) if not call.is_error and _is_catalog_lookup(call)
         ]
         expected_error = outcome == "failed"
-        matching_calls = [
+        post_catalog_runs = [
             call
             for call in run_calls
             if call.input.get("name") == metric_name
-            and call.is_error is expected_error
             and any(position < call.position for position in successful_catalog_positions)
         ]
-        if matching_calls:
+        matching_calls = [call for call in post_catalog_runs if call.is_error is expected_error]
+        contradicting_calls = [call for call in post_catalog_runs if call.is_error is not expected_error]
+        # Mixed outcomes (e.g. a failed run followed by a successful one) are contradictory —
+        # only accept when every canonical run agreed with the expected outcome.
+        if matching_calls and not contradicting_calls:
             return Score(
                 name=self._name(),
                 score=1.0,
@@ -261,7 +267,11 @@ class CanonicalMetricRun(Scorer):
             name=self._name(),
             score=0.0,
             metadata={
-                "reason": "no matching metric run after a successful catalog lookup",
+                "reason": (
+                    "canonical metric run had mixed outcomes"
+                    if matching_calls and contradicting_calls
+                    else "no matching metric run after a successful catalog lookup"
+                ),
                 "metric_name": metric_name,
                 "expected_outcome": outcome,
                 "calls": [
