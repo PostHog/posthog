@@ -107,6 +107,8 @@ class TestOrcaSecuritySource:
         config = OrcaSecuritySourceConfig(api_token="tok", region="eu")
         inputs = mock.MagicMock()
         inputs.schema_name = "alerts"
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
         inputs.incremental_field = "CreatedAt"
@@ -121,7 +123,8 @@ class TestOrcaSecuritySource:
             api_token="tok",
             region="eu",
             endpoint="alerts",
-            logger=inputs.logger,
+            team_id=7,
+            job_id="job-1",
             resumable_source_manager=manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",

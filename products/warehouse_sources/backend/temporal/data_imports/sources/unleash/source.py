@@ -154,6 +154,6 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
-            logger=inputs.logger,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

@@ -118,5 +118,6 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         return cloudflare_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

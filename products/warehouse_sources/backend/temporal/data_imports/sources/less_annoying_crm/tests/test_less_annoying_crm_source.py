@@ -95,8 +95,10 @@ class TestLessAnnoyingCRMSource:
         mocked.assert_called_once_with(
             api_key="test-key",
             endpoint="tasks",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
         )
 
     def test_canonical_descriptions_key_on_endpoint_names(self) -> None:

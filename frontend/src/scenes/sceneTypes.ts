@@ -323,8 +323,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
     // Insights
-    // TODO: Add an Alerts access control resource instead of inheriting Insight permissions.
-    [Scene.Alerts]: AccessControlResourceType.Insight,
     [Scene.Insight]: AccessControlResourceType.Insight,
     [Scene.SavedInsights]: AccessControlResourceType.Insight,
 

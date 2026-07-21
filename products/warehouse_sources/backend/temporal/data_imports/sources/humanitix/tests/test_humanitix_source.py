@@ -98,38 +98,35 @@ class TestHumanitixSource:
 
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Humanitix API key"),
-            ("forbidden", 403, False, "Invalid Humanitix API key"),
-            ("server_error", 500, False, "Humanitix returned HTTP 500"),
-            ("connection_error", 0, False, "Could not connect to Humanitix: boom"),
+            ("ok", (True, None), True, None),
+            ("unauthorized", (False, "Invalid Humanitix API key"), False, "Invalid Humanitix API key"),
+            ("server_error", (False, "Humanitix returned HTTP 500"), False, "Humanitix returned HTTP 500"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.check_access")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.validate_humanitix_credentials"
+    )
     def test_validate_credentials(
         self,
         _name: str,
-        status: int,
+        probe_result: tuple[bool, str | None],
         expected_valid: bool,
         expected_message: str | None,
-        mock_check: mock.MagicMock,
+        mock_validate: mock.MagicMock,
     ) -> None:
-        message = (
-            "Humanitix returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Humanitix: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
+        mock_validate.return_value = probe_result
         is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.check_access")
-    def test_validate_credentials_probes_the_account_key(self, mock_check: mock.MagicMock) -> None:
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.validate_humanitix_credentials"
+    )
+    def test_validate_credentials_probes_the_account_key(self, mock_validate: mock.MagicMock) -> None:
         # The API key is account-wide, so validation probes the key, not a per-schema scope.
-        mock_check.return_value = (200, None)
+        mock_validate.return_value = (200, None)
         self.source.validate_credentials(self.config, self.team_id, schema_name="tags")
-        mock_check.assert_called_once_with("hmtx-key")
+        mock_validate.assert_called_once_with("hmtx-key")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())

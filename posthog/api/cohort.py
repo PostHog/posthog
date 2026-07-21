@@ -556,6 +556,9 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
+# Keep in sync with CohortConditionFlags / Cohort.compute_condition_type in
+# products/cohorts/backend/models/cohort.py — pydantic can't share that TypedDict directly,
+# so a new flag added to one won't raise a type error if the other is missed.
 class CohortConditionTypeFlags(BaseModel, extra="forbid"):
     person_properties: bool = Field(description="The filters include a person property or person_metadata condition.")
     behavioral: bool = Field(

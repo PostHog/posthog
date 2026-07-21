@@ -725,7 +725,7 @@ class DataWarehouseSavedQuerySerializer(
                 detail=(
                     'Query must be a JSON object with a "query" key, '
                     f"got {type(query).__name__}. "
-                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
+                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY LIMIT 100"}'
                 )
             )
         if not isinstance(query.get("query"), str) or not query["query"].strip():
