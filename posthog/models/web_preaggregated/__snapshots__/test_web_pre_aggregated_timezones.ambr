@@ -34,7 +34,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -152,7 +152,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -219,7 +219,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -286,7 +286,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -506,7 +506,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -624,7 +624,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -742,7 +742,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -860,7 +860,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -978,7 +978,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1096,7 +1096,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1214,7 +1214,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1332,7 +1332,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1450,7 +1450,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1568,7 +1568,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN
@@ -1686,7 +1686,7 @@
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
             nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
-            events.`$session_id` AS session_id,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events
      LEFT OUTER JOIN

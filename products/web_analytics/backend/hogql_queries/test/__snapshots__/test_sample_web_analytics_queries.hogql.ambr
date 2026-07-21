@@ -441,7 +441,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             properties.$browser AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -465,7 +465,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             tuple(properties.$geoip_country_code, properties.$geoip_city_name) AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -490,7 +490,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             properties.$geoip_country_code AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -514,7 +514,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             properties.$device_type AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -847,7 +847,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             properties.$browser_language AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -871,7 +871,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             properties.$os AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -895,7 +895,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             events.properties.$pathname AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -920,7 +920,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             multiIf(isNotNull(events.properties.$prev_pageview_pathname), events.properties.$prev_pageview_pathname, equals(domain(events.properties.$current_url), domain(events.properties.$referrer)), path(events.properties.$referrer), events.properties.$referrer) AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -945,7 +945,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name) AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -970,7 +970,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             events.properties.$screen_name AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -995,7 +995,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             divide(minus(0, toFloat(properties.$timezone_offset)), 60) AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -1019,7 +1019,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             tuple(properties.$viewport_width, properties.$viewport_height) AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1)
@@ -1299,7 +1299,7 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             events.properties.$pathname AS breakdown_value,
-            events.$session_id AS session_id,
+            if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
             any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(properties.$pathname, '/pricing'))
@@ -1324,8 +1324,9 @@
     (SELECT any(person_id) AS filtered_person_id,
             count() AS filtered_pageview_count,
             properties.$device_type AS breakdown_value,
-            events.$session_id AS session_id,
-            any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp
+            session.session_id AS session_id,
+            any(session.$is_bounce) AS is_bounce,
+            min(session.$start_timestamp) AS start_timestamp
      FROM events
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), equals(session.$channel_type, 'Direct'))
      GROUP BY session_id,
