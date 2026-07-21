@@ -11,7 +11,7 @@ is deleted in a later PR.
 
 import json
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Optional
@@ -175,6 +175,9 @@ class PendingFollowup:
     artifact_ids: list[str]
     ack_id: str
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    actor_user_id: int | None = None
+    message_id: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
     steer: bool = False
     sequence: int = 0
 
@@ -730,14 +733,21 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
-        steer: bool = False,
+        message_id: str | bool | None = None,
+        actor_user_id: int | None = None,
+        message_context: dict[str, Any] | None = None,
     ) -> None:
+        legacy_steer = message_id if isinstance(message_id, bool) else False
+        stable_message_id = message_id if isinstance(message_id, str) else None
         self._queue_followup_message(
             ack_id,
             message,
             artifact_ids,
             source,
-            steer=steer,
+            actor_user_id=actor_user_id,
+            message_id=stable_message_id,
+            message_context=message_context,
+            steer=legacy_steer,
             signal_name=SEND_FOLLOWUP_SIGNAL,
         )
 
@@ -748,12 +758,18 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
+        message_id: str | None = None,
+        actor_user_id: int | None = None,
+        message_context: dict[str, Any] | None = None,
     ) -> None:
         self._queue_followup_message(
             ack_id,
             message,
             artifact_ids,
             source,
+            actor_user_id=actor_user_id,
+            message_id=message_id,
+            message_context=message_context,
             steer=True,
             signal_name=SEND_STEER_SIGNAL,
         )
@@ -768,6 +784,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None,
         artifact_ids: Optional[list[str]],
         source: str,
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        message_context: dict[str, Any] | None = None,
         *,
         steer: bool,
         signal_name: str,
@@ -812,6 +831,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 artifact_ids=artifact_ids or [],
                 ack_id=ack_id,
                 source=source,
+                actor_user_id=actor_user_id,
+                message_id=message_id,
+                context=message_context if isinstance(message_context, dict) else {},
                 steer=steer,
                 sequence=self._next_followup_sequence,
             )
@@ -860,6 +882,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 outcome = await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
+                    actor_user_id=followup.actor_user_id,
+                    message_id=followup.message_id,
+                    message_context=followup.context,
                     steer=followup.steer,
                 )
                 if followup.steer and outcome == STEER_DECLINED_OUTCOME:
@@ -869,6 +894,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             artifact_ids=followup.artifact_ids,
                             ack_id=followup.ack_id,
                             source=followup.source,
+                            actor_user_id=followup.actor_user_id,
+                            message_id=followup.message_id,
+                            context=followup.context,
                             sequence=followup.sequence,
                         ),
                     )
@@ -1376,7 +1404,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
 
     async def _send_followup_to_sandbox(
-        self, message: str | None, artifact_ids: list[str], *, steer: bool = False
+        self,
+        message: str | None,
+        artifact_ids: list[str],
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        message_context: dict[str, Any] | None = None,
+        *,
+        steer: bool = False,
     ) -> str | None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
@@ -1391,7 +1426,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 message=message,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
-                message_id=str(workflow.uuid4()),
+                message_id=message_id or str(workflow.uuid4()),
+                actor_user_id=actor_user_id,
+                context=message_context if isinstance(message_context, dict) else {},
                 steer=steer,
             ),
             start_to_close_timeout=timedelta(minutes=35),

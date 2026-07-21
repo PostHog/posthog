@@ -1405,11 +1405,10 @@ export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawH
         const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
         const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
         const plotBottom = args.dimensions.plotTop + args.dimensions.plotHeight
-        const hasY = dragRect.y0 != null && dragRect.y1 != null
-        const y0 = hasY
-            ? Math.max(args.dimensions.plotTop, Math.min(dragRect.y0 ?? 0, dragRect.y1 ?? 0))
-            : args.dimensions.plotTop
-        const y1 = hasY ? Math.min(plotBottom, Math.max(dragRect.y0 ?? 0, dragRect.y1 ?? 0)) : plotBottom
+        const { y0: rectY0, y1: rectY1 } = dragRect
+        const hasY = rectY0 != null && rectY1 != null
+        const y0 = hasY ? Math.max(args.dimensions.plotTop, Math.min(rectY0, rectY1)) : args.dimensions.plotTop
+        const y1 = hasY ? Math.min(plotBottom, Math.max(rectY0, rectY1)) : plotBottom
         if (x1 <= x0 || y1 <= y0) {
             return result
         }
