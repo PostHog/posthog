@@ -37,8 +37,13 @@ ACTIVITIES = (
     + FINGERPRINT_EMBEDDING_RESULT_ACTIVITIES
 )
 
+LIFECYCLE_WORKFLOWS = []
+LIFECYCLE_ACTIVITIES = []
+
 __all__ = [
     "ACTIVITIES",
+    "LIFECYCLE_ACTIVITIES",
+    "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
     "ErrorTrackingFingerprintEmbeddingResultWorkflow",
     "ErrorTrackingRecommendationsRefreshWorkflow",
