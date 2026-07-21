@@ -353,11 +353,9 @@ DEPRECATED_DASHBOARDS_FIELD_USED_COUNTER = Counter(
 )
 
 
-# Access methods that are our own surfaces (web app, shared/exporter frontend) rather than
-# external integrations. Unresolved auth ("no_authenticator") comes from the web app too. These
-# keep receiving the deprecated `dashboards` field until the frontend fully migrates to
-# dashboard_tiles, regardless of opt-in enforcement.
-_FIRST_PARTY_ACCESS_METHODS = frozenset({"no_authenticator", "session", "sharing_token"})
+# Access methods that still need the deprecated field without opting in. Shared/exporter views
+# have their own frontend lifecycle, and unresolved auth is not a caller we can migrate safely.
+_DEPRECATED_DASHBOARDS_FIELD_EXEMPT_ACCESS_METHODS = frozenset({"no_authenticator", "sharing_token"})
 
 
 def _dashboards_field_access_method(request: Request | None) -> str:
@@ -381,24 +379,24 @@ def _is_internal_serialization_context(context: dict) -> bool:
     return context.get("request") is None
 
 
-def _is_first_party_request(request: Request | None) -> bool:
-    return _dashboards_field_access_method(request) in _FIRST_PARTY_ACCESS_METHODS
-
-
 def should_serve_deprecated_dashboards_field(context: dict) -> bool:
     """
     The insight `dashboards` field is deprecated in favor of `dashboard_tiles`. Removal is
     two-phase: while INSIGHT_DASHBOARDS_OPT_IN_ENFORCED is off, every caller still receives the
     field and reads are metered by access method so remaining usage can drain; once enforced,
-    non-first-party callers must opt in with `?include_dashboards=true`.
+    token callers must opt in with `?include_dashboards=true`. Session-authenticated requests
+    already require the opt-in because the web app has migrated to `dashboard_tiles`.
     """
     if _is_internal_serialization_context(context):
         return True
     request = context["request"]
-    if _is_first_party_request(request):
-        return True
     query_params = getattr(request, "query_params", None)
     if query_params is not None and str_to_bool(query_params.get(INCLUDE_DASHBOARDS_PARAM, "0")):
+        return True
+    access_method = _dashboards_field_access_method(request)
+    if access_method == "session":
+        return False
+    if access_method in _DEPRECATED_DASHBOARDS_FIELD_EXEMPT_ACCESS_METHODS:
         return True
     return not settings.INSIGHT_DASHBOARDS_OPT_IN_ENFORCED
 
