@@ -20,12 +20,12 @@ Three variants + the live rendering of the funnel steps chart in compare mode, o
 
 ## The variants
 
-| Key    | Name                       | Bars                                                                       | Axes                                                                                                                          |
-| ------ | -------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `live` | Shared axis (production)   | Volume-true: larger period fills 100%, smaller leaves a blank gap above    | One percent axis; only the larger period's first step reads 100%                                                              |
-| `A`    | Twin percent axes          | Each period normalized to its own entrants — both first steps at the top   | Left = this period's %, right = previous period's %, color-coded. Both read 0–100%; heights compare conversion rates directly |
-| `B`    | Volume-true + second axis  | Unchanged from `live`                                                      | Left = larger period's % (unchanged scale). Right = the smaller period's own 0–100% **compressed to its entry level**          |
-| `C`    | Count axes                 | As in `A` (each period = its own 100%)                                     | Both axes labeled in absolute user counts per period — the axis carries the volume difference the bars no longer show          |
+| Key    | Name                      | Bars                                                                     | Axes                                                                                                                          |
+| ------ | ------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `live` | Shared axis (production)  | Volume-true: larger period fills 100%, smaller leaves a blank gap above  | One percent axis; only the larger period's first step reads 100%                                                              |
+| `A`    | Twin percent axes         | Each period normalized to its own entrants — both first steps at the top | Left = this period's %, right = previous period's %, color-coded. Both read 0–100%; heights compare conversion rates directly |
+| `B`    | Volume-true + second axis | Unchanged from `live`                                                    | Left = larger period's % (unchanged scale). Right = the smaller period's own 0–100% **compressed to its entry level**         |
+| `C`    | Count axes                | As in `A` (each period = its own 100%)                                   | Both axes labeled in absolute user counts per period — the axis carries the volume difference the bars no longer show         |
 
 What to judge:
 
