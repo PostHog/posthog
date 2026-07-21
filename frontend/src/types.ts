@@ -777,6 +777,10 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    trends_enabled?: boolean
+    trends_spike_multiplier?: number
+    trends_spike_min_tickets?: number
+    trends_notifications_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -7164,6 +7168,7 @@ export type HogFunctionConfigurationContextId =
     | 'experiment-alerts'
     | 'logs-alerting'
     | 'health-alerts'
+    | 'conversations-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7182,6 +7187,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-errored'
     | 'health-check-firing'
     | 'health-check-resolved'
+    | 'conversations-incident-detected'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

@@ -46,6 +46,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { TrendsSection } from 'products/conversations/frontend/scenes/settings/TrendsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
@@ -1206,6 +1207,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
+            },
+            {
+                id: 'conversations-trends',
+                title: 'Trends & incidents',
+                description:
+                    'Detect spikes in ticket volume and get alerted about possible incidents. Set your own alert criteria with rules.',
+                component: <TrendsSection />,
+                flag: 'PRODUCT_SUPPORT_TICKET_TRENDS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['trend', 'incident', 'spike', 'alert', 'rule', 'support', 'conversation', 'anomaly'],
             },
         ],
     },

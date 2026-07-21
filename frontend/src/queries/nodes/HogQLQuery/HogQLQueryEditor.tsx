@@ -44,7 +44,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         if (router.values.location.pathname.includes(urls.sqlEditor())) {
             setKey(router.values.location.pathname)
         }
-    }, [router.values.location.pathname])
+    }, [])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null

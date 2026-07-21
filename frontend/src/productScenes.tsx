@@ -42,6 +42,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
+    SupportTrends: () => import('../../products/conversations/frontend/scenes/trends/SupportTrendsScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>

@@ -154,6 +154,154 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+/**
+ * Create a ticket alert rule from ticket filters and a threshold.
+ */
+export const conversationsAlertRulesCreateBodyNameMax = 400
+
+export const conversationsAlertRulesCreateBodyWindowMinutesMin = 15
+export const conversationsAlertRulesCreateBodyWindowMinutesMax = 1440
+
+export const conversationsAlertRulesCreateBodyMinCountMax = 100000
+
+export const conversationsAlertRulesCreateBodySpikeMultiplierMin = 1.5
+export const conversationsAlertRulesCreateBodySpikeMultiplierMax = 100
+
+export const ConversationsAlertRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsAlertRulesCreateBodyNameMax)
+        .describe('Display name for the rule, shown in alerts and the trends view.'),
+    filters: zod
+        .record(zod.string(), zod.string().describe('Filter value in tickets-list query-param form.'))
+        .optional()
+        .describe(
+            'Ticket filters in the tickets list endpoint\'s query-param form, e.g. `{\"channel_source\": \"email\", \"tags\": \"[\\\"billing\\\"]\"}`. Matching tickets created within the rule\'s window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.'
+        ),
+    window_minutes: zod
+        .number()
+        .min(conversationsAlertRulesCreateBodyWindowMinutesMin)
+        .max(conversationsAlertRulesCreateBodyWindowMinutesMax)
+        .optional()
+        .describe(
+            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.'
+        ),
+    min_count: zod
+        .number()
+        .min(1)
+        .max(conversationsAlertRulesCreateBodyMinCountMax)
+        .optional()
+        .describe('Minimum matching tickets in the window before the rule can fire.'),
+    spike_multiplier: zod
+        .number()
+        .min(conversationsAlertRulesCreateBodySpikeMultiplierMin)
+        .max(conversationsAlertRulesCreateBodySpikeMultiplierMax)
+        .nullish()
+        .describe(
+            "When set, the rule also requires ticket volume to exceed this multiple of the rule's historical baseline (relative spike detection). When null, the rule fires purely on min_count within the window."
+        ),
+    enabled: zod.boolean().optional().describe('Disabled rules are kept but never evaluated.'),
+})
+
+/**
+ * Update a ticket alert rule.
+ */
+export const conversationsAlertRulesUpdateBodyNameMax = 400
+
+export const conversationsAlertRulesUpdateBodyWindowMinutesMin = 15
+export const conversationsAlertRulesUpdateBodyWindowMinutesMax = 1440
+
+export const conversationsAlertRulesUpdateBodyMinCountMax = 100000
+
+export const conversationsAlertRulesUpdateBodySpikeMultiplierMin = 1.5
+export const conversationsAlertRulesUpdateBodySpikeMultiplierMax = 100
+
+export const ConversationsAlertRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsAlertRulesUpdateBodyNameMax)
+        .describe('Display name for the rule, shown in alerts and the trends view.'),
+    filters: zod
+        .record(zod.string(), zod.string().describe('Filter value in tickets-list query-param form.'))
+        .optional()
+        .describe(
+            'Ticket filters in the tickets list endpoint\'s query-param form, e.g. `{\"channel_source\": \"email\", \"tags\": \"[\\\"billing\\\"]\"}`. Matching tickets created within the rule\'s window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.'
+        ),
+    window_minutes: zod
+        .number()
+        .min(conversationsAlertRulesUpdateBodyWindowMinutesMin)
+        .max(conversationsAlertRulesUpdateBodyWindowMinutesMax)
+        .optional()
+        .describe(
+            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.'
+        ),
+    min_count: zod
+        .number()
+        .min(1)
+        .max(conversationsAlertRulesUpdateBodyMinCountMax)
+        .optional()
+        .describe('Minimum matching tickets in the window before the rule can fire.'),
+    spike_multiplier: zod
+        .number()
+        .min(conversationsAlertRulesUpdateBodySpikeMultiplierMin)
+        .max(conversationsAlertRulesUpdateBodySpikeMultiplierMax)
+        .nullish()
+        .describe(
+            "When set, the rule also requires ticket volume to exceed this multiple of the rule's historical baseline (relative spike detection). When null, the rule fires purely on min_count within the window."
+        ),
+    enabled: zod.boolean().optional().describe('Disabled rules are kept but never evaluated.'),
+})
+
+/**
+ * Partially update a ticket alert rule.
+ */
+export const conversationsAlertRulesPartialUpdateBodyNameMax = 400
+
+export const conversationsAlertRulesPartialUpdateBodyWindowMinutesMin = 15
+export const conversationsAlertRulesPartialUpdateBodyWindowMinutesMax = 1440
+
+export const conversationsAlertRulesPartialUpdateBodyMinCountMax = 100000
+
+export const conversationsAlertRulesPartialUpdateBodySpikeMultiplierMin = 1.5
+export const conversationsAlertRulesPartialUpdateBodySpikeMultiplierMax = 100
+
+export const ConversationsAlertRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsAlertRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name for the rule, shown in alerts and the trends view.'),
+    filters: zod
+        .record(zod.string(), zod.string().describe('Filter value in tickets-list query-param form.'))
+        .optional()
+        .describe(
+            'Ticket filters in the tickets list endpoint\'s query-param form, e.g. `{\"channel_source\": \"email\", \"tags\": \"[\\\"billing\\\"]\"}`. Matching tickets created within the rule\'s window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.'
+        ),
+    window_minutes: zod
+        .number()
+        .min(conversationsAlertRulesPartialUpdateBodyWindowMinutesMin)
+        .max(conversationsAlertRulesPartialUpdateBodyWindowMinutesMax)
+        .optional()
+        .describe(
+            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.'
+        ),
+    min_count: zod
+        .number()
+        .min(1)
+        .max(conversationsAlertRulesPartialUpdateBodyMinCountMax)
+        .optional()
+        .describe('Minimum matching tickets in the window before the rule can fire.'),
+    spike_multiplier: zod
+        .number()
+        .min(conversationsAlertRulesPartialUpdateBodySpikeMultiplierMin)
+        .max(conversationsAlertRulesPartialUpdateBodySpikeMultiplierMax)
+        .nullish()
+        .describe(
+            "When set, the rule also requires ticket volume to exceed this multiple of the rule's historical baseline (relative spike detection). When null, the rule fires purely on min_count within the window."
+        ),
+    enabled: zod.boolean().optional().describe('Disabled rules are kept but never evaluated.'),
+})
+
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod

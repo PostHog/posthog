@@ -27,7 +27,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, TicketIncident
 from products.conversations.backend.models.constants import Channel
 
 logger = structlog.get_logger(__name__)
@@ -334,6 +334,43 @@ def capture_ticket_created(ticket: Ticket) -> None:
         timestamp=None,
         properties=properties,
         process_person_profile=process_person,
+    )
+
+
+def capture_incident_detected(incident: TicketIncident, team: Team, title: str) -> None:
+    """A ticket-volume incident opened. Fired once per incident (the open ACTIVE
+    row dedupes re-fires); designed for HogFunction alert destinations, mirroring
+    error tracking's ``$error_tracking_issue_spiking``."""
+    details = incident.details or {}
+    sample_tickets = details.get("sample_tickets") or []
+    properties = {
+        "incident_id": str(incident.id),
+        "incident_scope": incident.scope,
+        "incident_dimension": incident.dimension_value,
+        "rule_id": str(incident.rule_id) if incident.rule_id else None,
+        "rule_name": incident.rule.name if incident.rule else None,
+        "title": title,
+        "observed_count": incident.observed_count,
+        "baseline_value": incident.baseline_value,
+        "zscore": incident.zscore,
+        "window_minutes": incident.window_minutes,
+        "detected_at": incident.detected_at.isoformat(),
+        "channel_mix": details.get("channel_mix"),
+        "sample_ticket_numbers": [ticket["ticket_number"] for ticket in sample_tickets],
+        "sample_ticket_urls": [
+            f"{SITE_URL}/project/{team.id}/support/tickets/{ticket['ticket_number']}" for ticket in sample_tickets
+        ],
+        "tickets_url": f"{SITE_URL}/project/{team.id}/support/tickets",
+    }
+
+    capture_internal(
+        token=team.api_token,
+        event_name="$conversation_incident_detected",
+        event_source=EVENT_SOURCE,
+        distinct_id=str(team.uuid),
+        timestamp=None,
+        properties=properties,
+        process_person_profile=False,
     )
 
 

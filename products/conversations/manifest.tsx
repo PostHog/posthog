@@ -19,6 +19,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
+        SupportTrends: {
+            name: 'Ticket trends',
+            import: () => import('./frontend/scenes/trends/SupportTrendsScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
         SupportSettings: {
             name: 'Support settings',
             import: () => import('./frontend/scenes/settings/SupportSettingsScene'),
@@ -29,6 +35,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+        '/support/trends': ['SupportTrends', 'supportTrends'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
     },
     redirects: {
@@ -38,6 +45,7 @@ export const manifest: ProductManifest = {
         supportDashboard: (): string => '/support',
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+        supportTrends: (): string => '/support/trends',
         supportSettings: (): string => '/support/settings',
     },
     fileSystemTypes: {},

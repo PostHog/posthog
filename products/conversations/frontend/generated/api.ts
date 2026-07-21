@@ -17,6 +17,8 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationApi,
+    ConversationsAlertRulesListParams,
+    ConversationsIncidentsListParams,
     ConversationsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
@@ -24,15 +26,20 @@ import type {
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
+    PaginatedTicketAlertRuleListApi,
+    PaginatedTicketIncidentListApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
+    PatchedTicketAlertRuleApi,
     PatchedTicketApi,
     PatchedTicketViewApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
+    TicketAlertRuleApi,
     TicketApi,
+    TicketIncidentApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
@@ -288,6 +295,200 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsAlertRulesListUrl = (projectId: string, params?: ConversationsAlertRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/alert_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/alert_rules/`
+}
+
+/**
+ * List ticket alert rules for the project.
+ */
+export const conversationsAlertRulesList = async (
+    projectId: string,
+    params?: ConversationsAlertRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketAlertRuleListApi> => {
+    return apiMutator<PaginatedTicketAlertRuleListApi>(getConversationsAlertRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsAlertRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/alert_rules/`
+}
+
+/**
+ * Create a ticket alert rule from ticket filters and a threshold.
+ */
+export const conversationsAlertRulesCreate = async (
+    projectId: string,
+    ticketAlertRuleApi: NonReadonly<TicketAlertRuleApi>,
+    options?: RequestInit
+): Promise<TicketAlertRuleApi> => {
+    return apiMutator<TicketAlertRuleApi>(getConversationsAlertRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketAlertRuleApi),
+    })
+}
+
+export const getConversationsAlertRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/alert_rules/${id}/`
+}
+
+/**
+ * Retrieve a single ticket alert rule.
+ */
+export const conversationsAlertRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketAlertRuleApi> => {
+    return apiMutator<TicketAlertRuleApi>(getConversationsAlertRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsAlertRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/alert_rules/${id}/`
+}
+
+/**
+ * Update a ticket alert rule.
+ */
+export const conversationsAlertRulesUpdate = async (
+    projectId: string,
+    id: string,
+    ticketAlertRuleApi: NonReadonly<TicketAlertRuleApi>,
+    options?: RequestInit
+): Promise<TicketAlertRuleApi> => {
+    return apiMutator<TicketAlertRuleApi>(getConversationsAlertRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketAlertRuleApi),
+    })
+}
+
+export const getConversationsAlertRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/alert_rules/${id}/`
+}
+
+/**
+ * Partially update a ticket alert rule.
+ */
+export const conversationsAlertRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTicketAlertRuleApi?: NonReadonly<PatchedTicketAlertRuleApi>,
+    options?: RequestInit
+): Promise<TicketAlertRuleApi> => {
+    return apiMutator<TicketAlertRuleApi>(getConversationsAlertRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketAlertRuleApi),
+    })
+}
+
+export const getConversationsAlertRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/alert_rules/${id}/`
+}
+
+/**
+ * Delete a ticket alert rule.
+ */
+export const conversationsAlertRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsAlertRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getConversationsIncidentsListUrl = (projectId: string, params?: ConversationsIncidentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/incidents/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/incidents/`
+}
+
+/**
+ * List detected ticket incidents for the project, newest first.
+ */
+export const conversationsIncidentsList = async (
+    projectId: string,
+    params?: ConversationsIncidentsListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketIncidentListApi> => {
+    return apiMutator<PaginatedTicketIncidentListApi>(getConversationsIncidentsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsIncidentsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/incidents/${id}/`
+}
+
+/**
+ * Retrieve a single ticket incident.
+ */
+export const conversationsIncidentsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketIncidentApi> => {
+    return apiMutator<TicketIncidentApi>(getConversationsIncidentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsIncidentsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/incidents/${id}/dismiss/`
+}
+
+/**
+ * Dismiss an active incident. Dismissal suppresses re-detection of the same scope for 24 hours. Resolved incidents are left unchanged.
+ */
+export const conversationsIncidentsDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketIncidentApi> => {
+    return apiMutator<TicketIncidentApi>(getConversationsIncidentsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

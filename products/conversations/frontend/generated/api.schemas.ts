@@ -573,6 +573,218 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
+ * Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.
+ */
+export type TicketAlertRuleApiFilters = { [key: string]: string }
+
+export interface TicketAlertRuleApi {
+    readonly id: string
+    /**
+     * Display name for the rule, shown in alerts and the trends view.
+     * @maxLength 400
+     */
+    name: string
+    /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. */
+    filters?: TicketAlertRuleApiFilters
+    /**
+     * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.
+     * @minimum 15
+     * @maximum 1440
+     */
+    window_minutes?: number
+    /**
+     * Minimum matching tickets in the window before the rule can fire.
+     * @minimum 1
+     * @maximum 100000
+     */
+    min_count?: number
+    /**
+     * When set, the rule also requires ticket volume to exceed this multiple of the rule's historical baseline (relative spike detection). When null, the rule fires purely on min_count within the window.
+     * @minimum 1.5
+     * @maximum 100
+     * @nullable
+     */
+    spike_multiplier?: number | null
+    /** Disabled rules are kept but never evaluated. */
+    enabled?: boolean
+    /** @nullable */
+    readonly last_evaluated_at: string | null
+    /** @nullable */
+    readonly last_fired_at: string | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedTicketAlertRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketAlertRuleApi[]
+}
+
+/**
+ * Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.
+ */
+export type PatchedTicketAlertRuleApiFilters = { [key: string]: string }
+
+export interface PatchedTicketAlertRuleApi {
+    readonly id?: string
+    /**
+     * Display name for the rule, shown in alerts and the trends view.
+     * @maxLength 400
+     */
+    name?: string
+    /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. */
+    filters?: PatchedTicketAlertRuleApiFilters
+    /**
+     * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.
+     * @minimum 15
+     * @maximum 1440
+     */
+    window_minutes?: number
+    /**
+     * Minimum matching tickets in the window before the rule can fire.
+     * @minimum 1
+     * @maximum 100000
+     */
+    min_count?: number
+    /**
+     * When set, the rule also requires ticket volume to exceed this multiple of the rule's historical baseline (relative spike detection). When null, the rule fires purely on min_count within the window.
+     * @minimum 1.5
+     * @maximum 100
+     * @nullable
+     */
+    spike_multiplier?: number | null
+    /** Disabled rules are kept but never evaluated. */
+    enabled?: boolean
+    /** @nullable */
+    readonly last_evaluated_at?: string | null
+    /** @nullable */
+    readonly last_fired_at?: string | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * * `volume` - Overall volume
+ * * `channel` - Channel
+ * * `priority` - Priority
+ * * `rule` - Alert rule
+ */
+export type TicketIncidentScopeEnumApi = (typeof TicketIncidentScopeEnumApi)[keyof typeof TicketIncidentScopeEnumApi]
+
+export const TicketIncidentScopeEnumApi = {
+    Volume: 'volume',
+    Channel: 'channel',
+    Priority: 'priority',
+    Rule: 'rule',
+} as const
+
+/**
+ * * `active` - Active
+ * * `resolved` - Resolved
+ * * `dismissed` - Dismissed
+ */
+export type TicketIncidentStatusEnumApi = (typeof TicketIncidentStatusEnumApi)[keyof typeof TicketIncidentStatusEnumApi]
+
+export const TicketIncidentStatusEnumApi = {
+    Active: 'active',
+    Resolved: 'resolved',
+    Dismissed: 'dismissed',
+} as const
+
+export interface IncidentSampleTicketApi {
+    /** Ticket UUID. */
+    readonly id: string
+    /** Human-readable ticket number. */
+    readonly ticket_number: number
+}
+
+/**
+ * Ticket counts by channel within the fired window (overall-volume incidents only).
+ */
+export type TicketIncidentDetailsApiChannelMix = { [key: string]: number }
+
+export interface TicketIncidentDetailsApi {
+    /** Human-readable incident summary at detection time. */
+    readonly title: string
+    /** Most recent tickets that contributed to the spike. */
+    readonly sample_tickets: readonly IncidentSampleTicketApi[]
+    /** Hourly ticket counts for the trailing 24 hours, oldest first. */
+    readonly sparkline_hourly: readonly number[]
+    /** Ticket counts by channel within the fired window (overall-volume incidents only). */
+    readonly channel_mix: TicketIncidentDetailsApiChannelMix
+}
+
+export interface TicketIncidentApi {
+    readonly id: string
+    /** What spiked: overall volume, a channel, a priority, or a custom alert rule.
+     *
+     * * `volume` - Overall volume
+     * * `channel` - Channel
+     * * `priority` - Priority
+     * * `rule` - Alert rule */
+    readonly scope: TicketIncidentScopeEnumApi
+    /** Discriminator within the scope: the channel/priority value or rule id. Empty for overall volume. */
+    readonly dimension_value: string
+    /**
+     * The alert rule that fired, for rule-scoped incidents.
+     * @nullable
+     */
+    readonly rule: string | null
+    /**
+     * Name of the alert rule that fired, for rule-scoped incidents.
+     * @nullable
+     */
+    readonly rule_name: string | null
+    /** Incident state: active, resolved (auto), or dismissed (by a user).
+     *
+     * * `active` - Active
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed */
+    readonly status: TicketIncidentStatusEnumApi
+    /** When the spike was first detected. */
+    readonly detected_at: string
+    /**
+     * When the incident auto-resolved. Null while active or dismissed.
+     * @nullable
+     */
+    readonly resolved_at: string | null
+    /** Evaluation window the spike was observed in. */
+    readonly window_minutes: number
+    /** Tickets observed in the window at the latest evaluation. */
+    readonly observed_count: number
+    /**
+     * Baseline (median) window count the spike was compared against. Null for absolute-only rules.
+     * @nullable
+     */
+    readonly baseline_value: number | null
+    /**
+     * Robust z-score of the observed count against the baseline, when available.
+     * @nullable
+     */
+    readonly zscore: number | null
+    /** Detection snapshot: title, sample tickets, sparkline, channel mix. */
+    readonly details: TicketIncidentDetailsApi
+    /** Consecutive evaluations below the calm threshold; the incident auto-resolves after several. */
+    readonly calm_run_count: number
+    readonly created_at: string
+}
+
+export interface PaginatedTicketIncidentListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketIncidentApi[]
+}
+
+/**
  * * `widget` - Widget
  * * `email` - Email
  * * `slack` - Slack
@@ -1175,6 +1387,32 @@ export type ConversationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ConversationsAlertRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsIncidentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by incident status. Accepts a single value or a comma-separated list. Valid values: `active`, `resolved`, `dismissed`.
+     */
+    status?: string
 }
 
 export type ConversationsTicketsListParams = {

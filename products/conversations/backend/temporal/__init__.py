@@ -18,6 +18,14 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.conversations.backend.temporal.trends.coordinator import (
+    TicketTrendsCoordinatorWorkflow,
+    ticket_trends_collect_teams_activity,
+)
+from products.conversations.backend.temporal.trends.workflow import (
+    TicketTrendsAnalysisWorkflow,
+    ticket_trends_detect_activity,
+)
 from products.conversations.backend.temporal.zendesk_import.activities import (
     zendesk_import_batch_activity,
     zendesk_import_enumerate_tickets_activity,
@@ -32,6 +40,8 @@ from products.conversations.backend.temporal.zendesk_import.workflows import (
 WORKFLOWS = [
     SupportReplyWorkflow,
     SupportReplyCoordinatorWorkflow,
+    TicketTrendsCoordinatorWorkflow,
+    TicketTrendsAnalysisWorkflow,
     ZendeskImportCoordinatorWorkflow,
     ZendeskImportBatchWorkflow,
 ]
@@ -49,6 +59,8 @@ ACTIVITIES = [
     support_persist_knowledge_gap_activity,
     support_record_triage_activity,
     support_collect_eligible_tickets_activity,
+    ticket_trends_collect_teams_activity,
+    ticket_trends_detect_activity,
     zendesk_import_enumerate_tickets_activity,
     zendesk_import_batch_activity,
     zendesk_import_update_job_status_activity,
