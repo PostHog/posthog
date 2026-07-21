@@ -3,30 +3,30 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import (
-    WINDMILL_ENDPOINTS,
-    WindmillEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import WINDMILL_ENDPOINTS
 
-REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 PER_PAGE = 100
 
 HOST_NOT_ALLOWED_ERROR = "Windmill instance URL is not allowed"
-
-
-class WindmillRetryableError(Exception):
-    pass
 
 
 class WindmillHostNotAllowedError(Exception):
@@ -35,8 +35,8 @@ class WindmillHostNotAllowedError(Exception):
 
 @dataclasses.dataclass
 class WindmillResumeConfig:
-    # 1-based index of the last-yielded page, so a resume re-fetches it and merge dedupes on the
-    # primary key.
+    # 1-based page number to fetch on resume. A saved value points at the next page to fetch after
+    # the last durably-committed one; on resume the scan restarts there and merge dedupes any overlap.
     page: int
 
 
@@ -74,6 +74,11 @@ def _workspace_url(base_url: str, workspace: str, path: str) -> str:
     return f"{normalize_base_url(base_url)}/w/{quote(workspace, safe='')}{path}"
 
 
+def _workspace_base_url(base_url: str, workspace: str) -> str:
+    """Root the REST client at the workspace so endpoint paths resolve to ``{base}/w/{ws}{path}``."""
+    return f"{normalize_base_url(base_url)}/w/{quote(workspace, safe='')}"
+
+
 def _get_headers(api_token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_token}",
@@ -91,33 +96,22 @@ def _format_after(value: Any) -> str:
     return str(value)
 
 
-def _build_params(
-    config: WindmillEndpointConfig,
-    page: int,
-    incremental_field: str | None,
-    after_value: str | None,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {}
-    if config.paginated:
-        params["page"] = page
-        params["per_page"] = PER_PAGE
-    if config.supports_order_desc:
-        # Ascending so rows inserted mid-sync append at the end instead of shifting earlier pages,
-        # and so the incremental watermark advances monotonically.
-        params["order_desc"] = "false"
+class WindmillPageNumberPaginator(PageNumberPaginator):
+    """1-based page/per_page paginator that stops on a short page.
 
-    after_param = config.incremental_after_params.get(incremental_field or "")
-    if after_param and after_value:
-        params[after_param] = after_value
+    Windmill list endpoints return bare JSON arrays with no total, so a page shorter than
+    ``per_page`` is the last one — stop there instead of paying an extra empty-page request the
+    built-in (empty-page-only) stop check would incur.
+    """
 
-    return params
+    def __init__(self, per_page: int) -> None:
+        super().__init__(base_page=1, page_param="page")
+        self._per_page = per_page
 
-
-def _normalize_items(items: Any) -> list[dict[str, Any]]:
-    """Windmill list endpoints return bare JSON arrays; keep only object rows."""
-    if not isinstance(items, list):
-        return []
-    return [item for item in items if isinstance(item, dict)]
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and data is not None and len(data) < self._per_page:
+            self._has_next_page = False
 
 
 def validate_credentials(
@@ -154,26 +148,27 @@ def validate_credentials(
     return False, message
 
 
-def get_rows(
+def windmill_source(
     api_token: str,
     base_url: str,
     workspace: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[WindmillResumeConfig],
     team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[WindmillResumeConfig],
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
+) -> SourceResponse:
     config = WINDMILL_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
 
-    # Re-check at run time (not just at source-create) in case the URL was edited or now resolves
-    # to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(_host_from_url(base_url), team_id)
-    if not host_ok:
-        raise WindmillHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["per_page"] = PER_PAGE
+    if config.supports_order_desc:
+        # Ascending so rows inserted mid-sync append at the end instead of shifting earlier pages,
+        # and so the incremental watermark advances monotonically.
+        params["order_desc"] = "false"
 
     after_value: str | None = None
     if (
@@ -182,99 +177,73 @@ def get_rows(
         and db_incremental_field_last_value
     ):
         after_value = _format_after(db_incremental_field_last_value)
+        params[config.incremental_after_params[incremental_field]] = after_value
 
-    # Redact the bearer token wherever the tracked adapter records request samples — the
-    # Authorization header uses a scheme the name-based scrubbers don't cover. One session is
-    # reused across every page so the redaction applies to all requests.
-    session = make_tracked_session(allow_redirects=False, redact_values=(api_token,))
-
-    @retry(
-        retry=retry_if_exception_type((WindmillRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page: int) -> list[dict[str, Any]]:
-        params = _build_params(config, page, incremental_field, after_value)
-        page_url = _workspace_url(base_url, workspace, config.path)
-        if params:
-            page_url = f"{page_url}?{urlencode(params)}"
-        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise WindmillRetryableError(
-                f"Windmill API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"Windmill API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return _normalize_items(response.json())
-
-    # listUsers ignores pagination params and returns every row at once; a single request avoids
+    # listUsers ignores pagination params and returns every row at once, so a single request avoids
     # re-fetching the same full list forever.
-    if not config.paginated:
-        items = fetch_page(1)
-        if items:
-            yield items
-        return
+    paginator: BasePaginator = WindmillPageNumberPaginator(PER_PAGE) if config.paginated else SinglePagePaginator()
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    # A saved page number only indexes into a fixed result set. When an incremental watermark is
-    # active it may have advanced since the page was saved (a partial run commits rows and moves
-    # the cursor), which reshuffles the filtered pages so page N would skip earlier unsynced rows.
-    # Restart from page 1 in that case; the watermark still bounds the scan and merge dedupes.
-    if after_value is not None:
-        resume_config = None
-    page = resume_config.page if resume_config is not None else 1
-    if resume_config is not None:
-        logger.debug(f"Windmill: resuming {endpoint} from page={page}")
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _workspace_base_url(base_url, workspace),
+            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+            # logs and error messages; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_token},
+            "paginator": paginator,
+            "max_retries": MAX_RETRY_ATTEMPTS,
+            # The instance host is customer-controlled, so never follow a redirect that could carry
+            # the bearer token to another origin.
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                },
+            }
+        ],
+    }
 
-    while True:
-        items = fetch_page(page)
-        if not items:
-            break
+    # A saved page only indexes into a fixed result set. When an incremental watermark is active it
+    # may have advanced since the page was saved (a partial run commits rows and moves the cursor),
+    # reshuffling the filtered pages so page N would skip earlier unsynced rows. Restart from page 1
+    # in that case; the watermark still bounds the scan and merge dedupes.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and after_value is None and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
 
-        yield items
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the hook fires after a page is yielded, so the saved
+        # page is durably reached only once the consumer has committed everything before it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(WindmillResumeConfig(page=int(state["page"])))
 
-        # Save the page we just yielded (not the next one) so a resume re-fetches it; merge
-        # semantics on the primary key dedupe.
-        resumable_source_manager.save_state(WindmillResumeConfig(page=page))
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
-        if len(items) < PER_PAGE:
-            break
-        page += 1
-
-
-def windmill_source(
-    api_token: str,
-    base_url: str,
-    workspace: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[WindmillResumeConfig],
-    team_id: int,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    config = WINDMILL_ENDPOINTS[endpoint]
+    def items() -> Iterator[list[dict[str, Any]]]:
+        # Re-check at run time (not just at source-create) in case the URL was edited or now
+        # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        host_ok, host_err = _is_host_safe(_host_from_url(base_url), team_id)
+        if not host_ok:
+            raise WindmillHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+        yield from resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            base_url=base_url,
-            workspace=workspace,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            team_id=team_id,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=items,
         primary_keys=config.primary_keys,
         # We always request ascending order where the API allows it, so incremental watermarks
         # advance safely batch by batch.
@@ -284,4 +253,5 @@ def windmill_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format=config.partition_format if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

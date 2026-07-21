@@ -1,10 +1,9 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 from requests import Response
 from requests.exceptions import HTTPError
@@ -15,14 +14,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brev
     _build_base_params,
     _format_datetime,
     brevo_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.settings import BREVO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the brevo module.
+BREVO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo.make_tracked_session"
+)
 
-def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
+
+def _response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
@@ -32,38 +37,44 @@ def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
     return resp
 
 
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(url).query)
+def _make_manager(resume_state: BrevoResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock(spec=ResumableSourceManager)
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-def _drive_get_rows(
-    endpoint: str,
-    manager: MagicMock,
-    responses: list[Response],
-    **kwargs: Any,
-) -> tuple[list[str], list[list[dict[str, Any]]]]:
-    sent_urls: list[str] = []
-    response_iter = iter(responses)
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
 
-    def fake_get(url: str, headers: Any = None, timeout: Any = None) -> Response:
-        sent_urls.append(url)
-        return next(response_iter)
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
 
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo.make_tracked_session"
-    ) as MockSession:
-        MockSession.return_value.get.side_effect = fake_get
-        rows = list(
-            get_rows(
-                api_key="test-key",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                **kwargs,
-            )
-        )
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
 
-    return sent_urls, rows
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return brevo_source(
+        api_key="test-key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
 
 
 class TestFormatDatetime:
@@ -116,99 +127,127 @@ class TestBuildBaseParams:
         assert params == {"sort": "asc"}
 
 
-class TestGetRowsPagination:
-    def test_offset_advances_and_terminates_on_short_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_offset_advances_and_terminates_on_short_page(self, MockSession, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(BREVO_ENDPOINTS["contacts"], "page_size", 2)
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"contacts": [{"id": 1}, {"id": 2}], "count": 3}),
+                _response({"contacts": [{"id": 3}], "count": 3}),
+            ],
+        )
 
-        responses = [
-            _make_response({"contacts": [{"id": 1}, {"id": 2}], "count": 3}),
-            _make_response({"contacts": [{"id": 3}], "count": 3}),
-        ]
-        sent_urls, rows = _drive_get_rows("contacts", manager, responses)
+        rows = _rows(_source("contacts", _make_manager()))
 
-        offsets = [_query(u).get("offset", [None])[0] for u in sent_urls]
-        assert offsets == ["0", "2"]
-        assert rows == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert [p["offset"] for p in params] == [0, 2]
+        assert params[0]["limit"] == 2
+        assert params[0]["sort"] == "asc"
 
-    def test_saves_state_after_each_non_terminal_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_state_after_each_non_terminal_page(self, MockSession, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(BREVO_ENDPOINTS["contacts"], "page_size", 2)
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"contacts": [{"id": 1}, {"id": 2}]}),
+                _response({"contacts": [{"id": 3}]}),
+            ],
+        )
 
-        responses = [
-            _make_response({"contacts": [{"id": 1}, {"id": 2}]}),
-            _make_response({"contacts": [{"id": 3}]}),
-        ]
-        _drive_get_rows("contacts", manager, responses)
+        manager = _make_manager()
+        _rows(_source("contacts", manager))
 
         saved = [saved_call.args[0] for saved_call in manager.save_state.call_args_list]
         assert saved == [BrevoResumeConfig(offset=2)]
 
-    def test_single_terminal_page_does_not_save_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(BREVO_ENDPOINTS["contacts"], "page_size", 1000)
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_terminal_page_does_not_save_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"contacts": [{"id": 1}]})])
 
-        responses = [_make_response({"contacts": [{"id": 1}]})]
-        _drive_get_rows("contacts", manager, responses)
+        manager = _make_manager()
+        _rows(_source("contacts", manager))
 
         manager.save_state.assert_not_called()
 
-    def test_resume_seeds_starting_offset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_seeds_starting_offset(self, MockSession, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(BREVO_ENDPOINTS["contacts"], "page_size", 2)
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BrevoResumeConfig(offset=4)
+        session = MockSession.return_value
+        params = _wire(session, [_response({"contacts": [{"id": 5}]})])
 
-        responses = [_make_response({"contacts": [{"id": 5}]})]
-        sent_urls, _ = _drive_get_rows("contacts", manager, responses)
+        manager = _make_manager(BrevoResumeConfig(offset=4))
+        _rows(_source("contacts", manager))
 
-        assert _query(sent_urls[0])["offset"] == ["4"]
+        assert params[0]["offset"] == 4
         manager.load_state.assert_called_once()
 
-    def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_load_state_when_cannot_resume(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"contacts": [{"id": 1}]})])
 
-        responses = [_make_response({"contacts": [{"id": 1}]})]
-        _drive_get_rows("contacts", manager, responses)
+        manager = _make_manager()
+        _rows(_source("contacts", manager))
 
         manager.load_state.assert_not_called()
 
-    def test_empty_page_yields_nothing(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"contacts": [], "count": 0})])
 
-        responses = [_make_response({"contacts": [], "count": 0})]
-        _, rows = _drive_get_rows("contacts", manager, responses)
+        rows = _rows(_source("contacts", _make_manager()))
 
         assert rows == []
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_param_is_sent(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"contacts": [{"id": 1}]})])
+
+        _rows(
+            _source(
+                "contacts",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                incremental_field="modifiedAt",
+            )
+        )
+
+        assert params[0]["modifiedSince"] == "2026-03-04T02:58:14.000Z"
 
 
-class TestGetRowsNonPaginated:
-    def test_senders_fetched_once_without_pagination_params(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+class TestNonPaginated:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_senders_fetched_once_without_pagination_params(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"senders": [{"id": 1}, {"id": 2}]})])
 
-        responses = [_make_response({"senders": [{"id": 1}, {"id": 2}]})]
-        sent_urls, rows = _drive_get_rows("senders", manager, responses)
+        manager = _make_manager()
+        rows = _rows(_source("senders", manager))
 
-        assert len(sent_urls) == 1
-        assert urlsplit(sent_urls[0]).query == ""
-        assert rows == [[{"id": 1}, {"id": 2}]]
+        assert session.send.call_count == 1
+        assert params[0] == {}
+        assert rows == [{"id": 1}, {"id": 2}]
         manager.save_state.assert_not_called()
 
 
-class TestGetRowsErrors:
-    def test_non_retryable_status_raises(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+class TestErrors:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_retryable_status_raises(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"message": "Key not found", "code": "unauthorized"}, status_code=401)])
 
-        responses = [_make_response({"message": "Key not found", "code": "unauthorized"}, status_code=401)]
         with pytest.raises(HTTPError):
-            _drive_get_rows("contacts", manager, responses)
+            _rows(_source("contacts", _make_manager()))
 
     @pytest.mark.parametrize(
         ("endpoint", "body"),
@@ -221,41 +260,33 @@ class TestGetRowsErrors:
             ("email_campaigns", {"campaigns": None, "count": 0}),
         ],
     )
-    def test_missing_or_null_envelope_key_yields_nothing(self, endpoint: str, body: dict[str, Any]) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_or_null_envelope_key_yields_nothing(
+        self, MockSession, endpoint: str, body: dict[str, Any]
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(body)])
 
-        _, rows = _drive_get_rows(endpoint, manager, [_make_response(body)])
+        manager = _make_manager()
+        rows = _rows(_source(endpoint, manager))
 
         assert rows == []
         manager.save_state.assert_not_called()
 
 
-class TestGetRowsSession:
-    def test_session_disables_transport_retry_and_redacts_key(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+class TestSession:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_session_redacts_key_and_sets_accept_header(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"contacts": [{"id": 1}]})])
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _make_response({"contacts": [{"id": 1}]})
-            list(
-                get_rows(
-                    api_key="test-key",
-                    endpoint="contacts",
-                    logger=MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
+        _rows(_source("contacts", _make_manager()))
 
-        kwargs = MockSession.call_args.kwargs
-        assert kwargs["retry"].total == 0
-        assert kwargs["redact_values"] == ("test-key",)
-        assert kwargs["headers"]["api-key"] == "test-key"
-        # Session is created once and reused across the sync.
+        # The api key travels via framework auth, so it's registered for value-based redaction
+        # rather than being a plain client header.
+        assert MockSession.call_args.kwargs["redact_values"] == ("test-key",)
+        assert session.headers.get("accept") == "application/json"
         MockSession.assert_called_once()
-        MockSession.return_value.close.assert_called_once()
 
 
 class TestValidateCredentials:
@@ -264,16 +295,19 @@ class TestValidateCredentials:
         [(200, True), (401, False), (403, False), (500, False)],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _make_response({}, status_code=status_code)
+        with mock.patch(BREVO_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.return_value = _response({}, status_code=status_code)
             assert validate_credentials("test-key") is expected
 
+    def test_validate_credentials_sends_api_key_header(self) -> None:
+        with mock.patch(BREVO_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.return_value = _response({})
+            validate_credentials("test-key")
+        assert MockSession.call_args.kwargs["redact_values"] == ("test-key",)
+        assert MockSession.return_value.get.call_args.kwargs["headers"]["api-key"] == "test-key"
+
     def test_validate_credentials_network_error_returns_false(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo.make_tracked_session"
-        ) as MockSession:
+        with mock.patch(BREVO_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.side_effect = Exception("network down")
             assert validate_credentials("test-key") is False
 
@@ -292,14 +326,10 @@ class TestBrevoSourceResponse:
             ("senders", False),
         ],
     )
-    def test_source_response_shape(self, endpoint: str, expects_partition: bool) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        response = brevo_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, MockSession, endpoint: str, expects_partition: bool) -> None:
+        MockSession.return_value.headers = {}
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
