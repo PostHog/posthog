@@ -21,7 +21,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session,
   pumps the agent loop until budget exhaustion or natural completion, finalizes the run,
   and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py`
-  delegates straight to this.
+  delegates straight to this. Scouts run in their own sandbox env (`SIGNALS_SCOUT`, split from
+  report-research), provisioned `CUSTOM` with `SCOUT_RESEARCH_ALLOWED_DOMAINS` +
+  `include_default_domains` — the vendor doc hosts the api-deprecation scout curls to cite a
+  deprecation, on top of the default github/package-registry allowlist the repo clone needs
+  (both in `temporal/agentic/__init__.py`).
 - `prompt.py`
   Assembles the system prompt: persona + skill body + relevant scratchpad entries +
   project profile inventory + recent run summaries. Scratchpad and run history are
