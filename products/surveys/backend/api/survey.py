@@ -2844,8 +2844,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             return Response(cached_response)
 
         environment_is_allowed = settings.DEBUG or is_cloud()
-        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
-        if not environment_is_allowed or not has_gemini_api_key:
+        has_gateway_config = bool(settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY)
+        if not environment_is_allowed or not has_gateway_config:
             raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
 
         # Same AI-processing gate that summary_headline uses — applies to per-question summaries too.

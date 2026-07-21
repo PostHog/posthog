@@ -3,9 +3,12 @@
 from enum import StrEnum
 
 
-class GeminiModel(StrEnum):
-    """Supported Gemini models for survey summarization."""
+class SummarizationModel(StrEnum):
+    """Supported models for survey summarization, routed via the LLM gateway.
 
-    GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview"
-    GEMINI_2_5_FLASH = "gemini-2.5-flash"
-    GEMINI_2_0_FLASH = "gemini-2.0-flash"
+    Must stay a subset of the `survey_summary` product's `allowed_models` in
+    services/llm-gateway/src/llm_gateway/products/config.py -- the gateway
+    rejects anything outside that allowlist.
+    """
+
+    CLAUDE_HAIKU_4_5 = "claude-haiku-4-5"

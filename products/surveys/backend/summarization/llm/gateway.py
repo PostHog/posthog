@@ -1,13 +1,13 @@
-"""Gemini provider for survey summarization."""
+"""LLM gateway provider for survey summarization."""
 
 from dataclasses import dataclass
 
 from rest_framework import exceptions
 
-from products.surveys.backend.llm import generate_structured_output
+from products.surveys.backend.llm import generate_structured_output_via_gateway
 
-from ..constants import DEFAULT_MODEL
-from ..models import GeminiModel
+from ..constants import DEFAULT_MODEL, SUMMARY_GATEWAY_PRODUCT
+from ..models import SummarizationModel
 from .schema import SurveySummaryResponse
 
 
@@ -47,10 +47,10 @@ Responses:
 Identify the key themes, patterns, and actionable insights. Include relevant quotes to support each theme."""
 
 
-def summarize_with_gemini(
+def summarize_with_gateway(
     question_text: str,
     responses: list[str],
-    model: GeminiModel = DEFAULT_MODEL,
+    model: SummarizationModel = DEFAULT_MODEL,
     *,
     distinct_id: str | None = None,
     survey_id: str | None = None,
@@ -58,12 +58,12 @@ def summarize_with_gemini(
     team_id: int | None = None,
 ) -> SummarizationResult:
     """
-    Generate survey summary using Gemini API with structured outputs.
+    Generate survey summary via the internal LLM gateway with structured outputs.
 
     Args:
         question_text: The survey question being summarized
         responses: List of response strings to analyze
-        model: Gemini model to use
+        model: Model to use; must be allowed for the `survey_summary` gateway product
         distinct_id: User's distinct ID for analytics
         survey_id: Survey ID for analytics
         question_id: Question ID for analytics
@@ -75,21 +75,21 @@ def summarize_with_gemini(
     if not responses:
         raise exceptions.ValidationError("responses cannot be empty")
 
-    summary, trace_id = generate_structured_output(
+    summary, trace_id = generate_structured_output_via_gateway(
+        product=SUMMARY_GATEWAY_PRODUCT,
         model=model,
         system_prompt=SYSTEM_PROMPT,
         user_prompt=_build_user_prompt(question_text, responses),
         response_schema=SurveySummaryResponse,
+        # `ai_product` and `$ai_billable` now come from the gateway's product config.
         posthog_properties={
             "survey_id": survey_id,
             "question_id": question_id,
             "response_count": len(responses),
-            "ai_product": "surveys",
             "ai_feature": "survey_summary",
         },
         team_id=team_id,
         distinct_id=distinct_id,
-        billable=True,
     )
 
     return SummarizationResult(summary=summary, trace_id=trace_id)

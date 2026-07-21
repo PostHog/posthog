@@ -6844,7 +6844,7 @@ class TestSurveySummarizeByQuestionId(APIBaseTest):
             ("second_question", "q1", 1),
         ]
     )
-    @override_settings(GEMINI_API_KEY="test-key")
+    @override_settings(LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
     @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
     @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")

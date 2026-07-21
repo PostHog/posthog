@@ -1,9 +1,9 @@
 """LLM gateway client utilities for surveys.
 
 Routes structured-output calls through the internal LLM gateway, which holds its
-own provider credentials. The direct-Gemini sibling in `client.py` reads the
-per-deployment `settings.GEMINI_API_KEY`, so one bad key there takes every caller
-down at once with nothing in the path to absorb it.
+own provider credentials. Calling a provider directly would bind every caller to
+one per-deployment API key, where a single bad value takes them all down at once
+with nothing in the path to absorb it.
 
 The gateway captures `$ai_generation` itself, so the client is deliberately NOT
 wrapped with `posthoganalytics.ai`: wrapping double-captures every call.
