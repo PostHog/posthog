@@ -52,7 +52,7 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 - **Wizard vs primary action**: SDK-installed products set `wizard: { slug }` (the slug must exist in `@posthog/wizard`); creation-first products (flags, surveys) set `primaryAction` instead. Self-hosted degrades automatically: no cloud → the terminal hides and the manual path is promoted.
 - **`featureFlag`**: set it when the scene is already flag-gated (so the scene's own gate keeps handling flag-off) or to roll the empty state out gradually.
 - **Hedgehog**: a `pngHoggie(...)`-wrapped module — import only inside the product chunk (eager-graph guard: `frontend/bin/check-eager-graph.mjs`). Never hardcode image URLs (e.g. Cloudinary) — `@posthog/brand` assets only.
-- **Copy is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
+- **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
 - **Product header**: the gate keeps the product header (name, description, icon) above the empty state automatically, sourced from the scene's `SceneConfig` in your product manifest — make sure your manifest's scene entry has `name`, `description`, and `iconType` set.
 
 ### 3. Build the signature preview
@@ -77,7 +77,7 @@ Then **delete** the scene's bespoke empty/loading branches (including any custom
 
 ### 4b. Register a boot-time probe
 
-Add an entry to `PRODUCT_SETUP_PROBES` in `lib/components/ProductEmptyState/setupProbes.ts` — the event names that prove your product has data (and optionally the "instrumented but no traffic" events), mirroring your detection logic's semantics. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
+Add an entry to `PRODUCT_SETUP_PROBES` in `lib/components/ProductEmptyState/setupProbes.ts` - the event names that prove your product has data (and optionally the "instrumented but no traffic" events), mirroring your detection logic's semantics. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
 
 ### 5. Test the status mapping
 

@@ -24,7 +24,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         accentColor: 'var(--color-product-mcp-analytics-light)',
         accentColorDark: 'var(--color-product-mcp-analytics-dark)',
         hedgehog: HedgehogRoboHog,
-        copy: {
+        text: {
             'needs-setup': {
                 headline: 'Know how agents actually use your tools',
                 lead: 'Capture every MCP tool call, argument and result, so you can see which tools agents reach for, where they fail, and how long each call takes.',

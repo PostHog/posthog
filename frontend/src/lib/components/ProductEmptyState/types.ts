@@ -18,7 +18,7 @@ export type ProductSetupStatus = 'loading' | 'unknown' | 'needs-setup' | 'waitin
 /** The two empty-state variants. `waiting-for-data` is for products with an "installed but no traffic yet" middle state. */
 export type ProductEmptyStateMode = 'needs-setup' | 'waiting-for-data'
 
-export interface ProductEmptyStateCopy {
+export interface ProductEmptyStateText {
     /** Sentence case, benefit-first, e.g. "Know how agents actually use your tools" */
     headline: string
     lead: ReactNode
@@ -27,14 +27,14 @@ export interface ProductEmptyStateCopy {
 }
 
 /**
- * Copy keyed by mode: `needs-setup` is the base every product provides; other
+ * Text keyed by mode: `needs-setup` is the base every product provides; other
  * modes override only the fields that change and fall back to the base for the
  * rest. Binary products (no intermediate state) just provide the base.
  */
-export type ProductEmptyStateCopyByMode = {
-    'needs-setup': ProductEmptyStateCopy
+export type ProductEmptyStateTextByMode = {
+    'needs-setup': ProductEmptyStateText
 } & {
-    [Mode in Exclude<ProductEmptyStateMode, 'needs-setup'>]?: Partial<ProductEmptyStateCopy>
+    [Mode in Exclude<ProductEmptyStateMode, 'needs-setup'>]?: Partial<ProductEmptyStateText>
 }
 
 export interface ProductEmptyStateWizard {
@@ -62,7 +62,7 @@ export interface ProductEmptyStateConfig {
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
     hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
-    copy: ProductEmptyStateCopyByMode
+    text: ProductEmptyStateTextByMode
     /** Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows */
     wizard?: ProductEmptyStateWizard
     /** Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag" */

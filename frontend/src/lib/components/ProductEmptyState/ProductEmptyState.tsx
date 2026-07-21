@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { productSetupStatusLogic } from './productSetupStatusLogic'
-import type { ProductEmptyStateConfig, ProductEmptyStateCopy, ProductEmptyStateMode } from './types'
+import type { ProductEmptyStateConfig, ProductEmptyStateMode, ProductEmptyStateText } from './types'
 
 export interface ProductEmptyStateProps {
     config: ProductEmptyStateConfig
@@ -28,8 +28,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     })
     const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
 
-    // Mode-specific copy overrides the base; missing fields fall back to it.
-    const copy: ProductEmptyStateCopy = { ...config.copy['needs-setup'], ...config.copy[mode] }
+    // Mode-specific text overrides the base; missing fields fall back to it.
+    const text: ProductEmptyStateText = { ...config.text['needs-setup'], ...config.text[mode] }
 
     // Wizard commands only work against cloud; self-hosted falls back to the manual path.
     const showWizard = !!config.wizard && isCloudOrDev
@@ -58,11 +58,11 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                    <h2 className="text-xl font-semibold m-0">{copy.headline}</h2>
-                    <p className="text-secondary text-sm m-0">{copy.lead}</p>
+                    <h2 className="text-xl font-semibold m-0">{text.headline}</h2>
+                    <p className="text-secondary text-sm m-0">{text.lead}</p>
                 </div>
 
-                {copy.hint ? <div className="text-xs text-tertiary mt-2">{copy.hint}</div> : null}
+                {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
                 {showWizard ? (
                     <TerminalCard command={wizardCommand} copyLabel={`${config.productName} wizard command`} />
@@ -100,14 +100,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 </div>
             </div>
 
-            {/* The preview column: a darker straight-edged panel with the example widget
-                vertically centered — it never scrolls. Desktop-only. Negative margins eat
-                the scene padding and the header gap so the panel sits flush against the
-                scene's top, right, and bottom edges. */}
             <div
                 className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary"
-                // Accent-tinted wash: a soft diagonal gradient in the product's accent color fading
-                // to the page background, so the preview panel reads as branded rather than a gray slab.
                 style={{
                     backgroundImage:
                         'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
