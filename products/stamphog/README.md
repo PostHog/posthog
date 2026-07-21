@@ -11,6 +11,10 @@ The review engine lives in [`tools/pr-approval-agent/`](../../tools/pr-approval-
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`). The workflow dismisses stale approvals _first_, waits out other in-flight reviewer bots, then reviews.
 
+## Self-driving inbox PRs
+
+Bot-authored PRs are refused everywhere, with one carve-out: a PR positively identified (task linkage through the tasks facade, never author-login matching) as a PostHog Code self-driving implementation PR is reviewed — while still draft, so the verdict is ready at Inbox triage time. The gate is the acting reviewer's per-user `stamphog_review_inbox_prs` toggle on ReviewHog's settings row (the Code review scene), plus a synced + enabled `StamphogRepoConfig` for the PR's repo; the per-repo review mode does not apply to these PRs. The initial review is queued by ReviewHog's inbox receiver through `facade/api.py::queue_self_driving_pr_review`; subsequent pushes flow through the webhook path, which re-checks the toggle before re-reviewing but always dismisses stale approvals regardless. Inside the engine the hosted context sets `self_driving_review: true`, which is the only thing that relaxes the bot-author refusal and the draft prerequisite — the Action never sets it.
+
 ## The digest
 
 Independently of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/tasks/digest.py`): merges are stamped with an audience (author's GitHub team, or a channel the repo declares under `digest:` in `.stamphog/policy.yml`), summarized with a small model, and posted per channel. Review-enabled repos digest only stamphog-approved merges; digest-only repos (review off) digest every merge.

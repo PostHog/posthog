@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import review_pr  # noqa: E402
 import review_local  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
@@ -230,6 +231,73 @@ def test_absent_review_threads_key_is_a_clean_no_op(monkeypatch) -> None:
     pr = review_local._build_pr_data(context)
 
     assert pr.review_comments == []
+
+
+class _FakeReviewer:
+    """Stands in for the LLM boundary; every deterministic engine step still runs for real."""
+
+    def __init__(self, repo_root, verbose=False) -> None:
+        pass
+
+    def review(self, pr, cl, gate_context, diff_path=None) -> dict:
+        return {"verdict": "APPROVE", "reasoning": "looks fine", "risk": "low", "issues": []}
+
+
+def _self_driving_context(*, author_type: str, draft: bool, self_driving: bool | None) -> dict:
+    context = {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {
+            "number": 1,
+            "title": "feat(widgets): add helper",
+            "state": "OPEN",
+            "draft": draft,
+            "user": {"login": "posthog-code-app[bot]" if author_type == "Bot" else "alice", "type": author_type},
+        },
+        "files": [{"filename": "posthog/models/widget_helpers.py", "additions": 5, "deletions": 2, "patch": "x"}],
+    }
+    if self_driving is not None:
+        context["self_driving_review"] = self_driving
+    return context
+
+
+@pytest.mark.parametrize(
+    "author_type,draft,self_driving,expected_verdict",
+    [
+        # The carve-out: a bot-authored draft PR the server positively linked to a self-driving
+        # implementation task must clear the bot refusal AND the draft prerequisite, and reach a
+        # real verdict — the whole feature is dead if either gate still fires.
+        pytest.param("Bot", True, True, "APPROVED", id="linked-self-driving-bot-draft-is-reviewed"),
+        # The invariant the carve-out must not relax: a bot author WITHOUT the flag (dependabot,
+        # renovate, a Code PR with no inbox linkage — and every context the Action produces, which
+        # never sets the key) keeps today's refusal.
+        pytest.param("Bot", True, None, "REFUSED", id="unlinked-bot-author-stays-refused"),
+        pytest.param("Bot", False, False, "REFUSED", id="explicit-false-stays-refused"),
+        # The draft skip must keep gating everyone else: a human draft without the flag still
+        # fails prerequisites (an inverted flag condition would let every human draft through).
+        pytest.param("User", True, None, "REFUSED", id="human-draft-stays-gated"),
+    ],
+)
+def test_self_driving_flag_carves_out_bot_and_draft_gates(
+    monkeypatch, author_type: str, draft: bool, self_driving: bool | None, expected_verdict: str
+) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_pr, "Reviewer", _FakeReviewer)
+
+    result = review_local.run(_self_driving_context(author_type=author_type, draft=draft, self_driving=self_driving))
+
+    assert result["final_verdict"] == expected_verdict
+    gates = {g["gate"]: g for g in result["gates"]}
+    if expected_verdict == "APPROVED":
+        assert gates["prerequisites"]["passed"], gates["prerequisites"]["message"]
+    elif author_type == "Bot":
+        # Refused before gates ever ran — the bot refusal is the early exit, not a gate failure.
+        assert result["gates"] == []
+        assert "bot" in result["reviewer"]["reasoning"]
+    else:
+        assert not gates["prerequisites"]["passed"]
+        assert "draft" in gates["prerequisites"]["message"]
 
 
 def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) -> None:

@@ -12,6 +12,7 @@ from django.utils import timezone
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.integration import Integration
 
+from products.stamphog.backend.facade.api import queue_self_driving_pr_review
 from products.stamphog.backend.facade.enums import (
     ChannelResolutionSource,
     DigestRunStatus,
@@ -33,7 +34,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
 )
-from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_REPO_DIR
+from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_CONTEXT_PATH, STAMPHOG_SANDBOX_REPO_DIR
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
 
@@ -1378,3 +1379,55 @@ def test_label_mode_synchronize_without_label_dismisses_stale_approval(team, sta
     assert prior.approval_dismissed_at is not None
     # The review itself stays gated: no new run is queued because the trigger label is absent.
     assert ReviewRun.objects.for_team(team.id).exclude(id=prior.id).count() == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_self_driving_inbox_review_reaches_the_engine_with_the_carve_out_flag(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # The inbox leg end to end: facade -> (eager) celery -> GitHub fetch -> run -> activities ->
+    # sandbox -> approval, for a DRAFT, BOT-authored PR — exactly what every human-PR gate refuses.
+    # The context JSON shipped into the sandbox must carry self_driving_review: true; without it
+    # the real engine refuses the bot author, so the feature would die in prod while every gate
+    # unit test stays green. Familiarity must stay un-injected — the signal is meaningless for the
+    # machine author (and its merged-PR list is unbounded).
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha-sd-777"
+    pr_object = {
+        **_pr_object(321, "posthog-code-app[bot]", head_sha),
+        "state": "open",
+        "draft": True,
+        "user": {"login": "posthog-code-app[bot]", "type": "Bot"},
+    }
+    recorder.register_pr(REPO, 321, pr_object, _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+    recorder.author_merged[(REPO, "posthog-code-app[bot]")] = [11, 12]  # must NOT reach the run
+    assert repo_config.connected_by_user_id is not None
+
+    queued = queue_self_driving_pr_review(
+        team_id=team.id,
+        pr_url=f"https://github.com/{REPO}/pull/321",
+        signal_report_id=str(uuid.uuid4()),
+        task_id=str(uuid.uuid4()),
+        acting_user_id=repo_config.connected_by_user_id,
+    )
+    assert queued is True
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=321)
+    run = ReviewRun.objects.for_team(team.id).get(pull_request=pr)
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.APPROVED
+    assert run.output["author_pr_numbers"] == []
+
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    assert len(approvals) == 1
+    assert approvals[0]["body"]["commit_id"] == head_sha
+
+    context_payloads = [
+        payload for path, payload in stamphog_chain.sandbox_writes if path == STAMPHOG_SANDBOX_CONTEXT_PATH
+    ]
+    assert len(context_payloads) == 1
+    context = json.loads(context_payloads[0])
+    assert context["self_driving_review"] is True
+    assert context["pr"]["draft"] is True

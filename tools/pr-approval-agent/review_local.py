@@ -315,8 +315,13 @@ def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     pipeline = Pipeline(0, context.get("repo") or "")
     pipeline.pr = _build_pr_data(context)
+    # The hosted server sets this only for PRs it positively linked to a PostHog Code self-driving
+    # implementation task run (task linkage, never author-login matching). It carves the bot-author
+    # refusal and the draft prerequisite out for exactly those PRs; every other bot author keeps
+    # today's refusal. The Action never writes a context file, so it can never set this.
+    pipeline.self_driving_review = bool(context.get("self_driving_review"))
 
-    if pipeline.pr.author_is_bot:
+    if pipeline.pr.author_is_bot and not pipeline.self_driving_review:
         pipeline._refuse_bot_author()
         return pipeline.to_dict()
 

@@ -13,12 +13,15 @@ from posthog.models.user import User
 # temporal test module); letting patch() import it mid-test would run the tasks sandbox-class
 # resolution under test settings, where a local SANDBOX_PROVIDER env rejects DEBUG=False.
 import products.review_hog.backend.temporal.client  # noqa: F401
+from products.review_hog.backend.facade.api import resolve_stamphog_inbox_reviewer
 from products.review_hog.backend.models import ReviewUserSettings
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task, TaskRun
 
 # `_start_review` imports the client at call time, so the defining module is the patch target.
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+# `_start_stamphog_review` imports the stamphog facade at call time — same patch-at-source rule.
+_STAMPHOG_QUEUE = "products.stamphog.backend.facade.api.queue_self_driving_pr_review"
 _PR_URL = "https://github.com/posthog/posthog/pull/9"
 _HEAD_BRANCH = "posthog-code/fix-the-thing"
 
@@ -49,8 +52,13 @@ class TestInboxTrigger(BaseTest):
             content=json.dumps([{"github_login": login} for login in logins]),
         )
 
-    def _opt_in(self, user: User) -> None:
-        ReviewUserSettings.objects.for_team(self.team.id).create(team=self.team, user=user, review_inbox_prs=True)
+    def _opt_in(self, user: User, *, review_inbox_prs: bool = True, stamphog_review_inbox_prs: bool = False) -> None:
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=user,
+            review_inbox_prs=review_inbox_prs,
+            stamphog_review_inbox_prs=stamphog_review_inbox_prs,
+        )
 
     def _task(
         self,
@@ -303,3 +311,80 @@ class TestInboxTrigger(BaseTest):
         self._record_output(self._run(self._task()), {"pr_url": _PR_URL})  # must not raise
 
         mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # (name, review_inbox, stamphog_inbox) — the two opt-ins on the one settings row are
+            # independent gates for two different products; cross-wiring either direction (one
+            # toggle firing the other's review, or requiring both) is the regression.
+            ("stamphog_only", False, True),
+            ("reviewhog_only", True, False),
+            ("both", True, True),
+        ]
+    )
+    @patch(_STAMPHOG_QUEUE, return_value=True)
+    @patch(_START, return_value="wf-1")
+    def test_each_toggle_gates_only_its_own_review(
+        self, _name, review_inbox, stamphog_inbox, mock_start, mock_queue
+    ) -> None:
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=review_inbox, stamphog_review_inbox_prs=stamphog_inbox)
+        task = self._task()
+        self._record_output(self._run(task), {"pr_url": _PR_URL})
+
+        assert mock_start.called is review_inbox
+        assert mock_queue.called is stamphog_inbox
+        if stamphog_inbox:
+            mock_queue.assert_called_once_with(
+                team_id=self.team.id,
+                pr_url=_PR_URL,
+                signal_report_id=str(task.signal_report_id),
+                task_id=str(task.id),
+                acting_user_id=self.alice.id,
+            )
+
+    @patch(_STAMPHOG_QUEUE, return_value=True)
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_leg_needs_a_pr_target(self, mock_start, mock_queue) -> None:
+        # Stamphog reviews pull requests, not pushed branches: a branch-only save must start the
+        # ReviewHog branch review but not queue stamphog — the later pr_url save re-fires the
+        # receiver and queues it then.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"head_branch": _HEAD_BRANCH})
+
+        mock_start.assert_called_once()
+        mock_queue.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE, side_effect=RuntimeError("stamphog down"))
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_queue_failure_never_raises_into_the_save_path(self, mock_start, mock_queue) -> None:
+        # Same contract as the ReviewHog leg: the stamphog dispatch runs in tasks' save path, so a
+        # facade/broker failure must cost a log line — and must not take the ReviewHog leg down.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})  # must not raise
+
+        mock_start.assert_called_once()
+        mock_queue.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # (name, stamphog_toggle, expected_user_factory) — the facade export stamphog's webhook
+            # leg re-checks: same acting-reviewer resolution, gated on the CURRENT stamphog toggle
+            # (gating on the ReviewHog toggle instead is the cross-wiring regression).
+            ("toggle_on", True, True),
+            ("toggle_off", False, False),
+        ]
+    )
+    def test_facade_resolves_stamphog_reviewer_gated_on_their_toggle(self, _name, toggle, expect_user) -> None:
+        self._suggest_reviewers(["alice"])
+        # review_inbox_prs deliberately opposite: the stamphog gate must read its own field.
+        self._opt_in(self.alice, review_inbox_prs=not toggle, stamphog_review_inbox_prs=toggle)
+
+        resolved = resolve_stamphog_inbox_reviewer(self.team.id, str(self.signal_report.id), None)
+
+        assert resolved == (self.alice.id if expect_user else None)

@@ -1073,6 +1073,28 @@ function TriggersSection(): JSX.Element {
                         disabledReason={switchDisabledReason}
                     />
                 </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconShield className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
+                        <div className="text-xs text-secondary">
+                            When a self-driving implementation from your Inbox opens a pull request, Stamphog reviews it
+                            and approves it if it passes.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Let Stamphog review your Inbox PRs"
+                        checked={settings?.stamphog_review_inbox_prs ?? false}
+                        onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                        disabledReason={
+                            settings && !settings.stamphog_available
+                                ? 'Connect a repository to the Stamphog GitHub App to enable this'
+                                : switchDisabledReason
+                        }
+                    />
+                </div>
             </LemonCard>
         </section>
     )

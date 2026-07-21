@@ -42,6 +42,22 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class SignalReportPrLinkDTO:
+    """A PR positively linked to a self-driving (signal-report) implementation task run.
+
+    Returned only when the matched run's task is a non-internal task carrying a
+    ``signal_report_id`` — the positive identification other products gate automation on
+    (e.g. stamphog's inbox-review carve-out).
+    """
+
+    task_id: UUID
+    task_run_id: UUID
+    team_id: int
+    signal_report_id: UUID
+    task_created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
 class WizardCloudRunDTO:
     """A team's active onboarding wizard cloud run.
 

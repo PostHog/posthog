@@ -1220,3 +1220,97 @@ class TestGitHubWebhookFanout(TestCase):
     def test_unified_url_get_returns_405(self):
         response = self.client.get("/webhooks/github/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestFindSignalReportPrLink(TestCase):
+    """The tasks-facade linkage other products gate automation on (stamphog's inbox carve-out)."""
+
+    PR_URL = "https://github.com/posthog/posthog/pull/9"
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    report: ClassVar[SignalReport]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Link Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Link Team")
+        cls.user = User.objects.create(email="link@example.com", distinct_id="link-user")
+        cls.report = SignalReport.objects.create(
+            team=cls.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
+        )
+
+    def _make_run(self, *, with_report: bool = True, internal: bool = False, output: dict | None = None, branch=None):
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Self-driving implementation",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+            signal_report=self.report if with_report else None,
+            internal=internal,
+        )
+        return TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, output=output or {}, branch=branch
+        )
+
+    def test_pr_url_match_returns_the_link(self):
+        from products.tasks.backend.facade.api import find_signal_report_pr_link
+
+        run = self._make_run(output={"pr_url": self.PR_URL})
+
+        # Repository passed with GitHub's casing: task rows lowercase the slug, so the match must
+        # be case-insensitive or every real webhook misses.
+        link = find_signal_report_pr_link(team_id=self.team.id, repository="PostHog/posthog", pr_url=self.PR_URL)
+
+        assert link is not None
+        assert link.task_run_id == run.id
+        assert link.task_id == run.task_id
+        assert link.signal_report_id == self.report.id
+        assert link.task_created_by_id == self.user.id
+
+    def test_branch_match_covers_runs_without_a_recorded_pr_url(self):
+        from products.tasks.backend.facade.api import find_signal_report_pr_link
+
+        run = self._make_run(branch="posthog-code/sd-fix")
+
+        link = find_signal_report_pr_link(
+            team_id=self.team.id,
+            repository="posthog/posthog",
+            pr_url="https://github.com/posthog/posthog/pull/77",
+            head_branch="posthog-code/sd-fix",
+        )
+
+        assert link is not None
+        assert link.task_run_id == run.id
+
+    @parameterized.expand(
+        [
+            # Every rejection means "treat as an ordinary PR" downstream — each of these leaking
+            # through would hand a bot PR the self-driving carve-out it must not have.
+            ("internal_pipeline_task", {"internal": True}, {}),
+            ("task_without_signal_report", {"with_report": False}, {}),
+            ("other_team", {}, {"team_id_offset": 1}),
+            ("fork_pr_branch_not_consulted", {"output": {}, "branch": "posthog-code/sd-fix"}, {"head_branch": None}),
+        ]
+    )
+    def test_non_qualifying_runs_return_none(self, _name, run_kwargs, call_overrides):
+        from products.tasks.backend.facade.api import find_signal_report_pr_link
+
+        defaults = {"output": {"pr_url": self.PR_URL}, "branch": "posthog-code/sd-fix"}
+        self._make_run(**{**defaults, **run_kwargs})
+
+        team_id = self.team.id + call_overrides.pop("team_id_offset", 0)
+        # The fork case matches neither leg: no recorded pr_url and (per the caller contract for
+        # attacker-controlled fork head refs) no head_branch passed.
+        pr_url = self.PR_URL if "output" not in run_kwargs else "https://github.com/posthog/posthog/pull/77"
+        link = find_signal_report_pr_link(
+            team_id=team_id,
+            repository="posthog/posthog",
+            pr_url=pr_url,
+            head_branch=call_overrides.pop("head_branch", None),
+        )
+
+        assert link is None

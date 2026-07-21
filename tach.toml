@@ -620,6 +620,7 @@ depends_on = [
     "posthog",
     "products.signals",
     "products.skills",
+    "products.stamphog",
     "products.tasks",
 ]
 layer = "modules"
@@ -1089,7 +1090,10 @@ layer = "modules"
 
 [[modules]]
 path = "products.stamphog"
-depends_on = ["posthog", "products.tasks"]
+# review_hog <-> stamphog is deliberately two-way (like signals <-> tasks): review_hog's inbox
+# receiver queues stamphog reviews via stamphog's facade, and stamphog's webhook leg re-checks the
+# acting reviewer's toggle via review_hog's facade.
+depends_on = ["posthog", "products.review_hog", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

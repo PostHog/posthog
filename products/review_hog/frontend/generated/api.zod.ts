@@ -54,13 +54,19 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built."
+            "Automatically review pull requests opened by PostHog agents from the user's Inbox: when a self-driving implementation assigned to this user records a pull request or pushed branch, ReviewHog reviews it."
         ),
     review_labeled_prs: zod
         .boolean()
         .optional()
         .describe(
             "Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored."
+        ),
+    stamphog_review_inbox_prs: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Let hosted Stamphog review pull requests opened by self-driving implementations from the user's Inbox: an approve-first review that posts a real GitHub approval when the change passes. Only acts in projects with a repository connected to the Stamphog GitHub App (see stamphog_available)."
         ),
     urgency_threshold: zod
         .enum(['consider', 'should_fix', 'must_fix'])

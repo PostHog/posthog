@@ -503,6 +503,7 @@ class Reviewer:
         ownership = self._format_ownership(cl)
         assurance_block = self._format_assurance(cl)
         familiarity_block = self._format_familiarity(cl)
+        self_driving_block = self._format_self_driving(cl)
 
         gate_lines = []
         for g in gate_context["gates"]:
@@ -564,7 +565,7 @@ class Reviewer:
             Gate results:
             {chr(10).join(gate_lines)}
             Gate verdict: {gate_verdict}
-            {constraint}{familiarity_block}
+            {constraint}{familiarity_block}{self_driving_block}
 
             The full diff is at: {diff_path}
             Read this file to review the changes, then submit your verdict.
@@ -678,6 +679,25 @@ class Reviewer:
                 + "."
             )
         return "\n" + line
+
+    def _format_self_driving(self, cl: dict) -> str:
+        """Render the TRUSTED self-driving provenance line, or "" when the flag is absent.
+
+        Set only by the hosted runtime for PRs positively linked to a PostHog Code self-driving
+        implementation task (review_local threads it through from the server's context). It stands
+        in for the human trust signals that are meaningless for the bot author — familiarity and
+        author history never render for these PRs — and tells the reviewer the linkage is the
+        provenance, not the author identity. Empty string keeps every other prompt byte-identical.
+        """
+        if not cl.get("self_driving_review"):
+            return ""
+        return (
+            "\nAuthor provenance: this PR was opened by PostHog's coding agent for a self-driving "
+            "implementation task linked to an Inbox report (linkage verified server-side; the PR "
+            "body footer links the report). Author familiarity and author history do not apply. "
+            "No human has reviewed this change yet — judge the diff entirely on its own evidence, "
+            "with the scrutiny you would give an unreviewed external contribution."
+        )
 
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})

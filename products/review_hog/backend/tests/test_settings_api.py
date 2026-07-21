@@ -1,12 +1,19 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
+from products.stamphog.backend.models import StamphogRepoConfig
 
 
 class TestReviewUserSettingsAPI(APIBaseTest):
+    # The serializer's stamphog_available field reads stamphog's repo configs, which live on the
+    # product DB when one is configured (always true under TEST settings).
+    databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
+
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/review_hog/settings/"
@@ -20,10 +27,41 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert res.json() == {
             "review_inbox_prs": False,
             "review_labeled_prs": True,
+            "stamphog_review_inbox_prs": False,
+            "stamphog_available": False,  # no stamphog repo config in this team
             "urgency_threshold": "consider",
             "can_trigger_reviews": False,  # REVIEWHOG_TEAM_ID is unset in tests
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
+
+    @parameterized.expand(
+        [
+            # (name, enabled, installation_id, expected) — only a synced (non-blank installation) AND
+            # enabled config makes the toggle actionable; the UI disables it otherwise.
+            ("synced_and_enabled", True, "12345", True),
+            ("disabled", False, "12345", False),
+            ("never_synced", True, "", False),
+        ]
+    )
+    def test_stamphog_available_requires_a_synced_enabled_repo_config(
+        self, _name, enabled, installation_id, expected
+    ) -> None:
+        StamphogRepoConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, repository="acme/widgets", enabled=enabled, installation_id=installation_id
+        )
+
+        res = self.client.get(self.url)
+
+        assert res.status_code == 200
+        assert res.json()["stamphog_available"] is expected
+
+    def test_patch_stamphog_toggle_persists_without_touching_siblings(self) -> None:
+        res = self.client.patch(self.url, {"stamphog_review_inbox_prs": True}, format="json")
+
+        assert res.status_code == 200
+        row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert row.stamphog_review_inbox_prs is True
+        assert row.review_inbox_prs is False  # the two inbox opt-ins are independent
 
     def test_patch_updates_only_the_provided_fields(self) -> None:
         res = self.client.patch(self.url, {"urgency_threshold": "must_fix"}, format="json")

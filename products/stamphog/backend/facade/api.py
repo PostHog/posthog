@@ -8,9 +8,22 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
+import re
+
+from django.db import router
+
+import structlog
+
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
 from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+
+logger = structlog.get_logger(__name__)
+
+# GitHub PR URL -> (owner/repo, number). Tolerates a trailing path/query; the repo slug is
+# matched case-preserving but looked up case-insensitively (task rows lowercase the slug,
+# config rows keep GitHub's casing).
+_GITHUB_PR_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)", re.IGNORECASE)
 
 
 def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
@@ -149,3 +162,69 @@ def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO |
 def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullRequestDTO | None:
     obj = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config").first()
     return _pull_request_to_dto(obj) if obj is not None else None
+
+
+def has_reviewable_repo_config(team_id: int) -> bool:
+    """Whether this team has any repo connected and enabled for hosted stamphog reviews.
+
+    The UI gate for the per-user "let stamphog review your inbox PRs" toggle: a team with no
+    synced (non-blank installation) + enabled config renders the toggle disabled with a reason
+    instead of a switch that silently does nothing. This renders inside another product's
+    settings endpoint, so a product-DB outage degrades to False (toggle disabled) rather than
+    failing that endpoint.
+    """
+    try:
+        return StamphogRepoConfig.objects.for_team(team_id).filter(enabled=True).exclude(installation_id="").exists()
+    except Exception:
+        logger.exception("stamphog_repo_config_availability_check_failed", team_id=team_id)
+        return False
+
+
+def queue_self_driving_pr_review(
+    *,
+    team_id: int,
+    pr_url: str,
+    signal_report_id: str,
+    task_id: str,
+    acting_user_id: int,
+) -> bool:
+    """Queue a hosted stamphog review of a self-driving implementation PR (the inbox trigger).
+
+    The programmatic entry the ReviewHog inbox receiver calls once the acting reviewer's
+    stamphog toggle is on. Self-scoping: it queues only when the PR's repository has a synced +
+    enabled ``StamphogRepoConfig`` in this team — otherwise a silent no-op (returns False), so
+    the trigger is inert for teams without the Stamphog App. The heavy lifting (GitHub fetch,
+    PullRequest upsert, run creation, workflow start) happens in a Celery task so the caller —
+    which runs inside the tasks product's save path — never waits on GitHub.
+    """
+    match = _GITHUB_PR_URL_RE.search(pr_url or "")
+    if match is None:
+        logger.info("stamphog_self_driving_review_unparseable_pr_url", team_id=team_id)
+        return False
+    repository, pr_number = match.group(1), int(match.group(2))
+    # Writer-pinned: this read gates whether the review is queued at all — a lagged replica
+    # missing a just-enabled config would silently skip the review (reader-lag invariant).
+    repo_config_exists = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(repository__iexact=repository, enabled=True)
+        .exclude(installation_id="")
+        .exists()
+    )
+    if not repo_config_exists:
+        logger.info("stamphog_self_driving_review_repo_not_configured", team_id=team_id, repository=repository)
+        return False
+    # Deferred: tasks.tasks pulls the Temporal client module; keep it off the facade import path.
+    from products.stamphog.backend.tasks.tasks import (  # noqa: PLC0415 — keep celery/temporal deps off the facade import path
+        process_self_driving_pr_review,
+    )
+
+    process_self_driving_pr_review.delay(
+        team_id=team_id,
+        repository=repository,
+        pr_number=pr_number,
+        signal_report_id=signal_report_id,
+        task_id=task_id,
+        acting_user_id=acting_user_id,
+    )
+    return True

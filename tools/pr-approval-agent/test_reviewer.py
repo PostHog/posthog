@@ -186,6 +186,38 @@ def test_inline_truncation_keeps_unresolved_drops_resolved(
     assert line == omission
 
 
+@pytest.mark.parametrize(
+    "cl_extra,expect_block",
+    [
+        # The provenance line is what replaces the (meaningless) author trust signals for
+        # self-driving PRs; if the template loses `{self_driving_block}` the reviewer silently
+        # treats agent PRs as ordinary human ones.
+        pytest.param({"self_driving_review": True}, True, id="flag-renders-provenance"),
+        # Absent flag → byte-identical prompt for every human PR (Action and hosted alike).
+        pytest.param({}, False, id="no-flag-no-block"),
+    ],
+)
+def test_prompt_self_driving_provenance_block(cl_extra: dict, expect_block: bool) -> None:
+    cl = {
+        "tier": "T1-agent",
+        "t1_subclass": "T1b-small",
+        "breadth": "narrow",
+        "commit_type": "fix",
+        "familiarity": None,
+        "ownership": {},
+        "assurance": None,
+        **cl_extra,
+    }
+    prompt = Reviewer(Path("."))._build_review_prompt(
+        _pr(), cl, {"gate_verdict": "PENDING", "gates": []}, Path("/tmp/diff.patch")
+    )
+    assert ("Author provenance:" in prompt) is expect_block
+    if expect_block:
+        # The provenance is trusted context — it must sit above the untrusted region. rindex: the
+        # top-of-prompt security notice quotes the marker text, the real marker is the last one.
+        assert prompt.index("Author provenance:") < prompt.rindex("BEGIN UNTRUSTED CONTENT")
+
+
 def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:
     monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
     stamphog_dir = tmp_path / ".stamphog"

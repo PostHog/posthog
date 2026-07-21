@@ -197,6 +197,11 @@ class Pipeline:
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
+        # Hosted-only carve-out: review a PostHog Code self-driving implementation PR despite its
+        # bot author and draft state. Only review_local.py sets it, and only when the hosted server
+        # positively linked the PR to a self-driving implementation task run — there is deliberately
+        # no CLI flag, so the Action can never activate it and its behavior is provably unchanged.
+        self.self_driving_review = False
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -212,7 +217,7 @@ class Pipeline:
         """Run the full pipeline, return final verdict string."""
         self._fetch()
 
-        if self.pr.author_is_bot:
+        if self.pr.author_is_bot and not self.self_driving_review:
             return self._refuse_bot_author()
 
         gate_verdict = self._classify_and_gate()
@@ -458,6 +463,7 @@ class Pipeline:
             "ownership": ownership,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": self._summarize_assurance(),
+            "self_driving_review": self.self_driving_review,
             # Judgment-layer signal for the reviewer prompt, attached later on
             # the T1-agent path only (see _maybe_compute_familiarity). None here
             # keeps the other paths' prompts byte-identical to before.
@@ -571,7 +577,9 @@ class Pipeline:
     def _check_prerequisites(self) -> tuple[bool, str]:
         pr = self.pr
         issues = []
-        if pr.draft:
+        # Self-driving PRs are reviewed while still draft on purpose: the verdict has to be
+        # available at Inbox triage time, before a human flips the PR to ready.
+        if pr.draft and not self.self_driving_review:
             issues.append("PR is still in draft")
         if pr.mergeable_state == "dirty":
             issues.append("merge conflicts present")
@@ -918,6 +926,7 @@ class Pipeline:
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
                 "familiarity": familiarity_evidence(self.familiarity),
+                "self_driving_review": self.self_driving_review,
             },
             "provenance": provenance_evidence(self.provenance),
             "gates": [

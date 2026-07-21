@@ -13,6 +13,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
+from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +21,26 @@ logger = logging.getLogger(__name__)
 class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     review_inbox_prs = serializers.BooleanField(
         required=False,
-        help_text="Automatically review pull requests opened by PostHog agents from the user's Inbox. "
-        "Stored but not consumed yet — the Inbox auto-review trigger is not built.",
+        help_text="Automatically review pull requests opened by PostHog agents from the user's Inbox: "
+        "when a self-driving implementation assigned to this user records a pull request or pushed "
+        "branch, ReviewHog reviews it.",
     )
     review_labeled_prs = serializers.BooleanField(
         required=False,
         help_text="Review the user's pull requests when the trigger label is added on GitHub. "
         "On by default; turning it off makes the label trigger skip PRs this user authored.",
+    )
+    stamphog_review_inbox_prs = serializers.BooleanField(
+        required=False,
+        help_text="Let hosted Stamphog review pull requests opened by self-driving implementations "
+        "from the user's Inbox: an approve-first review that posts a real GitHub approval when the "
+        "change passes. Only acts in projects with a repository connected to the Stamphog GitHub App "
+        "(see stamphog_available).",
+    )
+    stamphog_available = serializers.SerializerMethodField(
+        help_text="Whether this project has at least one repository connected and enabled for hosted "
+        "Stamphog reviews. When false, the Stamphog inbox toggle has nothing to act on and the UI "
+        "renders it disabled.",
     )
     urgency_threshold = serializers.ChoiceField(
         required=False,
@@ -42,11 +56,22 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReviewUserSettings
-        fields = ["review_inbox_prs", "review_labeled_prs", "urgency_threshold", "can_trigger_reviews"]
+        fields = [
+            "review_inbox_prs",
+            "review_labeled_prs",
+            "stamphog_review_inbox_prs",
+            "stamphog_available",
+            "urgency_threshold",
+            "can_trigger_reviews",
+        ]
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
         return bool(settings.REVIEWHOG_TEAM_ID) and instance.team_id == settings.REVIEWHOG_TEAM_ID
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_stamphog_available(self, instance: ReviewUserSettings) -> bool:
+        return has_reviewable_repo_config(instance.team_id)
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

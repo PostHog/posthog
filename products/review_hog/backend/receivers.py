@@ -92,25 +92,44 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
             # The branch leg needs an explicit repo to compare in; the PR leg carries it in the URL.
             logger.info("review_hog_inbox_trigger_skipped: run %s has a branch target but no repository", instance.id)
             return
-        acting_user_id = _resolve_acting_reviewer(instance.team_id, task.signal_report_id, task.created_by_id)
+        acting_user_id = resolve_assigned_inbox_reviewer(instance.team_id, task.signal_report_id, task.created_by_id)
         if acting_user_id is None:
             return
-        transaction.on_commit(
-            lambda: _start_review(
-                pr_url=pr_url,
-                repository=repository,
-                head_branch=head_branch,
-                team_id=instance.team_id,
-                user_id=acting_user_id,
-                signal_report_id=str(task.signal_report_id),
+        # One acting reviewer, two independent opt-ins off their one settings row: the ReviewHog
+        # review (both target legs) and the hosted Stamphog review (PR leg only — stamphog reviews
+        # pull requests, not pushed branches; the pr_url save re-fires this receiver when it opens).
+        settings = ReviewUserSettings.load(instance.team_id, acting_user_id)
+        team_id = instance.team_id
+        task_id = str(task.id)
+        signal_report_id = str(task.signal_report_id)
+        if settings.review_inbox_prs:
+            transaction.on_commit(
+                lambda: _start_review(
+                    pr_url=pr_url,
+                    repository=repository,
+                    head_branch=head_branch,
+                    team_id=team_id,
+                    user_id=acting_user_id,
+                    signal_report_id=signal_report_id,
+                )
             )
-        )
+        if settings.stamphog_review_inbox_prs and pr_url is not None:
+            stamphog_pr_url = pr_url
+            transaction.on_commit(
+                lambda: _start_stamphog_review(
+                    pr_url=stamphog_pr_url,
+                    team_id=team_id,
+                    signal_report_id=signal_report_id,
+                    task_id=task_id,
+                    acting_user_id=acting_user_id,
+                )
+            )
     except Exception:
         logger.exception("review_hog_inbox_trigger_failed")
 
 
-def _resolve_acting_reviewer(team_id: int, signal_report_id: Any, task_created_by_id: int | None) -> int | None:
-    """The assigned reviewer whose ReviewHog options govern this run, when they opted in.
+def resolve_assigned_inbox_reviewer(team_id: int, signal_report_id: Any, task_created_by_id: int | None) -> int | None:
+    """The assigned reviewer whose per-user options govern a report's implementation review.
 
     Assignment = the report's **latest** `suggested_reviewers` artefact — the exact set the Inbox
     "For you" filter matches and Slack notifications fan out to — with logins resolved to org
@@ -119,10 +138,10 @@ def _resolve_acting_reviewer(team_id: int, signal_report_id: Any, task_created_b
     the resolved reviewers**: someone who asked for the implementation gets their own rules applied
     to its review. Otherwise the **first** resolved reviewer is canonical (maintainer decisions,
     2026-07-02/03) — a background task whose creator carries no assignment meaning, or a
-    non-assigned clicker, follows the primary assignee's rules. Their `review_inbox_prs` gates the
-    review and their ReviewHog options (perspectives / blind-spots / validator / urgency threshold)
-    drive it. Returns the acting reviewer's user id, or None when the report has no reviewers, none
-    resolve to an org member, or the acting reviewer didn't opt in.
+    non-assigned clicker, follows the primary assignee's rules. Returns the acting reviewer's user
+    id, or None when the report has no reviewers or none resolve to an org member. Resolution only —
+    callers gate on the reviewer's toggles (`review_inbox_prs` here, `stamphog_review_inbox_prs` on
+    the stamphog legs via the facade) off their one `ReviewUserSettings` row.
     """
     # Deferred: the resolver module pulls posthog.schema (heavy) — keep it off django.setup().
     from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
@@ -156,8 +175,6 @@ def _resolve_acting_reviewer(team_id: int, signal_report_id: Any, task_created_b
     if not resolved:
         return None
     acting = next((user for user in resolved if user.id == task_created_by_id), resolved[0])
-    if not ReviewUserSettings.load(team_id, acting.id).review_inbox_prs:
-        return None
     return acting.id
 
 
@@ -198,3 +215,36 @@ def _start_review(
         logger.info("review_hog_inbox_review_started: workflow %s for signal report %s", workflow_id, signal_report_id)
     except Exception:
         logger.exception("review_hog_inbox_review_start_failed")
+
+
+def _start_stamphog_review(
+    *,
+    pr_url: str,
+    team_id: int,
+    signal_report_id: str,
+    task_id: str,
+    acting_user_id: int,
+) -> None:
+    """Fire-and-forget the hosted stamphog review of the self-driving PR.
+
+    The facade self-scopes: it queues only when the PR's repository has a synced + enabled
+    stamphog config in this team, so the call is inert for teams without the Stamphog App.
+    Runs in an on_commit callback inside tasks' save path — like `_start_review`, a broker or
+    facade failure must cost a log line, never break the run's output save.
+    """
+    # Deferred: keeps stamphog (and the celery machinery its facade dispatches to) off
+    # django.setup() — this module loads inside AppConfig.ready().
+    from products.stamphog.backend.facade.api import queue_self_driving_pr_review  # noqa: PLC0415
+
+    try:
+        queued = queue_self_driving_pr_review(
+            team_id=team_id,
+            pr_url=pr_url,
+            signal_report_id=signal_report_id,
+            task_id=task_id,
+            acting_user_id=acting_user_id,
+        )
+        if queued:
+            logger.info("review_hog_stamphog_inbox_review_queued: signal report %s", signal_report_id)
+    except Exception:
+        logger.exception("review_hog_stamphog_inbox_review_queue_failed")

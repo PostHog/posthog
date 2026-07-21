@@ -16,11 +16,18 @@ from products.stamphog.backend.tasks.tasks import (
     _upsert_pull_request,
     process_installation_event,
     process_pull_request_event,
+    process_self_driving_pr_review,
 )
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
+from products.tasks.backend.facade.contracts import SignalReportPrLinkDTO
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "1001"
+
+# The two cross-product boundaries of the self-driving carve-out, patched at their source modules
+# (both are imported at call time).
+_FIND_LINK = "products.tasks.backend.facade.api.find_signal_report_pr_link"
+_RESOLVE_REVIEWER = "products.review_hog.backend.facade.api.resolve_stamphog_inbox_reviewer"
 
 
 def _pr_payload(
@@ -712,3 +719,221 @@ def test_installation_repos_added_skips_when_installation_spans_multiple_teams(t
     process_installation_event(payload, "delivery-multi-add")
 
     assert StamphogRepoConfig.objects.unscoped().filter(repository="acme/brand-new").exists() is False
+
+
+# --- Self-driving inbox PRs (the toggle-gated carve-out) ---
+
+
+def _self_driving_link(team_id: int) -> SignalReportPrLinkDTO:
+    return SignalReportPrLinkDTO(
+        task_id=uuid.uuid4(),
+        task_run_id=uuid.uuid4(),
+        team_id=team_id,
+        signal_report_id=uuid.uuid4(),
+        task_created_by_id=None,
+    )
+
+
+def _self_driving_payload(**overrides: Any) -> dict[str, Any]:
+    """A draft, bot-authored, untrusted-association PR — everything the human-PR gates drop."""
+    kwargs: dict[str, Any] = {
+        "draft": True,
+        "user_type": "Bot",
+        "author_login": "posthog-code[bot]",
+        "author_association": "NONE",
+        **overrides,
+    }
+    return _pr_payload(**kwargs)
+
+
+@pytest.mark.parametrize("review_mode", [ReviewMode.ALL, ReviewMode.LABEL])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_linked_self_driving_pr_is_reviewed_through_every_human_pr_gate(team, repo_config, review_mode):
+    # The carve-out spine: a draft, bot-authored, NONE-association PR positively linked to a
+    # self-driving task run, whose acting reviewer's toggle is on, must queue a run — through the
+    # draft/bot/association pre-filters, without consulting write permission ("read" here would
+    # drop it), and regardless of review_mode (the toggle is the gate; LABEL would otherwise skip
+    # a label-less PR). Any re-tightened gate silently kills the whole feature.
+    with team_scope(team.id):
+        repo_config.review_mode = review_mode
+        repo_config.save()
+
+    with (
+        patch(_FIND_LINK, return_value=_self_driving_link(team.id)),
+        patch(_RESOLVE_REVIEWER, return_value=777),
+    ):
+        mock_execute = _run_task(
+            _self_driving_payload(), f"delivery-sd-{uuid.uuid4()}", team.id, author_permission="read"
+        )
+
+    with team_scope(team.id):
+        run = ReviewRun.objects.get()
+    assert run.status == ReviewRunStatus.QUEUED
+    provenance = run.output["self_driving_review"]
+    assert provenance["acting_user_id"] == 777
+    assert provenance["trigger"] == "webhook"
+    mock_execute.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "action,expect_dismiss",
+    [("opened", False), ("synchronize", True)],
+    ids=["opened_skips_quietly", "synchronize_still_retracts"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_self_driving_opt_out_skips_review_but_never_skips_dismissal(team, repo_config, action, expect_dismiss):
+    # Decision: dismissal is never preference-gated. Switching the toggle off mid-PR must stop new
+    # reviews, and a head-changing event must still retract the standing approval — otherwise the
+    # old approval keeps satisfying required reviews over unreviewed commits.
+    with (
+        patch(_FIND_LINK, return_value=_self_driving_link(team.id)),
+        patch(_RESOLVE_REVIEWER, return_value=777),
+    ):
+        _run_task(_self_driving_payload(), f"delivery-sd-optout-seed-{action}", team.id)
+
+    with (
+        patch(_FIND_LINK, return_value=_self_driving_link(team.id)),
+        patch(_RESOLVE_REVIEWER, return_value=None),
+        patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
+    ):
+        mock_execute = _run_task(
+            _self_driving_payload(action=action, head_sha="sha-2"), f"delivery-sd-optout-{action}", team.id
+        )
+
+    assert dismiss.called is expect_dismiss
+    mock_execute.assert_not_called()
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 1  # only the seed run; the opt-out queued nothing
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_self_driving_labeled_event_is_ignored(team, repo_config):
+    # Label churn never changes the code. With the review-mode gate bypassed for self-driving PRs,
+    # this explicit drop is what keeps any label add from re-running the sandbox + LLM.
+    with (
+        patch(_FIND_LINK, return_value=_self_driving_link(team.id)),
+        patch(_RESOLVE_REVIEWER, return_value=777),
+    ):
+        mock_execute = _run_task(
+            _self_driving_payload(action="labeled", labels=["bug"], added_label="bug"),
+            f"delivery-sd-labeled-{uuid.uuid4()}",
+            team.id,
+        )
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_execute.assert_not_called()
+
+
+def _fetched_pr(*, number: int = 42, head_sha: str = "sha-sd-1", state: str = "open") -> dict[str, Any]:
+    """What get_pr returns for the inbox leg — a draft, bot-authored PR, as self-driving PRs are."""
+    return {
+        "number": number,
+        "state": state,
+        "draft": True,
+        "title": "feat: self-driving change",
+        "html_url": f"https://github.com/{REPO}/pull/{number}",
+        "user": {"login": "posthog-code[bot]", "type": "Bot"},
+        "head": {"sha": head_sha, "ref": "posthog-code/sd-branch"},
+        "updated_at": "2026-07-21T00:00:00Z",
+    }
+
+
+def _run_inbox_task(team_id: int, fetched_pr: dict[str, Any] | None, *, repository: str = REPO):
+    with (
+        team_scope(team_id),
+        patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
+        patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
+        patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
+    ):
+        mock_client.return_value.get_pr.return_value = fetched_pr
+        process_self_driving_pr_review(
+            team_id=team_id,
+            repository=repository,
+            pr_number=42,
+            signal_report_id="sr-1",
+            task_id="task-1",
+            acting_user_id=777,
+        )
+    return mock_execute, mock_client
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_trigger_queues_the_initial_review(team, repo_config):
+    # Leg 1 of the two-leg trigger: the receiver-dispatched task must fetch the PR, upsert the
+    # PR-grain row, and queue a provenance-stamped run — with none of the human-PR gates (the PR
+    # is draft and bot-authored by construction).
+    mock_execute, _ = _run_inbox_task(team.id, _fetched_pr())
+
+    with team_scope(team.id):
+        pr = PullRequest.objects.get(repo_config=repo_config, pr_number=42)
+        run = ReviewRun.objects.get(pull_request=pr)
+    assert pr.title == "feat: self-driving change"
+    assert run.head_sha == "sha-sd-1"
+    assert run.delivery_id is None  # no webhook delivery backs this run
+    provenance = run.output["self_driving_review"]
+    assert provenance == {
+        "signal_report_id": "sr-1",
+        "task_id": "task-1",
+        "acting_user_id": 777,
+        "trigger": "inbox",
+    }
+    mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
+
+
+@pytest.mark.parametrize(
+    "config_kwargs,repository",
+    [
+        ({"enabled": False}, REPO),
+        ({"installation_id": ""}, REPO),
+        ({}, "acme/other-repo"),
+    ],
+    ids=["disabled", "never_synced", "different_repo"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_trigger_requires_a_synced_enabled_config_for_the_repo(team, repo_config, config_kwargs, repository):
+    # Self-scoping (no team hardcode): without a synced + enabled config covering the PR's repo the
+    # trigger is a silent no-op — it must not even reach GitHub.
+    if config_kwargs:
+        with team_scope(team.id):
+            StamphogRepoConfig.objects.filter(id=repo_config.id).update(**config_kwargs)
+
+    mock_execute, mock_client = _run_inbox_task(team.id, _fetched_pr(), repository=repository)
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_execute.assert_not_called()
+    mock_client.return_value.get_pr.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_trigger_dedupes_repeat_fires_and_recovers_stranded_runs(team, repo_config):
+    # The receiver re-fires on every output-touching TaskRun save, so a repeat fire at the same
+    # head must not stack runs. A still-QUEUED run gets its workflow restarted (the crash
+    # recovery); a delivered run makes the repeat a full no-op.
+    _run_inbox_task(team.id, _fetched_pr())
+    mock_execute_repeat, _ = _run_inbox_task(team.id, _fetched_pr())
+
+    with team_scope(team.id):
+        run = ReviewRun.objects.get()  # still exactly one run
+    # The mocked workflow never advanced the run past QUEUED, so the repeat restarts it.
+    mock_execute_repeat.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
+
+    with team_scope(team.id):
+        ReviewRun.objects.filter(id=run.id).update(status=ReviewRunStatus.COMPLETED)
+    mock_execute_delivered, _ = _run_inbox_task(team.id, _fetched_pr())
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 1
+    mock_execute_delivered.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_trigger_skips_a_closed_pr(team, repo_config):
+    # The PR can merge or close between the receiver fire and this task running; reviewing a dead
+    # PR wastes a sandbox and could post onto a merged PR.
+    mock_execute, _ = _run_inbox_task(team.id, _fetched_pr(state="closed"))
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_execute.assert_not_called()

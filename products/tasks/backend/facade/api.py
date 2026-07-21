@@ -148,6 +148,7 @@ __all__ = [
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
+    "find_signal_report_pr_link",
     "get_active_wizard_cloud_run",
     "get_code_home",
     "get_code_workflow_config",
@@ -522,6 +523,38 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
+
+
+def find_signal_report_pr_link(
+    *, team_id: int, repository: str, pr_url: str, head_branch: str | None = None
+) -> contracts.SignalReportPrLinkDTO | None:
+    """The self-driving implementation linkage for a PR, or None when it has none.
+
+    Positively identifies a PR opened by a PostHog Code self-driving implementation run: the PR
+    is matched to a TaskRun the way the GitHub-webhook backstop matches deliveries (recorded
+    ``output.pr_url`` first, then head branch within the same repository — callers must pass
+    ``head_branch=None`` for fork PRs, whose head ref is attacker-controlled), and the run's task
+    must be a non-internal, ``signal_report``-carrying task in the given team. Callers gate
+    automation on the result (e.g. stamphog's inbox-review carve-out), so None must always mean
+    "treat as an ordinary PR" — identification never falls back to author-login matching.
+    """
+    # Lazy: webhooks.py imports this module back (signal_workflow_completion), so a module-level
+    # import would be circular.
+    from products.tasks.backend.webhooks import find_task_run  # noqa: PLC0415 — break the webhooks<->api import cycle
+
+    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository)
+    if run is None or run.team_id != team_id:
+        return None
+    task = run.task
+    if task.signal_report_id is None or task.internal:
+        return None
+    return contracts.SignalReportPrLinkDTO(
+        task_id=task.id,
+        task_run_id=run.id,
+        team_id=run.team_id,
+        signal_report_id=task.signal_report_id,
+        task_created_by_id=task.created_by_id,
+    )
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:

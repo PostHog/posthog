@@ -6,6 +6,7 @@ it dedupes redeliveries, resolves the repo config, upserts the PR-grain
 a fresh ReviewRun, and kicks off the Temporal review workflow once the row commits.
 """
 
+from dataclasses import dataclass
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -62,6 +63,12 @@ _UNTRUSTED_SKIP_DISMISS_MESSAGE = (
     "This PR no longer qualifies for automatic review."
 )
 
+_SELF_DRIVING_OPT_OUT_DISMISS_MESSAGE = (
+    "New commits were pushed — dismissing the stamphog approval from an earlier head. "
+    "The reviewer this self-driving PR is assigned to has turned off stamphog reviews, "
+    "so stamphog will not re-review."
+)
+
 # Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
 # sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
 STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
@@ -99,24 +106,118 @@ _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
 
 
+def _pr_author_is_bot(pr: dict[str, Any]) -> bool:
+    """Payload-level bot check, mirroring the engine's ``is_bot_author`` App/bot-suffix rules."""
+    user = pr.get("user") or {}
+    return user.get("type") == "Bot" or "[bot]" in (user.get("login") or "")
+
+
 def _review_skip_reason(pr: dict[str, Any]) -> str | None:
     """Why this PR must not enter the sandbox review path, or None to proceed.
 
     Cheap, payload-only pre-filters that would otherwise burn a full sandbox + LLM run just to be
     gate-refused inside it. The engine keeps the same bot/draft refusals as defense in depth; this is
     only the early-out. Fork/external PRs are dropped here for security, not just cost (see the
-    TRUSTED_AUTHOR_ASSOCIATIONS note).
+    TRUSTED_AUTHOR_ASSOCIATIONS note). A skip from here is overridden for positively identified
+    self-driving implementation PRs only (see ``_resolve_self_driving_review``): those are reviewed
+    bot-authored and draft on purpose, so the verdict is ready at Inbox triage time.
     """
     if pr.get("draft"):
         # Drafts re-trigger via ready_for_review once opened for review, so reviewing one now is wasted.
         return "draft"
-    user = pr.get("user") or {}
-    if user.get("type") == "Bot" or "[bot]" in (user.get("login") or ""):
+    if _pr_author_is_bot(pr):
         # Bot authors (dependabot, renovate, ...) always need a human.
         return "bot_author"
     if pr.get("author_association") not in PAYLOAD_GATE_AUTHOR_ASSOCIATIONS:
         return "untrusted_author_association"
     return None
+
+
+@dataclass(frozen=True)
+class _SelfDrivingReview:
+    """A PR positively identified as a PostHog Code self-driving implementation PR."""
+
+    repo_config: StamphogRepoConfig
+    signal_report_id: str
+    task_id: str
+    task_created_by_id: int | None
+
+
+def _resolve_self_driving_review(installation_id: str, repo: str, pr: dict[str, Any]) -> _SelfDrivingReview | None:
+    """Positively identify a self-driving implementation PR, or None to keep today's behavior.
+
+    Identification is task linkage, never author-login matching: the PR must map — through the
+    tasks facade, scoped to the repo config's team — to a non-internal TaskRun carrying a
+    ``signal_report_id``. Only bot-authored PRs are even considered (self-driving PRs are always
+    bot-authored), which keeps human drafts off the tasks lookup entirely. Fork-safe: the branch
+    matching leg is consulted only when the PR head lives in the base repo, since a fork's
+    ``head.ref`` is attacker-controlled. Fails open to None on any error — the caller then applies
+    the ordinary skip path (including its stale-approval retraction), which is the safe direction.
+    """
+    if not _pr_author_is_bot(pr):
+        return None
+    pr_url = pr.get("html_url") or ""
+    if not pr_url:
+        return None
+    try:
+        repo_config = _resolve_repo_config(installation_id, repo)
+        if repo_config is None:
+            return None
+        head = pr.get("head") or {}
+        head_repo = (((head.get("repo") or {}).get("full_name")) or "").strip().lower()
+        head_branch = head.get("ref") if head_repo == repo.strip().lower() else None
+        # Deferred: the tasks facade drags main-app models/logic; keep it off the celery import path.
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keep the tasks facade off the celery import path
+            find_signal_report_pr_link,
+        )
+
+        link = find_signal_report_pr_link(
+            team_id=repo_config.team_id, repository=repo, pr_url=pr_url, head_branch=head_branch
+        )
+    except Exception:
+        logger.exception("stamphog_self_driving_linkage_failed", repo=repo, pr_number=pr.get("number"))
+        return None
+    if link is None:
+        return None
+    return _SelfDrivingReview(
+        repo_config=repo_config,
+        signal_report_id=str(link.signal_report_id),
+        task_id=str(link.task_id),
+        task_created_by_id=link.task_created_by_id,
+    )
+
+
+def _resolve_self_driving_acting_reviewer(team_id: int, self_driving: _SelfDrivingReview) -> int | None:
+    """The acting reviewer whose stamphog toggle gates this self-driving review, or None.
+
+    Same resolution as the ReviewHog inbox receiver (the report's suggested reviewers; the task
+    creator when among them, else the first that resolves), re-checked against the CURRENT
+    ``stamphog_review_inbox_prs`` value — switching the toggle off mid-PR stops new reviews.
+    """
+    # Deferred: review_hog pulls the signals resolver (heavy posthog.schema import) at call time.
+    from products.review_hog.backend.facade.api import (  # noqa: PLC0415 — keep review_hog's heavy resolver off the celery import path
+        resolve_stamphog_inbox_reviewer,
+    )
+
+    return resolve_stamphog_inbox_reviewer(team_id, self_driving.signal_report_id, self_driving.task_created_by_id)
+
+
+def _self_driving_run_output(self_driving: _SelfDrivingReview, acting_user_id: int | None, trigger: str) -> dict:
+    """Initial ``ReviewRun.output`` for a self-driving review: the provenance marker.
+
+    The marker is what downstream reads key on — the engine flag (run_review_in_sandbox), the
+    familiarity skip (fetch_review_context), analytics stamping — and what makes these runs
+    attributable in the UI/digest. ``trigger`` records which leg queued the run ("inbox" for the
+    receiver-driven initial review, "webhook" for subsequent event-driven ones).
+    """
+    return {
+        "self_driving_review": {
+            "signal_report_id": self_driving.signal_report_id,
+            "task_id": self_driving.task_id,
+            "acting_user_id": acting_user_id,
+            "trigger": trigger,
+        }
+    }
 
 
 def _author_lacks_write_permission(repo_config: StamphogRepoConfig, repo: str, pr: dict[str, Any]) -> bool:
@@ -749,8 +850,12 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     # Cheap pre-sandbox drops (drafts, bots, fork/external authors) before we resolve config or spend a
     # sandbox. Only affects the review path — the merged/closed digest capture returned above already.
+    # The one carve-out: a bot-authored (often draft) PR positively linked to a self-driving
+    # implementation task keeps going — its gates are the acting reviewer's toggle (checked below)
+    # and the repo config, not the human-PR pre-filters. Everything else keeps today's behavior.
     skip_reason = _review_skip_reason(pr)
-    if skip_reason is not None:
+    self_driving = _resolve_self_driving_review(installation_id, repo, pr) if skip_reason is not None else None
+    if skip_reason is not None and self_driving is None:
         # A head-changing event skipped here still invalidates any standing approval — the author may
         # have lost their trusted association, or the PR flipped to draft, since the approval was
         # granted. Same hazard as the mode/permission skips below: without retraction the old approval
@@ -774,14 +879,27 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
+    if self_driving is not None and action == "labeled":
+        # Label churn never changes the code, and self-driving reviews are gated by the acting
+        # reviewer's toggle and re-run on pushes — mirror ALL mode's labeled-ignored rule rather
+        # than letting any label add re-run the sandbox.
+        logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason="labeled_self_driving")
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
+        return
+
     # Creation is guarded against cross-team duplicates (see StamphogRepoConfigViewSet). Retry (don't
     # drop) on a transient DB error: this is the first DB touch on the main path, and the webhook was
     # already ACKed, so an unhandled blip here would silently lose the delivery.
-    try:
-        repo_config = _resolve_repo_config(installation_id, repo)
-    except Exception as e:
-        logger.exception("stamphog_pr_event_config_resolution_failed", delivery_id=delivery_id, error=str(e))
-        raise cast(Any, process_pull_request_event).retry(exc=e)
+    repo_config: StamphogRepoConfig | None
+    if self_driving is not None:
+        repo_config = self_driving.repo_config
+    else:
+        try:
+            repo_config = _resolve_repo_config(installation_id, repo)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_config_resolution_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
     if not repo_config:
         logger.info("stamphog_pr_event_repo_not_configured", repo=repo, installation_id=installation_id)
         return
@@ -801,7 +919,9 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
-    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr)
+    # Self-driving PRs bypass the review-mode (ALL/LABEL) gate entirely: the acting reviewer's
+    # toggle is their gate (checked below), and they carry no labels for LABEL mode to match.
+    mode_skip_reason = None if self_driving is not None else _review_mode_skip_reason(repo_config, action, payload, pr)
     if mode_skip_reason is not None:
         # Safety net before dropping the event: a LABEL-mode head change skipped for a missing trigger
         # label still invalidates any standing approval. Retract it before marking the delivery processed,
@@ -820,9 +940,12 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # author_association alone can't prove push access (see WRITE_PERMISSIONS), so the last gate before
     # spending a run verifies it against the repo. Retry (don't drop) on lookup failure: fail-open would
     # let a transient GitHub blip mint approvals for under-privileged authors, and dropping would lose
-    # legitimate reviews to the same blip.
+    # legitimate reviews to the same blip. Self-driving PRs skip it: the App's machine user is not a
+    # collaborator, and the task linkage — not repo permission — is what qualifies the bot author.
     try:
-        author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
+        author_below_write = (
+            False if self_driving is not None else _author_lacks_write_permission(repo_config, repo, pr)
+        )
     except GitHubRateLimitError as e:
         # Honor GitHub's own backoff hint: the default 5s retry delay lands inside the same rate
         # window and burns the attempt budget without ever succeeding.
@@ -846,6 +969,31 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         return
 
     team_id = repo_config.team_id
+
+    # The self-driving gate: the acting reviewer's CURRENT stamphog toggle. Dismissal above/below is
+    # deliberately not behind it — safety is never preference-gated — but a fresh review is: switching
+    # the toggle off mid-PR stops new runs while never leaving a stale approval standing.
+    acting_user_id: int | None = None
+    if self_driving is not None:
+        try:
+            acting_user_id = _resolve_self_driving_acting_reviewer(team_id, self_driving)
+        except Exception as e:
+            # Retry (don't drop): the toggle read gates a whole review, and the webhook is ACKed.
+            logger.exception("stamphog_pr_event_self_driving_gate_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
+        if acting_user_id is None:
+            if action in _HEAD_CHANGING_ACTIONS:
+                try:
+                    _retract_stale_approvals_on_skip(repo_config, pr, _SELF_DRIVING_OPT_OUT_DISMISS_MESSAGE)
+                except Exception as e:
+                    logger.exception(
+                        "stamphog_pr_event_self_driving_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
+                    )
+                    raise cast(Any, process_pull_request_event).retry(exc=e)
+            logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason="self_driving_opt_out")
+            if delivery_id:
+                _mark_pr_event_processed(delivery_id)
+            return
 
     # Recovery fast path: a run for this delivery already exists (a redelivery/Celery retry that
     # slipped past the cache dedup). If it's still QUEUED, its earlier attempt committed the row but
@@ -915,6 +1063,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 head_sha=head.get("sha", ""),
                 delivery_id=delivery_id or None,
                 status=ReviewRunStatus.QUEUED,
+                output=(_self_driving_run_output(self_driving, acting_user_id, "webhook") if self_driving else {}),
             )
             # Only start the workflow once the row is durably committed — an aborted
             # transaction must not leave a workflow chasing a run that never existed.
@@ -957,3 +1106,128 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     if delivery_id:
         _mark_pr_event_processed(delivery_id)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def process_self_driving_pr_review(
+    *,
+    team_id: int,
+    repository: str,
+    pr_number: int,
+    signal_report_id: str,
+    task_id: str,
+    acting_user_id: int,
+) -> None:
+    """Queue the initial hosted review of a self-driving implementation PR (the inbox trigger).
+
+    Dispatched by the stamphog facade once the ReviewHog inbox receiver resolved the acting
+    reviewer and their stamphog toggle is on; the webhook path handles every subsequent event on
+    the PR. There is no webhook payload here, so the PR is fetched from GitHub, and the human-PR
+    pre-filters (bot author, draft, association, write permission, review mode) are deliberately
+    absent — the task linkage established by the caller IS the positive identification, and the
+    acting reviewer's toggle was the gate. Repeat fires with an unchanged target are cheap: a
+    live-or-delivered run at the PR's current head dedupes to a no-op, restarting a stranded
+    QUEUED run's workflow (the same crash recovery the webhook path has).
+    """
+    # Writer pin: this read gates the whole review — the config may have been synced or enabled
+    # moments before the receiver fired, and a lagged reader would silently drop the review.
+    repo_config = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(repository__iexact=repository, enabled=True)
+        .exclude(installation_id="")
+        .order_by("created_at", "id")
+        .first()
+    )
+    if repo_config is None:
+        logger.info("stamphog_self_driving_review_repo_not_configured", team_id=team_id, repository=repository)
+        return
+
+    try:
+        pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo_config.repository, pr_number)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_self_driving_review_rate_limited", team_id=team_id, repository=repository)
+        raise cast(Any, process_self_driving_pr_review).retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_self_driving_review_fetch_failed", team_id=team_id, error=str(e))
+        raise cast(Any, process_self_driving_pr_review).retry(exc=e)
+
+    if (pr.get("state") or "").lower() != "open":
+        logger.info("stamphog_self_driving_review_pr_not_open", repository=repository, pr_number=pr_number)
+        return
+    head_sha = ((pr.get("head") or {}).get("sha") or "").strip()
+    if not head_sha:
+        logger.warning("stamphog_self_driving_review_missing_head_sha", repository=repository, pr_number=pr_number)
+        return
+
+    self_driving = _SelfDrivingReview(
+        repo_config=repo_config,
+        signal_report_id=signal_report_id,
+        task_id=task_id,
+        task_created_by_id=None,
+    )
+
+    # Same transaction discipline as the webhook path: bind to the routed DB so the row locks and
+    # the on_commit workflow start ride the product-DB connection.
+    write_db = router.db_for_write(ReviewRun)
+    try:
+        with transaction.atomic(using=write_db):
+            pr_obj = _upsert_pull_request(repo_config, pr)
+            # A newer webhook snapshot already committed — its run is the current one; superseding
+            # it for this (older) fetch would cancel the up-to-date review. Mirrors the webhook
+            # path's locked stale-payload recheck.
+            incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+            if (
+                incoming_updated_at is not None
+                and pr_obj.payload_updated_at is not None
+                and pr_obj.payload_updated_at > incoming_updated_at
+            ):
+                logger.info("stamphog_self_driving_review_stale_snapshot", repository=repository, pr_number=pr_number)
+                return
+            # Dedupe repeat receiver fires (every output-touching TaskRun save re-fires the
+            # trigger): a live or delivered run at this head means the review is already handled.
+            # Writer pin via the transaction's connection; the row lock serializes racing fires.
+            existing = (
+                ReviewRun.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(pull_request=pr_obj, head_sha=head_sha)
+                .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+                .order_by("-created_at")
+                .first()
+            )
+            if existing is not None:
+                if existing.status == ReviewRunStatus.QUEUED:
+                    existing_run_id = str(existing.id)
+                    transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=write_db)
+                logger.info(
+                    "stamphog_self_driving_review_deduped",
+                    repository=repository,
+                    pr_number=pr_number,
+                    existing_status=existing.status,
+                )
+                return
+            _supersede_prior_runs(pr_obj)
+            review_run = ReviewRun.objects.for_team(team_id).create(
+                team_id=team_id,
+                pull_request=pr_obj,
+                head_sha=head_sha,
+                delivery_id=None,
+                status=ReviewRunStatus.QUEUED,
+                output=_self_driving_run_output(self_driving, acting_user_id, "inbox"),
+            )
+            review_run_id = str(review_run.id)
+            # Post-commit start failures propagate into the retry below; the retry re-enters
+            # through the dedupe above and restarts the still-QUEUED run.
+            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=write_db)
+    except Exception as e:
+        logger.exception("stamphog_self_driving_review_create_run_failed", repository=repository, error=str(e))
+        raise cast(Any, process_self_driving_pr_review).retry(exc=e)
+
+    logger.info(
+        "stamphog_self_driving_review_queued",
+        repository=repository,
+        pr_number=pr_number,
+        review_run_id=review_run_id,
+        team_id=team_id,
+    )
