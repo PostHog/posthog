@@ -67,20 +67,6 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 
-# The reserved read scope that gates the PostHog AI surface's frontend-applied filter tools
-# (suggest-web-analytics-filters, suggest-revenue-analytics-filters, suggest-error-tracking-filters,
-# suggest-session-recording-filters). Granted ONLY to tokens minted under the `posthog_ai`
-# application (never `/tasks`/array sandboxes) by `resolve_scopes` below. It is a `:read`
-# action on purpose: the tools are read-only schema-echoes (`readOnlyHint: true`), so MCP read-only
-# mode keeps them, and being `:read` it never counts toward `has_write_scopes` (its object is in
-# `INTERNAL_API_SCOPE_OBJECTS`, hence excluded from `MCP_WRITE_SCOPES`). A write action would be
-# wrongly classified and could vanish, so keep this a read scope. Held OUT of the global
-# `INTERNAL_SCOPES` so it rides only the `posthog_ai` application branch.
-POSTHOG_AI_FRONTEND_SCOPES: list[str] = [
-    "posthog_ai_frontend:read",
-]
-
-
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
 # sandbox so scouts can produce durable artifacts as part of a finding — e.g. a notebook
 # that documents and illustrates an emitted anomaly. Unlike `SCOUT_INTERNAL_SCOPES` these
@@ -130,7 +116,6 @@ def resolve_scopes(
     scopes: PosthogMcpScopes = "read_only",
     *,
     include_internal_scopes: bool = True,
-    application: SandboxOAuthApplication = "array",
 ) -> list[str]:
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
@@ -158,14 +143,6 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]
-    # The PostHog AI conversation sandbox, and only it, additionally carries the reserved read
-    # scope that gates the frontend-applied `suggest-*-filters` tools. Added ONLY on the
-    # `posthog_ai` application branch (never for `array`/`/tasks` tokens) and gated on
-    # `include_internal_scopes` like the other internal scopes, so an explicit no-internal token
-    # stays clean. No `has_write_scopes` change is needed: the scope is `:read` and the tools are
-    # `readOnlyHint`, so MCP read-only mode keeps them regardless of the token's write posture.
-    if application == "posthog_ai" and include_internal_scopes:
-        resolved = [*resolved, *POSTHOG_AI_FRONTEND_SCOPES]
     return list(dict.fromkeys(resolved))
 
 
@@ -251,7 +228,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     application: SandboxOAuthApplication = "array",
 ) -> str:
-    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes, application=application)
+    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 
