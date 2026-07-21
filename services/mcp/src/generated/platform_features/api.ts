@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -17,11 +17,11 @@ export const RetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
 
-export const partialUpdateBodyNameMax = 64
-
 export const PartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
+
+export const partialUpdateBodyNameMax = 64
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
