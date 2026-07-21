@@ -506,6 +506,15 @@ class TestDailyRunTimeDueCheck:
                 60.0,
             ),
             (
+                "deferred_across_next_day_keeps_original_slot",
+                "America/Toronto",
+                "2026-07-22T13:01:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                time(9, 0),
+                86460.0,
+            ),
+            (
                 "schedule_saved_after_today_slot",
                 "America/Toronto",
                 "2026-07-21T15:00:00+00:00",

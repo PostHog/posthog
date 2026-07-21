@@ -393,23 +393,24 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
 def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
     """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
     if config.run_interval_minutes == 1440 and config.run_time_of_day is not None:
-        local_now = now.astimezone(project_timezone)
-        scheduled_today = datetime.combine(local_now.date(), config.run_time_of_day, project_timezone)
-        latest_scheduled_at = (
-            scheduled_today
-            if local_now >= scheduled_today
-            else datetime.combine(local_now.date() - timedelta(days=1), config.run_time_of_day, project_timezone)
-        )
         # `updated_at` anchors a newly saved schedule so selecting a future daily time waits
         # for that occurrence instead of immediately catching up against yesterday's slot.
         schedule_reference = max(
             reference for reference in (config.last_run_at, config.updated_at) if reference is not None
         )
-        if schedule_reference >= latest_scheduled_at:
+        local_schedule_reference = schedule_reference.astimezone(project_timezone)
+        first_unfulfilled_slot = datetime.combine(
+            local_schedule_reference.date(), config.run_time_of_day, project_timezone
+        )
+        if first_unfulfilled_slot <= schedule_reference:
+            first_unfulfilled_slot = datetime.combine(
+                local_schedule_reference.date() + timedelta(days=1), config.run_time_of_day, project_timezone
+            )
+        if now < first_unfulfilled_slot:
             return None
-        # Fixed daily times never dispatch early: an early stamp would still compare before the
-        # slot and could dispatch the same scout again on the next coordinator tick.
-        return (now - latest_scheduled_at.astimezone(now.tzinfo)).total_seconds()
+        # Keep measuring from the first missed slot until dispatch so bounded coordinator ticks
+        # cannot reset a deferred run's priority when the next daily slot arrives.
+        return (now - first_unfulfilled_slot.astimezone(now.tzinfo)).total_seconds()
 
     if config.last_run_at is None:
         return float("inf")
