@@ -390,6 +390,13 @@ pub const MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL: &str = "merge_transfer_produce_f
 pub const MERGE_OUTBOX_CLEAR_FAILURE_TOTAL: &str = "merge_outbox_clear_failure_total";
 /// Cross-partition drains whose packaged transfer carried no leaves (counter).
 pub const MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL: &str = "merge_transfers_skipped_empty_total";
+/// Cross-partition merges retained (sticky-held, no mutation) because the membership-register
+/// transfer is still disabled while a merged person owns register rows (counter). Each retry of the
+/// held offset re-counts, so this is a stall *rate*. A sustained non-zero level means merge
+/// consumption is wedged on that partition: register transfer must be enabled before the merge
+/// producer (`PERSON_MERGE_EVENTS_ENABLED`). **Alert on a sustained non-zero level.**
+pub const MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL: &str =
+    "merge_transfers_held_awaiting_enablement_total";
 /// Entries currently staged in a partition's `cf_pending_transfers` outbox, labelled by `partition`
 /// (gauge). A sustained non-zero level means the transfer topic keeps refusing produces.
 pub const MERGE_PENDING_TRANSFERS_GAUGE: &str = "merge_pending_transfers";
@@ -718,5 +725,13 @@ mod tests {
             "store_schema_mismatch_wipes_total",
         );
         assert_eq!(MERGE_DRAIN_LEAVES_SCANNED, "merge_drain_leaves_scanned");
+    }
+
+    #[test]
+    fn merge_hold_metric_name_is_stable() {
+        assert_eq!(
+            MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL,
+            "merge_transfers_held_awaiting_enablement_total",
+        );
     }
 }

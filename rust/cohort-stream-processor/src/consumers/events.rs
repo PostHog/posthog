@@ -1785,6 +1785,8 @@ mod tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            // The dispatch tests exercise cross-partition register transfer end to end.
+            register_transfer_enabled: true,
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2950,6 +2952,7 @@ mod tests {
             source_partition: source.0,
             source_offset: source.1,
             leaves,
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,

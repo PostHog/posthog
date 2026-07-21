@@ -11,7 +11,10 @@
 //! that sequence built through `BatchBuilder` and committed through `write_batch`.
 
 use super::column_families::{Cf, OpaqueCf};
-use super::keys::{MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, TombstoneKey};
+use super::keys::{
+    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, Stage2TransferredRegisterKey,
+    TombstoneKey,
+};
 use super::keyspace::Keyspace;
 
 /// One staged RocksDB operation with owned bytes, so the batch is `Send + 'static`.
@@ -79,6 +82,25 @@ impl StagedBatch {
     }
 
     pub fn delete_stage2(&mut self, key: &Stage2Key) {
+        self.ops.push(StagedOp::Delete {
+            cf: Cf::Stage2,
+            key: key.encode().to_vec(),
+        });
+    }
+
+    pub fn put_stage2_transferred_register(
+        &mut self,
+        key: &Stage2TransferredRegisterKey,
+        value: &[u8],
+    ) {
+        self.ops.push(StagedOp::Put {
+            cf: Cf::Stage2,
+            key: key.encode().to_vec(),
+            value: value.to_vec(),
+        });
+    }
+
+    pub fn delete_stage2_transferred_register(&mut self, key: &Stage2TransferredRegisterKey) {
         self.ops.push(StagedOp::Delete {
             cf: Cf::Stage2,
             key: key.encode().to_vec(),
@@ -253,6 +275,13 @@ mod tests {
         b.put_stage2(&stage2_key(1, 100), b"s2-put");
         b.put_stage2(&stage2_key(2, 200), b"s2-doomed");
         b.delete_stage2(&stage2_key(2, 200));
+        b.put_stage2_transferred_register(
+            &Stage2TransferredRegisterKey::new(stage2_key(1, 100)),
+            b"kind",
+        );
+        b.delete_stage2_transferred_register(&Stage2TransferredRegisterKey::new(stage2_key(
+            2, 200,
+        )));
 
         b.put_merge_drain_applied(&merge_drain_key(1), b"drain-put");
         b.delete_merge_drain_applied(&merge_drain_key(2));
@@ -283,6 +312,13 @@ mod tests {
         s.put_stage2(&stage2_key(1, 100), b"s2-put");
         s.put_stage2(&stage2_key(2, 200), b"s2-doomed");
         s.delete_stage2(&stage2_key(2, 200));
+        s.put_stage2_transferred_register(
+            &Stage2TransferredRegisterKey::new(stage2_key(1, 100)),
+            b"kind",
+        );
+        s.delete_stage2_transferred_register(&Stage2TransferredRegisterKey::new(stage2_key(
+            2, 200,
+        )));
 
         s.put_merge_drain_applied(&merge_drain_key(1), b"drain-put");
         s.delete_merge_drain_applied(&merge_drain_key(2));
@@ -315,7 +351,7 @@ mod tests {
         let mut staged = StagedBatch::default();
         drive_staged_batch(&mut staged);
         assert!(!staged.is_empty());
-        assert_eq!(staged.len(), 16);
+        assert_eq!(staged.len(), 18);
         via_staged.apply(&staged).unwrap();
 
         // `scan_merge_cf` is CF-generic and all keys carry the partition prefix, so it enumerates any

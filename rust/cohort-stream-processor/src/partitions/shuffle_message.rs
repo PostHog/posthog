@@ -164,6 +164,7 @@ mod tests {
             source_partition: 3,
             source_offset: 9,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,
