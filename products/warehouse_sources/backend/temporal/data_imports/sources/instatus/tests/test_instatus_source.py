@@ -9,7 +9,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InstatusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instatus import (
+    InstatusSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.instatus import InstatusResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.source import InstatusSource
@@ -89,13 +91,15 @@ class TestInstatusSource:
         manager = mock.MagicMock()
         inputs = mock.MagicMock()
         inputs.schema_name = "incidents"
-        inputs.logger = mock.MagicMock()
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
 
         self.source.source_for_pipeline(config, manager, inputs)
 
         mock_instatus_source.assert_called_once_with(
             api_key="key",
             endpoint="incidents",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             resumable_source_manager=manager,
         )

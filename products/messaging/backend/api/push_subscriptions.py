@@ -17,7 +17,7 @@ from posthog.exceptions import (
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
-from posthog.utils import load_data_from_request
+from posthog.utils import decompress, load_data_from_request
 from posthog.utils_cors import cors_response
 
 VALID_PLATFORMS = ("android", "ios")
@@ -51,12 +51,12 @@ def push_subscriptions(request: Request):
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
 
-    if request.method != "POST":
+    if request.method not in ("POST", "DELETE"):
         return cors_response(
             request,
             generate_exception_response(
                 "push_subscriptions",
-                "Only POST requests are supported.",
+                "Only POST and DELETE requests are supported.",
                 type="validation_error",
                 code="method_not_allowed",
                 status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
@@ -76,7 +76,12 @@ def push_subscriptions(request: Request):
         )
 
     try:
-        data = load_data_from_request(request)
+        if request.method == "POST":
+            data = load_data_from_request(request)
+        else:
+            # load_data_from_request only reads the body for POST (other methods read a `data` query
+            # param). DELETE carries the same gzipped JSON body as POST, so decompress it directly.
+            data = decompress(request.body, request.headers.get("content-encoding", "").lower())
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError):
         return cors_response(
             request,
@@ -185,8 +190,18 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    encrypted_token = _encrypted_fields.encrypt(device_token)
     property_key = f"$device_push_subscription_{app_id}"
+
+    # $unset of an absent property is a no-op, so DELETE (logout) is idempotent. device_token is
+    # required for a symmetric contract but isn't matched against the stored value: logout clears
+    # this app_id's subscription regardless of which token the client last held.
+    properties: dict[str, dict[str, str] | list[str]]
+    if request.method == "POST":
+        properties = {"$set": {property_key: _encrypted_fields.encrypt(device_token)}}
+        failure_message = "Failed to store push subscription."
+    else:
+        properties = {"$unset": [property_key]}
+        failure_message = "Failed to remove push subscription."
 
     try:
         capture_internal(
@@ -195,7 +210,7 @@ def push_subscriptions(request: Request):
             event_source="push_subscriptions",
             distinct_id=distinct_id,
             timestamp=datetime.now(UTC),
-            properties={"$set": {property_key: encrypted_token}},
+            properties=properties,
             process_person_profile=True,
         )
     except Exception:
@@ -203,7 +218,7 @@ def push_subscriptions(request: Request):
             request,
             generate_exception_response(
                 "push_subscriptions",
-                "Failed to store push subscription.",
+                failure_message,
                 type="server_error",
                 code="capture_failed",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

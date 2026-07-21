@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluence
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.source import ConfluenceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConfluenceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
+    ConfluenceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
