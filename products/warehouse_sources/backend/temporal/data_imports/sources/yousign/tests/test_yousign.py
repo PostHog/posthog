@@ -230,9 +230,15 @@ class TestYousignSourceResponse:
         save_checkpoint({"cursor": None})
         manager.save_state.assert_not_called()
 
+    # Patch out the real async_to_sync: running its event loop closes the thread-local Django
+    # connection, which poisons DB-backed tests (e.g. migration tests) later in the same worker.
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.async_to_sync",
+        lambda fn: fn,
+    )
     def test_webhook_enabled_schema_reads_from_webhook_manager(self) -> None:
         webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
+        webhook_manager.webhook_enabled = mock.MagicMock(return_value=True)
         webhook_manager.get_items.return_value = iter([])
 
         response = yousign_source(
