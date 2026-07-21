@@ -238,6 +238,21 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             loop, "needs_attention", {"reason": "auto_paused", "consecutive_failures": LOOP_AUTO_PAUSE_THRESHOLD}
         )
 
+    def test_fire_aborts_when_ownership_changed_after_the_usage_gate(self):
+        # The usage gate runs pre-lock against the owner read at that time; a takeover committing
+        # before the lock would otherwise run the fire as a new owner whose quota was never checked.
+        loop = self.create_loop()
+        stale = Loop.objects.for_team(self.team.id, canonical=True).get(pk=loop.pk)
+        new_owner = User.objects.create_user(email="taker@example.com", first_name="Taker", password="password")
+        self.organization.members.add(new_owner)
+        Loop.objects.for_team(self.team.id, canonical=True).filter(pk=loop.pk).update(created_by=new_owner)
+
+        result = fire_loop(stale, None, "raced-takeover", "ctx")
+
+        self.assertFalse(result.created)
+        self.assertEqual(result.reason, "owner_changed")
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
+
     def test_rate_cap_blocks_further_fires_once_the_loop_wide_cap_is_reached(self):
         # The cap is loop-wide (not per-trigger): the seeded fires sit on a different
         # trigger than the one firing now, so a wrong per-trigger scope would miss them.

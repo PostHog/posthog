@@ -626,6 +626,8 @@ class LoopFireRunSerializer(DataclassSerializer):
             "team_rate_capped",
             "disabled",
             "gate_blocked",
+            "owner_inactive",
+            "owner_changed",
         ],
         help_text="Outcome of the fire attempt.",
     )

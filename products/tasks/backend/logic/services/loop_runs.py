@@ -277,13 +277,14 @@ def fire_loop(
 
     # Usage gate first, outside the lock: it makes an external call, so holding the team
     # advisory lock across it would stall every other fire for the team.
+    gate_owner_id = loop.created_by_id
     if _usage_gate_blocked(loop):
         _increment_consecutive_failures_and_maybe_pause(loop, error="cloud usage limit exceeded")
         observe_loop_fire(reason="gate_blocked")
         dispatch_loop_event(loop, "needs_attention", {"reason": "gate_blocked"})
         return LoopFireResult(created=False, reason="gate_blocked", task_id=None, task_run_id=None)
 
-    decision = _fire_loop_committed(loop, trigger, fire_key, trigger_context)
+    decision = _fire_loop_committed(loop, trigger, fire_key, trigger_context, gate_owner_id=gate_owner_id)
 
     # Side effects run after the transaction commits. A replay (a retry that deduped against an
     # existing fire) skips them: the original fire already emitted them.
@@ -313,7 +314,9 @@ def fire_loop(
     )
 
 
-def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str, trigger_context: str) -> _FireDecision:
+def _fire_loop_committed(
+    loop: Loop, trigger: LoopTrigger | None, fire_key: str, trigger_context: str, *, gate_owner_id: int | None
+) -> _FireDecision:
     with transaction.atomic():
         # Team-scoped advisory lock: serialize all of a team's fires so dedup detection, both
         # rate caps and the overlap check see a consistent, race-free view.
@@ -355,6 +358,13 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
                 task_id=existing.outcome_task_id,
                 task_run_id=existing.outcome_task_run_id,
             )
+
+        # The usage gate ran pre-lock against the owner read at that time. An ownership takeover
+        # committing between the gate and this lock would run the fire as the new owner with a
+        # quota nobody checked (a quota-limited member could take over an under-limit teammate's
+        # loop mid-fire to dodge their own gate). Abort; a retry re-runs the gate on the fresh owner.
+        if locked_loop.created_by_id != gate_owner_id:
+            return _FireDecision(reason="owner_changed", created=False, is_replay=False)
 
         # Caps precede the LoopFire insert: a capped stream of unique fire keys (e.g. webhook
         # deliveries) writes no rows, so it can't grow the fire ledger. Rejections below
