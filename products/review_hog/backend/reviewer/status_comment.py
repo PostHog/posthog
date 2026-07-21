@@ -90,7 +90,7 @@ def render_in_progress_body(report_id: str, progress: dict[str, Any] | None) -> 
             "",
             f"**{label}{counter}**",
             "",
-            "Specialist review perspectives read the changed code in parallel, a blind-spot sweep "
+            "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
             "catches what they missed, and only validated findings are published back to this pull request.",
             "",
             "<sub>This comment updates as the review progresses.</sub>",
