@@ -79,7 +79,8 @@
         "authentication": ["playwright/e2e/auth.spec.ts", "playwright/e2e/auth-password-reset.spec.ts"],
         "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
         "data-management": ["playwright/e2e/event-definitions.spec.ts", "playwright/e2e/annotations.spec.ts"],
-        "annotations": ["playwright/e2e/annotations.spec.ts"]
+        "annotations": ["playwright/e2e/annotations.spec.ts"],
+        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"]
     },
     "explicit": {
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
@@ -97,7 +98,8 @@
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"
-        ]
+        ],
+        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
     },
     "full_suite_only": [
         "playwright/e2e/oauth-mcp-consent.spec.ts",
