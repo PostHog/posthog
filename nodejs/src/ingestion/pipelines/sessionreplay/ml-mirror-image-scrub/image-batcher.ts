@@ -39,34 +39,43 @@ export class ImageBatcher {
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        let scrubbed: ScrubbedImage[]
+        // Scrub in concurrency-sized chunks with the capacity bounds applied between chunks: scrubbed
+        // outputs can dwarf their inputs (a sub-MB input can come back as a multi-MB full-resolution
+        // PNG), so retaining a whole poll batch of them before the first bound check can hold
+        // gigabytes. Peak memory is now ~maxBytes plus one chunk's outputs.
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), this.options.maxBatchScrubMs)
         try {
-            scrubbed = await this.scrubBatch(messages)
-        } catch (e) {
-            ImageScrubConsumerMetrics.incBatchFailed('scrub')
-            throw e
-        }
-        for (const image of scrubbed) {
-            this.buffer.push(image)
-            this.bufferBytes += image.bytes.length
+            for (let i = 0; i < messages.length; i += this.options.scrubConcurrency) {
+                const chunk = messages.slice(i, i + this.options.scrubConcurrency)
+                let scrubbed: ScrubbedImage[]
+                try {
+                    scrubbed = await this.scrubChunk(chunk, controller)
+                } catch (e) {
+                    ImageScrubConsumerMetrics.incBatchFailed('scrub')
+                    throw e
+                }
+                for (const image of scrubbed) {
+                    this.buffer.push(image)
+                    this.bufferBytes += image.bytes.length
+                }
+                if (this.overCapacity()) {
+                    await this.flushOrThrow(nowMs)
+                }
+            }
+        } finally {
+            clearTimeout(timer)
         }
         // Advance offsets even for all-skipped batches, or skipped messages replay forever.
         for (const offset of findOffsetsToCommit(messages)) {
             this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
         }
         if (this.shouldFlush(nowMs)) {
-            try {
-                await this.flush(nowMs)
-            } catch (e) {
-                ImageScrubConsumerMetrics.incBatchFailed('write')
-                throw e
-            }
+            await this.flushOrThrow(nowMs)
         }
     }
 
-    private async scrubBatch(messages: Message[]): Promise<ScrubbedImage[]> {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), this.options.maxBatchScrubMs)
+    private async scrubChunk(messages: Message[], controller: AbortController): Promise<ScrubbedImage[]> {
         try {
             const scrubbed = await Promise.all(
                 messages.map((m) =>
@@ -80,8 +89,15 @@ export class ImageBatcher {
         } catch (e) {
             controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
             throw e
-        } finally {
-            clearTimeout(timer)
+        }
+    }
+
+    private async flushOrThrow(nowMs: number): Promise<void> {
+        try {
+            await this.flush(nowMs)
+        } catch (e) {
+            ImageScrubConsumerMetrics.incBatchFailed('write')
+            throw e
         }
     }
 
@@ -107,8 +123,12 @@ export class ImageBatcher {
         return { pseudoTeam: parsed.pseudoTeam, hash: parsed.hash, bytes }
     }
 
+    private overCapacity(): boolean {
+        return this.buffer.length >= this.options.maxImages || this.bufferBytes >= this.options.maxBytes
+    }
+
     private shouldFlush(nowMs: number): boolean {
-        if (this.buffer.length >= this.options.maxImages || this.bufferBytes >= this.options.maxBytes) {
+        if (this.overCapacity()) {
             return true
         }
         const hasPending = this.buffer.length > 0 || this.pendingOffsets.size > 0

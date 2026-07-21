@@ -92,6 +92,29 @@ describe('ImageBatcher', () => {
         expect(offsets.stored).toBe(0)
     })
 
+    it('flushes mid-batch when scrubbed bytes cross the byte bound instead of holding the whole batch', async () => {
+        // Scrubbed outputs can be far larger than their inputs (full-resolution PNG re-encode), so
+        // the byte bound must apply while a poll batch is still scrubbing — a reverted batcher that
+        // accumulates all outputs first can hold gigabytes before its first flush.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const bigOutputClient = { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            bigOutputClient,
+            { ...options, maxBytes: 32, scrubConcurrency: 2 },
+            0
+        )
+
+        const messages = Array.from({ length: 6 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        await batcher.handleBatch(messages, 1)
+
+        expect(store.writes.length).toBeGreaterThan(1)
+        expect(store.writes.flat()).toHaveLength(6)
+        expect(offsets.stored).toBe(1)
+    })
+
     it('aborts the batch and replays when scrubbing exceeds the deadline', async () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
