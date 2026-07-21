@@ -621,7 +621,7 @@ class EstimateRequestSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
         choices=ScannerModel.choices,
         required=False,
-        default=ScannerModel.GEMINI_3_FLASH,
+        default=ScannerModel.GEMINI_3_6_FLASH,
         help_text="Proposed model; determines `credits_per_observation` in the response.",
     )
 

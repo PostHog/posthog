@@ -34,7 +34,7 @@ from ee.hogai.utils.untrusted import neutralize_markup
 logger = structlog.get_logger(__name__)
 
 # Cheap, fast model — this is an interactive form helper, not a recording scan.
-_SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_SUGGESTIONS = 8
 # Bounds on assembled context so a large team/scanner can't blow up the prompt.
