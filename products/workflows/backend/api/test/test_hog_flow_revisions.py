@@ -280,6 +280,7 @@ class TestHogFlowRevisions(APIBaseTest):
         conflict = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1/restore", {})
         assert conflict.status_code == 409, conflict.json()
         flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
         staged_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert staged_urls == ["https://staged.example.com"], "a rejected restore must not clobber the open draft"
 
@@ -288,6 +289,7 @@ class TestHogFlowRevisions(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://example.com"]
 
