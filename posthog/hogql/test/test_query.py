@@ -26,11 +26,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import S3_ERROR_MAX_RETRIES, HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     pretty_print_in_tests,
@@ -2154,7 +2155,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.clickhouse, "")
         mock_sync_execute.assert_not_called()
 
-    def test_transient_s3_error_is_retried_once(self):
+    def test_transient_s3_error_is_retried_then_succeeds(self):
         transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
         with (
             patch(
@@ -2168,16 +2169,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_sync_execute.call_count, 2)
         mock_sleep.assert_called_once()
 
-    def test_transient_s3_error_raises_after_retry_fails(self):
+    def test_transient_s3_error_backs_off_and_raises_after_max_retries(self):
         transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
         with (
             patch("posthog.hogql.query.sync_execute", side_effect=transient_error) as mock_sync_execute,
-            patch("posthog.hogql.query.sleep"),
+            patch("posthog.hogql.query.sleep") as mock_sleep,
         ):
             with self.assertRaises(CHQueryErrorS3Error):
                 execute_hogql_query("SELECT 1", team=self.team)
 
-        self.assertEqual(mock_sync_execute.call_count, 2)
+        # One initial attempt plus a backoff-delayed retry per allowed retry.
+        self.assertEqual(mock_sync_execute.call_count, S3_ERROR_MAX_RETRIES + 1)
+        self.assertEqual(mock_sleep.call_count, S3_ERROR_MAX_RETRIES)
+
+    def test_transient_s3_error_not_retried_when_no_execution_budget_left(self):
+        # A zero-second budget leaves no room for the backoff, so the retry that would only time
+        # out is skipped and the S3 error surfaces immediately.
+        transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
+        with (
+            patch("posthog.hogql.query.sync_execute", side_effect=transient_error) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            with self.assertRaises(CHQueryErrorS3Error):
+                execute_hogql_query("SELECT 1", team=self.team, settings=HogQLGlobalSettings(max_execution_time=0))
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()
 
     def test_non_transient_errors_are_not_retried(self):
         with (

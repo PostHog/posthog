@@ -1,5 +1,6 @@
+import random
 import dataclasses
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, ClassVar, Literal, Optional, Union, cast
 
 from opentelemetry import trace
@@ -65,7 +66,19 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
 
-TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+# Transient S3 errors (rate-limiting SlowDown/503s, or files swapped mid-read) on warehouse
+# reads are retried with full-jitter exponential backoff. A fixed, immediate retry doesn't
+# relieve the S3 request-rate pressure that caused the failure — it just re-runs the heavy read
+# straight into the query time limit. Backing off gives S3 time to recover before retrying.
+S3_ERROR_MAX_RETRIES = 3
+S3_ERROR_RETRY_BASE_DELAY_SECONDS = 1.0
+S3_ERROR_RETRY_MAX_DELAY_SECONDS = 10.0
+
+
+def _s3_error_retry_delay_seconds(attempt: int) -> float:
+    """Full-jitter exponential backoff delay for transient S3 errors. `attempt` starts at 1."""
+    capped = min(S3_ERROR_RETRY_MAX_DELAY_SECONDS, S3_ERROR_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)))
+    return random.uniform(0, capped)
 
 
 @dataclasses.dataclass
@@ -132,6 +145,9 @@ class HogQLQueryExecutor:
         self.has_more: Optional[bool] = None
         self.limit: Optional[int] = None
         self.offset: Optional[int] = None
+        # ClickHouse max_execution_time (seconds) for the generated query; used to skip S3
+        # retries that couldn't finish within the remaining budget anyway.
+        self._max_execution_time: Optional[int] = None
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
@@ -476,6 +492,8 @@ class HogQLQueryExecutor:
         if self.query_modifiers.forceClickhouseDataSkippingIndexes:
             settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
 
+        self._max_execution_time = settings.max_execution_time
+
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,
@@ -657,12 +675,28 @@ class HogQLQueryExecutor:
                 )
 
             try:
-                try:
-                    self.results, self.types = run_clickhouse_query()
-                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
-                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
-                    sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
-                    self.results, self.types = run_clickhouse_query()
+                started_at = monotonic()
+                attempt = 0
+                while True:
+                    try:
+                        self.results, self.types = run_clickhouse_query()
+                        break
+                    except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
+                        # Transient S3 errors on warehouse reads: rate-limiting (SlowDown/503) when
+                        # hammering lots of small partitioned files, or files swapped mid-read. Back
+                        # off before retrying so S3 can recover — an immediate retry just re-runs the
+                        # heavy read into the same throttling.
+                        attempt += 1
+                        if attempt > S3_ERROR_MAX_RETRIES:
+                            raise
+                        delay = _s3_error_retry_delay_seconds(attempt)
+                        # Skip the retry when the remaining execution-time budget can't fit even the
+                        # backoff — retrying then only produces a confusing ClickHouseQueryTimeOut.
+                        if self._max_execution_time is not None:
+                            remaining = self._max_execution_time - (monotonic() - started_at)
+                            if remaining <= delay:
+                                raise
+                        sleep(delay)
             except Exception as e:
                 if self.debug:
                     self.results = []
