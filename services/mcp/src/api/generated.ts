@@ -43276,6 +43276,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The run currently touching a report's PR — id + status for the report view's live indicator.
+     */
+    export interface PrActiveRun {
+      /** TaskRun id. */
+      readonly id: string;
+      /** Run status: not_started, queued, in_progress (agent working) or a terminal completed/failed/cancelled. */
+      readonly status: string;
+    }
+
+    /**
      * * `pr_incorrect` - PR incorrect
      * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
@@ -43388,6 +43398,8 @@ export namespace Schemas {
       readonly implementation_pr_url: string | null;
       /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
       readonly implementation_pr_merged: boolean;
+      /** The run currently addressing this report's PR (id + status), or null. Detail view only. */
+      readonly pr_active_run: PrActiveRun | null;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -53887,6 +53899,54 @@ export namespace Schemas {
     export const PostgresDestinationRequestTypeEnum = {
       Postgres: 'Postgres',
     } as const;
+
+    /**
+     * Body for commenting on a report's PR from the inbox.
+     */
+    export interface PrCommentRequest {
+      /**
+         * The comment to post on the PR and have the agent address.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      content: string;
+    }
+
+    /**
+     * * `started` - started
+     * * `forwarded` - forwarded
+     * * `connect_required` - connect_required
+     * * `no_pr` - no_pr
+     */
+    export type PrCommentResponseStatusEnum = typeof PrCommentResponseStatusEnum[keyof typeof PrCommentResponseStatusEnum];
+
+
+    export const PrCommentResponseStatusEnum = {
+      Started: 'started',
+      Forwarded: 'forwarded',
+      ConnectRequired: 'connect_required',
+      NoPr: 'no_pr',
+    } as const;
+
+    /**
+     * Result of a report-view PR comment: the shared run to watch, or a connect prompt.
+     */
+    export interface PrCommentResponse {
+      /** started: a new run began. forwarded: fed into the PR's already-running run. connect_required: connect GitHub first (see connect_url). no_pr: the report has no PR.
+       *
+       * * `started` - started
+       * * `forwarded` - forwarded
+       * * `connect_required` - connect_required
+       * * `no_pr` - no_pr */
+      status: PrCommentResponseStatusEnum;
+      /** The shared run to watch, when one was started/forwarded. */
+      run: PrActiveRun | null;
+      /**
+         * Where to connect GitHub, when status is connect_required.
+         * @nullable
+         */
+      connect_url: string | null;
+    }
 
     export interface PreviewInviteRequest {
       /**

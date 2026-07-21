@@ -432,6 +432,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             f"/{comment_id}/reactions/{reaction_id}",
             source="signals_pr_review_comment_reaction_delete",
         )
+
     def comment_on_pull_request_as_user(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a PR comment authored by *this connected user* (user-to-server token), not the App.
 

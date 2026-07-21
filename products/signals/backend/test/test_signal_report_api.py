@@ -2454,6 +2454,8 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             response = self.client.get(self._comments_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+
+
 class TestSignalReportPrCommentAPI(APIBaseTest):
     def _create_report(self) -> SignalReport:
         return SignalReport.objects.create(team=self.team, title="t", summary="s", status=SignalReport.Status.READY)
