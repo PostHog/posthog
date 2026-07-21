@@ -399,7 +399,7 @@ fn read_source_file(path: &Path) -> std::io::Result<Vec<u8>> {
     if fs::symlink_metadata(path)?.file_type().is_symlink() {
         return err("path is a symlink");
     }
-    let file = fs::File::open(path)?;
+    let file = open_no_follow(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
         return err("not a regular file");
@@ -408,9 +408,33 @@ fn read_source_file(path: &Path) -> std::io::Result<Vec<u8>> {
         return err("exceeds the source file size limit");
     }
 
+    // Read one byte past the cap so a file that grew after the metadata
+    // check errors out rather than being silently truncated in the bundle.
     let mut data = Vec::with_capacity(meta.len() as usize);
-    file.take(MAX_SOURCE_FILE_BYTES).read_to_end(&mut data)?;
+    file.take(MAX_SOURCE_FILE_BYTES + 1)
+        .read_to_end(&mut data)?;
+    if data.len() as u64 > MAX_SOURCE_FILE_BYTES {
+        return err("exceeds the source file size limit");
+    }
     Ok(data)
+}
+
+/// Open without following a symlink at the final component, so the symlink
+/// check above can't be raced by swapping the path between check and open.
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+}
+
+/// Windows has no O_NOFOLLOW equivalent in std; creating symlinks there
+/// requires elevated privileges, so the metadata pre-check has to do.
+#[cfg(not(unix))]
+fn open_no_follow(path: &Path) -> std::io::Result<fs::File> {
+    fs::File::open(path)
 }
 
 /// Return the longest common directory prefix shared by all `paths`.
