@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconCalendar } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
@@ -20,6 +21,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardMode, InsightLogicProps, IntervalType } from '~/types'
+
+import {
+    currentVariant as currentPrototypeVariant,
+    DashboardEditBarPrototype,
+    PrototypeSwitcher,
+} from './DashboardEditBar.prototype'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
@@ -59,8 +66,30 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
     const { dashboard, dashboardMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { searchParams } = useValues(router)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
+
+    // PROTOTYPE — `?variant=A|B|C` swaps the edit bar layout; remove with DashboardEditBar.prototype.tsx.
+    const prototypeVariant = currentPrototypeVariant(searchParams)
+    if (prototypeVariant) {
+        return (
+            <div
+                className={
+                    className ??
+                    clsx(
+                        'flex flex-col gap-2 border',
+                        dashboardMode === DashboardMode.Edit
+                            ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
+                            : 'border-transparent'
+                    )
+                }
+            >
+                <DashboardEditBarPrototype variant={prototypeVariant} />
+                <PrototypeSwitcher />
+            </div>
+        )
+    }
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -179,6 +208,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             </div>
 
             <VariablesForDashboard />
+            <PrototypeSwitcher />
         </div>
     )
 }

@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -9,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
+import { currentVariant as currentPrototypeVariant } from './DashboardEditBar.prototype'
 import { DashboardEditSaveCancelButtons } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
@@ -59,6 +61,11 @@ interface DashboardFilterBarProps {
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
     const { placement, dashboard, dashboardMode, hasVariables } = useValues(dashboardLogic)
+    const { searchParams } = useValues(router)
+
+    // PROTOTYPE — variant edit-bar layouts don't inline variables, so the mt-7 nudge would push
+    // "last refresh" off the top; remove with DashboardEditBar.prototype.tsx.
+    const prototypeActive = !!currentPrototypeVariant(searchParams)
 
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
@@ -83,7 +90,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             'flex flex-col @4xl/dashboard-filters:flex-row items-end @4xl/dashboard-filters:items-center gap-4 dashoard-items-actions',
                             'min-w-0 @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 shrink-0 @4xl/dashboard-filters:ml-auto',
                             {
-                                'mt-7': hasVariables,
+                                'mt-7': hasVariables && !prototypeActive,
                             }
                         )}
                     >
