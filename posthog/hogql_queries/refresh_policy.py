@@ -30,6 +30,9 @@ class ComputeSurface(StrEnum):
 
     INSIGHT_DETAIL = "insight_detail"
     INSIGHT_LIST = "insight_list"
+    # An insight rendered as a dashboard tile (insights/{pk}?from_dashboard=…), distinct from the
+    # standalone insight editor (INSIGHT_DETAIL) so the two can carry different refresh defaults.
+    DASHBOARD_TILE = "dashboard_tile"
     DASHBOARD_DETAIL = "dashboard_detail"
     DASHBOARD_STREAM = "dashboard_stream"
     DASHBOARD_RUN_INSIGHTS = "dashboard_run_insights"
@@ -40,11 +43,20 @@ class ComputeSurface(StrEnum):
 
 # The one place per-surface refresh defaults live. Every surface is CACHE_ONLY_NEVER_CALCULATE
 # today, which reproduces the historical behavior (an absent `?refresh=` meant cache-only on
-# every route). To change a surface's default, flip its value here — a one-line, per-surface,
-# independently measurable change — rather than editing request handling in each viewset.
-SURFACE_DEFAULT_EXECUTION_MODE: dict[ComputeSurface, ExecutionMode] = dict.fromkeys(
-    ComputeSurface, ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-)
+# every route). Listed explicitly per surface (rather than dict.fromkeys) so changing one
+# surface's default is a single greppable, independently measurable line to flip — rather than
+# editing request handling in each viewset.
+SURFACE_DEFAULT_EXECUTION_MODE: dict[ComputeSurface, ExecutionMode] = {
+    ComputeSurface.INSIGHT_DETAIL: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.INSIGHT_LIST: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.DASHBOARD_TILE: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.DASHBOARD_DETAIL: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.DASHBOARD_STREAM: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.DASHBOARD_RUN_INSIGHTS: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.DASHBOARD_MUTATE: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.SHARED: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    ComputeSurface.LEGACY_UNKNOWN: ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+}
 
 
 def resolve_execution_mode(

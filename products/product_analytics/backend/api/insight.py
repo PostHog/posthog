@@ -1747,7 +1747,9 @@ class InsightViewSet(
             # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
             context["shared_link_user"] = self.request.user
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
-        context["compute_surface"] = ComputeSurface.INSIGHT_DETAIL
+        context["compute_surface"] = (
+            ComputeSurface.INSIGHT_LIST if self.action == "list" else ComputeSurface.INSIGHT_DETAIL
+        )
 
         return context
 
@@ -2173,6 +2175,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     "dashboard_access_method": dashboard_access_method(
                         request, is_shared=serializer_context["is_shared"]
                     ),
+                    "compute_surface": ComputeSurface.DASHBOARD_TILE,
                 }
             )
 
