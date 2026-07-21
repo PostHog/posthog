@@ -395,6 +395,7 @@ class TestSandboxGithubIdentityGate:
         mock_authorship.return_value = PrAuthorshipMode.USER
         mock_resolve.return_value = MagicMock()
         mock_get_token.return_value = "ghu_newtoken"
+        mock_apply.return_value = True
         mark_sandbox_github_identity("run-1", 99)
 
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
@@ -430,6 +431,40 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
         mock_apply.assert_called_once()
         mock_clear.assert_called_once()  # fell through to logout so no stale creds remain
+
+    def test_apply_incomplete_falls_back_to_logout(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear
+    ):
+        # A partial credential write (one location refused, no exception) is not a confirmed
+        # rebind: the prior actor's token may still be live in the other location, so log out
+        # rather than record the new actor.
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = MagicMock()
+        mock_get_token.return_value = "ghu_newtoken"
+        mock_apply.return_value = False
+        mock_clear.return_value = True
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        mock_apply.assert_called_once()
+        mock_clear.assert_called_once()
+        assert get_sandbox_github_identity_user("run-1") == 42  # logout confirmed, bound to new actor
+
+    def test_no_sandbox_handle_fails_closed(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear
+    ):
+        # The handle can't be resolved (dead sandbox or transient lookup failure), but a follow-up
+        # can still reach a live agent via the saved URL. Fail closed rather than run under the
+        # prior actor's retained creds.
+        mock_authorship.return_value = PrAuthorshipMode.USER
+        mock_resolve.return_value = None
+        mark_sandbox_github_identity("run-1", 99)
+
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
+        mock_get_token.assert_not_called()
+        mock_apply.assert_not_called()
+        mock_clear.assert_not_called()
+        assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
     def test_logout_failure_fails_closed(self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear):
         # New actor has no access and the sandbox can't even be cleared — the

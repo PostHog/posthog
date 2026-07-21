@@ -204,6 +204,26 @@ class TestGitHubSandboxCredential:
 
         assert outcome.refreshed is True
 
+    def test_scheduled_refresh_skips_when_sandbox_bound_to_different_actor(self):
+        # A per-message actor transition rebound this sandbox to another actor. The scheduled
+        # refresh resolves the actor from the startup context, so it carries the owner's token;
+        # applying it would resurrect the owner's identity over the current actor's session.
+        from products.tasks.backend.temporal.process_task.utils import mark_sandbox_github_identity
+
+        sandbox = MagicMock()
+        task = MagicMock()
+        task.github_integration_id = 123
+        task.created_by_id = 2  # run owner
+        mark_sandbox_github_identity("run-transition", 99)  # transitioned to a different actor
+
+        with patch(f"{MODULE}.get_sandbox_github_token") as resolve:
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(run_id="run-transition"), task)
+
+        assert outcome.refreshed is False
+        resolve.assert_not_called()  # never resolved or applied the owner's token
+        sandbox.execute.assert_not_called()
+        sandbox.write_file.assert_not_called()
+
 
 class TestBuildSandboxCredentials:
     def test_includes_github_when_credentials_present(self):
