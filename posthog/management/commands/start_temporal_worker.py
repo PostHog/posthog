@@ -220,6 +220,7 @@ from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
+from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
@@ -706,7 +707,8 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            configure_logger(loop=loop)
+            otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
+            configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
             logger = LOGGER.bind(
                 host=temporal_host,
