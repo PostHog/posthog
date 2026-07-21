@@ -1,7 +1,7 @@
 """OpenRouter provider for unified LLM client.
 
 OpenRouter is an LLM gateway with an OpenAI-compatible API that exposes models
-from many providers. It is BYOKEY-only (no PostHog trial key).
+from many providers. It is BYOKEY-only (no PostHog-funded key).
 """
 
 import logging

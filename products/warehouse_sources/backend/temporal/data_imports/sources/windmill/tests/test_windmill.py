@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -5,6 +6,7 @@ import pytest
 from unittest import mock
 
 import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import (
     ENDPOINTS,
@@ -14,10 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.w
     PER_PAGE,
     WindmillHostNotAllowedError,
     WindmillResumeConfig,
-    _build_params,
     _format_after,
     _workspace_url,
-    get_rows,
     normalize_base_url,
     validate_credentials,
     windmill_source,
@@ -25,6 +25,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.w
 
 BASE_URL = "https://app.windmill.dev"
 WORKSPACE = "my-workspace"
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the windmill module.
+WINDMILL_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
+)
+HOST_SAFE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill._is_host_safe"
 
 
 def _make_manager(resume_state: WindmillResumeConfig | None = None) -> mock.MagicMock:
@@ -34,7 +42,7 @@ def _make_manager(resume_state: WindmillResumeConfig | None = None) -> mock.Magi
     return manager
 
 
-def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
+def _probe_response(body: Any, status_code: int = 200) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.json.return_value = body
     resp.status_code = status_code
@@ -42,8 +50,50 @@ def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
     return resp
 
 
+def _json_response(body: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _page(n: int) -> list[dict[str, Any]]:
     return [{"id": str(i)} for i in range(n)]
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Wire a mock session; return (param snapshots, send-kwargs snapshots) captured AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared rather than inspecting it after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+    send_kwargs: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    def _send(prepared: Any, **kwargs: Any) -> Response:
+        send_kwargs.append(kwargs)
+        return _send.responses.pop(0)  # type: ignore[attr-defined]
+
+    _send.responses = list(responses)  # type: ignore[attr-defined]
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return param_snapshots, send_kwargs
+
+
+def _run(endpoint: str, **kwargs: Any) -> Any:
+    manager = kwargs.pop("manager", None) or _make_manager()
+    return windmill_source(
+        "token", BASE_URL, WORKSPACE, endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
+    )
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestNormalizeBaseUrl:
@@ -98,45 +148,6 @@ class TestFormatAfter:
         assert _format_after(value) == expected
 
 
-class TestBuildParams:
-    def test_paginated_endpoint_sends_page_and_order(self):
-        params = _build_params(WINDMILL_ENDPOINTS["completed_jobs"], page=2, incremental_field=None, after_value=None)
-        assert params["page"] == 2
-        assert params["per_page"] == PER_PAGE
-        # Ascending so mid-sync inserts don't shift already-walked pages.
-        assert params["order_desc"] == "false"
-
-    def test_unpaginated_endpoint_omits_page_params(self):
-        params = _build_params(WINDMILL_ENDPOINTS["users"], page=1, incremental_field=None, after_value=None)
-        assert "page" not in params
-        assert "per_page" not in params
-        assert "order_desc" not in params
-
-    @pytest.mark.parametrize(
-        "incremental_field, expected_param",
-        [("created_at", "created_after"), ("started_at", "started_after")],
-    )
-    def test_incremental_field_maps_to_after_param(self, incremental_field, expected_param):
-        params = _build_params(
-            WINDMILL_ENDPOINTS["completed_jobs"],
-            page=1,
-            incremental_field=incremental_field,
-            after_value="2026-01-01T00:00:00+00:00",
-        )
-        assert params[expected_param] == "2026-01-01T00:00:00+00:00"
-
-    def test_after_value_ignored_for_full_refresh_endpoint(self):
-        # scripts has no server-side timestamp filter, so a cutoff must never leak into params.
-        params = _build_params(
-            WINDMILL_ENDPOINTS["scripts"],
-            page=1,
-            incremental_field="created_at",
-            after_value="2026-01-01T00:00:00+00:00",
-        )
-        assert "created_after" not in params
-        assert "started_after" not in params
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
@@ -147,48 +158,38 @@ class TestValidateCredentials:
             (404, False, "Could not access Windmill workspace 'my-workspace' with this token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
+    @mock.patch(WINDMILL_SESSION_PATCH)
     def test_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
-        mock_session.return_value.get.return_value = _response({"message": "x"}, status_code=status_code)
+        mock_session.return_value.get.return_value = _probe_response({"message": "x"}, status_code=status_code)
 
         valid, message = validate_credentials("token", BASE_URL, WORKSPACE)
 
         assert valid is expected_valid
         assert message == expected_message
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
+    @mock.patch(WINDMILL_SESSION_PATCH)
     def test_uses_no_redirect_session(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
+        mock_session.return_value.get.return_value = _probe_response({}, status_code=200)
         validate_credentials("token", BASE_URL, WORKSPACE)
         assert mock_session.call_args.kwargs["allow_redirects"] is False
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
+    @mock.patch(WINDMILL_SESSION_PATCH)
     def test_redacts_api_token_in_tracked_session(self, mock_session):
         # The bearer token rides in a header the name-based scrubbers can't see, so it must be
         # value-redacted or it leaks into captured request samples.
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
+        mock_session.return_value.get.return_value = _probe_response({}, status_code=200)
         validate_credentials("token", BASE_URL, WORKSPACE)
         assert mock_session.call_args.kwargs["redact_values"] == ("token",)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
+    @mock.patch(WINDMILL_SESSION_PATCH)
     def test_swallows_request_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
         valid, message = validate_credentials("token", BASE_URL, WORKSPACE)
         assert valid is False
         assert message == "boom"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill._is_host_safe")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
+    @mock.patch(HOST_SAFE_PATCH)
+    @mock.patch(WINDMILL_SESSION_PATCH)
     def test_blocks_internal_host_when_team_id_given(self, mock_session, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
 
@@ -198,204 +199,220 @@ class TestValidateCredentials:
         assert message == "host not allowed"
         mock_session.return_value.get.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill._is_host_safe")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
+    @mock.patch(HOST_SAFE_PATCH)
+    @mock.patch(WINDMILL_SESSION_PATCH)
     def test_skips_host_check_when_team_id_omitted(self, mock_session, mock_host_safe):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
+        mock_session.return_value.get.return_value = _probe_response({}, status_code=200)
         validate_credentials("token", BASE_URL, WORKSPACE)
         mock_host_safe.assert_not_called()
 
 
-class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_walks_pages_until_short_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_page(PER_PAGE)),
-            _response(_page(3)),
-        ]
+class TestSync:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_pages_until_short_page(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(PER_PAGE)), _json_response(_page(3))])
 
-        manager = _make_manager()
-        batches = list(get_rows("token", BASE_URL, WORKSPACE, "completed_jobs", mock.MagicMock(), manager, team_id=1))
+        rows = _rows(_run("completed_jobs"))
 
-        assert [len(b) for b in batches] == [PER_PAGE, 3]
-        pages = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert "page=1" in pages[0]
-        assert "page=2" in pages[1]
+        # A short (< per_page) page ends the scan without paying an extra empty-page request.
+        assert len(rows) == PER_PAGE + 3
+        assert session.send.call_count == 2
+        assert params[0]["page"] == 1
+        assert params[0]["per_page"] == PER_PAGE
+        assert params[1]["page"] == 2
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_stops_on_empty_full_page_boundary(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_empty_full_page_boundary(self, MockSession):
         # A full final page is followed by one more request that comes back empty.
-        mock_session.return_value.get.side_effect = [
-            _response(_page(PER_PAGE)),
-            _response([]),
-        ]
+        session = MockSession.return_value
+        _wire(session, [_json_response(_page(PER_PAGE)), _json_response([])])
+
+        rows = _rows(_run("completed_jobs"))
+
+        assert len(rows) == PER_PAGE
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_json_response([])])
 
         manager = _make_manager()
-        batches = list(get_rows("token", BASE_URL, WORKSPACE, "completed_jobs", mock.MagicMock(), manager, team_id=1))
+        rows = _rows(_run("completed_jobs", manager=manager))
 
-        assert [len(b) for b in batches] == [PER_PAGE]
-        assert mock_session.return_value.get.call_count == 2
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_empty_first_page_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        manager = _make_manager()
-        batches = list(get_rows("token", BASE_URL, WORKSPACE, "completed_jobs", mock.MagicMock(), manager, team_id=1))
-
-        assert batches == []
+        assert rows == []
         manager.save_state.assert_not_called()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_unpaginated_endpoint_makes_single_request(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_endpoint_makes_single_request(self, MockSession):
         # listUsers ignores page params, so paging would loop forever on the same full list.
-        mock_session.return_value.get.return_value = _response([{"email": "a@x.com"}, {"email": "b@x.com"}])
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response([{"email": "a@x.com"}, {"email": "b@x.com"}])])
 
         manager = _make_manager()
-        batches = list(get_rows("token", BASE_URL, WORKSPACE, "users", mock.MagicMock(), manager, team_id=1))
+        rows = _rows(_run("users", manager=manager))
 
-        assert mock_session.return_value.get.call_count == 1
-        assert [item["email"] for batch in batches for item in batch] == ["a@x.com", "b@x.com"]
+        assert session.send.call_count == 1
+        assert [item["email"] for item in rows] == ["a@x.com", "b@x.com"]
+        assert "page" not in params[0]
+        assert "per_page" not in params[0]
         manager.save_state.assert_not_called()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_saves_current_page_after_each_yield(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_page(PER_PAGE)),
-            _response(_page(PER_PAGE)),
-            _response(_page(1)),
-        ]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_next_page_after_each_committed_page(self, MockSession):
+        # The resume hook fires after a page is yielded and persists the NEXT page to fetch, so a
+        # crash re-scans from a page whose predecessors are all committed (merge dedupes overlap).
+        session = MockSession.return_value
+        _wire(session, [_json_response(_page(PER_PAGE)), _json_response(_page(PER_PAGE)), _json_response(_page(1))])
 
         manager = _make_manager()
-        list(get_rows("token", BASE_URL, WORKSPACE, "completed_jobs", mock.MagicMock(), manager, team_id=1))
+        _rows(_run("completed_jobs", manager=manager))
 
         saved = [call.args[0].page for call in manager.save_state.call_args_list]
-        assert saved == [1, 2, 3]
+        # Full pages 1 and 2 each checkpoint the following page; the short final page 3 checkpoints
+        # nothing (no next page remains).
+        assert saved == [2, 3]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [_response(_page(2))]
-
-        manager = _make_manager(WindmillResumeConfig(page=7))
-        list(get_rows("token", BASE_URL, WORKSPACE, "completed_jobs", mock.MagicMock(), manager, team_id=1))
-
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "page=7" in first_url
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_incremental_resume_ignores_saved_page(self, mock_session):
-        # The watermark may have advanced since page 7 was saved, so honouring the saved page
-        # would skip earlier unsynced rows in the re-filtered result set. Restart from page 1.
-        mock_session.return_value.get.side_effect = [_response(_page(1))]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(2))])
 
         manager = _make_manager(WindmillResumeConfig(page=7))
-        list(
-            get_rows(
-                "token",
-                BASE_URL,
-                WORKSPACE,
+        _rows(_run("completed_jobs", manager=manager))
+
+        assert params[0]["page"] == 7
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_resume_ignores_saved_page(self, MockSession):
+        # The watermark may have advanced since page 7 was saved, so honouring the saved page would
+        # skip earlier unsynced rows in the re-filtered result set. Restart from page 1.
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(1))])
+
+        manager = _make_manager(WindmillResumeConfig(page=7))
+        _rows(
+            _run(
                 "completed_jobs",
-                mock.MagicMock(),
-                manager,
-                team_id=1,
+                manager=manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="started_at",
             )
         )
 
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "page=1" in first_url
+        assert params[0]["page"] == 1
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_incremental_applies_after_filter(self, mock_session):
-        mock_session.return_value.get.side_effect = [_response(_page(1))]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_applies_after_filter(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(1))])
 
-        manager = _make_manager()
-        list(
-            get_rows(
-                "token",
-                BASE_URL,
-                WORKSPACE,
+        _rows(
+            _run(
                 "completed_jobs",
-                mock.MagicMock(),
-                manager,
-                team_id=1,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="started_at",
             )
         )
 
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "started_after=2026-01-01" in first_url
+        assert params[0]["started_after"].startswith("2026-01-01")
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
+    @pytest.mark.parametrize(
+        "incremental_field, expected_param",
+        [("created_at", "created_after"), ("started_at", "started_after")],
     )
-    def test_full_refresh_endpoint_never_sends_after_filter(self, mock_session):
-        mock_session.return_value.get.side_effect = [_response(_page(1))]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_field_maps_to_after_param(self, MockSession, incremental_field, expected_param):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(1))])
 
-        manager = _make_manager()
-        list(
-            get_rows(
-                "token",
-                BASE_URL,
-                WORKSPACE,
+        _rows(
+            _run(
+                "completed_jobs",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+                incremental_field=incremental_field,
+            )
+        )
+
+        assert params[0][expected_param] == "2026-01-01T00:00:00+00:00"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_endpoint_never_sends_after_filter(self, MockSession):
+        # scripts has no server-side timestamp filter, so a cutoff must never leak into params.
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(1))])
+
+        _rows(
+            _run(
                 "scripts",
-                mock.MagicMock(),
-                manager,
-                team_id=1,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="created_at",
             )
         )
 
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "after=" not in first_url
+        assert "created_after" not in params[0]
+        assert "started_after" not in params[0]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill._is_host_safe")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill.make_tracked_session"
-    )
-    def test_raises_when_host_not_allowed(self, mock_session, mock_host_safe):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_order_desc_ascending_for_sortable_endpoint(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(1))])
+
+        _rows(_run("completed_jobs"))
+        # Ascending so mid-sync inserts don't shift already-walked pages.
+        assert params[0]["order_desc"] == "false"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_no_order_desc_for_unsortable_endpoint(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_json_response(_page(1))])
+
+        _rows(_run("schedules"))
+        assert "order_desc" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_bearer_token_redacted_via_client_session(self, MockSession):
+        # The bearer token is supplied through framework auth, whose secret values feed the tracked
+        # session's value redaction so the token can't leak into captured samples or error text.
+        session = MockSession.return_value
+        _wire(session, [_json_response(_page(1))])
+
+        _rows(_run("completed_jobs"))
+        assert MockSession.call_args.kwargs["redact_values"] == ("token",)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_follow_redirects(self, MockSession):
+        session = MockSession.return_value
+        _, send_kwargs = _wire(session, [_json_response(_page(1))])
+
+        _rows(_run("completed_jobs"))
+        assert send_kwargs[0]["allow_redirects"] is False
+
+    @mock.patch(HOST_SAFE_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_raises_when_host_not_allowed(self, MockSession, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
+        session = MockSession.return_value
+        _wire(session, [_json_response(_page(1))])
 
-        manager = _make_manager()
         with pytest.raises(WindmillHostNotAllowedError):
-            list(
-                get_rows(
-                    "token", "https://10.0.0.1", WORKSPACE, "completed_jobs", mock.MagicMock(), manager, team_id=42
-                )
-            )
+            _rows(_run("completed_jobs"))
 
-        mock_session.return_value.get.assert_not_called()
+        session.send.assert_not_called()
 
 
 class TestWindmillSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = WINDMILL_ENDPOINTS[endpoint]
-        response = windmill_source("token", BASE_URL, WORKSPACE, endpoint, mock.MagicMock(), _make_manager(), team_id=1)
+        response = windmill_source(
+            "token", BASE_URL, WORKSPACE, endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

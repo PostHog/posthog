@@ -26,7 +26,7 @@ because a Nullable column can't feed the extractor.
 Two PR keys, by design: ``pr_number`` is the runs builder's association-derived number (0 when the
 run has no ``pull_requests`` association — pushes to master, fork PRs), and ``commit_pr_number`` is
 parsed from the squash-merge message's ``(#NNNN)`` suffix. The latter is how a master push run gets
-PR attribution at all, since its ``pull_requests`` association is empty (SPEC §7).
+PR attribution at all, since its ``pull_requests`` association is empty (SPEC §6).
 
 ``created_at_raw`` is the unparsed jobs ``created_at`` string riding alongside the parsed
 ``created_at``. Consumers windowing this view pair their precise ``created_at`` bound with a coarse

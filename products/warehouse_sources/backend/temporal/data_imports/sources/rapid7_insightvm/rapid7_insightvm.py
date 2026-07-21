@@ -1,14 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
+    find_values,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.settings import (
     API_BASE_PATH,
@@ -17,19 +24,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_ins
     REGION_HOSTS,
 )
 
-REQUEST_TIMEOUT_SECONDS = 120
-RETRY_MAX_ATTEMPTS = 5
-
-
-class Rapid7InsightvmRetryableError(Exception):
-    pass
-
 
 @dataclasses.dataclass
 class Rapid7InsightvmResumeConfig:
     # Opaque cursor token returned in the previous page's `metadata.cursor`. `None` starts the
     # endpoint from its first page.
     cursor: str | None = None
+
+
+class Rapid7InsightvmCursorPaginator(JSONResponseCursorPaginator):
+    """Cursor pagination for InsightVM's v4 search endpoints.
+
+    The cursor rides in a `cursor` query param and is echoed back in `metadata.cursor`.
+    Pagination terminates when the API stops handing back a fresh cursor: a missing cursor,
+    an unchanged cursor (some deployments echo the last token), or an empty page.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="metadata.cursor", cursor_param="cursor")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        previous_cursor = self._cursor_value
+        try:
+            values = find_values(self.cursor_path, response.json())
+        except Exception:
+            values = []
+        next_cursor = values[0] if values and values[0] else None
+
+        if not data or next_cursor is None or next_cursor == previous_cursor:
+            self._has_next_page = False
+        else:
+            self._cursor_value = next_cursor
+            self._has_next_page = True
 
 
 def _host(region: str) -> str:
@@ -48,88 +74,81 @@ def _endpoint_url(region: str, path: str) -> str:
     return f"{_host(region)}{API_BASE_PATH}/{path}"
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            Rapid7InsightvmRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> dict:
-    # v4 search endpoints are POST operations; an empty JSON body returns all resources.
-    full_url = f"{url}?{urlencode(params)}" if params else url
-    response = session.post(full_url, headers=headers, json={}, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise Rapid7InsightvmRetryableError(
-            f"Rapid7 InsightVM API error (retryable): status={response.status_code}, url={url}"
-        )
-
-    if not response.ok:
-        logger.error(f"Rapid7 InsightVM API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def get_rows(
+def rapid7_insightvm_source(
     api_key: str,
     region: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[Rapid7InsightvmResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> SourceResponse:
     config = RAPID7_INSIGHTVM_ENDPOINTS[endpoint]
-    headers = _headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    # `allow_redirects=False` keeps the credentialed `X-Api-Key` from being replayed to a
-    # redirect target; `redact_values` masks the key in logged URLs and captured samples.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
-    url = _endpoint_url(region, config.path)
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume else None
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _host(region),
+            # Auth (X-Api-Key) rides on the framework auth config so its value is redacted from
+            # logs and raised error messages; only the non-secret accept/content headers are set here.
+            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
+            "paginator": Rapid7InsightvmCursorPaginator(),
+            # A 3xx from the credentialed endpoint would otherwise replay `X-Api-Key` to the redirect
+            # target — reject redirects so the key stays pinned to the expected host.
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    # v4 search endpoints are POST operations; an empty JSON body returns all resources.
+                    "method": "POST",
+                    "path": f"{API_BASE_PATH}/{config.path}",
+                    "params": {"size": MAX_PAGE_SIZE},
+                    "json": {},
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
 
-    while True:
-        params: dict[str, Any] = {"size": MAX_PAGE_SIZE}
-        if cursor:
-            params["cursor"] = cursor
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
 
-        data = _fetch_page(session, url, headers, params, logger)
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next cursor remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(Rapid7InsightvmResumeConfig(cursor=str(state["cursor"])))
 
-        items = data.get("data", [])
-        if items:
-            yield items
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
-        metadata = data.get("metadata", {})
-        next_cursor = metadata.get("cursor")
-
-        # Cursored pagination terminates when the API stops handing back a fresh cursor: a missing
-        # cursor, an unchanged cursor (some deployments echo the last token), or an empty page.
-        if not items or not next_cursor or next_cursor == cursor:
-            break
-
-        cursor = next_cursor
-        # Save state AFTER yielding the batch so a crash re-yields the last page (merge dedupes on
-        # the primary key) rather than skipping it.
-        resumable_source_manager.save_state(Rapid7InsightvmResumeConfig(cursor=cursor))
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
 
 
 def validate_credentials(api_key: str, region: str) -> tuple[bool, Optional[str]]:
     # Probe the assets search endpoint with the smallest possible page. A valid key returns 200;
-    # an invalid or expired key returns 401/403.
+    # an invalid or expired key returns 401/403. `allow_redirects=False` keeps the credentialed
+    # `X-Api-Key` from being replayed to a redirect target; `redact_values` masks it in logs.
     url = _endpoint_url(region, RAPID7_INSIGHTVM_ENDPOINTS["assets"].path)
     try:
         response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).post(
@@ -146,28 +165,3 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, Optional[str]
     if response.status_code in (401, 403):
         return False, "Rapid7 InsightVM rejected the API key. Check the key and selected region, then reconnect."
     return False, f"Rapid7 InsightVM returned an unexpected status ({response.status_code})."
-
-
-def rapid7_insightvm_source(
-    api_key: str,
-    region: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[Rapid7InsightvmResumeConfig],
-) -> SourceResponse:
-    endpoint_config = RAPID7_INSIGHTVM_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            region=region,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
-        primary_keys=endpoint_config.primary_keys,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
-    )

@@ -1272,6 +1272,21 @@
         },
         "feature_flag": "tracing"
     },
+    "apm-spans-latency-heatmap": {
+        "description": "Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: \"when did latency change, and how\".\n\nReturns one row per non-empty `(time bucket, duration bucket)` cell:\n\n- `time` — ISO 8601 bucket start (UTC)\n- `bucket_ns` — duration bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)\n- `count` — traces whose ROOT span duration falls in that cell (or spans, when `rootSpans` is false)\n\nTime buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~4-hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.\n\nUse to answer:\n\n- \"When did this service get slow?\" — the slow band's first non-empty `time` is the onset.\n- \"Is the latency regression a shift (whole distribution moved) or a new mode (a second band appeared)?\"\n- \"Did the deploy at 14:00 change the latency profile, not just the p95?\"\n- \"Is the slow tail constant background or bursty?\"\n\nFor a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.\n\nAll parameters must be nested inside a `query` object.\n\n# Reading the grid\n\nGroup rows by `bucket_ns` and read each duration bucket as a horizontal band over time:\n\n- A band that exists in every time bucket at similar counts = steady-state population.\n- A band that starts at a specific `time` = something changed then (deploy, dependency, cache).\n- The whole distribution stepping up one or two buckets at once = a uniform slowdown.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the grid. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nList of service names to restrict the grid to. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.rootSpans\n\nWhen true (default), cells count **traces by their root span's duration** — the request the user experienced, lining up with `apm-spans-duration-histogram`. Set false to count every matching span instead; combine with a `name` filter for one operation's latency over time.\n\n## query.filterGroup\n\nProperty filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## When did api-gateway get slow, over the last day?\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## One operation's latency over time (span-level, not per trace)\n\n```json\n{\n  \"query\": {\n    \"rootSpans\": false,\n    \"filterGroup\": [{ \"key\": \"name\", \"operator\": \"exact\", \"type\": \"span\", \"value\": [\"SELECT orders\"] }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n# Reminders\n\n- `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000. Buckets follow the 1-2-5 series; a 3.5ms trace lands in the 2ms bucket (bucket floor).\n- `{bucket_ns: 0, count: 0}` rows are the sentinel time-axis filler described above — skip them when reading densities.\n- Default counts are **traces** (one per root span); they line up with `apm-spans-duration-histogram`, not with `apm-spans-count`.\n- Cells carry no service breakdown — narrow with `serviceNames` instead.\n- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (nanoseconds), `orderBy: \"duration\"`.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Latency over time (heatmap)",
+        "title": "Latency over time (heatmap)",
+        "required_scopes": ["tracing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "apm-spans-sparkline": {
         "description": "Span counts over time — a zero-filled time series for trend and spike analysis.\n\nReturns one row per `(time bucket, service)` pair:\n\n- `time` — ISO 8601 bucket start (UTC)\n- `service` — service name (top 10 services per bucket)\n- `count` — spans in that bucket matching the filters\n\nBuckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~hour buckets). Quiet stretches return zero-count rows, so the series is continuous — read spike timing straight off the `time` values.\n\nUse to answer:\n\n- \"When did the error rate spike?\" (see the error-trend workflow below)\n- \"Is traffic to service X growing, flat, or bursty?\"\n- \"Did span volume change after the deploy at 14:00?\"\n- \"Which time window should I zoom into before pulling raw spans?\"\n\nFor a single aggregate number per operation, use `apm-spans-aggregate` instead. For latency distribution, use `apm-spans-duration-histogram`.\n\nAll parameters must be nested inside a `query` object.\n\n# Error-trend workflow\n\nTwo calls, then divide per bucket:\n\n1. `apm-spans-sparkline` with your filters → total counts per bucket.\n2. The same call with `statusCodes: [2]` added → error counts per bucket.\n\nError rate per bucket = errors / total. The bucket where the ratio jumps is when the spike started.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the series. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nList of service names to restrict the series to. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.filterGroup\n\nProperty filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Span volume per service over the last 6 hours\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Error spans only, one service, last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"statusCodes\": [2],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Request (root span) volume trend\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"is_root_span\", \"operator\": \"exact\", \"type\": \"span\", \"value\": true }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n# Reminders\n\n- Counts are **spans**, not traces — filter `is_root_span = true` to count requests/traces.\n- Zero-count rows are bucket filler; read non-zero rows for activity and zero rows for gaps.\n- Only the top 10 services per bucket are returned — narrow with `serviceNames` when a busy project drowns out the service you care about.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
         "category": "Tracing",
@@ -3671,6 +3686,20 @@
             "readOnlyHint": false
         }
     },
+    "experiment-freeze-exposure": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions, limitations, and side effects.\n\nFreeze exposure on a running experiment: stop enrolling NEW users while already-enrolled users keep their variant and metrics keep flowing (end_date stays null). Snapshots the already-exposed users into a static cohort and narrows every release condition on the feature flag to that cohort. Use for long-horizon metrics (revenue, LTV, retention, renewals) where enrollment should stop but measurement should continue — unlike end (stops measurement at end_date) or pause (deactivates the flag for everyone). Status becomes \"exposure_frozen\". Reversible via experiment-unfreeze-exposure.\n\nSYNCHRONOUS AND POTENTIALLY SLOW: the exposure scan and cohort snapshot run inline in this call, and duration scales with the number of exposed persons — experiments with tens of thousands of exposed users can take tens of seconds. Wait for the response rather than assuming failure or retrying.\n\nNot applicable (returns 400) for: experiments that aren't running (\"Experiment has not been launched yet.\", \"Experiment has already ended.\", \"Cannot freeze a paused experiment. Resume it first.\", \"Experiment exposure is already frozen.\"), group-aggregated experiments (a person cohort cannot freeze group-based matching), experiments in a holdout (holdout assignment is evaluated before release conditions), flags with early access conditions (also evaluated before release conditions), flags that are deleted, missing, or have no release conditions, exposed sets too large to snapshot synchronously (the scan is bounded by a person cap and a timeout), and experiments where more than a small share of exposures are anonymous (\"personless\") users — they can never match a person cohort, so experiments on logged-out surfaces are not freezable. When a freeze is rejected, explain the limitation to the user instead of retrying.\n\nGood to know: SDKs using local evaluation cannot resolve static cohorts, so a frozen flag evaluates via the /decide endpoint; exposures ingested in the final moments before freezing may miss the snapshot; ship-variant and reset strip the freeze, while end leaves the flag narrowed to the snapshot cohort.\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Freeze experiment exposure",
+        "title": "Freeze experiment exposure",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "experiment-get": {
         "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated, \"exposure_frozen\" when its flag's release groups are narrowed to the already-exposed cohort so enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type (web/product).",
         "category": "Experiments",
@@ -3971,6 +4000,20 @@
         "feature": "experiments",
         "summary": "Unarchive experiment",
         "title": "Unarchive experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-unfreeze-exposure": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nReopen enrollment on an exposure-frozen experiment. Removes the snapshot-cohort condition and freeze markers from every release group, restoring the flag's original targeting: new users can enroll again and already-enrolled users keep their variant (deterministic bucketing). The snapshot cohort is deleted. Status returns to \"running\".\n\nWARNING — can introduce bias: reopening enrollment re-exposes the flag to a potentially new population. Users who enrolled before the freeze and users who enroll after the unfreeze joined at different times (and possibly under different conditions), so mixing the two cohorts in one analysis can bias the results. Warn the user about this before unfreezing, especially if the freeze lasted a while or something about the audience or product changed in between. If they only wanted to sanity-check the frozen results, they may not need to unfreeze at all.\n\nReturns 400 if the experiment is a draft (\"Experiment has not been launched yet.\"), already ended (\"Experiment has already ended.\"), or its exposure is not frozen (\"Experiment exposure is not frozen.\").\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Unfreeze experiment exposure",
+        "title": "Unfreeze experiment exposure",
         "required_scopes": ["experiment:write"],
         "annotations": {
             "destructiveHint": false,
@@ -9215,6 +9258,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "tasks-create": {
+        "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task",
+        "title": "Create task",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
     },
     "tasks-list": {
         "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",

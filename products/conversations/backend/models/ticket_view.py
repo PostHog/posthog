@@ -12,6 +12,9 @@ class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
 
+    # Not a column — a per-request annotation set by the viewset/serializer.
+    is_favorited: bool
+
     class Meta:
         db_table = "posthog_conversations_tickets_views"
         unique_together = ("team", "short_id")
