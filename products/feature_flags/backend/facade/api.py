@@ -47,6 +47,10 @@ def _serializer_context(team: Team, user: Any, request: Any | None) -> dict:
     Pass BOTH get_team and get_organization so the approval gate resolves the policy
     from context rather than falling back to instance derivation.
     """
+    # A user-bearing request would silently override user=None (gate engages, attribution
+    # goes to request.user) — reject the contradiction instead.
+    if user is None and getattr(request, "user", None) is not None:
+        raise ValueError("user=None is a system write; do not pass a user-bearing request with it")
     flag_request = request if getattr(request, "user", None) is not None else ServiceRequest(user)
     return {
         "request": flag_request,
