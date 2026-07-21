@@ -524,12 +524,12 @@ export const getTaskChannelsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. Pass folder_id to link the desktop file-system folder that renders the channel.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreate = async (
     projectId: string,
-    channelWriteApi: ChannelWriteApi,
+    channelWriteApi?: ChannelWriteApi,
     options?: RequestInit
 ): Promise<ChannelDTOApi> => {
     return apiMutator<ChannelDTOApi>(getTaskChannelsCreateUrl(projectId), {
@@ -605,10 +605,8 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
- * @summary Rename a public channel
+ * Pass name to rename (public channels only), folder_id to link the desktop file-system folder that renders the channel (personal channels included), or both.
+ * @summary Rename or folder-link a channel
  */
 export const taskChannelsPartialUpdate = async (
     projectId: string,

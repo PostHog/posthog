@@ -13854,6 +13854,8 @@ export namespace Schemas {
       channel_type: string;
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      folder_id?: string | null;
     }
 
     /**
@@ -13942,14 +13944,20 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Request body for creating (resolve-or-create) or renaming a public channel.
+     * Request body for creating (resolve-or-create), renaming, or folder-linking a
+     * channel. ``name`` is required on create; updates take either or both fields.
      */
     export interface ChannelWrite {
       /**
          * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
          * @maxLength 128
          */
-      name: string;
+      name?: string;
+      /**
+         * Desktop file-system folder that renders this channel; links the two by id.
+         * @nullable
+         */
+      folder_id?: string | null;
     }
 
     export interface CheckDatabaseNameResponse {
@@ -43203,7 +43211,8 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for creating (resolve-or-create) or renaming a public channel.
+     * Request body for creating (resolve-or-create), renaming, or folder-linking a
+     * channel. ``name`` is required on create; updates take either or both fields.
      */
     export interface PatchedChannelWrite {
       /**
@@ -43211,6 +43220,11 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
+      /**
+         * Desktop file-system folder that renders this channel; links the two by id.
+         * @nullable
+         */
+      folder_id?: string | null;
     }
 
     export interface PatchedClusteringJob {

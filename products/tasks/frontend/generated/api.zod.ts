@@ -280,7 +280,7 @@ export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or updating a task automation.')
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. Pass folder_id to link the desktop file-system folder that renders the channel.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreateBodyNameMax = 128
@@ -290,9 +290,16 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
         name: zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
+            .optional()
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Desktop file-system folder that renders this channel; links the two by id.'),
     })
-    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+    .describe(
+        'Request body for creating (resolve-or-create), renaming, or folder-linking a\nchannel. ``name`` is required on create; updates take either or both fields.'
+    )
 
 /**
  * API for a channel's system-announcement feed — durable "PostHog agent" rows
@@ -322,10 +329,8 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
     .describe("Request body for posting a system announcement into a channel's feed.")
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
- * @summary Rename a public channel
+ * Pass name to rename (public channels only), folder_id to link the desktop file-system folder that renders the channel (personal channels included), or both.
+ * @summary Rename or folder-link a channel
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
 
@@ -336,8 +341,14 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
             .max(taskChannelsPartialUpdateBodyNameMax)
             .optional()
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        folder_id: zod
+            .uuid()
+            .nullish()
+            .describe('Desktop file-system folder that renders this channel; links the two by id.'),
     })
-    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+    .describe(
+        'Request body for creating (resolve-or-create), renaming, or folder-linking a\nchannel. ``name`` is required on create; updates take either or both fields.'
+    )
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.

@@ -392,6 +392,8 @@ export interface ChannelDTOApi {
     channel_type: string
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    folder_id?: string | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -404,14 +406,20 @@ export interface PaginatedChannelDTOListApi {
 }
 
 /**
- * Request body for creating (resolve-or-create) or renaming a public channel.
+ * Request body for creating (resolve-or-create), renaming, or folder-linking a
+ * channel. ``name`` is required on create; updates take either or both fields.
  */
 export interface ChannelWriteApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
      * @maxLength 128
      */
-    name: string
+    name?: string
+    /**
+     * Desktop file-system folder that renders this channel; links the two by id.
+     * @nullable
+     */
+    folder_id?: string | null
 }
 
 export type ChannelFeedMessageDTOApiPayload = { [key: string]: unknown }
@@ -466,7 +474,8 @@ export interface ChannelFeedMessageWriteApi {
 }
 
 /**
- * Request body for creating (resolve-or-create) or renaming a public channel.
+ * Request body for creating (resolve-or-create), renaming, or folder-linking a
+ * channel. ``name`` is required on create; updates take either or both fields.
  */
 export interface PatchedChannelWriteApi {
     /**
@@ -474,6 +483,11 @@ export interface PatchedChannelWriteApi {
      * @maxLength 128
      */
     name?: string
+    /**
+     * Desktop file-system folder that renders this channel; links the two by id.
+     * @nullable
+     */
+    folder_id?: string | null
 }
 
 /**
