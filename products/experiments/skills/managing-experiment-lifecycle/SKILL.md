@@ -103,6 +103,10 @@ Status returns to `running`.
 - **Variants**: enrolled users keep their variant; new users can enroll again under the original release conditions
 - **Analysis**: exposures resume growing
 
+**Can introduce bias**: reopening enrollment re-exposes the flag to a potentially new population.
+Users who enrolled before the freeze and those who enroll after the unfreeze joined at different times, and possibly under different conditions — mixing the two cohorts in one analysis can bias the results.
+Warn the user before unfreezing, especially after a long freeze or if the audience or product changed in between. If they only wanted to sanity-check the frozen results, they may not need to unfreeze at all.
+
 No request body.
 
 ### End (`experiment-end`)

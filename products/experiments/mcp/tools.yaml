@@ -982,6 +982,14 @@ tools:
             returns to "running".
 
 
+            WARNING — can introduce bias: reopening enrollment re-exposes the flag to a potentially new population.
+            Users who enrolled before the freeze and users who enroll after the unfreeze joined at different times (and
+            possibly under different conditions), so mixing the two cohorts in one analysis can bias the results. Warn
+            the user about this before unfreezing, especially if the freeze lasted a while or something about the
+            audience or product changed in between. If they only wanted to sanity-check the frozen results, they may not
+            need to unfreeze at all.
+
+
             Returns 400 if the experiment is a draft ("Experiment has not been launched yet."), already ended
             ("Experiment has already ended."), or its exposure is not frozen ("Experiment exposure is not frozen.").
 
