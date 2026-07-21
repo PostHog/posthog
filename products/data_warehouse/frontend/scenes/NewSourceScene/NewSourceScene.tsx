@@ -216,6 +216,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isLoading,
         canGoBack,
         canGoNext,
+        nextButtonDisabledReason,
         nextButtonText,
         selectedConnector,
         connectors,
@@ -257,7 +258,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
                 loading={isLoading || manualLinkIsLoading}
-                disabledReason={disabledReason || (!canGoNext && 'Finish this step to continue')}
+                disabledReason={
+                    disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
+                }
                 type="primary"
                 center
                 onClick={() => onSubmit()}
@@ -299,6 +302,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isLoading,
         manualLinkIsLoading,
         canGoNext,
+        nextButtonDisabledReason,
         nextButtonText,
         onSubmit,
         props.hideBackButton,

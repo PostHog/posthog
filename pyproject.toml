@@ -566,6 +566,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.metric_rules_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets

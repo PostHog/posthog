@@ -153,7 +153,8 @@ class TestAlgoliaSource:
             application_id="APPID",
             api_key="test-key",
             index_name="my_index",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             manager=manager,
         )
 

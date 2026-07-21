@@ -137,5 +137,6 @@ Imagga is an on-demand image-recognition API, so the only account data available
             api_key=config.api_key,
             api_secret=config.api_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -17,7 +18,7 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -126,6 +127,94 @@ class TestSkillLoader(BaseTest):
         with pytest.raises(SkillNotFoundError):
             load_skill_for_run(self.team, "signals-scout-does-not-exist")
 
+    def test_authors_lead_with_creator_not_last_editor(self) -> None:
+        # Each version row's `created_by` is whoever published that version, so the pinned
+        # (latest) row alone attributes the skill to its last editor. A regression back to
+        # reading the loaded row's `created_by` flips this ordering.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [
+            ("creator", "ben@posthog.com"),
+            ("editor", self.user.email),
+        ]
+        # Off by default: the report-authorization path in views loads the skill on every report
+        # write just to check allowed_tools and must not pay the author scan.
+        assert load_skill_for_run(self.team, "signals-scout-errors").authors == []
+
+    def test_diverged_seeded_skill_creator_is_first_human_author(self) -> None:
+        # A seeded row's v1 is system-authored (`created_by=None`); the creator of the diverged
+        # skill is whoever first edited it, not "the author of version 1".
+        seeded_metadata = {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "0" * 64}
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            metadata=seeded_metadata,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="edited",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+            metadata=seeded_metadata,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-general", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
+
+    def test_authors_exclude_users_without_project_access(self) -> None:
+        # An author's display name is self-editable and flows into a privileged prompt, so a
+        # former member must stop resolving the moment their access is revoked — otherwise they
+        # keep a post-revocation steering channel into scheduled runs (and waste an editor slot
+        # on someone reviewer routing can't reach anyway).
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        OrganizationMembership.objects.filter(user=ben).delete()
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
+
+    def test_authors_empty_for_pristine_canonical_skill(self) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            created_by=self.user,
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        skill.save()
+        assert load_skill_for_run(self.team, "signals-scout-general", include_authors=True).authors == []
+
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
         non_match = self._create_skill("custom-research-helper")
@@ -196,11 +285,54 @@ class TestPromptBuilder(BaseTest):
         # The writing-style section is wired into the tail, carrying the
         # session-replay-vs-recording terminology rule scouts must follow.
         assert "session recordings" in prompt
+        # Dedupe rules point a signal scout at the inbox with `include_all_statuses=true` —
+        # human-dismissed reports are hidden by default, and their dismissal notes carry the
+        # human rationale the scout needs before re-surfacing a topic. The note is free text
+        # any task:write caller can author, so the guidance must keep the untrusted-content
+        # boundary — a scout holds write scopes an injected note could otherwise steer.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
+        # Recency ordering too — the default report ordering sorts dismissed reports last,
+        # so without it a recent dismissal can paginate out of view.
+        assert "ordering=-updated_at" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "scout-emit-report" not in prompt
         assert "Suggested reviewers route the report" not in prompt
         assert "scratchpad entry is a pointer" not in prompt
+
+    def test_github_evidence_section_gated_on_token_grant(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-gh-reports",
+            description="Report scout",
+            body="watch",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-gh-reports")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+        granted = build_run_prompt(loaded, **kwargs, github_read_access=True)
+        # The section only renders when the sandbox actually holds the token, and must carry the
+        # read-only framing so the scout doesn't attempt writes.
+        assert "Code-derived reviewer evidence" in granted
+        assert "read-only" in granted
+
+        # Default (no grant): naming `gh` in a tokenless sandbox burns the budget on 401s.
+        ungranted = build_run_prompt(loaded, **kwargs)
+        assert "Code-derived reviewer evidence" not in ungranted
+
+        # A signal-channel scout has no reviewers field — the section must not leak into its
+        # prompt even if the runner flag were mis-set for it.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-plain", description="s", body="watch")
+        signal_prompt = build_run_prompt(
+            load_skill_for_run(self.team, "signals-scout-plain"), **kwargs, github_read_access=True
+        )
+        assert "Code-derived reviewer evidence" not in signal_prompt
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
@@ -246,6 +378,15 @@ class TestPromptBuilder(BaseTest):
         # Dropping either silently re-opens the duplicate-report failure mode for every report scout.
         assert "ordering=-updated_at" in prompt
         assert "source_product=signals_scout" in prompt
+        # The inbox search must widen to human-dismissed reports (`include_all_statuses=true`) and
+        # read their dismissal notes — a human's dismissal rationale is context the scout needs
+        # before re-surfacing a topic. Dropping either re-opens the "re-report what a human
+        # already dismissed" failure mode. The note is free text any task:write caller can
+        # author, so the guidance must keep the untrusted-content boundary — a scout holds
+        # write scopes an injected note could otherwise steer.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "scout-emit-signal" not in prompt
@@ -268,6 +409,13 @@ class TestPromptBuilder(BaseTest):
             ("custom_report_scout_emit_only", "signals-scout-errors", {}, ["emit_report"], True),
             # No stored canonical_hash (pre-hash-tracking legacy row): unprovable, stays canonical.
             ("canonical_scout_no_hash", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, [], False),
+            (
+                "canonical_report_scout",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY},
+                ["emit_report", "edit_report"],
+                False,
+            ),
             (
                 "diverged_canonical_scout",
                 "signals-scout-general",
@@ -309,10 +457,26 @@ class TestPromptBuilder(BaseTest):
         # has neither, so pointing it at `emit_report` would steer it into a PermissionDenied.
         expect_escalation = expect_section and "emit_report" in allowed_tools
         assert ("Scout self-improvement:" in prompt) is expect_escalation
+        # Reviewer routing for self-improvement reports points at the run-identity authors line,
+        # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
+        # last-editor-becomes-the-assignee failure mode.
+        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
-        # The upstream friction channel is origin-independent: canonical defects still route there.
+        # The canonical-improvement channel is the exact inverse of the self-improvement gate: a
+        # canonical scout routes skill-content gaps upstream via agent-feedback, while a custom or
+        # diverged scout must never be told to send its team-owned skill body to the PostHog team.
+        assert ("Suggest improvements to your canonical skill" in prompt) is not expect_section
+        assert ('`feedback_type` = `"scout"`' in prompt) is not expect_section
+        # The structured fields and the reported: dedupe key are what make fleet-wide feedback
+        # aggregable per skill/version and non-repetitive across runs — they must ride with the section.
+        assert ("scout_skill_name" in prompt) is not expect_section
+        assert ("reported:<your-skill-name>:<topic>" in prompt) is not expect_section
+        # The generalization rule is the privacy boundary: the feedback leaves the customer's
+        # project, so dropping this line silently re-opens the customer-data-travels failure mode.
+        assert ("this project's data must not travel" in prompt) is not expect_section
+        # The upstream friction channel is origin-independent: harness/tool defects still route there.
         assert "agent-feedback" in prompt
 
     def test_pristine_seeded_row_stays_canonical(self) -> None:
@@ -335,6 +499,57 @@ class TestPromptBuilder(BaseTest):
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         )
         assert "Suggest improvements to your own skill" not in prompt
+        # The pristine canonical scout routes skill-content gaps upstream instead.
+        assert "Suggest improvements to your canonical skill" in prompt
+        # A canonical skill body is PostHog-owned — the run identity must not name the seeding
+        # row's incidental `created_by` as a skill author.
+        assert "skill authors" not in prompt
+
+    def test_run_identity_names_skill_authors_creator_first(self) -> None:
+        # The rendered line is what the escalation guidance points `suggested_reviewers` at;
+        # if it drops the creator, or renders for a skill with no known authors, routing
+        # falls back to the last editor (the exact misattribution this line exists to fix).
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="d",
+            body="b",
+            created_by=ben,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="d",
+            body="edited",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+            allowed_tools=["emit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "**skill authors**: created by Ben (ben@posthog.com); since edited by" in prompt
+        assert self.user.email in prompt
+        # The authors line is a default, not an override — dropping the precedence hedge would
+        # set the harness up to fight a skill body that defines its own reviewer routing.
+        assert "unless your skill body defines its own reviewer routing" in prompt
+        # A signal-channel scout has no `suggested_reviewers` field, so member names/emails must
+        # not reach its prompt — there is no feature path that could use them.
+        signal_prompt = build_run_prompt(
+            replace(loaded, allowed_tools=[]),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "skill authors" not in signal_prompt
+        assert "ben@posthog.com" not in signal_prompt
 
     def _report_prompt_for(self, allowed_tools: list[str]) -> str:
         name = "signals-scout-" + "-".join(allowed_tools)
@@ -357,6 +572,11 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" in prompt
         # The dedup nuances reach the emit-only variant too — not just the both-tools prompt.
         assert "ordering=-updated_at" in prompt
+        # Same for the dismissed-report guidance: the emit-only section is a separate constant,
+        # so it can lose the widened search or the untrusted-note boundary independently.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
         # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
         # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
         assert "relapse of a closed report" in prompt
@@ -379,6 +599,11 @@ class TestPromptBuilder(BaseTest):
         # An edit-only scout searches the inbox to find the report to update, so it needs the same
         # dedup nuance — else the default ordering hides the most recently updated match.
         assert "ordering=-updated_at" in prompt
+        # Same for the dismissed-report guidance: the edit-only section is a separate constant,
+        # so it can lose the widened search or the untrusted-note boundary independently.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

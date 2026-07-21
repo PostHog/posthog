@@ -458,6 +458,7 @@ const AggregationAxisFormat = z.enum([
     'numeric',
     'duration',
     'duration_ms',
+    'duration_ns',
     'percentage',
     'percentage_scaled',
     'currency',

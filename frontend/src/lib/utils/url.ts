@@ -189,28 +189,18 @@ export function parseGithubRepoURL(url: string): Record<string, string> {
     return { user, repo, type, path }
 }
 
-export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
-    if (!nextPath || typeof nextPath !== 'string') {
-        return null
-    }
-    let decoded: string
-    try {
-        decoded = decodeURIComponent(nextPath)
-    } catch {
-        decoded = nextPath
-    }
-
+function resolveSameOriginPath(candidate: string, location: Location): string | null {
     // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
-    if (decoded.startsWith('//')) {
+    if (candidate.startsWith('//')) {
         return null
     }
 
     // Root-relative path — resolve against the current origin and verify it doesn't escape.
     // Browsers normalize backslashes in special-scheme URLs per WHATWG, so a raw startsWith('/')
     // check would accept '/\\evil.com/path', which the browser then loads as '//evil.com/path'.
-    if (decoded.startsWith('/')) {
+    if (candidate.startsWith('/')) {
         try {
-            const url = new URL(decoded, location.origin)
+            const url = new URL(candidate, location.origin)
             if (url.origin !== location.origin) {
                 return null
             }
@@ -222,11 +212,34 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
 
     // Try to parse as a full URL
     try {
-        const url = new URL(decoded)
+        const url = new URL(candidate)
         if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
             return url.pathname + url.search + url.hash
         }
         return null
+    } catch {
+        return null
+    }
+}
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+
+    // Callers pass a value that URL parsing already decoded once (kea-router searchParams or
+    // URLSearchParams.get), so use it verbatim: decoding again would corrupt percent-encoded
+    // characters belonging to nested query params — e.g. `next=/sql?open_query=SELECT%0A...`,
+    // where a second decode turns %0A into a raw newline that new URL() then silently strips,
+    // gluing the SQL into one line.
+    const verbatim = resolveSameOriginPath(nextPath, location)
+    if (verbatim !== null) {
+        return verbatim
+    }
+
+    // Fall back to decoding once for values that arrive still fully encoded (e.g. %2Ftest%2Ffoo).
+    try {
+        return resolveSameOriginPath(decodeURIComponent(nextPath), location)
     } catch {
         return null
     }
