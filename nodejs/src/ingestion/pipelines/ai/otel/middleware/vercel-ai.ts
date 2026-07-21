@@ -155,7 +155,7 @@ function process(event: PluginEvent, next: () => void): void {
     // generic mapper's normalizeGroups() can parse the JSON string and attach it.
     // Skip if a $groups span attribute was already set directly.
     const groupsMetadata = props['ai.telemetry.metadata.$groups']
-    if (props['$groups'] === undefined && groupsMetadata !== undefined) {
+    if (props['$groups'] === undefined && isNonEmptyString(groupsMetadata)) {
         props['$groups'] = groupsMetadata
     }
 
@@ -251,11 +251,10 @@ function process(event: PluginEvent, next: () => void): void {
         props[AI_PROMPT_VERSION_KEY] = promptVersion
     }
 
-    // An explicit span name from telemetry metadata is the most intentional
-    // signal, so let it override the auto-derived name (OTel span name /
-    // functionId / tool-call name).
+    // Vercel repeats telemetry metadata across provider spans, so only use the
+    // custom call name for the top-level event.
     const spanNameOverride = props['ai.telemetry.metadata.$ai_span_name']
-    if (isNonEmptyString(spanNameOverride)) {
+    if (isTopLevel && isNonEmptyString(spanNameOverride)) {
         props['$ai_span_name'] = spanNameOverride
     }
 

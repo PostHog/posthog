@@ -318,6 +318,30 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
         })
 
+        it.each(['', 42, true, ['org-1']])('does not promote invalid groups metadata %p', (metadataGroups) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$groups': metadataGroups,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$groups']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
+        })
+
+        it('preserves a directly-set $groups attribute over telemetry metadata', () => {
+            const directGroups = '{"organization":"direct-org"}'
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                $groups: directGroups,
+                'ai.telemetry.metadata.$groups': '{"organization":"metadata-org"}',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$groups']).toBe(directGroups)
+            expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
+        })
+
         it.each([
             ['custom-span', 'custom-span'],
             ['', 'my-func'],
@@ -329,6 +353,18 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_span_name']).toBe(expectedSpanName)
+            expect(event.properties!['ai.telemetry.metadata.$ai_span_name']).toBeUndefined()
+        })
+
+        it('does not apply span-name metadata to a provider generation span', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                $ai_span_name: 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$ai_span_name': 'custom-span',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_span_name']).toBe('ai.generateText.doGenerate')
             expect(event.properties!['ai.telemetry.metadata.$ai_span_name']).toBeUndefined()
         })
     })
