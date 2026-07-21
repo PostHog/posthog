@@ -14,14 +14,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.streamelem
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
     StreamElementsResumeConfig,
     _to_epoch_ms,
+    get_channel_id,
     streamelements_source,
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# get_channel_id / validate_credentials build their own tracked session in the streamelements module.
-SE_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements.make_tracked_session"
+# Every StreamElements request — the pipeline client session, channel resolution and the
+# credential probe — runs on a session built by the shared _tracked_session factory, which
+# calls make_tracked_session in the streamelements module. Patch that one symbol.
+SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements.make_tracked_session"
 
 CHANNEL_ID = "5b2e2007760aeb7729487dab"
 
@@ -45,8 +46,10 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
     run shows only the final state — snapshot a copy when each request is prepared instead.
+    Channel resolution goes through ``.get``; the pipeline goes through ``.prepare_request``/``.send``.
     """
     session.headers = {}
+    session.get.return_value = _response({"_id": CHANNEL_ID})
     snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
@@ -59,9 +62,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
 
 def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    with mock.patch(SE_SESSION_PATCH) as channel_session:
-        channel_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
-        return streamelements_source("jwt", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
+    return streamelements_source("jwt", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -104,13 +105,13 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(SE_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected_valid: bool) -> None:
         mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID}, status_code=status_code)
         valid, _ = validate_credentials("jwt")
         assert valid is expected_valid
 
-    @mock.patch(SE_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_request_exception_returns_error(self, mock_session: mock.MagicMock) -> None:
         import requests
 
@@ -120,8 +121,37 @@ class TestValidateCredentials:
         assert message == "boom"
 
 
+class TestCaptureDisabled:
+    """StreamElements payloads carry donor emails and free-text tip/chat messages the name-based
+    scrubbers can't recognise, so every session must be built with capture=False. These lock that
+    in for the pipeline client session and both direct probe paths."""
+
+    @mock.patch(SESSION_PATCH)
+    def test_pipeline_session_disables_capture(self, mock_session: mock.MagicMock) -> None:
+        session = mock_session.return_value
+        _wire(session, [_response({"docs": [_tip(1)], "total": 1})])
+        _rows(_source("tips", _make_manager()))
+
+        assert mock_session.call_args_list  # sanity: the pipeline built at least one session
+        for call in mock_session.call_args_list:
+            assert call.kwargs.get("capture") is False
+            assert call.kwargs.get("redact_values") == ("jwt",)
+
+    @mock.patch(SESSION_PATCH)
+    def test_get_channel_id_disables_capture(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
+        get_channel_id("jwt")
+        mock_session.assert_called_once_with(redact_values=("jwt",), capture=False)
+
+    @mock.patch(SESSION_PATCH)
+    def test_validate_credentials_disables_capture(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
+        validate_credentials("jwt")
+        mock_session.assert_called_once_with(redact_values=("jwt",), capture=False)
+
+
 class TestTips:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_paginates_offsets_until_total(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(
@@ -146,7 +176,7 @@ class TestTips:
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == StreamElementsResumeConfig(paginator_state={"offset": 100})
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"docs": [_tip(1)], "total": 301})])
@@ -154,7 +184,7 @@ class TestTips:
         _rows(_source("tips", _make_manager(StreamElementsResumeConfig(paginator_state={"offset": 300}))))
         assert snapshots[0]["params"]["offset"] == 300
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_incremental_adds_after_filter(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"docs": [_tip(1)], "total": 1})])
@@ -169,7 +199,7 @@ class TestTips:
         )
         assert snapshots[0]["params"]["after"] == 1567785250202
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_full_refresh_omits_after_filter(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"docs": [_tip(1)], "total": 1})])
@@ -177,7 +207,7 @@ class TestTips:
         _rows(_source("tips", _make_manager(), should_use_incremental_field=False))
         assert "after" not in snapshots[0]["params"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_unexpected_body_shape_fails_loud(self, MockSession: mock.MagicMock) -> None:
         # A bare array where {"docs": [...]} is expected must raise, not silently sync 0 rows.
         session = MockSession.return_value
@@ -188,7 +218,7 @@ class TestTips:
 
 
 class TestActivities:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_walks_before_bound_down_until_short_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         # Newest-first pages; the oldest event of page one is at 2024-01-02T00:00:00Z.
@@ -214,7 +244,7 @@ class TestActivities:
             paginator_state={"before": oldest_ms + 1}
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_before_bound(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([_activity(1, "2024-01-01T00:00:00.000Z")])])
@@ -224,7 +254,7 @@ class TestActivities:
         )
         assert snapshots[0]["params"]["before"] == 1704153600000
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_incremental_keeps_after_filter_on_every_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         page_one = [_activity(i, "2024-01-02T00:00:00.000Z") for i in range(100)]
@@ -243,7 +273,7 @@ class TestActivities:
         assert snapshots[0]["params"]["after"] == watermark_ms
         assert snapshots[1]["params"]["after"] == watermark_ms
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_full_page_of_identical_timestamps_still_progresses(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         same_ms = "2024-01-02T00:00:00.000Z"
@@ -264,7 +294,7 @@ class TestActivities:
 
 
 class TestSinglePageEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_bot_commands_returns_bare_array(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([{"_id": "c1", "command": "test"}])])
@@ -275,25 +305,22 @@ class TestSinglePageEndpoints:
         assert snapshots[0]["url"].endswith(f"/bot/commands/{CHANNEL_ID}")
         assert [row["_id"] for row in rows] == ["c1"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_channel_yields_single_row_without_channel_resolution(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"_id": CHANNEL_ID, "username": "streamer"})])
 
-        with mock.patch(SE_SESSION_PATCH) as channel_session:
-            source_response = streamelements_source(
-                "jwt", "channel", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-            rows = _rows(source_response)
-            # /channels/me needs no channel id in the path, so no resolution request is made.
-            channel_session.assert_not_called()
+        rows = _rows(_source("channel", _make_manager()))
 
+        # /channels/me needs no channel id in the path, so get_channel_id (which probes via .get)
+        # is never invoked — the row comes straight from the pipeline .send path.
+        session.get.assert_not_called()
         assert snapshots[0]["url"].endswith("/channels/me")
         assert rows == [{"_id": CHANNEL_ID, "username": "streamer"}]
 
 
 class TestLeaderboards:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(SESSION_PATCH)
     def test_points_leaderboard_unwraps_users_with_big_pages(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(
@@ -310,7 +337,9 @@ class TestLeaderboards:
 
 class TestStreamElementsSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+    @mock.patch(SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_session: mock.MagicMock, endpoint: str) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
         config = STREAMELEMENTS_ENDPOINTS[endpoint]
         response = _source(endpoint, _make_manager())
 
@@ -323,10 +352,14 @@ class TestStreamElementsSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_activities_use_desc_sort_mode(self) -> None:
+    @mock.patch(SESSION_PATCH)
+    def test_activities_use_desc_sort_mode(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
         assert _source("activities", _make_manager()).sort_mode == "desc"
 
-    def test_tips_use_asc_sort_mode(self) -> None:
+    @mock.patch(SESSION_PATCH)
+    def test_tips_use_asc_sort_mode(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
         assert _source("tips", _make_manager()).sort_mode == "asc"
 
     @pytest.mark.parametrize("config", list(STREAMELEMENTS_ENDPOINTS.values()))

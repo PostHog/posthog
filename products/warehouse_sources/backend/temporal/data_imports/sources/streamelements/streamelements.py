@@ -123,6 +123,16 @@ class StreamElementsActivitiesPaginator(BasePaginator):
         return f"StreamElementsActivitiesPaginator(before={self._next_before_ms})"
 
 
+def _tracked_session(api_token: str) -> requests.Session:
+    """Build the session every StreamElements request runs on.
+
+    ``capture=False``: responses carry donor email addresses, tip and chat message text,
+    activity payloads and redemption input — free-text the name-based scrubbers can't
+    recognise, so their bodies must stay out of HTTP sample capture (still metered and logged).
+    """
+    return make_tracked_session(redact_values=(api_token,), capture=False)
+
+
 def _client_config(api_token: str) -> ClientConfig:
     return {
         "base_url": STREAMELEMENTS_BASE_URL,
@@ -130,12 +140,13 @@ def _client_config(api_token: str) -> ClientConfig:
         # Channel JWT tokens and OAuth2 access tokens both go in a Bearer Authorization
         # header. Framework auth redacts the value from logs.
         "auth": {"type": "bearer", "token": api_token},
+        "session": _tracked_session(api_token),
     }
 
 
 def get_channel_id(api_token: str) -> str:
     """Resolve the 24-hex channel id every other endpoint is scoped by."""
-    response = make_tracked_session(redact_values=(api_token,)).get(
+    response = _tracked_session(api_token).get(
         f"{STREAMELEMENTS_BASE_URL}/channels/me",
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
         timeout=30,
@@ -150,7 +161,7 @@ def get_channel_id(api_token: str) -> str:
 def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """Confirm the token is genuine with one cheap probe of GET /channels/me."""
     try:
-        response = make_tracked_session(redact_values=(api_token,)).get(
+        response = _tracked_session(api_token).get(
             f"{STREAMELEMENTS_BASE_URL}/channels/me",
             headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
             timeout=10,
