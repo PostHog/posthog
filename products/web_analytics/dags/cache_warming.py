@@ -1,4 +1,5 @@
 import json
+import statistics
 
 from django.utils.dateparse import parse_datetime
 
@@ -42,6 +43,11 @@ cache_warming_retry_policy = RetryPolicy(
 LAZY_PRECOMPUTE_QUERY_KINDS = frozenset(
     {"WebStatsTableQuery", "WebOverviewQuery", "WebGoalsQuery", "WebVitalsPathBreakdownQuery"}
 )
+
+# Per-team ceiling on selected shapes. Bounds how much hourly background compute a
+# single tenant can claim by running many distinct shapes past the demand threshold
+# (the queries replay outside the tenant's own request throttles).
+MAX_SHAPES_PER_TEAM = 100
 
 
 def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
@@ -94,6 +100,7 @@ def queries_to_keep_fresh(
             FROM metrics_query_log_mv
             WHERE
                 timestamp >= now() - INTERVAL %(days)s DAY
+                AND team_id != 0
                 AND (
                     startsWith(query_type, 'stats_table_')
                     -- Overview strategy variants get their own tags (no_join today,
@@ -118,9 +125,15 @@ def queries_to_keep_fresh(
         HAVING query_count >= %(minimum_query_count)s
         ORDER BY
             query_count DESC
+        LIMIT %(max_shapes_per_team)s BY team_id
         LIMIT %(max_shapes)s
         """,
-        {"days": days, "minimum_query_count": minimum_query_count, "max_shapes": max_shapes},
+        {
+            "days": days,
+            "minimum_query_count": minimum_query_count,
+            "max_shapes": max_shapes,
+            "max_shapes_per_team": MAX_SHAPES_PER_TEAM,
+        },
     )
 
     return [
@@ -178,14 +191,14 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
         if team is None:
             continue
 
-        # Tag before any runner work so the whole request — including the lazy
-        # precompute gate, which lets warming traffic through regardless of the
-        # rollout flag — is classified as background warming.
-        tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
-
-        query_json = maybe_opt_into_lazy_precompute(query_json)
-
         try:
+            # Tag before any runner work so the whole request — including the lazy
+            # precompute gate, which lets warming traffic through regardless of the
+            # rollout flag — is classified as background warming.
+            tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+
+            query_json = maybe_opt_into_lazy_precompute(query_json)
+
             runner = get_query_runner(
                 query=query_json,
                 team=team,
@@ -236,7 +249,7 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     per_team = sorted(shapes_per_team.items(), key=lambda x: -x[1])
     shape_counts = [c for _, c in per_team]
     total_underlying_requests = sum(q["query_count"] for q in queries)
-    median_shapes = shape_counts[len(shape_counts) // 2] if shape_counts else 0
+    median_shapes = statistics.median(shape_counts) if shape_counts else 0
 
     context.log.info(
         f"DRY RUN — would warm {len(queries)} query shapes across {len(per_team)} teams "
