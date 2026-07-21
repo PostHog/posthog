@@ -487,7 +487,7 @@ class TestModalSandboxAgentServer:
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert "--createPr true" in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
-        assert "env -0 > /tmp/agent-env" in command
+        assert "bash /tmp/agentsh-bash-env.sh" in command
         assert "/tmp/agentsh-env-wrapper.sh" in command
         assert "./node_modules/.bin/agent-server" in command
 
@@ -509,7 +509,7 @@ class TestModalSandboxAgentServer:
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert "--allowedDomains" not in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
-        assert "env -0 > /tmp/agent-env" in command
+        assert "bash /tmp/agentsh-bash-env.sh" in command
 
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),
@@ -641,6 +641,7 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
                 ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None),
             ]
@@ -695,6 +696,7 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
                 ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
             ]

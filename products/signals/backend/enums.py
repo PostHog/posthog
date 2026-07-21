@@ -32,6 +32,39 @@ class SignalSourceProduct(StrEnum):
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
     ANALYTICS = "analytics"
+    # Tier-1 data-warehouse inbox sources (support / issue trackers / error tracking)
+    FRESHDESK = "freshdesk"
+    FRESHSERVICE = "freshservice"
+    FRONT = "front"
+    GORGIAS = "gorgias"
+    KUSTOMER = "kustomer"
+    DIXA = "dixa"
+    PLAIN = "plain"
+    GITLAB = "gitlab"
+    GITEA = "gitea"
+    SHORTCUT = "shortcut"
+    SENTRY = "sentry"
+    ROLLBAR = "rollbar"
+    BUGSNAG = "bugsnag"
+    HONEYBADGER = "honeybadger"
+    RAYGUN = "raygun"
+    # Tier-2 security scanners (record kind: scanner_finding)
+    SNYK = "snyk"
+    SONARQUBE = "sonarqube"
+    SEMGREP = "semgrep"
+    RAPID7_INSIGHTVM = "rapid7_insightvm"
+    # Tier-3 product feedback / feature requests / reviews
+    FEATUREBASE = "featurebase"
+    FRILL = "frill"
+    AHA = "aha"
+    USERVOICE = "uservoice"
+    PRODUCTBOARD = "productboard"
+    CANNY = "canny"
+    ASKNICELY = "asknicely"
+    RETENTLY = "retently"
+    APPFIGURES = "appfigures"
+    APPFOLLOW = "appfollow"
+    JUDGEME_REVIEWS = "judgeme_reviews"
     ENGINEERING_ANALYTICS = "engineering_analytics"
 
 
@@ -52,6 +85,8 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     ANOMALY_INVESTIGATION = "anomaly_investigation"
+    FEEDBACK = "feedback"
+    REVIEW = "review"
     CI_FLAKY_CHECK = "ci_flaky_check"
     CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
     CI_DURATION_REGRESSION = "ci_duration_regression"
@@ -80,6 +115,36 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
     SignalSourceProduct.ANALYTICS: "Product analytics",
+    SignalSourceProduct.FRESHDESK: "Freshdesk",
+    SignalSourceProduct.FRESHSERVICE: "Freshservice",
+    SignalSourceProduct.FRONT: "Front",
+    SignalSourceProduct.GORGIAS: "Gorgias",
+    SignalSourceProduct.KUSTOMER: "Kustomer",
+    SignalSourceProduct.DIXA: "Dixa",
+    SignalSourceProduct.PLAIN: "Plain",
+    SignalSourceProduct.GITLAB: "GitLab",
+    SignalSourceProduct.GITEA: "Gitea",
+    SignalSourceProduct.SHORTCUT: "Shortcut",
+    SignalSourceProduct.SENTRY: "Sentry",
+    SignalSourceProduct.ROLLBAR: "Rollbar",
+    SignalSourceProduct.BUGSNAG: "Bugsnag",
+    SignalSourceProduct.HONEYBADGER: "Honeybadger",
+    SignalSourceProduct.RAYGUN: "Raygun",
+    SignalSourceProduct.SNYK: "Snyk",
+    SignalSourceProduct.SONARQUBE: "SonarQube",
+    SignalSourceProduct.SEMGREP: "Semgrep",
+    SignalSourceProduct.RAPID7_INSIGHTVM: "Rapid7 InsightVM",
+    SignalSourceProduct.FEATUREBASE: "Featurebase",
+    SignalSourceProduct.FRILL: "Frill",
+    SignalSourceProduct.AHA: "Aha",
+    SignalSourceProduct.USERVOICE: "UserVoice",
+    SignalSourceProduct.PRODUCTBOARD: "Productboard",
+    SignalSourceProduct.CANNY: "Canny",
+    SignalSourceProduct.ASKNICELY: "AskNicely",
+    SignalSourceProduct.RETENTLY: "Retently",
+    SignalSourceProduct.APPFIGURES: "Appfigures",
+    SignalSourceProduct.APPFOLLOW: "AppFollow",
+    SignalSourceProduct.JUDGEME_REVIEWS: "Judge.me",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
 }
 

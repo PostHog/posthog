@@ -24,7 +24,9 @@ from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     clean_customer_id,
