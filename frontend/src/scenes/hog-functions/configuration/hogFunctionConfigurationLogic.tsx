@@ -1116,9 +1116,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             breakpoint()
                             return globals
                         } catch (e: any) {
-                            if (!isBreakpoint(e)) {
-                                actions.setSampleGlobalsError(e.message)
+                            if (isBreakpoint(e)) {
+                                // Superseded by a newer load — abort without dispatching a result
+                                throw e
                             }
+                            actions.setSampleGlobalsError(e.message)
                             return values.exampleInvocationGlobals
                         }
                     }
