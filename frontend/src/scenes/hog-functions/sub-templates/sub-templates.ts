@@ -304,8 +304,14 @@ function buildHealthAlertSubTemplates(
 // All $mcp_* text is producer-controlled and unbounded, so every interpolation is escaped
 // for the target chat format and truncated (post-escape, so entity expansion can't blow
 // past provider message limits: Slack 3000/section, Discord 2000/message).
-const MCP_INTENT_MAX_LENGTH = 800
+//
+// Discord worst case: message (template text + 3 fields x 200 + intent 600, all post-escape,
+// ~1260) + link (base ~80 + encoded tool name 480: encodeURLComponent percent-encodes each
+// UTF-8 byte, so an astral emoji becomes 12 chars, x 40) = ~1820 < 2000.
+const MCP_INTENT_MAX_LENGTH = 600
 const MCP_FIELD_MAX_LENGTH = 200
+// Truncated BEFORE encoding (truncating after could split a %XX escape); 12x expansion budgeted above.
+const MCP_URL_TOOL_MAX_LENGTH = 40
 
 type ChatEscaper = (expression: string, maxLength?: number) => string
 
@@ -350,7 +356,7 @@ const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolErrorMessage(slackEscapeExpr, '*')
 const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolErrorMessage(markdownEscapeExpr, '**')
 // Bound the tool name before encoding: percent-encoding can triple the length, and the link
 // rides inside Teams/Discord bodies that must stay under provider message limits.
-const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(substring(concat(${MCP_EFFECTIVE_TOOL_EXPR}), 1, ${MCP_FIELD_MAX_LENGTH}))}`
+const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(substring(concat(${MCP_EFFECTIVE_TOOL_EXPR}), 1, ${MCP_URL_TOOL_MAX_LENGTH}))}`
 
 interface MCPNotificationVariantsOptions {
     subTemplateId: 'mcp-missing-capability' | 'mcp-tool-error'
