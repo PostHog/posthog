@@ -86,7 +86,9 @@ export function contextItemLine(item: AttachedContextItem): string {
 /**
  * Item lines of a raw context block (tags included, as `splitUserMessageContent` returns them).
  * Only item lines start with `- ` — the tags, `UNTRUSTED_HEADER`, and `UNTRUSTED_REMINDER` don't —
- * so the prefix alone separates items from chrome.
+ * so the prefix alone separates items from chrome. One physical line is one item because `defang`
+ * escapes newlines out of every interpolated field, which is what keeps this the exact inverse of
+ * `contextItemLine`.
  */
 export function extractContextBlockLines(block: string): string[] {
     return block.split('\n').filter((line) => line.startsWith('- '))
@@ -99,9 +101,16 @@ export function extractContextBlockLines(block: string): string[] {
  * `<posthog_trusted_context` inside untrusted data could forge a trusted block. Escapes every
  * open/close variant of the three tag names (including the legacy `posthog_context`, which the
  * deprecated backend `context_wrapper.py` path still emits).
+ *
+ * Newlines are escaped for the same reason one level down: an item renders as exactly one line, so a
+ * value carrying `\n- ` can't forge extra item lines in the block the model reads, and can't split
+ * one item's identity into several entries that `extractContextBlockLines` would then record
+ * separately from what `contextItemLine` re-renders at dedupe time.
  */
 function defang(text: string | number): string {
-    return String(text).replace(/<(\/?)(posthog_(?:(?:un)?trusted_)?context)/g, '<\\$1$2')
+    return String(text)
+        .replace(/<(\/?)(posthog_(?:(?:un)?trusted_)?context)/g, '<\\$1$2')
+        .replace(/\r?\n/g, '\\n')
 }
 
 function formatItem(item: AttachedContextItem): string {
