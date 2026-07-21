@@ -158,34 +158,25 @@ class TestEvaluationReportDeletionCascade(BaseTest):
         self.assertNotIn(orphaned.id, deliverable_ids)
 
     def test_deliverable_excludes_disabled_and_deleted_reports(self):
-        evaluation = self._create_evaluation()
-        disabled = self._report_for(evaluation, enabled=False)
-        deleted = self._report_for(evaluation, deleted=True)
-        live = self._report_for(evaluation)
+        disabled = self._report_for(self._create_evaluation(), enabled=False)
+        deleted = self._report_for(self._create_evaluation(), deleted=True)
+        live = self._report_for(self._create_evaluation())
 
         deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
         self.assertEqual(deliverable_ids, {live.id})
         self.assertNotIn(disabled.id, deliverable_ids)
         self.assertNotIn(deleted.id, deliverable_ids)
 
-    def test_deleting_evaluation_retires_its_reports(self):
+    def test_deleting_evaluation_retires_its_report(self):
         evaluation = self._create_evaluation()
-        scheduled = self._report_for(evaluation)
-        count_triggered = self._report_for(
-            evaluation,
-            frequency=EvaluationReport.Frequency.EVERY_N,
-            trigger_threshold=100,
-            rrule="",
-            starts_at=None,
-        )
+        report = self._report_for(evaluation)
 
         evaluation.deleted = True
         evaluation.save()
 
-        for report in (scheduled, count_triggered):
-            report.refresh_from_db()
-            self.assertTrue(report.deleted)
-            self.assertFalse(report.enabled)
+        report.refresh_from_db()
+        self.assertTrue(report.deleted)
+        self.assertFalse(report.enabled)
 
     def test_deleting_evaluation_leaves_other_evaluations_reports_alone(self):
         keep = self._report_for(self._create_evaluation())

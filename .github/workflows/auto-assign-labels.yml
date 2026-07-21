@@ -1,0 +1,56 @@
+name: Auto Assign Labels
+
+# Adds team/feature labels to a PR based on its conventional-commit scope, e.g.
+# `feat(flags): …` -> `feature/feature-flags` + `team/feature-flags`. The
+# scope -> label mappings live in .github/auto-assign-labels.json so the owning
+# team can change them without editing this workflow or the script.
+#
+# NOTE: This uses `pull_request_target` so it can also label fork PRs (their
+# normal token is read-only). That trigger runs with a write token regardless of
+# the PR's contents, so we are careful to NEVER execute untrusted code:
+#  - we check out `master` and run the script from there, not the PR branch;
+#  - the PR title is passed via `env` (never interpolated into a shell line);
+#  - the title only selects from the fixed set of labels in the config, so a
+#    malicious title can at most apply a pre-approved label, never inject one.
+# A consequence (as with auto-assign-reviewers): changes here only take effect
+# once merged to master.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        types: [opened, edited, reopened, ready_for_review]
+
+permissions:
+    contents: read
+    pull-requests: write
+    issues: write
+
+# A PR being opened then quickly edited (title/base) queues redundant runs.
+# Labeling is idempotent, so drop any in-flight run for the same PR.
+concurrency:
+    group: auto-assign-labels-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    assign-labels:
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 5
+
+        steps:
+            - name: Checkout master branch
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # MUST be `master` so we never execute untrusted PR code.
+                  ref: master
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Run label assignment script
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+              run: node .github/scripts/label-pr-from-title.js

@@ -18,6 +18,7 @@ from ci_flake_overseer import (
     is_test_job_failure,
     report_rerun_outcomes,
     rerun_outcome_label,
+    workflow_run_from_object,
 )
 
 
@@ -40,7 +41,9 @@ def make_job(
     )
 
 
-def make_workflow_run(run_attempt: int = 1, *, head_branch: str = "", event: str = "pull_request") -> WorkflowRun:
+def make_workflow_run(
+    run_attempt: int = 1, *, head_branch: str = "", event: str = "pull_request", pr_number: int | None = 12345
+) -> WorkflowRun:
     return WorkflowRun(
         id=999,
         workflow_id=42,
@@ -51,55 +54,72 @@ def make_workflow_run(run_attempt: int = 1, *, head_branch: str = "", event: str
         html_url="https://github.com/PostHog/posthog/actions/runs/999",
         head_branch=head_branch,
         event=event,
+        pr_number=pr_number,
     )
 
 
 @pytest.mark.parametrize(
-    ("job", "expected_action", "expected_reason_fragment"),
+    ("job", "expected_action", "expected_reason_fragment", "expected_failure_class"),
     [
         pytest.param(
             make_job("Repo checks (depot-ubuntu-latest)", failed_step="Check module boundaries (tach)"),
             "skip deterministic",
             "deterministic",
+            "repo-checks",
             id="deterministic-repo-checks",
         ),
         pytest.param(
             make_job("Validate OpenAPI types", failed_step="Check and update OpenAPI types"),
             "skip deterministic",
             "deterministic",
+            "openapi",
             id="deterministic-openapi",
         ),
         pytest.param(
             make_job("Frontend lint", failed_step="Lint with Oxlint"),
             "skip deterministic",
             "deterministic",
+            "lint",
             id="deterministic-lint",
         ),
         pytest.param(
             make_job("Validate migrations", failed_step="Check migrations"),
             "skip deterministic",
             "deterministic",
+            "migrations",
             id="deterministic-migrations",
+        ),
+        pytest.param(
+            make_job("Django tests", failed_step="Product facade enforcement"),
+            "skip deterministic",
+            "deterministic",
+            "module-boundaries",
+            id="deterministic-via-step-rule",
         ),
         pytest.param(
             make_job("Build and deploy", failed_step="Compile assets"),
             "skip non-test",
             "not an allowlisted test runner",
+            None,
             id="non-test-job",
         ),
         pytest.param(
             make_job("Django tests - Temporal (1/1)", failed_step="Run Temporal tests"),
             "observe",
             "test job failure",
+            None,
             id="observed-test-job",
         ),
     ],
 )
-def test_classify_job(job: Job, expected_action: str, expected_reason_fragment: str) -> None:
+def test_classify_job(
+    job: Job, expected_action: str, expected_reason_fragment: str, expected_failure_class: str | None
+) -> None:
     decision = classify_job(job)
 
     assert decision.action == expected_action
     assert expected_reason_fragment in decision.reason
+    assert decision.failure_class == expected_failure_class
 
 
 @pytest.mark.parametrize(
@@ -121,11 +141,12 @@ def test_build_decision_events_one_event_per_decision() -> None:
     decisions = (
         classify_job(make_job("Django tests - Temporal (1/1)")),
         classify_job(make_job("Build and deploy", failed_step="Compile assets")),
+        classify_job(make_job("Validate OpenAPI types", failed_step="Check and update OpenAPI types")),
     )
 
     events = build_decision_events("PostHog/posthog", make_workflow_run(), decisions)
 
-    assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT]
+    assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT, DECISION_EVENT]
     assert all(event["distinct_id"] == "PostHog/posthog" for event in events)
     first = events[0]["properties"]
     assert first["action"] == "observe"
@@ -133,11 +154,31 @@ def test_build_decision_events_one_event_per_decision() -> None:
     assert first["job_name"] == "Django tests - Temporal (1/1)"
     assert first["$groups"] == {"workflow_run": "999"}
     assert first["classified_via"] == "job_name"
+    assert first["failure_class"] is None
+    assert first["pr_number"] == 12345
     assert first["job_conclusion"] == "failure"
     assert first["failed_steps"] == ["Run Core tests"]
     assert first["$insert_id"] == "decision:999:1:123"
     assert events[1]["properties"]["action"] == "skip non-test"
     assert events[1]["properties"]["classified_via"] is None
+    assert events[2]["properties"]["action"] == "skip deterministic"
+    assert events[2]["properties"]["failure_class"] == "openapi"
+
+
+@pytest.mark.parametrize(
+    ("pull_requests", "expected"),
+    [
+        pytest.param([{"number": 65581}], 65581, id="same-repo-pr"),
+        pytest.param([], None, id="fork-pr-empty-list"),
+        pytest.param(None, None, id="field-absent"),
+    ],
+)
+def test_workflow_run_pr_number(pull_requests: list[dict[str, object]] | None, expected: int | None) -> None:
+    raw: dict[str, object] = {"id": 1, "workflow_id": 2, "name": "Backend CI"}
+    if pull_requests is not None:
+        raw["pull_requests"] = pull_requests
+
+    assert workflow_run_from_object(raw).pr_number == expected
 
 
 @pytest.mark.parametrize(

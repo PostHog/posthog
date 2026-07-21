@@ -16,10 +16,14 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
+    HogFlowPublishRequestApi,
+    HogFlowPublishResponseApi,
     HogFlowScheduleApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowsAssetContentRetrieveParams,
+    HogFlowsAssetsRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
@@ -30,6 +34,7 @@ import type {
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
+    MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
@@ -318,6 +323,66 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getHogFlowsAssetsRetrieveUrl = (projectId: string, id: string, params?: HogFlowsAssetsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/assets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/assets/`
+}
+
+export const hogFlowsAssetsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsAssetsRetrieveParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getHogFlowsAssetsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsAssetContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: HogFlowsAssetContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/assets/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/assets/content/`
+}
+
+export const hogFlowsAssetContentRetrieve = async (
+    projectId: string,
+    id: string,
+    params: HogFlowsAssetContentRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getHogFlowsAssetContentRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsBatchJobsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
@@ -348,6 +413,21 @@ export const hogFlowsBatchJobsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowBatchJobApi),
+    })
+}
+
+export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
+}
+
+export const hogFlowsDiscardDraftCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsDiscardDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -527,6 +607,24 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/publish/`
+}
+
+export const hogFlowsPublishCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowPublishRequestApi?: HogFlowPublishRequestApi,
+    options?: RequestInit
+): Promise<HogFlowPublishResponseApi> => {
+    return apiMutator<HogFlowPublishResponseApi>(getHogFlowsPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowPublishRequestApi),
     })
 }
 

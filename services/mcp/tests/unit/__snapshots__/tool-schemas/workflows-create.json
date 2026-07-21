@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Mixin for serializers to add user access control fields",
     "properties": {
         "actions": {
             "description": "Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too.",
@@ -272,6 +273,7 @@
                     },
                     "id": {
                         "description": "Unique node ID within the workflow.",
+                        "maxLength": 200,
                         "type": "string"
                     },
                     "name": {

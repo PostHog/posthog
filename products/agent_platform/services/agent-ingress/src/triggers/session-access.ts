@@ -13,7 +13,7 @@
  * `queue.getForApplication`, which scopes in SQL, and returns `null` on both
  * "no such session" and "belongs to another agent" so callers can't
  * distinguish the two (no cross-tenant existence leak). A semgrep rule
- * (`.semgrep/devex-rules/agent-ingress-scoped-session-fetch.yaml`) forbids raw
+ * (`.semgrep/rules/devex/agent-ingress-scoped-session-fetch.yaml`) forbids raw
  * `queue.get(...)` elsewhere in `triggers/` so a new handler can't reintroduce
  * the gap.
  */

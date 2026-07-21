@@ -483,7 +483,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
         captured: dict[str, object] = {}
 
-        def capture(team, node):
+        def capture(team, node, user=None):
             captured[node.table_name] = get_query_tags().product
             return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
 
@@ -531,7 +531,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_single_path_query_tags(self, _name, caller_product, caller_feature, expected_product, expected_feature):
         captured: dict[str, object] = {}
 
-        def capture(query, team):
+        def capture(query, team, user=None):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature

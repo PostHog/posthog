@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ResourceEditedEvent } from '~/types'
@@ -83,6 +84,8 @@ describe('workflowLogic external edits', () => {
         expect(getCalls).toBe(1)
     })
 
+    afterEach(resumeKeaLoadersErrors)
+
     it('silently reconciles (sync + reload) when the local state is clean', async () => {
         await expectLogic(logic, () => {
             resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
@@ -164,6 +167,7 @@ describe('workflowLogic external edits', () => {
     })
 
     it('shows the banner when a save is rejected as stale (409 backstop)', async () => {
+        silenceKeaLoadersErrors() // the 409 save failure is the scenario under test
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => [200, makeWorkflow()],

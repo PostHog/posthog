@@ -31,8 +31,10 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
+    EXPIRY_BUFFER_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PREAGGREGATION_INSERT_QUORUM,
+    PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
     LazyComputationExecutor,
     LazyComputationResult,
     LazyComputationTable,
@@ -1644,6 +1646,147 @@ class TestComputationExecutorExecute(BaseTest):
         assert insert_count[0] == 1
         assert stale_job.id not in result.job_ids
 
+    @parameterized.expand(
+        [
+            # Job computed mid-window (before window_end + lag): its session metrics were
+            # still in motion, so a long band TTL must not keep it — it recomputes once settled.
+            ("computed_before_window_settled", False),
+            # Job computed after the window settled: complete data, keeps the full band TTL.
+            ("computed_after_window_settled", True),
+        ]
+    )
+    def test_settling_period_caps_freshness_of_in_motion_jobs(self, _name: str, expect_reused: bool) -> None:
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        # UTC-day-aligned window (the executor decomposes ranges at day boundaries) that
+        # ended 2 days ago; with a 24h finality lag its data became final 1 day ago.
+        window_end = datetime(now.year, now.month, now.day, tzinfo=UTC) - timedelta(days=2)
+        window_start = window_end - timedelta(days=1)
+        created_at = window_end - timedelta(hours=12) if not expect_reused else now - timedelta(hours=1)
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=window_start,
+            time_range_end=window_end,
+            status=PreaggregationJob.Status.READY,
+            expires_at=now + timedelta(days=5),
+        )
+        PreaggregationJob.objects.filter(id=job.id).update(created_at=created_at)
+
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=5 * 24 * 60 * 60, settling_period_seconds=24 * 60 * 60)
+        insert_count = [0]
+
+        result = LazyComputationExecutor(ttl_schedule=schedule).execute(
+            team=self.team,
+            query_info=query_info,
+            start=window_start,
+            end=window_end,
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        if expect_reused:
+            assert job.id in result.job_ids
+            assert insert_count[0] == 0
+        else:
+            assert job.id not in result.job_ids
+            assert insert_count[0] == 1
+
+    @parameterized.expand(
+        [
+            # Expired 1h ago (created 2h ago, 1h TTL) — within the 6h grace: served as-is.
+            ("within_grace", 1, True),
+            # Expired 9h ago — beyond the 6h grace: the normal recompute path runs.
+            ("beyond_grace", 9, False),
+        ]
+    )
+    def test_stale_ready_job_served_within_stale_while_revalidate(
+        self, _name: str, expired_hours_ago: int, served: bool
+    ) -> None:
+        query_info, query_hash = self._make_query_info()
+
+        stale_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+            expires_at=django_timezone.now() - timedelta(hours=expired_hours_ago),
+        )
+        PreaggregationJob.objects.filter(id=stale_job.id).update(
+            created_at=django_timezone.now() - timedelta(hours=expired_hours_ago + 1),
+        )
+
+        executor = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
+        )
+        insert_count = [0]
+
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        if served:
+            assert result.stale is True
+            assert result.job_ids == [stale_job.id]
+            assert insert_count[0] == 0, "serve-stale must not compute inline"
+        else:
+            assert result.stale is False
+            assert stale_job.id not in result.job_ids
+            assert insert_count[0] == 1
+
+    def test_stale_while_revalidate_rechecks_coverage_after_overlap_filtering(self):
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        # An older broad stale job fully covers the range, but a newer narrow stale job
+        # overlaps it. The overlap filter prefers the newer job and evicts the broad one,
+        # reopening gaps (Jan 1–2 and Jan 3–4) — serving that set would silently drop
+        # covered days, so the executor must fall through to recompute instead.
+        for time_range, created_ago_h in [
+            ((datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC)), 3),
+            ((datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC)), 2),
+        ]:
+            job = PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash=query_hash,
+                time_range_start=time_range[0],
+                time_range_end=time_range[1],
+                status=PreaggregationJob.Status.READY,
+                expires_at=now - timedelta(hours=1),
+            )
+            PreaggregationJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=created_ago_h))
+
+        executor = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
+        )
+        insert_count = [0]
+
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        assert result.stale is False, "gappy filtered coverage must not be served as a stale hit"
+        assert insert_count[0] > 0
+
+    def test_stale_while_revalidate_must_stay_under_expiry_buffer(self):
+        # A grace at/above EXPIRY_BUFFER_SECONDS could return PG jobs whose ClickHouse
+        # rows were already TTL-deleted — silent empty reads. Constructor must refuse.
+        with self.assertRaises(ValueError):
+            LazyComputationExecutor(stale_while_revalidate_seconds=EXPIRY_BUFFER_SECONDS)
+
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()
 
@@ -2650,6 +2793,9 @@ class TestIsNonRetryableError(BaseTest):
             ("no_such_column", 16, "No such column"),
             ("timeout", 159, "Timeout exceeded"),
             ("too_many_queries", 202, "Too many simultaneous queries"),
+            # The read cap is deterministic for a given window: a retry re-scans
+            # the same data only to fail the same way.
+            ("too_many_rows_or_bytes", 307, "Limit for rows or bytes to read exceeded"),
             # An OOM won't succeed on an immediate retry — retrying just re-pressures the
             # cluster. Fail fast so the caller can react (e.g. cap the team's window).
             ("memory_limit", 241, "Memory limit exceeded"),
@@ -2690,6 +2836,9 @@ class TestInsertSettings(BaseTest):
         # must be set per-query — a missing value here means readers race the distribution queue.
         assert settings["insert_distributed_sync"] == 1
         assert settings["insert_quorum"] == PREAGGREGATION_INSERT_QUORUM
+        # Quorum breakage (dead replica, stale ZK registration) must fail fast and fall back,
+        # not hold the request for ClickHouse's 600s default quorum wait.
+        assert settings["insert_quorum_timeout"] == PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS
         assert settings["load_balancing"] == "in_order"
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings

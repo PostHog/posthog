@@ -110,6 +110,21 @@ tools:
             to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for the
             URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
             out-of-band.
+    agent-applications-invoke:
+        operation: agent_applications_invoke
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Invoke a live agent (start a session)
+        description: >
+            Start a new session on the agent's LIVE (promoted) revision and return its `session_id`. Requires the agent
+            to have a live revision and a `chat` trigger. Your PAT is forwarded so the session runs as you. Drive the
+            conversation with `agent-applications-send` and read progress with `agent-applications-listen`. For a
+            non-live / draft revision use `agent-applications-preview-proxy` instead.
     agent-applications-list:
         operation: agent_applications_list
         enabled: true
@@ -124,6 +139,20 @@ tools:
             List every agent application in the project. Returns id, slug, name, description, live_revision, archived
             state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the
             `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-listen:
+        operation: agent_applications_listen
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Poll a live session's progress
+        description: >
+            Read a live session as a single JSON digest (non-streaming): last assistant text, a one-line tool-activity
+            summary, and state / usage. Pass the returned `next_cursor` back as `cursor` to summarize only what's new,
+            and stop when `done` is true. Use this instead of the SSE `/listen` stream from an MCP client.
     agent-applications-models:
         operation: agent_applications_models
         enabled: true
@@ -223,6 +252,12 @@ tools:
             app has no deployable version until another revision is promoted). Idempotent. Playbook: read the
             `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
             workflow.
+    agent-applications-revisions-bundle-file-update:
+        operation: agent_applications_revisions_bundle_file_update
+        enabled: false
+    agent-applications-revisions-bundle-import-create:
+        operation: agent_applications_revisions_bundle_import_create
+        enabled: false
     agent-applications-revisions-bundle-retrieve:
         operation: agent_applications_revisions_bundle_retrieve
         enabled: true
@@ -504,6 +539,27 @@ tools:
             Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
             Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch
             → validate → freeze → promote workflow.
+    agent-applications-revisions-tools-dry-run-create:
+        operation: agent_applications_revisions_tools_dry_run_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Dry-run a custom tool
+        description: >
+            Execute the persisted `compiled.js` for one tool in a single-shot sandbox with caller-supplied args and a
+            stubbed ctx — the authoring loop's "test this tool" button. Body `{ args, mock_secrets? }`: `args` is
+            free-form JSON (NOT validated against the tool's `args_schema`); `mock_secrets` is an optional `{name →
+            placeholder}` map the sandbox plumbs into `ctx.secrets.ref(name)` so the tool body can run without "secret
+            not provisioned". The real secret value never enters the sandbox. Returns `{ ok, tool_id, result?, error?,
+            duration_ms }`: `ok:true` + `result` when the tool returned cleanly, `ok:false` + `error` when the tool
+            threw or the sandbox rejected. Requires the tool to have been PUT first (it runs the persisted bytes, not a
+            fresh source). Draft-only. Per-call lifecycle — no warm pool today. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the broader branch → validate → freeze →
+            promote workflow.
     agent-applications-revisions-tools-update:
         operation: agent_applications_revisions_tools_update
         enabled: true
@@ -541,6 +597,20 @@ tools:
             on a draft before calling `agent-applications-revisions-freeze-create`. Playbook: read the
             `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
             workflow.
+    agent-applications-send:
+        operation: agent_applications_send
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send a message to a live session
+        description: >
+            Append a message to an existing live session (from `agent-applications-invoke`) and re-queue it for another
+            turn. `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for
+            another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410.
     agent-applications-session-logs:
         operation: agent_applications_session_logs
         enabled: true

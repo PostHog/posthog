@@ -42,7 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
     CIO_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_CIO_OBJECT_TYPE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerio import (
+    CustomerIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -84,6 +86,10 @@ class CustomerIOSource(
     SimpleSource[CustomerIOSourceConfig],
     WebhookSource[CustomerIOSourceConfig],
 ):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.customer.io/api/app/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -144,7 +150,7 @@ class CustomerIOSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-customer-io",
             webhookSetupCaption=(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "
@@ -276,7 +282,7 @@ class CustomerIOSource(
 
     def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
@@ -293,6 +299,7 @@ class CustomerIOSource(
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["timestamp"],
+            webhook_only=True,
         )
 
     def _api_source_response(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:

@@ -2,18 +2,17 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 
 from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream
+from products.tasks.backend.temporal.code_workstreams.activities.github_resolution import resolve_github_integration
 from products.tasks.backend.temporal.code_workstreams.activities.list_active_teams import list_active_code_teams
 from products.tasks.backend.temporal.code_workstreams.activities.load_pr_urls import (
     LoadTeamPrUrlsInput,
     load_team_pr_urls,
 )
-from products.tasks.backend.temporal.code_workstreams.activities.poll_pull_requests import (
-    _resolve_integration,
-    poll_pull_requests_for_team,
-)
+from products.tasks.backend.temporal.code_workstreams.activities.poll_pull_requests import poll_pull_requests_for_team
 from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstreams import (
     RebuildTeamWorkstreamsInput,
     rebuild_team_workstreams,
@@ -111,7 +110,11 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Resolved PrRef: team_integration={ref.github_integration_id}, user_integration={ref.github_user_integration_id}"
         )
-        integration = _resolve_integration(ref)
+        # One interactive diagnostic call is not deferrable bulk — don't let the BATCH lane shed
+        # the very probe that's investigating degraded polling.
+        integration = resolve_github_integration(
+            ref.github_integration_id, ref.github_user_integration_id, priority=Priority.CRITICAL
+        )
         if integration is None:
             raise CommandError(
                 "No GitHub integration resolved for this PR: the task isn't linked to one, the team has no GitHub "

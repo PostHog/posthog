@@ -651,7 +651,6 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -765,10 +764,14 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_backfill_events_at",
+         "posthog_cohort"."filters_shape_hash",
+         "posthog_cohort"."behavioral_filters_shape_hash",
          "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."condition_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -792,8 +795,6 @@
          "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
@@ -917,7 +918,6 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1020,7 +1020,6 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1136,10 +1135,14 @@
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
          "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_backfill_events_at",
+         "posthog_cohort"."filters_shape_hash",
+         "posthog_cohort"."behavioral_filters_shape_hash",
          "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."condition_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 99999
@@ -1237,7 +1240,6 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1350,7 +1352,8 @@
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
+         "posthog_experiment"."conclusion_comment",
+         "posthog_experiment"."flag_cleanup_task_id"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
@@ -1559,8 +1562,6 @@
          "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
@@ -1696,7 +1697,8 @@
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
+         "posthog_experiment"."conclusion_comment",
+         "posthog_experiment"."flag_cleanup_task_id"
   FROM "posthog_experiment"
   WHERE (NOT "posthog_experiment"."deleted"
          AND "posthog_experiment"."feature_flag_id" IN (1,

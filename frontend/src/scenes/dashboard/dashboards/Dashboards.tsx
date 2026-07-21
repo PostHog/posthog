@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogChartHog } from '@posthog/brand/hoggies'
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
@@ -26,7 +26,11 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { DashboardsContent } from 'products/dashboards/frontend/components/DashboardsContent'
+
 import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 
@@ -106,7 +110,7 @@ export function Dashboards(): JSX.Element {
                 {currentTab === DashboardsTab.Templates ? (
                     <DashboardTemplatesTable />
                 ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                    <DashboardsTableContainer />
+                    <DashboardsContent />
                 ) : (
                     <ProductIntroduction
                         productName="Dashboards"

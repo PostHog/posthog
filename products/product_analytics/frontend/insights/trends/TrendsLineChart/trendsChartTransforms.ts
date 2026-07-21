@@ -201,6 +201,9 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
 
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
 
+    /** Line interpolation override (per-insight chart style). Leave undefined for app defaults. */
+    curve?: 'linear' | 'monotone'
+
     showCrosshair?: boolean
     tooltip?: TooltipConfig
     legend?: TimeSeriesLineChartConfig['legend']
@@ -242,6 +245,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         goalLines: goalLineConfigs,
         ...derivedConfigs,
         percentStackView: opts.isPercentStackView,
+        curve: opts.curve,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
         legend: opts.legend,

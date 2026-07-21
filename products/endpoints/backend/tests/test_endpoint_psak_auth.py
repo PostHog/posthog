@@ -312,7 +312,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-@patch("products.endpoints.backend.rate_limit.EndpointBurstThrottle.rate", new="2/minute")
+@patch("products.endpoints.backend.presentation.throttles.EndpointBurstThrottle.rate", new="2/minute")
 class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -352,7 +352,10 @@ class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._run(token_a).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(self._run(token_b).status_code, status.HTTP_200_OK)
 
-    @patch("products.endpoints.backend.rate_limit.EndpointProjectSecretApiKeyTeamBurstThrottle.rate", new="3/minute")
+    @patch(
+        "products.endpoints.backend.presentation.throttles.EndpointProjectSecretApiKeyTeamBurstThrottle.rate",
+        new="3/minute",
+    )
     def test_distinct_psak_keys_share_project_bucket(self, *_args):
         token_a, _a = _make_psak(self.team, label="team-key-a")
         token_b, _b = _make_psak(self.team, label="team-key-b")

@@ -148,7 +148,7 @@ describe('FixedRangeWithTimePicker', () => {
         await userEvent.click(minuteButton)
 
         // Start label should reflect the chosen time (regardless of fallback date).
-        expect(screen.getByRole('button', { name: /^Start: .* 14:30$/ })).toBeInTheDocument()
+        expect(screen.getByText(/^Start: .* 14:30$/)).toBeInTheDocument()
     })
 
     describe('24-hour format', () => {
@@ -163,8 +163,8 @@ describe('FixedRangeWithTimePicker', () => {
                 />
             )
 
-            expect(screen.getByRole('button', { name: 'Start: Jan 15, 2024 14:30' })).toBeInTheDocument()
-            expect(screen.getByRole('button', { name: 'End: Jan 15, 2024 16:45' })).toBeInTheDocument()
+            expect(screen.getByText('Start: Jan 15, 2024 14:30')).toBeInTheDocument()
+            expect(screen.getByText('End: Jan 15, 2024 16:45')).toBeInTheDocument()
         })
 
         it('sets hours directly without AM/PM conversion', async () => {

@@ -17,6 +17,7 @@ chrono = { workspace = true }
 # Team-timezone-aware calendar-day bucket math (`stage1::bucket_tz`): `Tz` resolves
 # `posthog_team.timezone` and is `Copy`, so it rides on the hot path inside the frozen `TeamFilters`.
 chrono-tz = { workspace = true }
+cohort-core = { path = "../cohort-core" }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
@@ -33,17 +34,11 @@ envconfig = { workspace = true }
 # `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
 # one partition can't head-of-line-block the sends to the others. Same version dedup uses.
 futures = { workspace = true }
-hogvm = { path = "../common/hogvm" }
 lifecycle = { path = "../common/lifecycle" }
-lru = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 # Streaming `BufWriter` and prefix-list (`list_with_delimiter`) S3 for multi-MB checkpoint files.
 object_store = { version = "0.13.0", features = ["aws"] }
-# Tarjan SCC (`tarjan_scc`) for the per-team cohort-reference cycle defense at filter freeze
-# (`filters::cohort_graph`). Pinned to the same 0.8 line as `rust/feature-flags/Cargo.toml` so the
-# workspace resolves a single copy.
-petgraph = "0.8"
 rand = { workspace = true }
 # Raw `StreamConsumer` for `cohort_stream_events`. The consume loop and manual offset commit are
 # driven directly (mirroring `rust/kafka-deduplicator`) rather than through `common-kafka`'s
@@ -71,6 +66,8 @@ uuid = { workspace = true }
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
 # directly (a normal dependency is not in scope for the separate integration-test crates).
 chrono-tz = { workspace = true }
+# Convergence/idempotency property tests for the seed-tile apply core (`workers::seed_path`).
+proptest = "1"
 serde_json = { workspace = true }
 tempfile = "3"
 # `test-util` enables the paused clock (`start_paused` / `tokio::time::advance`) the sweep timer

@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.source import DelightedSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DelightedSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.delighted import (
+    DelightedSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,9 +49,11 @@ class TestDelightedSource:
         [
             "401 Client Error: Unauthorized for url: https://api.delighted.com/v1/survey_responses.json?per_page=100",
             "403 Client Error: Forbidden for url: https://api.delighted.com/v1/people.json",
+            # 410 Gone: the endpoint has been permanently retired, so retrying is futile.
+            "410 Client Error: Gone for url: https://api.delighted.com/v1/bounces.json?per_page=100&since=1700000000",
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 

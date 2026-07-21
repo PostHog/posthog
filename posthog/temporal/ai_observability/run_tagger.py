@@ -26,7 +26,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
-from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
@@ -149,7 +148,7 @@ async def fetch_tagger_activity(inputs: RunTaggerInputs) -> dict[str, Any]:
             logger.exception("Tagger not found", tagger_id=inputs.tagger_id)
             raise ValueError(f"Tagger {inputs.tagger_id} not found")
 
-        # Short-circuit when the tagger has been disabled (e.g. by a prior trial-limit
+        # Short-circuit when the tagger has been disabled (e.g. by a prior missing-key
         # trip) before we run a lagging event through it. The workflow surfaces this
         # as a skipped result rather than an error.
         if not tagger.enabled:
@@ -241,7 +240,7 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
 
 Output: {output_data}"""
 
-    config = get_eval_config(provider) if provider_key is None else None
+    config = None
 
     client = Client(
         provider_key=provider_key,
@@ -538,7 +537,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
 
 @temporalio.activity.defn
 async def disable_tagger_activity(tagger_id: str, team_id: int) -> None:
-    """Disable a tagger when trial limit is reached.
+    """Disable a tagger when its provider key is missing or invalid.
 
     Uses ``.update()`` to bypass ``Tagger.save()``'s bytecode recompilation (matching
     ``disable_evaluation_activity``'s pattern), then publishes the reload-taggers
@@ -616,24 +615,36 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
+                    # Replay-only compatibility for runs started before trial evals were removed:
+                    # reproduce the commands the old code scheduled for trial-era errors.
+                    # workflow.patched returns False only when replaying pre-patch histories, so
+                    # fresh runs never take the legacy branches. Remove in the follow-up PR.
+                    legacy_trial_era = not temporalio.workflow.patched("remove-trial-evals")
+                    legacy_trial_error_types = ("trial_limit_reached", "model_not_allowed") if legacy_trial_era else ()
+
                     if error_type in (
-                        "trial_limit_reached",
+                        "provider_key_required",
                         "key_invalid",
                         "parse_error",
-                        "model_not_allowed",
                         "no_default_model",
+                        *legacy_trial_error_types,
                     ):
-                        if error_type in ("trial_limit_reached", "model_not_allowed", "no_default_model"):
+                        if error_type in (
+                            "provider_key_required",
+                            "no_default_model",
+                            *legacy_trial_error_types,
+                        ):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
                                 args=[tagger["id"], tagger["team_id"]],
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
-                            if error_type in (
-                                "trial_limit_reached",
-                                "model_not_allowed",
-                            ) and temporalio.workflow.patched("trial-usage-email"):
+                            if (
+                                legacy_trial_era
+                                and error_type in ("provider_key_required", "trial_limit_reached", "model_not_allowed")
+                                and temporalio.workflow.patched("trial-usage-email")
+                            ):
                                 try:
                                     await temporalio.workflow.execute_activity(
                                         send_trial_usage_email_activity,
@@ -669,8 +680,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         )
                 raise
 
-        # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)
-        if tagger_type != "hog" and not result.get("is_byok"):
+        # Replay-only trial counting for runs started before trial evals were removed; the
+        # activities are no-op stubs. Remove in the follow-up PR.
+        if not temporalio.workflow.patched("remove-trial-evals") and tagger_type != "hog" and not result.get("is_byok"):
             threshold_pct = await temporalio.workflow.execute_activity(
                 increment_trial_eval_count_activity,
                 tagger["team_id"],

@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -31,6 +32,8 @@ import {
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -59,12 +62,17 @@ interface SQLEditorProps {
     mode?: SQLEditorMode
     showDatabaseTree?: boolean
     defaultShowDatabaseTree?: boolean
+    /** Extra top-level sections for the database tree, owned by the embedder — see QueryDatabase. */
+    extraTreeSections?: TreeDataItem[]
     panel?: SQLEditorPanel
     showOutputToolbar?: boolean
     onRunQuery?: () => void
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
@@ -76,12 +84,15 @@ export function SQLEditor({
     mode = SQLEditorMode.FullScene,
     showDatabaseTree,
     defaultShowDatabaseTree = true,
+    extraTreeSections,
     panel = SQLEditorPanel.Full,
     showOutputToolbar = true,
     onRunQuery,
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
     onShareTab,
     queryPaneDefaultHeight,
     autoFocusQueryPane,
@@ -231,13 +242,15 @@ export function SQLEditor({
                                                         <DatabaseTree
                                                             databaseTreeRef={databaseTreeRef}
                                                             tabId={tabId || ''}
+                                                            extraTreeSections={extraTreeSections}
                                                         />
                                                     )}
                                                     <div
                                                         data-attr="editor-scene"
-                                                        className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
+                                                        className="EditorScene relative flex min-h-0 grow flex-row overflow-hidden"
                                                         ref={ref}
                                                     >
+                                                        <ViewLoadingOverlay />
                                                         <QueryWindow
                                                             mode={mode}
                                                             tabId={tabId || ''}
@@ -252,6 +265,8 @@ export function SQLEditor({
                                                             runQueryLoading={runQueryLoading}
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
+                                                            onCancelQuery={onCancelQuery}
+                                                            cancelQueryLoading={cancelQueryLoading}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
                                                         />
@@ -274,6 +289,18 @@ export function SQLEditor({
                 </BindLogic>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+function ViewLoadingOverlay(): JSX.Element | null {
+    const { viewQueryLoading } = useValues(sqlEditorLogic)
+    if (!viewQueryLoading) {
+        return null
+    }
+    return (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/70">
+            <Spinner className="text-2xl" />
+        </div>
     )
 }
 
@@ -357,6 +384,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     } = useActions(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+
+    useAttachedContext([
+        {
+            type: 'sql_editor_state',
+            value: JSON.stringify(getExecuteSqlToolContext(queryInput, sourceQuery)),
+            label: 'Current query',
+        },
+    ])
 
     const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
@@ -445,16 +480,34 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return ['Views must be a single query — remove extra statements to update', IconDownload]
         }
 
-        if (!response) {
-            return ['Run query to update', IconDownload]
-        }
-
         if (!changesToSave) {
             return ['No changes to save', IconDownload]
         }
 
+        // Require the current (edited) query to have been run successfully before updating — a stale
+        // response from a previous run must not enable the button after further edits.
+        if (!isSourceQueryLastRun) {
+            return ['Run the latest query before updating the view', IconDownload]
+        }
+
+        if (responseLoading) {
+            return ['Running query...', Spinner]
+        }
+
+        if (responseError || !response) {
+            return ['Run the query successfully before updating the view', IconDownload]
+        }
+
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
+    }, [
+        updatingDataWarehouseSavedQuery,
+        changesToSave,
+        isSourceQueryLastRun,
+        responseLoading,
+        responseError,
+        response,
+        isMultiQuery,
+    ])
 
     const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
@@ -586,6 +639,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             </>
                         ) : editingInsight ? (
                             <>
+                                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_QUERY_HISTORY] && (
+                                    <LemonButton
+                                        onClick={() => openHistoryModal()}
+                                        icon={<IconBook />}
+                                        type="secondary"
+                                        size="small"
+                                        data-attr="sql-editor-insight-history-button"
+                                    >
+                                        History
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     disabledReason={
                                         !isSourceQueryLastRun

@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -21,7 +22,26 @@ class TriggerType(models.TextChoices):
 
 class ActionMode(models.TextChoices):
     GROUP_SUMMARY = "group_summary", "Group summary"  # one summary synthesized from a group of observations
+    ALERT = "alert", "Alert"  # deliver only when the alert condition holds over the window
     PER_OBSERVATION = "per_observation", "Per observation"  # reserved; rejected at the API for now
+
+
+class AlertFrequency(models.TextChoices):
+    # Notify about every new match since the previous check (tiled windows, batched per check).
+    EVERY_MATCH = "every_match", "Every new match"
+    # Notify when the metric crosses the threshold over a rolling window; re-arms after it clears.
+    ON_BREACH = "on_breach", "When a threshold is crossed"
+
+
+class AlertMetric(models.TextChoices):
+    COUNT = "count", "Count of matching observations"
+    AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
+
+
+class AlertDirection(models.TextChoices):
+    # Which side of the threshold breaches. Both bounds are inclusive.
+    ABOVE = "above", "At or above"
+    BELOW = "below", "At or below"
 
 
 class VisionAction(TeamScopedRootMixin, UUIDModel):
@@ -42,6 +62,10 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
     )
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
+    is_scanner_digest = models.BooleanField(
+        default=False,
+        help_text="Marks the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one per scanner.",
+    )
 
     trigger_type = models.CharField(
         max_length=20,
@@ -53,7 +77,7 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         max_length=20,
         choices=ActionMode.choices,
         default=ActionMode.GROUP_SUMMARY,
-        help_text="What the action produces. MVP supports 'group_summary' only.",
+        help_text="What the action produces: a scheduled group summary, or an alert that only delivers when its condition holds.",
     )
 
     next_run_at = models.DateTimeField(
@@ -76,6 +100,22 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    alert_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Alert condition for mode='alert': {frequency: every_match|on_breach, metric, threshold, "
+            "window_days}. every_match notifies about each new match since the previous check; on_breach "
+            "fires when the metric reaches the threshold over a rolling window, after `selection` targeting."
+        ),
+    )
+    # How many observations may feed one group summary. When the window holds more, they're sampled
+    # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
+    max_observations = models.PositiveIntegerField(
+        default=100,
+        validators=[MinValueValidator(1)],
+        help_text="Max observations included in one group summary; sampled across the window when exceeded.",
+    )
     delivery_config = models.JSONField(
         default=list,
         help_text="List of destination targets, e.g. [{type: 'slack', integration_id, channel}].",
@@ -98,6 +138,11 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "name"], name="vision_action_unique_team_name"),
+            models.UniqueConstraint(
+                fields=["scanner"],
+                condition=models.Q(is_scanner_digest=True),
+                name="vision_action_unique_scanner_digest",
+            ),
         ]
         indexes = [
             models.Index(
@@ -180,6 +225,9 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     # generic so new channels don't each add a column. synthesized_markdown stays the canonical report.
     output = models.JSONField(default=dict)
     observation_count = models.PositiveIntegerField(default=0)
+    # UUIDs of the ReplayObservations this run's summary actually included, in summary order. Empty for
+    # runs created before this was tracked (and for skipped/failed runs that summarized nothing).
+    observation_ids = models.JSONField(default=list)
     error = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

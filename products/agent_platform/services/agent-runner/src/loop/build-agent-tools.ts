@@ -220,10 +220,10 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
         alwaysOn.push('@posthog/load-skill')
     }
     // `@posthog/identity-connect` lets the agent mint a connect/reconnect link on
-    // demand — included whenever the agent has any linkable identity (declared
-    // providers, or an MCP that authenticates through one), so the agent can hand
-    // the user a link proactively instead of only after a tool/MCP auth failure.
-    if (rev.spec.identity_providers.length > 0 || rev.spec.mcps.some((m) => m.auth?.provider)) {
+    // demand. Only declared providers are linkable: an MCP can reference the
+    // implicit seed-only PostHog provider used by chat/MCP trigger passthrough,
+    // and offering a reconnect flow for that provider is both useless and wrong.
+    if (rev.spec.identity_providers.length > 0) {
         alwaysOn.push('@posthog/identity-connect')
     }
     const all = [...alwaysOn.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
@@ -283,7 +283,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             continue
         }
         // custom — schema + description from the bundle, dispatched via sandbox.
-        const { description, parameters } = await loadCustomSchema(rev, t.id, t.path, deps.bundle)
+        const { description, parameters } = await loadCustomSchema(rev, t.id, t.path, deps.bundle, deps.log)
         tools.push(makeCustomTool(t.id, description, parameters, deps, t.requires_identity))
     }
 
@@ -614,17 +614,23 @@ async function loadCustomSchema(
     rev: AgentRevision,
     id: string,
     path: string,
-    bundle: BundleStore
+    bundle: BundleStore,
+    log: AgentToolDeps['log']
 ): Promise<{ description: string; parameters: TSchema }> {
     const schemaPath = `${path.replace(/\/$/, '')}/schema.json`
     try {
         const raw = await bundle.readText(rev.id, schemaPath)
-        const schema = JSON.parse(raw) as { description?: string; args?: unknown }
+        const schema = JSON.parse(raw) as { description?: string; args_schema?: unknown }
+        const parameters = schema.args_schema as TSchema | undefined
+        if (parameters == null) {
+            log('warn', 'custom_tool.schema_missing_args_schema', { id, schemaPath })
+        }
         return {
             description: schema.description ?? `custom tool ${id}`,
-            parameters: (schema.args as TSchema) ?? ({ type: 'object' } as unknown as TSchema),
+            parameters: parameters ?? ({ type: 'object' } as unknown as TSchema),
         }
-    } catch {
+    } catch (err) {
+        log('warn', 'custom_tool.schema_unreadable', { id, schemaPath, err: (err as Error).message })
         return { description: `custom tool ${id}`, parameters: { type: 'object' } as unknown as TSchema }
     }
 }

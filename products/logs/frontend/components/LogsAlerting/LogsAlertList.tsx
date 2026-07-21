@@ -1,20 +1,30 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBell } from '@posthog/icons'
+import { IconBell, IconEllipsis } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
     LemonSwitch,
     LemonTable,
+    LemonTableColumn,
     LemonTableColumns,
     LemonTag,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
+} from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
@@ -25,7 +35,7 @@ import {
     NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
-    ThresholdOperatorEnumApi,
+    LogsAlertThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -33,15 +43,39 @@ import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
+const DESTINATION_TAGS = [
+    { type: NotificationDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
+    { type: NotificationDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
+    { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+] as const
+
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
-    const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
+    const operator = alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 
+export function LogsAlertDestinationTags({
+    types,
+}: {
+    types: readonly NotificationDestinationTypeEnumApi[]
+}): JSX.Element {
+    return (
+        <div className="flex gap-1">
+            {DESTINATION_TAGS.filter(({ type }) => types.includes(type)).map(({ type, label, icon }) => (
+                <LemonTag key={type}>
+                    <img src={icon} alt="" className="h-3 w-3 object-contain" />
+                    {label}
+                </LemonTag>
+            ))}
+        </div>
+    )
+}
+
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, creatingAlert } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, creatingAlert, createdByFilter } = useValues(logsAlertingLogic)
     const {
         setEditingAlert,
+        setCreatedByFilter,
         deleteAlert,
         toggleAlertEnabled,
         resetAlert,
@@ -139,26 +173,7 @@ export function LogsAlertList(): JSX.Element {
                 }
                 return (
                     <div className="flex items-center gap-1">
-                        <div className="flex gap-1">
-                            {types.includes(NotificationDestinationTypeEnumApi.Slack) && (
-                                <LemonTag>
-                                    <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
-                                    Slack
-                                </LemonTag>
-                            )}
-                            {types.includes(NotificationDestinationTypeEnumApi.Webhook) && (
-                                <LemonTag>
-                                    <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
-                                    Webhook
-                                </LemonTag>
-                            )}
-                            {types.includes(NotificationDestinationTypeEnumApi.Teams) && (
-                                <LemonTag>
-                                    <img src={IconMicrosoftTeams} alt="" className="h-3 w-3 object-contain" />
-                                    Teams
-                                </LemonTag>
-                            )}
-                        </div>
+                        <LogsAlertDestinationTags types={types} />
                         <LemonButton
                             size="small"
                             type="tertiary"
@@ -170,15 +185,10 @@ export function LogsAlertList(): JSX.Element {
                 )
             },
         },
-        {
-            title: 'Created by',
-            dataIndex: 'created_by',
-            render: (_, alert) => (
-                <span className="text-muted text-xs">
-                    {alert.created_by?.first_name || alert.created_by?.email || '—'}
-                </span>
-            ),
-        },
+        createdByColumn() as unknown as LemonTableColumn<
+            LogsAlertConfigurationApi,
+            keyof LogsAlertConfigurationApi | undefined
+        >,
         {
             title: 'Enabled',
             dataIndex: 'enabled',
@@ -197,69 +207,75 @@ export function LogsAlertList(): JSX.Element {
         },
         {
             title: '',
-            render: (_, alert) => (
-                <More
-                    overlay={
-                        <LemonMenuOverlay
-                            items={[
-                                {
-                                    label: 'Edit',
-                                    onClick: () => setEditingAlert(alert),
-                                },
-                                {
-                                    label: 'View history',
-                                    onClick: () => setViewingHistoryAlert(alert),
-                                },
-                                alert.state === LogsAlertConfigurationStateEnumApi.Snoozed
-                                    ? {
-                                          label: 'Unsnooze',
-                                          onClick: () => unsnoozeAlert(alert.id),
-                                      }
-                                    : {
-                                          label: 'Snooze',
-                                          items: SNOOZE_DURATIONS.map((d) => ({
-                                              label: d.label,
-                                              onClick: () => snoozeAlert(alert.id, d.minutes),
-                                          })),
-                                      },
-                                ...(alert.state === LogsAlertConfigurationStateEnumApi.Broken
-                                    ? [
-                                          {
-                                              label: resettingAlertIds.has(alert.id) ? 'Resetting…' : 'Reset alert',
-                                              onClick: () => resetAlert(alert.id),
-                                              disabledReason: resettingAlertIds.has(alert.id)
-                                                  ? 'Reset in progress'
-                                                  : undefined,
-                                          },
-                                      ]
-                                    : []),
-                                {
-                                    'data-attr': 'logs-alert-row-delete',
-                                    label: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => {
-                                        LemonDialog.open({
-                                            title: `Delete "${alert.name}"?`,
-                                            description:
-                                                'This alert will be permanently deleted. This action cannot be undone.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                status: 'danger',
-                                                onClick: () => deleteAlert(alert.id),
-                                                'data-attr': 'logs-alert-delete-confirm',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    },
-                                },
-                            ]}
+            render: (_, alert) => {
+                const isResetting = resettingAlertIds.has(alert.id)
+
+                return (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger
+                            render={
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label={`More options for ${alert.name}`}
+                                />
+                            }
                         />
-                    }
-                />
-            ),
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setEditingAlert(alert)}>Edit</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setViewingHistoryAlert(alert)}>
+                                View history
+                            </DropdownMenuItem>
+                            {alert.state === LogsAlertConfigurationStateEnumApi.Snoozed ? (
+                                <DropdownMenuItem onClick={() => unsnoozeAlert(alert.id)}>Unsnooze</DropdownMenuItem>
+                            ) : (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>Snooze</DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {SNOOZE_DURATIONS.map((duration) => (
+                                            <DropdownMenuItem
+                                                key={duration.minutes}
+                                                onClick={() => snoozeAlert(alert.id, duration.minutes)}
+                                            >
+                                                {duration.label}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            )}
+                            {alert.state === LogsAlertConfigurationStateEnumApi.Broken ? (
+                                <DropdownMenuItem disabled={isResetting} onClick={() => resetAlert(alert.id)}>
+                                    {isResetting ? 'Resetting…' : 'Reset alert'}
+                                </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem
+                                variant="destructive"
+                                data-attr="logs-alert-row-delete"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: `Delete "${alert.name}"?`,
+                                        description:
+                                            'This alert will be permanently deleted. This action cannot be undone.',
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            type: 'primary',
+                                            status: 'danger',
+                                            onClick: () => deleteAlert(alert.id),
+                                            'data-attr': 'logs-alert-delete-confirm',
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }}
+                            >
+                                Delete
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )
+            },
         },
     ]
 
@@ -269,7 +285,11 @@ export function LogsAlertList(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                    <span>Created by:</span>
+                    <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.uuid ?? null)} />
+                </div>
                 <LemonButton
                     type="primary"
                     size="small"
@@ -285,7 +305,7 @@ export function LogsAlertList(): JSX.Element {
                 dataSource={alerts}
                 rowKey="id"
                 loading={alertsLoading}
-                emptyState="No alerts configured yet."
+                emptyState={createdByFilter ? 'No alerts match this filter.' : 'No alerts configured yet.'}
                 size="small"
                 pagination={{ pageSize: 30 }}
                 nouns={['alert', 'alerts']}

@@ -24,8 +24,8 @@ export function GroupCaption({ groupData, groupTypeName }: GroupCaptionProps): J
                     {groupData.group_key}
                 </CopyToClipboardInline>
             </div>
-            <div>
-                <span className="text-secondary">First seen:</span>{' '}
+            <div className="flex items-center gap-1">
+                <span className="text-secondary">First seen:</span>
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
             </div>
         </div>

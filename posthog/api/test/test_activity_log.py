@@ -332,6 +332,13 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         # Cross-org row does NOT appear
         assert "flag-outside" not in item_ids
 
+    def test_invalid_filter_is_rejected(self) -> None:
+        # Wiring guard: the viewset must run AdvancedActivityLogFiltersSerializer on the query params.
+        # The exhaustive filter-shape matrix is unit-tested without a DB in
+        # TestAdvancedActivityLogFiltersSerializerValidation (advanced_activity_logs/test_filters.py).
+        res = self._list(ip_addresses="not-an-ip")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("owner", OrganizationMembership.Level.OWNER, status.HTTP_200_OK),

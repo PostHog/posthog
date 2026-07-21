@@ -1,5 +1,6 @@
 from typing import Optional
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
@@ -40,20 +41,34 @@ class TeamIntegrationResolver:
 
 
 def resolve_github_integration(
-    github_integration_id: Optional[int], github_user_integration_id: Optional[str]
+    github_integration_id: Optional[int],
+    github_user_integration_id: Optional[str],
+    *,
+    priority: Priority = Priority.BATCH,
 ) -> GitHubIntegrationBase | None:
     """Instantiate the GitHub integration for the given ids, refreshing an expired token.
 
+    Defaults to the sheddable BATCH lane: code-workstreams sweeps are deferrable bulk, so the
+    egress limiter sheds them before user-facing traffic when an installation's budget runs hot.
+    Interactive callers (the diagnostic management command) override to CRITICAL.
+
     Raises ``ObjectDoesNotExist`` if the id no longer resolves; may also raise on token-refresh failure.
     """
+    integration: GitHubIntegrationBase
     if github_integration_id is not None:
-        integration = GitHubIntegration(Integration.objects.get(id=github_integration_id))
-        if integration.access_token_expired():
-            integration.refresh_access_token()
-        return integration
-    if github_user_integration_id is not None:
-        user_integration = UserGitHubIntegration(UserIntegration.objects.get(id=github_user_integration_id))
-        if user_integration.access_token_expired():
-            user_integration.refresh_access_token()
-        return user_integration
-    return None
+        integration = GitHubIntegration(
+            Integration.objects.get(id=github_integration_id),
+            source="code_workstreams",
+            priority=priority,
+        )
+    elif github_user_integration_id is not None:
+        integration = UserGitHubIntegration(
+            UserIntegration.objects.get(id=github_user_integration_id),
+            source="code_workstreams",
+            priority=priority,
+        )
+    else:
+        return None
+    if integration.access_token_expired():
+        integration.refresh_access_token()
+    return integration

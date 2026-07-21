@@ -894,6 +894,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Assessed heatmap' : 'Assessing heatmap...'
         },
     },
+    summarize_website_interactions: {
+        name: 'Summarize website interactions',
+        description:
+            "Summarize website interactions by fusing the aggregate heatmap with Replay Vision's per-session narratives — the numbers and the why",
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed'
+                ? 'Summarized website interactions'
+                : 'Summarizing website interactions...'
+        },
+    },
     marketing_diagnose_setup: {
         name: 'Diagnose marketing analytics',
         description:
@@ -1248,7 +1260,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Create custom parsers',
         description: 'Create custom parsers to control how AI observability events are displayed',
         icon: iconForType('llm_analytics'),
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS,
         clientExecuted: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {

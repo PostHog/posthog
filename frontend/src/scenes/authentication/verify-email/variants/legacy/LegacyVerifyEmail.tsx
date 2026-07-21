@@ -4,16 +4,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { HedgehogShocked } from '@posthog/brand/hoggies'
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from '../../verifyEmailLogic'
+
+const HedgehogShocked = pngHoggie(shockedPng)
 
 interface SupportButtonsProps {
     disabledReason?: string
@@ -170,10 +174,10 @@ function VerifyEmail(): JSX.Element {
                         {view === 'success' && (
                             <div aria-hidden className="VerifyEmail__ProgressBar">
                                 <div
-                                    className={clsx(
-                                        'VerifyEmail__ProgressBarTrack',
-                                        process.env.STORYBOOK && 'VerifyEmail__ProgressBarTrack--static'
-                                    )}
+                                    className={clsx('VerifyEmail__ProgressBarTrack', {
+                                        'VerifyEmail__ProgressBarTrack--static':
+                                            inStorybook() || inStorybookTestRunner(),
+                                    })}
                                 />
                             </div>
                         )}

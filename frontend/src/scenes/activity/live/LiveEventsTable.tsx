@@ -54,7 +54,7 @@ export function LiveEventsTable(): JSX.Element {
             <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
             <LemonBanner type="info" className="mb-4" icon={<IconTerminal />} dismissKey="livestream-tui-banner">
                 Stream live events directly in your terminal with <code>posthog-live</code>.{' '}
-                <Link to="https://posthog.com/docs/live-events/cli" target="_blank">
+                <Link to="https://posthog.com/docs/activity#terminal-live-events-posthog-live" target="_blank">
                     Learn more
                 </Link>
             </LemonBanner>

@@ -86,13 +86,11 @@ class ExperimentQueryBuilder:
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
-        funnel_steps_data_disabled: bool = False,
         cuped_config: CupedQueryConfig | None = None,
     ):
         self.team = team
         self.metric = metric
         self.only_count_matured_users = only_count_matured_users
-        self.funnel_steps_data_disabled = funnel_steps_data_disabled
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -120,7 +118,6 @@ class ExperimentQueryBuilder:
             entity_key=self.entity_key,
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
-            funnel_steps_data_disabled=self.funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 

@@ -31,6 +31,9 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import (
     asave_saved_query,
     validate_saved_query_name,
 )
+from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -45,6 +48,7 @@ __all__ = [
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
     "DataWarehouseSavedQuery",
+    "DataWarehouseSavedQueryColumnAnnotation",
     "DataWarehouseSavedQueryDraft",
     "Edge",
     "Graph",

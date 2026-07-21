@@ -4,9 +4,9 @@ Tests for experiment contracts (DTOs).
 These tests verify that our frozen dataclasses are immutable,
 hashable, and have the correct structure.
 
-NOTE: Tests for FeatureFlagVariant and CreateFeatureFlagInput were removed
-in PR #4 to keep the facade simple. The facade only supports the old
-parameters format for now.
+The parameters field carries experiment-own metadata (variant_notes,
+prompt_metadata, custom_exposure_filter) only; flag config goes through
+the experiment's feature_flag object, not here.
 """
 
 from datetime import UTC, datetime
@@ -114,7 +114,7 @@ class TestContractHashability:
         input_dto = CreateExperimentInput(
             name="Test",
             feature_flag_key="test-flag",
-            parameters={"feature_flag_variants": [{"key": "control", "rollout_percentage": 50}]},
+            parameters={"variant_notes": {"control": "baseline"}},
         )
 
         with pytest.raises(TypeError, match="unhashable type"):
@@ -135,20 +135,15 @@ class TestCreateExperimentInput:
         assert input_dto.parameters is None
 
     def test_create_experiment_input_with_parameters_format(self):
-        """Test creating experiment with parameters format."""
+        """parameters carries experiment-own keys (variant_notes), not flag config."""
         input_dto = CreateExperimentInput(
             name="My Experiment",
             feature_flag_key="my-flag",
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
-            },
+            parameters={"variant_notes": {"control": "baseline", "test": "new"}},
         )
 
         assert input_dto.parameters is not None
-        assert "feature_flag_variants" in input_dto.parameters
+        assert "variant_notes" in input_dto.parameters
 
 
 @freeze_time("2026-03-21T12:00:00Z")

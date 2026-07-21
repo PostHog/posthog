@@ -9,7 +9,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VercelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import VercelResumeConfig
@@ -53,8 +53,6 @@ class TestVercelSource:
         assert config.label == "Vercel"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until it's been exercised against the live API.
-        assert config.unreleasedSource is True
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}

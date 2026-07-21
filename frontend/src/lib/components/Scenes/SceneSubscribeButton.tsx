@@ -9,8 +9,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { subscriptionsLogic } from '../Subscriptions/subscriptionsLogic'
-import { SubscriptionBaseProps, urlForSubscriptions } from '../Subscriptions/utils'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
+import {
+    SubscriptionBaseProps,
+    urlForSubscriptions,
+} from 'products/subscriptions/frontend/components/Subscriptions/utils'
+
 import { SceneDataAttrKeyProps } from './utils'
 
 interface SceneSubscribeButtonProps extends SubscriptionBaseProps, SceneDataAttrKeyProps {

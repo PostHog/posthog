@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
+    ReplayScannerPromptSuggestionViewSet,
     ReplayScannerViewSet,
     SessionReplayObservationViewSet,
     VisionActionRunViewSet,
@@ -19,6 +20,18 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     project_vision_scanners_router.register(
         r"observations", ReplayObservationViewSet, "project_vision_scanner_observations", ["team_id", "scanner_id"]
+    )
+    environment_vision_scanners_router.register(
+        r"prompt_suggestions",
+        ReplayScannerPromptSuggestionViewSet,
+        "environment_vision_scanner_prompt_suggestions",
+        ["team_id", "scanner_id"],
+    )
+    project_vision_scanners_router.register(
+        r"prompt_suggestions",
+        ReplayScannerPromptSuggestionViewSet,
+        "project_vision_scanner_prompt_suggestions",
+        ["team_id", "scanner_id"],
     )
     routers.register_legacy_dual_route(
         r"vision/observations", SessionReplayObservationViewSet, "project_vision_observations", ["team_id"]

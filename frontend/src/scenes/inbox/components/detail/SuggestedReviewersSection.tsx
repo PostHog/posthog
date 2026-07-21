@@ -12,7 +12,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
 
 const MAX_VISIBLE_REVIEWERS = 5
-import { RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import {
     AvailableReviewerOption,
     getReviewerOptionDisplayName,
@@ -105,16 +105,18 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     }
 
     return (
-        <RightColumnSection
+        <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
+            afterTitle={
+                <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
+                    <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">
+                        <IconInfo />
+                    </span>
+                </Tooltip>
+            }
             rightSlot={
                 <div className="flex items-center gap-2">
-                    <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
-                        <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">
-                            <IconInfo />
-                        </span>
-                    </Tooltip>
                     {isUpdatingReviewers && <Spinner className="size-3" />}
                     <LemonDropdown
                         visible={addOpen}
@@ -221,7 +223,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     )}
                 </div>
             )}
-        </RightColumnSection>
+        </DetailSection>
     )
 }
 
@@ -235,7 +237,7 @@ function ReviewerRow({
     onRemove: () => void
 }): JSX.Element {
     const displayName = reviewer.github_name ?? reviewer.user?.first_name ?? reviewer.github_login
-    const reason = reviewer.relevant_commits[0]?.reason ?? null
+    const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
     const githubUrl = reviewer.github_login ? `https://github.com/${reviewer.github_login}` : null
 
     const person = (

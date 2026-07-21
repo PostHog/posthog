@@ -3,12 +3,24 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import { HeatmapAdvancedSettings } from 'scenes/heatmaps/components/HeatmapAdvancedSettings'
+import { HeatmapRecordingFallback } from 'scenes/heatmaps/components/HeatmapRecordingFallback'
+import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 export function HeatmapHeader(): JSX.Element {
-    const { pageUrlDraft, isPageUrlDraftValid, pageUrlDraftIsPattern, loading, screenshotError } =
-        useValues(heatmapLogic)
+    const {
+        pageUrlDraft,
+        isPageUrlDraftValid,
+        pageUrlDraftIsPattern,
+        loading,
+        screenshotError,
+        displayUrl,
+        displayUrlIsPattern,
+        type,
+    } = useValues(heatmapLogic)
+    const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
     const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot } = useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
@@ -54,9 +66,10 @@ export function HeatmapHeader(): JSX.Element {
                                 <HeatmapsInvalidURL />
                             )
                         ) : null}
+                        {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
                     </div>
-                    {screenshotError && (
-                        <div>
+                    {type === 'screenshot' && screenshotError && (
+                        <div className="flex flex-col gap-2">
                             <LemonBanner
                                 type="error"
                                 action={{
@@ -66,6 +79,15 @@ export function HeatmapHeader(): JSX.Element {
                             >
                                 {screenshotError}
                             </LemonBanner>
+                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
+                        </div>
+                    )}
+                    {type === 'iframe' && iframeBanner?.level === 'error' && (
+                        <div className="flex flex-col gap-2">
+                            <LemonBanner type="error">
+                                The page failed to load in an iframe (or is very slow). Some sites block being embedded.
+                            </LemonBanner>
+                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>
                     )}
                     <HeatmapAdvancedSettings

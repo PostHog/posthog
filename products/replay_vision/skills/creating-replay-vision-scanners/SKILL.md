@@ -58,7 +58,7 @@ Before creating, run both checks and reason about them together:
    It returns `matched_sessions_in_window`, the `window_days` measured, and
    `estimated_observations_per_month`.
 2. **Check budget** — call `vision-quota-retrieve` for `remaining` and `exhausted` against the org's monthly
-   `monthly_quota`.
+   `credit_limit` (credits, 1 credit = $0.01; `null` when uncapped).
 
 Then decide:
 

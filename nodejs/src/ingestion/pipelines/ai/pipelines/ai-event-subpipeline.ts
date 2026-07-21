@@ -1,5 +1,4 @@
 import { AsyncOutput, EVENTS_OUTPUT } from '~/common/outputs'
-import type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
@@ -11,13 +10,20 @@ import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-proc
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import type {
+    AiEventSubpipelineConfig,
+    AiEventSubpipelineInput,
+} from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
 
-export type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
+export type {
+    AiEventSubpipelineConfig,
+    AiEventSubpipelineInput,
+} from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
@@ -55,21 +61,27 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                     }),
                     (result) => (isDropResult(result) ? 1 : 0)
                 ),
-            ])
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
         .pipe(createProcessAiEventStep())
-        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS))
+        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
+            retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
+        })
         .pipe(
             topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,
                 })),
-            ])
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
         )
         .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options), {
+            retry: { tries: 5, sleepMs: 100, name: 'process_groups' },
+        })
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(createSplitAiEventsStep())
         .pipe(
@@ -101,7 +113,8 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                         (input) => input.eventsToEmit.length
                     ),
                 ]
-            )
+            ),
+            { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
         )
         .pipe(createRecordIngestionLagStep())
 }

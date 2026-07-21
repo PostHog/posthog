@@ -66,7 +66,7 @@ root_files:
                 "extends": ["//"],
                 "tasks": {{
                     "backend:contract-check": {{
-                        "inputs": ["backend/facade/**", "backend/presentation/**"],
+                        "inputs": ["backend/facade/**", "backend/presentation/**", "backend/tasks/**"],
                         "outputs": [],
                         "cache": true
                     }}

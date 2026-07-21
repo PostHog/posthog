@@ -31,8 +31,7 @@ class EvaluationStatus(models.TextChoices):
 
 
 class EvaluationStatusReason(models.TextChoices):
-    TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
-    MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
+    PROVIDER_KEY_REQUIRED = "provider_key_required", "No provider API key configured"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
     NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
     PROVIDER_KEY_INVALID = "provider_key_invalid", "Provider API key is invalid"
@@ -41,6 +40,11 @@ class EvaluationStatusReason(models.TextChoices):
     PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
     MODEL_NOT_FOUND = "model_not_found", "Model not found"
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
+
+
+class EvaluationQuerySet(models.QuerySet):
+    def using_provider_keys(self) -> "EvaluationQuerySet":
+        return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
 
 
 class EvaluationTarget(models.TextChoices):
@@ -57,6 +61,15 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
         ]
+        constraints = [
+            models.CheckConstraint(
+                name="model_config_only_on_llm_judge",
+                condition=models.Q(model_configuration__isnull=True)
+                | models.Q(evaluation_type=EvaluationType.LLM_JUDGE),
+            ),
+        ]
+
+    objects = EvaluationQuerySet.as_manager()
 
     # Core fields
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)

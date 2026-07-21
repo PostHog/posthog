@@ -13,7 +13,8 @@ fn setup_tracing() {
         EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
             .from_env_lossy()
-            .add_directive("pyroscope=warn".parse().unwrap()),
+            .add_directive("pyroscope=warn".parse().unwrap())
+            .add_directive("rdkafka=warn".parse().unwrap()),
     );
     tracing_subscriber::registry().with(log_layer).init();
 }

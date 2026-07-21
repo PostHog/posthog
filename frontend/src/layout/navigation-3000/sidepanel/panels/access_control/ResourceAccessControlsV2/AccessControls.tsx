@@ -30,6 +30,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         filteredMembers,
         canEdit,
         loading,
+        visibleResourceKeySet,
     } = useValues(logic)
 
     const { setActiveTab, setSearchText, setFilters, openRuleModal } = useActions(logic)
@@ -75,6 +76,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
+                                visibleResources={visibleResourceKeySet}
                                 onEdit={(entry) => openRuleModal({ scopeType, entry, projectId })}
                             />
                         </div>

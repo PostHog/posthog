@@ -1,7 +1,7 @@
 import { IconLock } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 /**
@@ -12,8 +12,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 export function MaxNotConfigured(): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center text-center grow gap-4 px-4 py-8 max-w-prose mx-auto">
-            <div className="flex *:h-full *:w-12 p-2 select-none opacity-60">
-                <Logomark />
+            <div className="flex p-2 select-none opacity-60">
+                <Logomark size="md" />
             </div>
             <div>
                 <h2 className="text-xl font-bold mb-2 flex items-center justify-center gap-2">

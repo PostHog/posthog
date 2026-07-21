@@ -35,6 +35,8 @@ FORBIDDEN_AT_SETUP = [
     "pandas",  # only query/export paths need it — reached via clickhouse_connect's import-time probe
     "pyarrow",  # arrow tables — reached via pandas.compat and batch-export internals, both deferred
     "numpy",  # alert detectors / weighted sampling / warehouse coercion — all call-time now
+    "openai",  # OpenAI SDK — pulled by posthog.llm.gateway_client, whose callers defer it to call time
+    "anthropic",  # Anthropic SDK — same door as openai (posthog.llm.gateway_client)
     "posthog.schema",  # the generated pydantic data model (~2s) — enums live in posthog.schema_enums
     "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)

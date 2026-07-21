@@ -57,7 +57,7 @@
         "@posthog/quill-primitives": "workspace:*",
         "@posthog/quill-tokens": "workspace:*",
         "tsx": "^4.19.0",
-        "vite": "^6.3.5",
+        "vite": "catalog:",
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {

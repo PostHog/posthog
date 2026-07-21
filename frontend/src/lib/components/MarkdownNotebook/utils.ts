@@ -123,6 +123,7 @@ function getUncachedNodeFingerprint(node: NotebookBlockNode): string {
         return JSON.stringify({
             type: node.type,
             level: node.level,
+            blockquote: node.blockquote,
             children: node.children,
         })
     }

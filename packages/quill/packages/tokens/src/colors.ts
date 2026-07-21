@@ -100,6 +100,13 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // list rows): light hsl(70 16% 93%), dark hsl(240 8% 10%), in OKLCH.
         muted: [surface(0.953, 1.28, 'light'), surface(0.209, 1.33, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
+        // One step quieter than muted-foreground — tertiary meta text (attachment
+        // filenames, reply meta). Derived from muted-foreground so it tracks it.
+        'subtle-foreground': [
+            'color-mix(in oklab, var(--muted-foreground) 80%, transparent)',
+            'color-mix(in oklab, var(--muted-foreground) 80%, transparent)',
+            'text-subtle-foreground',
+        ],
 
         // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
         // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
@@ -128,7 +135,10 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         'warning-foreground': [oklch(0.476, 0.114, 61.907), oklch(0.77, 0.14, 99.29), 'text-warning-foreground'],
 
         info: [oklch(0.882, 0.059, 254.128), oklch(0.4242, 0.1982, 265.5, 0.4), 'bg-info'],
-        'info-foreground': [oklch(0.49, 0.02, 254), oklch(0.882, 0.059, 254.128), 'text-info-foreground'],
+        'info-foreground': [oklch(0.42, 0.03, 253.9), oklch(0.882, 0.059, 254.128), 'text-info-foreground'],
+
+        completed: [oklch(0.93, 0.05, 303.9), oklch(0.28, 0.05, 302.7), 'bg-completed'],
+        'completed-foreground': [oklch(0.46, 0.25, 287.35), oklch(0.81, 0.06, 301.45), 'text-completed-foreground'],
 
         // ── Borders & rings (theme-derived) ───────────
         border: [surface(0.9, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],

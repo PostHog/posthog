@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { JumpingLogomark } from 'lib/brand/JumpingLogomark'
+import { Logomark } from 'lib/brand'
 
 import { AILiabilityNotice } from './components/AILiabilityNotice'
 import { MaxChangelog } from './components/MaxChangelog'
@@ -19,7 +19,9 @@ export function Intro({
 
     return (
         <>
-            <JumpingLogomark className="flex *:h-full *:w-12 p-2" />
+            <div className="flex p-2">
+                <Logomark jumpOnClick size="md" />
+            </div>
             <div className="text-center mb-1">
                 <h2 className="text-xl @2xl/main-content:text-2xl font-bold mb-2 text-balance">{headlineToUse}</h2>
                 {subheadlineToUse && (

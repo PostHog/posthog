@@ -19,8 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MollieSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mollie import MollieSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.mollie import (
     MollieResumeConfig,
     mollie_source,
@@ -32,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.mollie.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -42,6 +49,11 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.mollie.com": "Mollie authentication failed. Please check your API key.",
             "403 Client Error: Forbidden for url: https://api.mollie.com": "Mollie denied access. Please check that your API key has access to this data.",
+            # Mollie rejects profile-scoped list endpoints with a 400 when the credential is an
+            # organization/OAuth access token, which needs an explicit profile a regular API key
+            # supplies implicitly. The request shape is fixed, so retrying replays the same failure.
+            # The match is any Mollie 400, so the message leads with the common cause but hedges.
+            "400 Client Error: Bad Request for url: https://api.mollie.com": "Mollie rejected the request as a Bad Request (400). The most common cause is connecting an organization or OAuth access token, which needs a specific profile that a regular API key supplies implicitly — reconnect with a regular Mollie API key (starts with `live_` or `test_`). If you are already using a regular API key, contact support so we can investigate.",
         }
 
     @property
@@ -87,22 +99,9 @@ You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashbo
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # No Mollie list endpoint exposes a server-side date filter, and mutable
-        # objects change status after creation, so every stream is full refresh.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # objects change status after creation, so every stream is full refresh
+        # (no incremental fields -> full refresh only).
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: MollieSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -124,6 +123,8 @@ You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashbo
         return mollie_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Mollie endpoint is full refresh
         )

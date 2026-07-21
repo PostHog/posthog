@@ -8,7 +8,7 @@ import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemo
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
+import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
 import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
 import { SourceIcon } from './SourceIcon'
@@ -203,8 +203,12 @@ function InternalInlineSourceSetup({
 export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
+    }
+
+    if (availableSources === null) {
+        return <AvailableSourcesError />
     }
 
     return (

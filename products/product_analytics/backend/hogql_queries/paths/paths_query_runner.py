@@ -887,7 +887,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="PathsQuery",

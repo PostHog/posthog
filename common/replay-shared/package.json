@@ -12,6 +12,7 @@
     },
     "dependencies": {
         "fflate": "^0.8.2",
+        "fzstd": "^0.1.1",
         "hls.js": "^1.5.7",
         "posthog-js": "catalog:"
     },
@@ -19,6 +20,7 @@
         "@swc/core": "^1.11.29",
         "@swc/jest": "^0.2.37",
         "@types/jest": "catalog:",
-        "jest": "^29.7.0"
+        "jest": "^29.7.0",
+        "jest-junit": "catalog:"
     }
 }

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
     DataWarehouseTableColumns,
+    hogql_fields_and_structure_for_columns,
 )
 
 # Table/type resolution used by the HogQL database builder and query runners. These return
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.models.util import (
     STR_TO_HOGQL_MAPPING,
     clean_type,
     get_view_or_table_by_name,
+    reconstruct_ordered_columns,
     remove_named_tuples,
 )
 
@@ -46,5 +48,7 @@ __all__ = [
     "ExternalDataSource",
     "clean_type",
     "get_view_or_table_by_name",
+    "hogql_fields_and_structure_for_columns",
+    "reconstruct_ordered_columns",
     "remove_named_tuples",
 ]

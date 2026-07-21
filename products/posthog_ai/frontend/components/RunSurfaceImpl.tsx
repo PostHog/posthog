@@ -1,11 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { createContext, type ReactNode, useContext, useEffect } from 'react'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
-import { OriginProduct } from '../types/taskTypes'
+import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
@@ -15,8 +15,15 @@ import { ThreadView } from './ThreadView'
 
 export interface RunSurfaceProps {
     taskId: string
-    runId: string
-    /** Stable logic key; defaults to `runId` (the run is the unit being viewed). */
+    /**
+     * The run to bootstrap and stream. Pass `null`/`''` to mount in a **pending** state — the thread renders
+     * whatever's seeded in the bound `runStreamLogic` (an optimistic first message + provisioning via
+     * `startOptimisticRun`) and never bootstraps; supply the real id once created to attach it on the same
+     * instance (seed-preserving fast path). Requires an explicit `streamKey` while pending, since there's no
+     * run id to key on.
+     */
+    runId: string | null
+    /** Stable logic key; defaults to `runId` (the run is the unit being viewed). Required when `runId` is pending. */
     streamKey?: string
     /** Telemetry tag only — omit for conversation-less runs (automation, Slack, signals, PR-triggered). */
     conversationId?: string
@@ -38,8 +45,8 @@ export interface RunSurfaceProps {
 // the slots are presentational and the composer UI is supplied by the consumer as children.
 
 interface RunSurfaceContextValue {
-    /** Original run id passed to `bootstrapRun`. */
-    rawRunId: string
+    /** Original run id passed to `bootstrapRun`; `null`/`''` while the surface is pending (no run yet). */
+    rawRunId: string | null
     /** Logic key (used for child stream keys). */
     runId: string
     interaction: 'live' | 'read-only'
@@ -77,18 +84,38 @@ function RunSurfaceRoot({
     children,
 }: RunSurfaceRootProps): JSX.Element {
     const replayOnly = interaction !== 'live'
-    const logicKey = streamKey ?? runId
+    // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
+    const logicKey = streamKey ?? runId ?? ''
 
-    // The scout flag lives on the task (not the run), so the surface owns loading it once and exposing it
-    // to the slots — the runner already has the task loaded, a live embed fetches it here. Only the
-    // context-usage line consumes this, and only in live mode, so a read-only embed never fetches.
-    const { task, taskLoading } = useValues(taskLogic({ taskId }))
+    // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
+    // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
+    const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
-        if (interaction === 'live' && !task && !taskLoading) {
+        // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
+        if (taskId && !task && !taskLoading && !taskError && !taskNotFound) {
             loadTask()
         }
-    }, [interaction, task, taskLoading, loadTask])
+    }, [taskId, task, taskLoading, taskError, taskNotFound, loadTask])
+
+    if (taskId && !task) {
+        if (taskNotFound) {
+            return <LemonBanner type="error">Task not found.</LemonBanner>
+        }
+        if (taskError) {
+            return (
+                <LemonBanner type="error">
+                    Couldn't load this task. <LemonButton onClick={loadTask}>Try again</LemonButton>
+                </LemonBanner>
+            )
+        }
+        return <RunLogSkeleton />
+    }
+
+    if (task && isPiTaskRuntime(task.runtime)) {
+        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
+    }
+
     const isScout = task?.origin_product === OriginProduct.SIGNALS_SCOUT
 
     return (
@@ -112,15 +139,48 @@ function RunSurfaceRoot({
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
     const { rawRunId, interaction } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
+    // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
+    // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
+    const { bootstrappedRunId, awaitingOptimisticAttach, currentProjectId } = useValues(runStreamLogic)
 
     useEffect(() => {
+        // Pending: no run to bootstrap yet — leave the seeded optimistic thread (first message +
+        // provisioning indicator) untouched until the consumer supplies the real id.
+        if (!rawRunId) {
+            return
+        }
+        // Wait for the project to resolve before bootstrapping — firing without it races to an
+        // unretryable "No current project" error; the effect re-runs once `currentProjectId` lands.
+        if (currentProjectId === null) {
+            return
+        }
+        // Already bootstrapped this run on this instance — idempotent across re-renders and across a
+        // consumer swap that adopts the same seeded instance (no reset, so the seed/stream survives).
+        if (bootstrappedRunId === rawRunId) {
+            return
+        }
+        if (awaitingOptimisticAttach) {
+            // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
+            // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
+            bootstrapRun({ taskId, runId: rawRunId, justCreatedRun: true })
+            return
+        }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
         // cleanly; the bound logic keys read-only instances apart from any live stream of the same run.
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
         bootstrapRun({ taskId, runId: rawRunId })
-    }, [taskId, rawRunId, interaction, bootstrapRun, reset])
+    }, [
+        taskId,
+        rawRunId,
+        interaction,
+        bootstrappedRunId,
+        awaitingOptimisticAttach,
+        currentProjectId,
+        bootstrapRun,
+        reset,
+    ])
 
     return null
 }
@@ -182,7 +242,7 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
         return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
     }
     return (
-        <div data-attr="composer" className="px-4 pb-4">
+        <div data-attr="composer" className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
             <LemonDivider className="mt-0 mb-4" />
             <div className="mx-auto w-full max-w-180">{children}</div>
         </div>

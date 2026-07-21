@@ -1582,10 +1582,19 @@ describe('survey filters', () => {
 describe('URL parameter synchronization', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/`]: () => [200, MULTIPLE_CHOICE_SURVEY],
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
         initKeaTests()
         logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
         logic.mount()
+        // loadSurvey fires on mount (with a breakpoint); let it settle inside the test
+        // so it doesn't resolve after the kea context is reset.
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('only includes non-empty filters in URL', async () => {
@@ -1819,10 +1828,20 @@ describe('survey stats calculation', () => {
         total_count_only_seen: totalCountOnlySeen,
     })
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MOCK_SURVEY_ID}/`]: () => [
+                    200,
+                    { ...MULTIPLE_CHOICE_SURVEY, id: MOCK_SURVEY_ID },
+                ],
+                [`/api/projects/:team/surveys/${MOCK_SURVEY_ID}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
         initKeaTests()
         logic = surveyLogic({ id: MOCK_SURVEY_ID })
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('should return null stats and zero rates when no base stats results', async () => {

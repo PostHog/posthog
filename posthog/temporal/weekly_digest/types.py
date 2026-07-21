@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Optional, TypeAlias
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, RootModel, field_validator
 
 from posthog.utils import get_instance_region
 
@@ -119,6 +119,31 @@ class DigestSurvey(BaseModel):
     start_date: datetime
 
 
+class DigestErrorIssue(BaseModel):
+    name: str = "Untitled issue"
+    id: UUID
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _default_name(cls, value: str | None) -> str:
+        return value or "Untitled issue"
+
+
+class UsageTrendMetric(BaseModel):
+    label: str  # e.g. "Events", "Active users"
+    current: int
+    previous: Optional[int] = None
+    change_pct: int = 0  # absolute rounded percentage; 0 when no meaningful comparison
+    direction: Literal["up", "down", "flat"] = "flat"
+    # False when there was no previous-week activity to compare against, so the template
+    # can render "new" instead of conflating 0 -> N growth with "no change".
+    has_baseline: bool = True
+
+
+class UsageTrends(BaseModel):
+    metrics: list[UsageTrendMetric] = []
+
+
 class DashboardList(RootModel):
     root: list[DigestDashboard]
 
@@ -154,6 +179,10 @@ class SurveyList(RootModel):
     root: list[DigestSurvey]
 
 
+class ErrorIssueList(RootModel):
+    root: list[DigestErrorIssue]
+
+
 PRODUCT_SUGGESTION_REASON_DEFAULTS: dict[str, str] = {
     "new_product": "This is a brand new product. Give it a try!",
     "sales_led": "This product is recommended for you by our team.",
@@ -186,6 +215,7 @@ DigestResourceType: TypeAlias = (
     | type[FeatureFlagList]
     | type[FilterList]
     | type[SurveyList]
+    | type[ErrorIssueList]
 )
 
 
@@ -201,8 +231,15 @@ class TeamDigest(BaseModel):
     filters: FilterList
     expiring_recordings: RecordingCount
     surveys_launched: SurveyList
+    # New signals. Defaults keep older callers/tests constructing TeamDigest working.
+    usage_trends: UsageTrends = UsageTrends()
+    error_issues: ErrorIssueList = ErrorIssueList(root=[])
 
     def _fields(self) -> list[RootModel]:
+        # NOTE: usage_trends is intentionally excluded — it is ambient context (present
+        # for nearly every active team), so counting it would make almost every org
+        # cross DIGEST_ITEM_COUNT_THRESHOLD and receive an email. error_issues IS counted:
+        # a new production error is worth an email on its own.
         return [
             self.dashboards,
             self.event_definitions,
@@ -212,6 +249,7 @@ class TeamDigest(BaseModel):
             self.feature_flags,
             self.filters,
             self.surveys_launched,
+            self.error_issues,
         ]
 
     def is_empty(self) -> bool:
@@ -233,6 +271,8 @@ class TeamDigest(BaseModel):
             "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
             "expiring_recordings": self.expiring_recordings.model_dump(),
             "new_surveys_launched": self.surveys_launched.model_dump(),
+            "usage_trends": self.usage_trends.model_dump(),
+            "new_error_issues": self.error_issues.model_dump(),
         }
 
         if product_suggestion:

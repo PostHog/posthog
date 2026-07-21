@@ -161,6 +161,41 @@ describe('evaluateLogRecord', () => {
         expect(elapsed).toBeLessThan(10_000)
     })
 
+    it('compileRuleSet converts kb_per_second to bytes using decimal KB', () => {
+        const rs = compileRuleSet([
+            {
+                id: 'rl-kb',
+                rule_type: 'rate_limit',
+                scope_service: null,
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { kb_per_second: 1, burst_kb: 2 },
+            },
+        ])
+        // The drop-rule UI (UNIT_TO_KB_PER_S), the preview threshold line (KB/s × 1000),
+        // and the API validator ("1000000 = 1 GB/s") all treat KB as decimal — the
+        // bucket must enforce the same unit or every cap runs above its label.
+        expect(rs.rules[0]?.rateLimit).toEqual({ refillPerSecond: 1000, poolMax: 2000, costUnit: 'bytes' })
+    })
+
+    it('path_drop with non-array patterns config matches nothing', () => {
+        const rules = compileRuleSet([
+            {
+                id: 'p-bad',
+                rule_type: 'path_drop',
+                scope_service: null,
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { patterns: 'abc' },
+            },
+        ])
+        // A corrupt non-array value must not be iterated per character into
+        // single-char regexes, each of which would match nearly every path.
+        const rec = baseRecord()
+        rec.attributes = { 'http.route': '/api/cart' }
+        expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
+    })
+
     it('compileRuleSet marks hasRateLimitRules for valid rate_limit config', () => {
         const rs = compileRuleSet([
             {
@@ -425,6 +460,33 @@ describe('evaluateLogRecord', () => {
             const rec = baseRecord()
             rec.service_name = 'svc-1'
             // Group was discarded → no patterns → rule never drops.
+            expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
+        })
+
+        it('filter_group with one leaf carrying too many values is dropped at compile time', () => {
+            // A single `in` leaf with a huge value array is one node, but matchExact
+            // scans the whole array per record. Matches MAX_FILTER_GROUP_LEAF_VALUES
+            // in compile-rules.ts.
+            const hugeLeaf = {
+                key: 'service.name',
+                operator: 'exact',
+                value: Array.from({ length: 300 }, (_, i) => `svc-${i}`),
+            }
+            const rules = compileRuleSet([
+                {
+                    id: 'oversize-values',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: [],
+                        filter_group: wrap({ type: 'AND', values: [hugeLeaf] }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'svc-1'
             expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
         })
 

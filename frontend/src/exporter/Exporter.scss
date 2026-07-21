@@ -16,6 +16,12 @@ body.ExporterBody {
         max-height: 100vh;
     }
 
+    // A metric export is a square card, not a full-page insight — drop the viewport-height floor so the
+    // exporter wraps the card tightly instead of padding it out to 100vh.
+    &--metric {
+        min-height: 0;
+    }
+
     &--heatmap {
         padding: 0;
 
@@ -54,10 +60,10 @@ html.export-type-image {
     }
 
     body {
-        // Put Inter high on the list so that rendered images are the same no matter which platform it is rendered on.
+        // Put our bundled fonts high on the list so rendered images are the same no matter which platform renders them.
         font-family:
-            'Emoji Flags Polyfill', Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
-            'Segoe UI Emoji', 'Segoe UI Symbol';
+            'Emoji Flags Polyfill', RoundHog, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     }
 }
 

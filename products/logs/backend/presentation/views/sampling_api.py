@@ -21,52 +21,13 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsExclusionRule
-
-# Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
-# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts` and
-# `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
-# deep or wide filter_group cannot stack-overflow or CPU-burn the per-record
-# evaluator in the Node ingestion worker. The breadth cap is the more
-# realistic abuse vector — depth 1 with 10k sibling leaves passes the depth
-# check but costs O(leaves) per log record.
-MAX_FILTER_GROUP_DEPTH = 16
-MAX_FILTER_GROUP_NODES = 256
-
-
-def _filter_group_depth(node: Any, depth: int = 0) -> int:
-    # Short-circuit once we've crossed the cap — we don't need the true depth,
-    # just that it exceeds MAX_FILTER_GROUP_DEPTH. Prevents Python RecursionError
-    # on adversarial payloads that pass pydantic-core (Rust) validation, which
-    # has a more generous recursion limit than ours.
-    if depth > MAX_FILTER_GROUP_DEPTH:
-        return depth
-    if not isinstance(node, dict):
-        return depth
-    values = node.get("values")
-    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
-        return depth
-    max_child = depth
-    for child in values:
-        d = _filter_group_depth(child, depth + 1)
-        if d > max_child:
-            max_child = d
-    return max_child
-
-
-def _filter_group_node_count(node: Any) -> int:
-    """Total node count across the filter group (groups + leaves). Short-circuits
-    once the cap is exceeded so adversarial payloads don't get fully traversed."""
-    if not isinstance(node, dict):
-        return 1
-    total = 1
-    values = node.get("values")
-    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
-        return total
-    for child in values:
-        total += _filter_group_node_count(child)
-        if total > MAX_FILTER_GROUP_NODES:
-            return total
-    return total
+from products.logs.backend.presentation.filter_group_validation import (
+    MAX_FILTER_GROUP_DEPTH,
+    MAX_FILTER_GROUP_NODES,
+    filter_group_depth,
+    filter_group_has_empty_group,
+    filter_group_node_count,
+)
 
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
@@ -112,7 +73,9 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             "AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) "
             "+ `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. "
             'Filter group example: `{"type":"AND","values":[{"type":"AND","values":['
-            '{"key":"service.name","operator":"exact","value":"api"}]}]}`. '
+            '{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in '
+            "`filter_group` must contain at least one filter — empty groups never match, so the "
+            "rule would never apply. "
             "For severity_sampling: object with `actions` per severity level and optional `always_keep`. "
             "For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` "
             "integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, "
@@ -151,6 +114,10 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         if rule_type is None and self.instance is not None:
             rule_type = self.instance.rule_type
         config = attrs.get("config")
+        # Only reject vacuous groups on requests that actually write config: rows that
+        # predate this validator can carry an empty group, and a PATCH of unrelated
+        # fields (e.g. disabling the rule) must not be blocked by the stored config.
+        reject_vacuous = config is not None
         if config is None and self.instance is not None:
             config = self.instance.config
 
@@ -167,11 +134,11 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             mak = config.get("match_attribute_key")
             if mak is not None and mak != "" and not isinstance(mak, str):
                 raise ValidationError({"config": {"match_attribute_key": "Must be a string when provided."}})
-            self._validate_filter_group(config.get("filter_group"))
+            self._validate_filter_group(config.get("filter_group"), reject_vacuous=reject_vacuous)
         if rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
             if not isinstance(config, dict):
                 raise ValidationError({"config": "rate_limit rules require config to be a JSON object."})
-            self._validate_filter_group(config.get("filter_group"))
+            self._validate_filter_group(config.get("filter_group"), reject_vacuous=reject_vacuous)
             self._validate_rate_limit_config(config)
         return attrs
 
@@ -227,7 +194,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             if burst > 10_000_000:
                 raise ValidationError({"config": {"burst_kb": "Must be at most 10000000 KB."}})
 
-    def _validate_filter_group(self, filter_group: Any) -> None:
+    def _validate_filter_group(self, filter_group: Any, *, reject_vacuous: bool = False) -> None:
         if filter_group is None:
             return
         # Validate shape against PropertyGroupFilter so malformed payloads
@@ -243,7 +210,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         # stack-overflow + CPU footgun on every log line. Matches
         # `MAX_FILTER_GROUP_DEPTH` in
         # `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`.
-        if _filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
+        if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
             raise ValidationError(
                 {"config": {"filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."}}
             )
@@ -252,11 +219,27 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         # more realistic abuse vector: it passes the depth check but
         # costs O(leaves) on every log line through the ingestion
         # worker. Matches `MAX_FILTER_GROUP_NODES` in `compile-rules.ts`.
-        if _filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
+        if filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
             raise ValidationError(
                 {
                     "config": {
                         "filter_group": f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
+                    }
+                }
+            )
+        # Well-formed but empty groups pass Pydantic, yet the worker treats them as
+        # no-match — the rule would be silently inert (see filter_group_has_empty_group).
+        # Ordering constraint: this walk recurses without its own depth short-circuit,
+        # so it must run only after the depth check above has bounded the tree.
+        if reject_vacuous and filter_group_has_empty_group(filter_group):
+            raise ValidationError(
+                {
+                    "config": {
+                        "filter_group": (
+                            "Every group in filter_group must contain at least one filter — an empty group "
+                            "never matches, so the rule would never apply. For rate_limit rules, omit "
+                            "filter_group entirely to cap all matching logs."
+                        )
                     }
                 }
             )

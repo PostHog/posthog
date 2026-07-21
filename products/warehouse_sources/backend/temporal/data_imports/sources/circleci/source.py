@@ -29,13 +29,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CircleCISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
+    CircleCISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://circleci.com/docs/api/v2/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -184,6 +184,7 @@ class TestLazyJoinManifest(SimpleTestCase):
         assert sorted(RESOLVERS) == [
             "account_custom_properties",
             "account_notebooks",
+            "account_relationships",
             "account_tags",
             "data_warehouse",
             "data_warehouse_experiments",

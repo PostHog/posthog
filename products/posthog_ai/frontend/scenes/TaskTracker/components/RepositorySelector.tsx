@@ -7,6 +7,7 @@ import { Button, ButtonGroup } from '@posthog/quill-primitives'
 import api from 'lib/api'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
+import { githubRepositorySearchLogic } from 'lib/integrations/githubRepositorySearchLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
@@ -103,29 +104,61 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
             )}
 
             {value.integrationId ? (
-                <ButtonGroup>
-                    <GitHubRepositoryCombobox
-                        integrationId={value.integrationId}
-                        value={value.repository ?? ''}
-                        onChange={handleRepositoryChange}
-                        placeholder="No repo"
-                        showNoneOption
-                    />
-                    {value.repository ? (
-                        <GitHubBranchCombobox
-                            integrationId={value.integrationId}
-                            repo={value.repository}
-                            value={value.branch ?? ''}
-                            onChange={handleBranchChange}
-                        />
-                    ) : (
-                        <Button variant="outline" size="sm" disabled aria-label="Branch">
-                            <IconGitBranch className="shrink-0" />
-                            Branch
-                        </Button>
-                    )}
-                </ButtonGroup>
+                <RepositoryBranchPickers
+                    integrationId={value.integrationId}
+                    value={value}
+                    onRepositoryChange={handleRepositoryChange}
+                    onBranchChange={handleBranchChange}
+                />
             ) : null}
         </div>
+    )
+}
+
+interface RepositoryBranchPickersProps {
+    integrationId: number
+    value: RepositoryConfig
+    onRepositoryChange: (repository: string | null) => void
+    onBranchChange: (branch: string | null) => void
+}
+
+/**
+ * Joined [repo ▾][branch ▾] group for a chosen integration. The branch picker stays a hard-disabled button
+ * until the repository list has loaded AND a repo is selected: on a fresh load a persisted repo is restored
+ * before its integration's repo list finishes fetching, and a branch can't be meaningfully picked while the
+ * repo picker itself is still in its "Loading repos…" state.
+ */
+function RepositoryBranchPickers({
+    integrationId,
+    value,
+    onRepositoryChange,
+    onBranchChange,
+}: RepositoryBranchPickersProps): JSX.Element {
+    // Same keyed instance GitHubRepositoryCombobox mounts, so this shares its load state — no extra fetch.
+    const { loading: repositoriesLoading } = useValues(githubRepositorySearchLogic({ id: integrationId }))
+
+    return (
+        <ButtonGroup>
+            <GitHubRepositoryCombobox
+                integrationId={integrationId}
+                value={value.repository ?? ''}
+                onChange={onRepositoryChange}
+                placeholder="No repo"
+                showNoneOption
+            />
+            {value.repository && !repositoriesLoading ? (
+                <GitHubBranchCombobox
+                    integrationId={integrationId}
+                    repo={value.repository}
+                    value={value.branch ?? ''}
+                    onChange={onBranchChange}
+                />
+            ) : (
+                <Button variant="outline" size="sm" disabled aria-label="Branch">
+                    <IconGitBranch className="shrink-0" />
+                    Branch
+                </Button>
+            )}
+        </ButtonGroup>
     )
 }

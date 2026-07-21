@@ -3,7 +3,7 @@ import { PropertyMatchType } from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -171,8 +171,10 @@ function SurveyEventSelector({
                                     panels={[
                                         {
                                             key: panelKey,
-                                            header: (
-                                                <div className="flex items-center gap-2 flex-1 justify-between">
+                                            // sideAction keeps the remove button a sibling of the header <button> - a
+                                            // button can't nest inside a button
+                                            header: {
+                                                children: (
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         <span className="font-semibold text-sm truncate">
                                                             {event.name}
@@ -183,19 +185,13 @@ function SurveyEventSelector({
                                                                 : 'No filters'}
                                                         </span>
                                                     </div>
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        icon={<IconX />}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            removeEventAtIndex(index)
-                                                        }}
-                                                        type="tertiary"
-                                                        status="alt"
-                                                        tooltip="Remove event"
-                                                    />
-                                                </div>
-                                            ),
+                                                ),
+                                                sideAction: {
+                                                    icon: <IconX />,
+                                                    onClick: () => removeEventAtIndex(index),
+                                                    tooltip: 'Remove event',
+                                                },
+                                            },
                                             content: (
                                                 <div className="space-y-2">
                                                     <PropertyFilters

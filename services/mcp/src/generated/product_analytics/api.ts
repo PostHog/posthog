@@ -3,10 +3,58 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
+ */
+export const ElementsStatsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    data_attributes: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response."
+        ),
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.'),
+    date_to: zod.string().optional().describe('End of the date range (e.g. 2024-01-31). Defaults to now.'),
+    filter_test_accounts: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored."
+        ),
+    include: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.'
+        ),
+    limit: zod.number().optional().describe('Maximum rows per page'),
+    offset: zod.number().optional().describe('Pagination offset'),
+    properties: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https:/\/example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+        ),
+    sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
+})
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -61,6 +109,12 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Include this parameter (any value) to restrict results to insights marked as favorited.'),
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     insight: zod
         .enum(['FUNNELS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
@@ -101,7 +155,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`."
+            "Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`."
         ),
     short_id: zod.string().optional(),
     tags: zod
@@ -134,6 +188,12 @@ export const InsightsCreateParams = /* @__PURE__ */ zod.object({
 
 export const InsightsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const insightsCreateBodyNameMax = 400
@@ -155,7 +215,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field may be omitted from responses: once opt-in enforcement is enabled, API-token\n        callers (personal API keys, OAuth) only receive it when passing the\n        `include_dashboards=true` query parameter. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -198,6 +258,12 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "\nOnly if loading an insight in the context of a dashboard: The relevant dashboard's ID.\nWhen set, the specified dashboard's filters and date range override will be applied."
+        ),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
     refresh: zod
         .enum([
@@ -242,6 +308,12 @@ export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const InsightsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const insightsPartialUpdateBodyNameMax = 400
@@ -263,7 +335,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field may be omitted from responses: once opt-in enforcement is enabled, API-token\n        callers (personal API keys, OAuth) only receive it when passing the\n        `include_dashboards=true` query parameter. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -344,6 +416,12 @@ export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
             "Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now."
         ),
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     limit: zod.number().optional().describe('Maximum number of insights to return. Defaults to 10. Capped at 100.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

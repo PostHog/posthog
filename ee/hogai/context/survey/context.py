@@ -1,7 +1,7 @@
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.surveys.backend.models import Survey
@@ -20,10 +20,12 @@ class SurveyContext:
     def __init__(
         self,
         team: Team,
+        user: User,
         survey_id: str,
         survey_name: str | None = None,
     ):
         self._team = team
+        self._user = user
         self._survey_id = survey_id
         self._survey_name = survey_name
 
@@ -47,7 +49,7 @@ class SurveyContext:
                 AND properties.$survey_id = '{self._survey_id}'
                 """
             )
-            runner = get_query_runner(query, self._team)
+            runner = get_query_runner(query, self._team, user=self._user)
             result = runner.calculate()
             if result.results and len(result.results) > 0:
                 return result.results[0][0]

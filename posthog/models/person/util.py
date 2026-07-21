@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import datetime
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Optional, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -52,28 +54,73 @@ if TYPE_CHECKING:
 _get_client = require_personhog_client
 
 
+def _get_persons_for_uuid_batch(
+    client: PersonHogClient,
+    team_id: int,
+    batch: list[str],
+    operation: str,
+    read_options: ReadOptions | None,
+) -> list[person_pb2.Person]:
+    resp = client.get_persons_by_uuids(
+        GetPersonsByUuidsRequest(team_id=team_id, uuids=batch, read_options=read_options)
+    )
+
+    present_persons = [p for p in resp.persons if p.id]
+    batch_valid = [p for p in present_persons if p.team_id == team_id]
+
+    mismatched = len(present_persons) - len(batch_valid)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
+        logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
+
+    return batch_valid
+
+
 def _batched_get_persons_by_uuids(
     team_id: int,
     uuids: list[str],
     operation: str,
+    read_options: ReadOptions | None = None,
+    concurrency: int = 1,
 ) -> list[person_pb2.Person]:
+    """Fetch persons for the given UUIDs, one RPC per PERSONHOG_BATCH_SIZE batch.
+
+    Sequential by default. Callers with large, latency-sensitive lookups opt into a
+    concurrent fan-out by passing ``concurrency`` — opt-in so the many small/background
+    callers of this helper don't multiply their load on the personhog bulk pools. Keep
+    opted-in values modest: each in-flight RPC can occupy up to 2 connections of a
+    replica's 5-connection bulk Postgres pool.
+    """
     client = _get_client()
-    valid_persons: list[person_pb2.Person] = []
-    for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE):
-        batch = uuids[i : i + PERSONHOG_BATCH_SIZE]
-        resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=batch))
+    batches = [uuids[i : i + PERSONHOG_BATCH_SIZE] for i in range(0, len(uuids), PERSONHOG_BATCH_SIZE)]
+    max_workers = min(len(batches), concurrency)
 
-        present_persons = [p for p in resp.persons if p.id]
-        batch_valid = [p for p in present_persons if p.team_id == team_id]
+    if TEST or max_workers <= 1:
+        batch_results = [
+            _get_persons_for_uuid_batch(client, team_id, batch, operation, read_options) for batch in batches
+        ]
+    else:
+        # Fan the batch RPCs out over the shared (HTTP/2-multiplexed) channel. ThreadPoolExecutor
+        # doesn't inherit contextvars, so copy the current context per task to keep the personhog
+        # caller tag and log/query context on each RPC. Results are collected in batch order, and
+        # any batch failure propagates: callers (e.g. the freeze-exposure guard) rely on the result
+        # covering every requested batch, never a silently partial set.
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="personhog-uuid-batch") as executor:
+            futures = [
+                executor.submit(
+                    contextvars.copy_context().run,
+                    _get_persons_for_uuid_batch,
+                    client,
+                    team_id,
+                    batch,
+                    operation,
+                    read_options,
+                )
+                for batch in batches
+            ]
+            batch_results = [future.result() for future in futures]
 
-        mismatched = len(present_persons) - len(batch_valid)
-        if mismatched:
-            PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
-            logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
-
-        valid_persons.extend(batch_valid)
-
-    return valid_persons
+    return [person for batch_valid in batch_results for person in batch_valid]
 
 
 def _batched_get_persons_by_distinct_ids(
@@ -466,10 +513,17 @@ def get_person_by_pk_or_uuid(team_id: int, key: str, *, distinct_id_limit: int |
             return None
 
 
+_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+
+
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:
     # _batched_get_persons_by_uuids also filters out persons with id == 0 (server "not found" sentinel),
     # which the previous single-RPC implementation did not do. This is intentionally more correct.
-    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "validate_person_uuids_exist")
+    # Existence only needs uuid/id/team_id — the field mask keeps (potentially huge) person
+    # properties out of the RPC payloads.
+    valid_persons = _batched_get_persons_by_uuids(
+        team_id, uuids, "validate_person_uuids_exist", read_options=_UUID_ONLY_READ_OPTIONS
+    )
     return [p.uuid for p in valid_persons]
 
 
@@ -480,7 +534,31 @@ def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
     )
 
 
-_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str], *, concurrency: int = 1) -> list[tuple[int, str]]:
+    """Return (person_id, person_uuid) pairs for the given person UUIDs; unknown UUIDs are omitted.
+
+    Lightweight variant of ``get_persons_by_uuids`` — uses field masking to skip fetching
+    properties and other heavy fields, and never fetches distinct IDs. For callers that only
+    need to resolve UUIDs to person IDs (e.g. cohort membership writes). ``concurrency``
+    opts into the concurrent batch fan-out — see ``_batched_get_persons_by_uuids``.
+    """
+    if not uuids:
+        return []
+
+    def personhog_fn() -> list[tuple[int, str]]:
+        persons = _batched_get_persons_by_uuids(
+            team_id,
+            uuids,
+            "get_person_ids_and_uuids_by_uuids",
+            read_options=_UUID_ONLY_READ_OPTIONS,
+            concurrency=concurrency,
+        )
+        return [(p.id, p.uuid) for p in persons]
+
+    return personhog_call(
+        "get_person_ids_and_uuids_by_uuids",
+        personhog_fn,
+    )
 
 
 def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[str]:

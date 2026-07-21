@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
@@ -92,6 +92,13 @@ def test_get_resumable_source_manager_uses_resume_config():
     ],
 )
 def test_invalid_grant_is_non_retryable(error_message):
+    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
+    assert any(key in error_message for key in non_retryable_errors)
+
+
+def test_missing_integration_is_non_retryable():
+    # The message raised mid-sync by Integration.objects.get when the row was deleted.
+    error_message = "Integration matching query does not exist."
     non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
     assert any(key in error_message for key in non_retryable_errors)
 

@@ -73,6 +73,8 @@ async def _persist_content_snapshot(
     @database_sync_to_async(thread_sensitive=False)
     def _merge() -> None:
         delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
+        # insight_snapshots must already be NUL-scrubbed at its source (build_insight_delivery_snapshot
+        # → _serialize_insight_result); a NUL reaching content_snapshot fails this save with a DataError.
         delivery.content_snapshot = {
             **(delivery.content_snapshot or {}),
             "total_insight_count": total_insight_count,
@@ -233,6 +235,9 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             insight=insight,
             dashboard=dashboard,
             expires_after=expiry,
+            # The exporter runs the insight query as the asset's creator; without it the render is
+            # userless and warehouse access control fails closed, breaking subscription deliveries.
+            created_by=subscription.created_by,
         )
         for _tile, insight in export_pairs
     ]

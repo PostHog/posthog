@@ -20,13 +20,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
+    NON_JSON_RESPONSE_ERROR,
     ElasticsearchAuth,
     elasticsearch_source,
     hostname_of,
     list_indices,
     validate_credentials as validate_elasticsearch_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElasticsearchSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
+    ElasticsearchSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,6 +50,7 @@ class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatab
             "401 Client Error: Unauthorized for url": "Elasticsearch authentication failed. Please check your credentials.",
             "403 Client Error: Forbidden for url": "Elasticsearch denied access. Please check that your credentials can read this index.",
             "404 Client Error: Not Found for url": "Elasticsearch index not found. It may have been deleted or renamed.",
+            NON_JSON_RESPONSE_ERROR: "Elasticsearch returned an unexpected response. Check that the cluster URL points at the Elasticsearch HTTP API, not a browser or Kibana URL.",
         }
 
     @property

@@ -24,7 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.facade.models import Edge, Node
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookSyncResult,
 )
@@ -231,7 +232,7 @@ class TestExternalDataSchema(APIBaseTest):
             "incremental_available": True,
             "append_available": True,
             "cdc_available": None,
-            "xmin_available": None,
+            "xmin_available": True,
             "full_refresh_available": True,
             "supports_webhooks": False,
             "webhook_only": False,
@@ -350,10 +351,6 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(source_impl, "validate_credentials", return_value=(True, None)),
             mock.patch.object(source_impl, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_xmin_enabled_for_team",
-                return_value=True,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -915,7 +912,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
     @staticmethod
-    def _xmin_discovery_patches(supports_xmin: bool = True, flag_enabled: bool = True):
+    def _xmin_discovery_patch(supports_xmin: bool = True):
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         fake_schema = SourceSchema(
@@ -927,13 +924,7 @@ class TestExternalDataSchema(APIBaseTest):
             columns=[("id", "integer", False)],
             detected_primary_keys=["id"],
         )
-        return (
-            mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_xmin_enabled_for_team",
-                return_value=flag_enabled,
-            ),
-        )
+        return mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema])
 
     def test_update_schema_to_xmin_succeeds_with_primary_key(self):
         source = self._xmin_postgres_source()
@@ -946,8 +937,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
@@ -971,8 +961,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin"},
@@ -998,14 +987,10 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with mock.patch(
-            "products.data_warehouse.backend.presentation.views.external_data_schema.is_xmin_enabled_for_team",
-            return_value=True,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "postgres" in str(response.json()).lower()
@@ -1024,8 +1009,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches(supports_xmin=False)
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch(supports_xmin=False):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
@@ -1033,29 +1017,6 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in str(response.json()).lower()
-        schema.refresh_from_db()
-        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
-
-    def test_update_schema_to_xmin_rejected_when_flag_disabled(self):
-        source = self._xmin_postgres_source()
-        schema = ExternalDataSchema.objects.create(
-            name="public.orders",
-            team=self.team,
-            source=source,
-            should_sync=False,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            sync_type_config={"primary_key_columns": ["id"]},
-        )
-
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches(flag_enabled=False)
-        with get_schemas_patch, flag_patch:
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled" in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
@@ -1073,8 +1034,7 @@ class TestExternalDataSchema(APIBaseTest):
             },
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"row_filters": [{"column": "id", "operator": ">", "value": "5"}]},
@@ -1104,10 +1064,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
         with (
-            get_schemas_patch,
-            flag_patch,
+            self._xmin_discovery_patch(),
             mock.patch(
                 "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -1141,10 +1099,8 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
         with (
-            get_schemas_patch,
-            flag_patch,
+            self._xmin_discovery_patch(),
             mock.patch(
                 "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger,
@@ -1414,6 +1370,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "incremental_field": "created",
                 "incremental_field_type": "integer",
                 "incremental_field_last_value": 1000,
+                "incremental_field_earliest_value": 500,
             },
             table=table,
         )
@@ -1437,9 +1394,12 @@ class TestExternalDataSchema(APIBaseTest):
                 return_value=mock_hog_fn_result,
             ),
         ):
+            # The frontend sends null incremental fields alongside the switch — they must not
+            # wipe the cursor config, or the webhook initial sync degrades to an unbounded
+            # full-history scan with no durable watermark progress.
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "webhook"},
+                data={"sync_type": "webhook", "incremental_field": None, "incremental_field_type": None},
             )
 
             assert response.status_code == 200
@@ -1452,6 +1412,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field") == "created"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
             assert schema.sync_type_config.get("incremental_field_last_value") == 1000
+            assert schema.sync_type_config.get("incremental_field_earliest_value") == 500
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
@@ -2821,8 +2782,9 @@ class TestUpdateExternalDataSchema:
 
 
 class TestCancelExternalDataSchema(APIBaseTest):
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
-    def test_cancel_running_sync(self, mock_cancel):
+    def _create_schema_with_running_job(self, pipeline_version=None):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
@@ -2834,15 +2796,25 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.RUNNING,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        from products.warehouse_sources.backend.facade.models import ExternalDataJob
-
         job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema,
             status=ExternalDataJob.Status.RUNNING,
             workflow_id="test-workflow-id",
+            pipeline_version=pipeline_version,
         )
+        return schema, job
+
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        new_callable=mock.AsyncMock,
+    )
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_running_v3_sync_marks_job_failed(self, mock_cancel, mock_finish_row_tracking):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V3)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
@@ -2850,6 +2822,89 @@ class TestCancelExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 200
         mock_cancel.assert_called_once_with(job.workflow_id)
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        # Nothing will finish the in-flight row counter once the job is Failed, so cancel must.
+        mock_finish_row_tracking.assert_awaited_once_with(self.team.pk, str(schema.id))
+
+    @parameterized.expand(
+        [
+            # v3 loading phase: the extraction workflow completed but the job stays Running while
+            # the loader drains batches. Cancel must mark the job Failed (the loader acts on that
+            # marker) instead of returning a 400.
+            ("workflow_already_finished", "NOT_FOUND"),
+            # Transient RPC failure: the Failed marker is durable and absorbing, so the cancel
+            # stands and a 500 would strand the user (the job is no longer Running, so a retry
+            # can't reach the workflow again).
+            ("transient_rpc_failure", "UNAVAILABLE"),
+        ]
+    )
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        new_callable=mock.AsyncMock,
+    )
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_v3_succeeds_when_cancel_rpc_fails(self, _case, rpc_status_name, mock_cancel, _mock_finish):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V3)
+        mock_cancel.side_effect = RPCError("cancel failed", RPCStatusCode[rpc_status_name], b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @parameterized.expand([("v1", "v1-dlt-sync"), ("legacy_null_version", None)])
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_legacy_pipeline_leaves_status_to_the_workflow(self, _case, pipeline_version, mock_cancel):
+        # Pre-v3 pipelines: the cancelled workflow records the job's terminal status itself,
+        # so the endpoint must not write a Failed marker.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=pipeline_version)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        mock_cancel.assert_called_once_with(job.workflow_id)
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
+        assert job.latest_error is None
+
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_legacy_pipeline_returns_400_when_workflow_missing(self, mock_cancel):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V1)
+        mock_cancel.side_effect = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 400
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
 
     @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
     def test_cancel_when_no_running_job(self, mock_cancel):
@@ -3180,17 +3235,15 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, supports_column_selection_expected
+            # source_type, expected — column selection is available for every registered source
+            # (SQL projects in its SELECT, others drop before the Delta write) EXCEPT managed-schema
+            # sources (Stripe/Paddle/Zendesk), whose canonical HogQL schema needs the full column set.
             (ExternalDataSourceType.POSTGRES, True),
-            (ExternalDataSourceType.MYSQL, True),
-            (ExternalDataSourceType.MSSQL, True),
-            (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
-            (ExternalDataSourceType.REDSHIFT, True),
-            # ClickHouse isn't a SQLSource but opts into column selection.
             (ExternalDataSourceType.CLICKHOUSE, True),
-            # Non-SQL sources stay False
+            (ExternalDataSourceType.HUBSPOT, True),
             (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.ZENDESK, False),
         ]
     )
     def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
@@ -3201,6 +3254,23 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["supports_column_selection"] is expected
+
+    def test_enabled_columns_rejected_for_managed_schema_source(self):
+        # Stripe/Paddle/Zendesk expose a fixed canonical HogQL schema; dropping a referenced
+        # column makes the s3() structure miss it and the query fails to resolve the field.
+        # Reject the selection at save so column selection can't corrupt those tables.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Payout", team=self.team, source=source)
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["id", "status"]},
+        )
+        assert response.status_code == 400
+        assert "Column selection is not supported" in str(response.json())
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
@@ -3215,12 +3285,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            (ExternalDataSourceType.STRIPE, False),
-            (ExternalDataSourceType.POSTGRES, True),
+            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
+            (ExternalDataSourceType.STRIPE, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
     ):
         source, schema = self._create(source_type=source_type)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
@@ -3228,7 +3300,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
         assert summary["source_type"] == source_type.value
-        assert summary["supports_column_selection"] is expected_supports_column_selection
+        assert summary["supports_column_selection"] is expected_column_selection
+        assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
 
     def test_list_omits_source_summary(self):
@@ -3353,6 +3426,24 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 400
         assert "not supported for direct-query sources" in str(response.json())
 
+    def test_row_filters_rejected_for_source_without_pushdown(self):
+        # Only sources that push filters into their query (SQL WHERE) honor them — accepting a
+        # filter for an API source would save it and then silently sync unfiltered rows.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for this source type" in str(response.json())
+
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -3369,3 +3460,126 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for CDC" in str(response.json())
+
+
+class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
+    def _create_schema(self, sync_type=ExternalDataSchema.SyncType.FULL_REFRESH, api_version=None):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            api_version=StripeSource.default_version,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        return ExternalDataSchema.objects.create(
+            name="Customer",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=sync_type,
+            api_version=api_version,
+        )
+
+    def _patch(self, schema, payload):
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data=payload,
+        )
+
+    def test_create_via_api_is_blocked(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/",
+            data={"name": "Customer", "source": str(source.id), "api_version": "not-validated"},
+        )
+        assert response.status_code == 405
+
+    def test_set_and_clear_api_version_override(self):
+        schema = self._create_schema()
+
+        response = self._patch(schema, {"api_version": StripeSource.default_version})
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version == StripeSource.default_version
+        assert response.json()["api_version"] == StripeSource.default_version
+
+        response = self._patch(schema, {"api_version": None})
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version is None
+
+    @parameterized.expand(
+        [
+            ("unsupported_version", ExternalDataSchema.SyncType.FULL_REFRESH, "1999-01-01"),
+            ("webhook_schema", ExternalDataSchema.SyncType.WEBHOOK, None),  # None -> uses a supported version
+        ]
+    )
+    def test_api_version_override_rejected(self, _name, sync_type, version):
+        schema = self._create_schema(sync_type=sync_type)
+        response = self._patch(schema, {"api_version": version or StripeSource.default_version})
+        assert response.status_code == 400
+        schema.refresh_from_db()
+        assert schema.api_version is None
+
+    def test_switching_to_webhook_blocked_while_override_present(self):
+        schema = self._create_schema(api_version=StripeSource.default_version)
+        response = self._patch(schema, {"sync_type": "webhook"})
+        assert response.status_code == 400
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_unchanged_override_is_not_revalidated_on_full_payload_patch(self):
+        schema = self._create_schema(api_version="2001-retired")
+        response = self._patch(schema, {"api_version": "2001-retired", "should_sync": False})
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version == "2001-retired"
+        assert schema.should_sync is False
+
+    def test_setting_override_on_unregistered_source_type_returns_400(self):
+        schema = self._create_schema()
+        schema.source.source_type = "NoSuchVendor"
+        schema.source.save(update_fields=["source_type"])
+        response = self._patch(schema, {"api_version": "v2"})
+        assert response.status_code == 400
+
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_repin_cancels_running_sync(self, mock_cancel):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema = self._create_schema()
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="test-workflow-id",
+        )
+
+        response = self._patch(schema, {"api_version": StripeSource.default_version})
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_called_once_with("test-workflow-id")
+
+        # An unrelated edit (no version change) must not cancel anything.
+        mock_cancel.reset_mock()
+        response = self._patch(schema, {"api_version": StripeSource.default_version, "should_sync": False})
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_not_called()
+
+    def test_api_version_deprecation_surfaces_for_deprecated_override_only(self):
+        schema = self._create_schema(api_version="1999-legacy")
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+
+        assert self.client.get(url).json()["api_version_deprecation"] is None
+
+        deprecated = (VersionDeprecation(version="1999-legacy", sunset_at=None),)
+        with mock.patch.object(StripeSource, "deprecated_versions", deprecated):
+            payload = self.client.get(url).json()
+        assert payload["api_version_deprecation"] == {
+            "version": "1999-legacy",
+            "sunset_at": None,
+            "default_version": StripeSource.default_version,
+        }

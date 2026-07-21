@@ -12,6 +12,13 @@ import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-mat
  */
 export const MAX_FILTER_GROUP_NODES = 256
 
+/**
+ * Aggregate cap on leaf filter values (a value array counts as its length).
+ * Kept in sync with `MAX_FILTER_GROUP_LEAF_VALUES` in
+ * `products/logs/backend/presentation/filter_group_validation.py`.
+ */
+export const MAX_FILTER_GROUP_LEAF_VALUES = 256
+
 export type SamplingRuleRow = {
     id: string
     rule_type: string
@@ -61,7 +68,11 @@ const MAX_LOGS_PER_SECOND = 1_000_000
 const MAX_BURST_LOGS = 10_000_000
 const MAX_KB_PER_SECOND = 1_000_000
 const MAX_BURST_KB = 10_000_000
-const BYTES_PER_KB = 1024
+// Decimal (SI) KB: the drop-rule form (UNIT_TO_KB_PER_S), the sparkline preview's
+// threshold line (KB/s × 1000), and the API validator ("1000000 = 1 GB/s") all use
+// 1 KB = 1000 bytes. The bucket must charge in the same unit, otherwise every cap
+// silently enforces ~2.4% above its label.
+const BYTES_PER_KB = 1000
 
 function parseRateLimitFromConfig(
     config: Record<string, unknown>
@@ -101,7 +112,7 @@ function parseRateLimitFromConfig(
  * Earlier shapes may have stored the bare inner group. Accept either; reject
  * anything that doesn't look like a group.
  */
-function parseFilterGroup(raw: unknown): FilterGroupNode | null {
+export function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (!raw || typeof raw !== 'object') {
         return null
     }
@@ -135,12 +146,36 @@ function parseFilterGroup(raw: unknown): FilterGroupNode | null {
     if (filterGroupNodeCount(parsed) > MAX_FILTER_GROUP_NODES) {
         return null
     }
+    // And bound leaf VALUES — one `exact`/`in` leaf carrying a huge value array
+    // is a single node but costs O(values) per record in matchExact. Matches
+    // MAX_FILTER_GROUP_LEAF_VALUES in filter_group_validation.py.
+    if (filterGroupLeafValueCount(parsed) > MAX_FILTER_GROUP_LEAF_VALUES) {
+        return null
+    }
     // Walk the tree once and stamp pre-compiled regex onto each regex leaf so
     // the per-record hot path doesn't allocate a fresh `RegExp` per match.
     // Legacy `pathDropPatterns` already follow this pattern; this brings the
     // filter-group path in line.
     compileRegexLeavesInPlace(parsed)
     return parsed
+}
+
+function filterGroupLeafValueCount(node: FilterGroupNode | PropertyFilterLeaf): number {
+    const maybe = node as { type?: unknown; values?: unknown; value?: unknown }
+    if (!Array.isArray(maybe.values) || (maybe.type !== 'AND' && maybe.type !== 'OR')) {
+        if (Array.isArray(maybe.value)) {
+            return maybe.value.length
+        }
+        return maybe.value === undefined || maybe.value === null ? 0 : 1
+    }
+    let total = 0
+    for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+        total += filterGroupLeafValueCount(child)
+        if (total > MAX_FILTER_GROUP_LEAF_VALUES) {
+            return total
+        }
+    }
+    return total
 }
 
 function filterGroupNodeCount(node: FilterGroupNode | PropertyFilterLeaf): number {
@@ -230,7 +265,9 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
         let pathDropMatchAttributeKey: string | null = null
         let filterGroup: FilterGroupNode | null = null
         if (row.rule_type === 'path_drop') {
-            const patterns = (row.config.patterns as unknown[]) || []
+            // Array.isArray, not truthiness: a corrupt string value would otherwise be
+            // iterated per character into single-char regexes that match nearly everything.
+            const patterns = Array.isArray(row.config.patterns) ? (row.config.patterns as unknown[]) : []
             pathDropPatterns = []
             for (const p of patterns) {
                 if (typeof p !== 'string') {
