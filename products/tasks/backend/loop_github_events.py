@@ -296,11 +296,10 @@ def _build_event_summary(event_type: str, payload: dict[str, Any]) -> dict[str, 
         summary["ref"] = payload.get("ref")
         commits = payload.get("commits")
         if isinstance(commits, list):
-            summary["commits"] = [
-                {"id": commit.get("id"), "message": _excerpt(commit.get("message"), limit=200)}
-                for commit in commits
-                if isinstance(commit, dict)
-            ][:10]
+            # Commit messages are free text an external contributor can author (e.g. a squash-merged
+            # PR title), so a trusted pusher merging them would otherwise inject attacker-controlled
+            # text into the credentialed run. Keep only the non-free-text commit id, not the message.
+            summary["commits"] = [{"id": commit.get("id")} for commit in commits if isinstance(commit, dict)][:10]
 
     return summary
 
