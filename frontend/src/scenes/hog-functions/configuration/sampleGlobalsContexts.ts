@@ -27,7 +27,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
                 distinct_id: issue.id,
                 properties: {
                     name: issue.name ?? 'Unnamed issue',
-                    description: issue.description ?? '',
+                    description: `[This is just an alert test] ${issue.description ?? ''}`.trim(),
                     status: issue.status,
                 },
             },
