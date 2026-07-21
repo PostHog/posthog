@@ -231,6 +231,114 @@ export function AiSketch(): JSX.Element {
     )
 }
 
+export function WorldMapSketch(): JSX.Element {
+    return (
+        <SketchSvg>
+            <path
+                d="M22 22 C 30 14, 44 16, 48 24 C 52 32, 44 36, 46 44 C 48 52, 38 60, 32 54 C 26 48, 28 44, 24 38 C 20 32, 16 28, 22 22 Z"
+                fill={INK}
+                opacity="0.15"
+            />
+            <path
+                d="M66 18 C 76 12, 92 14, 96 22 C 100 30, 92 34, 94 42 C 96 52, 84 58, 78 50 C 72 44, 74 38, 68 32 C 62 26, 60 22, 66 18 Z"
+                fill={INK}
+                opacity="0.15"
+            />
+            <path
+                d="M104 26 C 116 18, 136 22, 140 32 C 144 42, 132 46, 130 54 C 128 62, 116 64, 112 56 C 108 48, 112 40, 104 26 Z"
+                fill={INK}
+                opacity="0.15"
+            />
+            <path
+                d="M116 62 C 122 58, 132 60, 132 66 C 132 72, 124 74, 120 70 C 116 66, 112 66, 116 62 Z"
+                fill={INK}
+                opacity="0.15"
+            />
+            <circle cx="36" cy="34" r="9" fill={INK} opacity="0.8" />
+            <circle cx="82" cy="32" r="6" fill={INK} opacity="0.65" />
+            <circle cx="124" cy="40" r="12" fill={INK} opacity="0.9" />
+            <circle cx="123" cy="67" r="4" fill={INK} opacity="0.5" />
+        </SketchSvg>
+    )
+}
+
+export function TableSketch(): JSX.Element {
+    const values = [64, 44, 30, 18]
+    return (
+        <SketchSvg>
+            <rect x="14" y="12" width="132" height="64" rx="3" stroke={AXIS} strokeWidth="1.5" />
+            <path d="M14 26 H146 M14 40 H146 M14 54 H146 M14 68 H146" stroke={AXIS} strokeWidth="1" opacity="0.6" />
+            <path d="M62 12 V76" stroke={AXIS} strokeWidth="1" opacity="0.6" />
+            <rect x="20" y="16" width="28" height="5" rx="2.5" fill={INK_ALT} />
+            <rect x="68" y="16" width="20" height="5" rx="2.5" fill={INK_ALT} />
+            {values.map((value, index) => (
+                <g key={index}>
+                    <rect x="20" y={30 + index * 14} width={34 - index * 5} height="5" rx="2.5" fill={AXIS} />
+                    <rect
+                        x="68"
+                        y={30 + index * 14}
+                        width={value}
+                        height="5"
+                        rx="2.5"
+                        fill={INK}
+                        opacity={1 - index * 0.18}
+                    />
+                </g>
+            ))}
+        </SketchSvg>
+    )
+}
+
+export function NumberSketch(): JSX.Element {
+    return (
+        <SketchSvg>
+            <rect x="26" y="14" width="44" height="6" rx="3" fill={AXIS} />
+            <text x="26" y="58" fill={INK} fontSize="34" fontWeight="700">
+                1,024
+            </text>
+            <path
+                d="M112 52 L119 42 L126 52"
+                stroke={INK_UP}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <rect x="26" y="66" width="24" height="5" rx="2.5" fill={INK_UP} opacity="0.8" />
+        </SketchSvg>
+    )
+}
+
+export function PieSketch(): JSX.Element {
+    return (
+        <SketchSvg>
+            <path d="M80 44 L80 16 A28 28 0 0 1 80 72 Z" fill={INK} opacity="0.9" />
+            <path d="M80 44 L80 72 A28 28 0 0 1 53.4 35.3 Z" fill={INK} opacity="0.5" />
+            <path d="M80 44 L53.4 35.3 A28 28 0 0 1 80 16 Z" fill={INK} opacity="0.25" />
+        </SketchSvg>
+    )
+}
+
+export function BarValueSketch(): JSX.Element {
+    const widths = [112, 84, 58, 36]
+    return (
+        <SketchSvg>
+            <path d="M14 10 V78" stroke={AXIS} strokeWidth="1.5" strokeDasharray="3 4" strokeLinecap="round" />
+            {widths.map((width, index) => (
+                <rect
+                    key={index}
+                    x="16"
+                    y={14 + index * 17}
+                    width={width}
+                    height="12"
+                    rx="2.5"
+                    fill={INK}
+                    opacity={1 - index * 0.2}
+                />
+            ))}
+        </SketchSvg>
+    )
+}
+
 /** Fallback for insight types without a dedicated sketch. */
 export function GenericInsightSketch(): JSX.Element {
     const heights = [22, 38, 30, 48, 40, 56]
