@@ -139,6 +139,14 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
         response = self._get("/saved_queries/not-a-uuid/jobs", self._token())
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand([("detail", ""), ("jobs", "/jobs")])
+    def test_soft_deleted_saved_query_is_not_readable_by_id(self, _name, suffix):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="deleted_view", query={"query": "select 1"}, deleted=True
+        )
+        response = self._get(f"/saved_queries/{saved_query.id}{suffix}", self._token())
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_dag_detail_returns_nodes_and_edges(self):
         dag = DAG.objects.create(team=self.team, name="Default")
         saved_query = DataWarehouseSavedQuery.objects.create(

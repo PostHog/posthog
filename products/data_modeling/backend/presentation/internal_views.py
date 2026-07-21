@@ -133,8 +133,10 @@ class InternalDataModelingOpsViewSet(
     @extend_schema(exclude=True)
     def internal_saved_query_detail(self, request: Request, team_id: str, saved_query_id: str) -> Response:
         try:
-            saved_query = DataWarehouseSavedQuery.objects.select_related("table", "created_by").get(
-                team_id=int(team_id), id=saved_query_id
+            saved_query = (
+                DataWarehouseSavedQuery.objects.select_related("table", "created_by")
+                .exclude(deleted=True)
+                .get(team_id=int(team_id), id=saved_query_id)
             )
         except (DataWarehouseSavedQuery.DoesNotExist, DjangoValidationError, ValueError):
             return Response({"error": "Saved query not found"}, status=404)
@@ -192,12 +194,20 @@ class InternalDataModelingOpsViewSet(
     @extend_schema(exclude=True)
     def internal_saved_query_jobs(self, request: Request, team_id: str, saved_query_id: str) -> Response:
         try:
-            queryset = DataModelingJob.objects.filter(team_id=int(team_id), saved_query_id=saved_query_id).order_by(
-                "-created_at"
+            parent_exists = (
+                DataWarehouseSavedQuery.objects.filter(team_id=int(team_id), id=saved_query_id)
+                .exclude(deleted=True)
+                .exists()
             )
-            return self._paginate(request, queryset, InternalDataModelingJobSerializer)
         except (DjangoValidationError, ValueError):
             return Response({"error": "Saved query not found"}, status=404)
+        if not parent_exists:
+            return Response({"error": "Saved query not found"}, status=404)
+
+        queryset = DataModelingJob.objects.filter(team_id=int(team_id), saved_query_id=saved_query_id).order_by(
+            "-created_at"
+        )
+        return self._paginate(request, queryset, InternalDataModelingJobSerializer)
 
     @extend_schema(exclude=True)
     def internal_dags(self, request: Request, team_id: str) -> Response:
