@@ -6,7 +6,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PipedriveSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipedrive import (
+    PipedriveSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.pipedrive import PipedriveResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.source import PipedriveSource
