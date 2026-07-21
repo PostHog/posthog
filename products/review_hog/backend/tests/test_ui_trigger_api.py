@@ -25,6 +25,9 @@ def _pr_meta(**overrides: object) -> MagicMock:
 
 
 class TestReviewHogUiTriggerApi(APIBaseTest):
+    # The settings GET below resolves stamphog_connected off the stamphog product DB.
+    databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
+
     def _trigger(self, pr_url: str):
         return self.client.post(
             f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", {"pr_url": pr_url}, format="json"
