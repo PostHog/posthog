@@ -15,7 +15,7 @@ _MATCHES_ONLY_SET_VALUES = _POSITIVE_EXACT_OPERATORS | {
 _INCOMPARABLE_FILTER_TYPES = ("cohort", "hogql")
 
 
-def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
+def filters_contradict(filter_a: Any, filter_b: Any) -> bool:
     """Whether two property filters on the same property provably contradict — ANDing them could never
     match any value (e.g. `utm_medium = abc` vs `utm_medium != abc`, or `= google` vs `= facebook`).
 
@@ -23,6 +23,10 @@ def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
     replacing the other. Anything not provably contradictory is treated as compatible.
 
     """
+    # Dashboard/tile filters are raw JSON from the DB, never validated against the schema, so a leaf can
+    # be a bare string (legacy or malformed data). A non-dict can't describe a property to contradict.
+    if not isinstance(filter_a, dict) or not isinstance(filter_b, dict):
+        return False
     if not _same_property(filter_a, filter_b):
         return False
     op_a, values_a = _operator_and_values(filter_a)

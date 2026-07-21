@@ -93,6 +93,26 @@ class TestFiltersContradict(SimpleTestCase):
                 {"key": "k", "type": "event", "operator": "is_not", "value": ["true"]},
                 True,
             ),
+            # Dashboard/tile filters are raw JSON from the DB — a leaf can be a bare string (legacy/malformed
+            # data). It must be treated as non-contradicting instead of raising AttributeError on `.get()`.
+            (
+                "bare string against a dict never contradicts",
+                "malformed",
+                {"key": "k", "type": "event", "operator": "exact", "value": ["a"]},
+                False,
+            ),
+            (
+                "two bare strings never contradict",
+                "malformed",
+                "also malformed",
+                False,
+            ),
+            (
+                "None against a dict never contradicts",
+                None,
+                {"key": "k", "type": "event", "operator": "exact", "value": ["a"]},
+                False,
+            ),
         ]
     )
     def test_filters_contradict(self, _name, filter_a, filter_b, expected):

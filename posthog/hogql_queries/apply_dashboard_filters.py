@@ -172,7 +172,9 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     contradiction into an empty result. Compatible filters on the same key are left in place to stack.
     Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
     filter."""
-    overriding_props = (overriding_filters or {}).get("properties") or []
+    # Dashboard/tile filters are raw JSON from the DB, never validated against the schema, so a property
+    # entry can be a bare string (legacy or malformed data). Keep only dicts before comparing.
+    overriding_props = [p for p in ((overriding_filters or {}).get("properties") or []) if isinstance(p, dict)]
     if not overriding_props:
         return query
     return _strip_query_properties(query, overriding_props)
