@@ -444,6 +444,34 @@ export function canAccessBilling(membershipLevel: number | null | undefined, own
 }
 
 /**
+ * Returns the minimum membership level required for read-only access to the billing usage/spend tabs.
+ * The member-billing-usage-access feature flag lowers it to Member, but owner-only-billing takes precedence.
+ */
+export function getMinimumBillingUsageAccessLevel(
+    memberBillingUsageAccess: boolean,
+    ownerOnlyBilling: boolean
+): OrganizationMembershipLevel {
+    if (ownerOnlyBilling) {
+        return OrganizationMembershipLevel.Owner
+    }
+    return memberBillingUsageAccess ? OrganizationMembershipLevel.Member : OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Determines if the user can view the read-only billing usage/spend tabs based on their org membership level.
+ */
+export function canViewBillingUsage(
+    membershipLevel: number | null | undefined,
+    memberBillingUsageAccess: boolean,
+    ownerOnlyBilling: boolean
+): boolean {
+    if (!membershipLevel) {
+        return false
+    }
+    return membershipLevel >= getMinimumBillingUsageAccessLevel(memberBillingUsageAccess, ownerOnlyBilling)
+}
+
+/**
  * Synchronizes URL search parameters with billing filter state.
  * Returns the appropriate router action format for kea-router.
  * Only updates the URL if parameters have actually changed.
