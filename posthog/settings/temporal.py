@@ -152,7 +152,7 @@ MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 # headroom for other offline consumers. Note this is per worker process, so the aggregate is this
 # value times the number of messaging worker replicas — size it accordingly.
 MESSAGING_CLICKHOUSE_MAX_CONCURRENT_QUERIES: int = get_from_env(
-    "MESSAGING_CLICKHOUSE_MAX_CONCURRENT_QUERIES", 15, type_cast=int
+    "MESSAGING_CLICKHOUSE_MAX_CONCURRENT_QUERIES", 5, type_cast=int
 )
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
