@@ -37,6 +37,7 @@ export interface AlertNotificationDestinationView {
     tags?: { label: string; type?: LemonTagType }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
     onDelete: () => void
+    deleting?: boolean
 }
 
 export interface PendingAlertNotificationDestinationView {
@@ -63,10 +64,13 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         options: LemonSelectOptions<NotificationType>
         value: NotificationType
         onChange: (type: NotificationType) => void
+        /** Where the type dropdown opens. Set 'top-start' when the editor sits near the bottom of the page. */
+        dropdownPlacement?: 'top-start' | 'bottom-start'
     }
     slack: {
         notificationType: NotificationType
         integration?: IntegrationType
+        workspaceSelector?: ReactNode
         channelValue: string | null
         onChannelValueChange: (value: string | null) => void
     }
@@ -160,6 +164,8 @@ function ExistingDestinations({
                             size="xsmall"
                             status="danger"
                             onClick={destination.onDelete}
+                            loading={destination.deleting}
+                            disabledReason={destination.deleting ? 'Deleting notification.' : undefined}
                             tooltip="Delete notification"
                         />
                     </div>
@@ -211,11 +217,14 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     if (notificationType.value === slack.notificationType) {
         if (slack.integration) {
             slackDestinationInput = (
-                <SlackChannelPicker
-                    value={slack.channelValue ?? undefined}
-                    onChange={slack.onChannelValueChange}
-                    integration={slack.integration}
-                />
+                <div className="space-y-3">
+                    {slack.workspaceSelector}
+                    <SlackChannelPicker
+                        value={slack.channelValue ?? undefined}
+                        onChange={slack.onChannelValueChange}
+                        integration={slack.integration}
+                    />
+                </div>
             )
         } else {
             slackDestinationInput = <SlackNotConfiguredBanner />
@@ -235,6 +244,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             <div className="space-y-3 border rounded p-3">
                 <LemonSelect
                     fullWidth
+                    dropdownPlacement={notificationType.dropdownPlacement}
                     options={notificationType.options}
                     value={notificationType.value}
                     onChange={notificationType.onChange}
