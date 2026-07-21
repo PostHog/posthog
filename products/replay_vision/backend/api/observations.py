@@ -773,6 +773,9 @@ class ReplayObservationViewSet(
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Materializing a restricted scanner's finding into a task needs object access to that scanner;
+        # the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
         user = cast(User, request.user)
         if not has_tasks_access(user):
             raise PermissionDenied("Creating a task requires access to PostHog Code.")

@@ -9,6 +9,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _HAS_ACCESS = "products.replay_vision.backend.api.observations.has_tasks_access"
@@ -51,5 +52,22 @@ class TestObservationCreateTask(_VisionAPITestCase):
         # reader could mint tasks.
         with patch(_HAS_ACCESS, return_value=False), patch(_CREATE) as create:
             resp = self.client.post(self._url(), format="json")
+        self.assertEqual(resp.status_code, 403, resp.content)
+        create.assert_not_called()
+
+    def test_denied_without_scanner_object_access_on_session_route(self) -> None:
+        # The session route's get_object only checks the observation row; materializing a restricted
+        # scanner's finding into a task must object-check the scanner, or a session-recording reader
+        # could extract a scanner they can't access.
+        session_route_url = f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/create_task/"
+        with (
+            patch(
+                "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+                side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
+            ),
+            patch(_HAS_ACCESS, return_value=True),
+            patch(_CREATE) as create,
+        ):
+            resp = self.client.post(session_route_url, format="json")
         self.assertEqual(resp.status_code, 403, resp.content)
         create.assert_not_called()
