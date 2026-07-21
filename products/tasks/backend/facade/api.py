@@ -1784,10 +1784,17 @@ def task_accessible_for_run_view(
     read actions, which the caller signals via ``bypass_visibility``. Run-mutating actions pass
     ``for_control`` to use the narrower ``task_control_q`` — public-channel visibility lets
     teammates watch a run, not drive it.
+
+    Slack-originated tasks are the exception: those threads are multiplayer, so any same-team
+    user can already steer the run from Slack (follow-ups record them as the run's actor, with
+    sandbox credentials minted for them). The runs API mirrors that and lets team members drive
+    and watch Slack tasks' runs — otherwise a non-creator actor's sandbox 404s on every callback
+    (reply relay, log-append heartbeat, completion PATCH) and the thread dies silently.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id)
     if not bypass_visibility:
-        task_filter = task_filter.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
+        task_filter = task_filter.filter(scope_q | Q(origin_product=Task.OriginProduct.SLACK))
     return task_filter.exists()
 
 
