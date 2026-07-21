@@ -288,9 +288,18 @@ def _outer_events_prefilter(node: SelectQuery, context: HogQLContext):
     if not _references_timestamp(where):
         return None
     guarded_aliases = EVENTS_LAZY_JOIN_ALIASES | _group_type_name_aliases(context)
-    if any(chain and isinstance(chain[0], str) and chain[0] in guarded_aliases for chain in find_field_chains(where)):
+    if any(_chain_hits_guarded_alias(chain, guarded_aliases) for chain in find_field_chains(where)):
         return None
     return clone_expr(where)
+
+
+def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str]) -> bool:
+    # Condition #1 guarantees the outer FROM's qualifier is literally `events`, so a leading
+    # `events` segment is transparent: `events.organization.x` names the same lazy join as
+    # `organization.x`. Peel it before matching, or the qualified form slips past the guard.
+    if len(chain) > 1 and chain[0] == "events":
+        chain = chain[1:]
+    return bool(chain) and isinstance(chain[0], str) and chain[0] in guarded
 
 
 class _TimestampReferenceFinder(TraversingVisitor):

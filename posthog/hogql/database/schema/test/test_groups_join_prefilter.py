@@ -85,6 +85,11 @@ class TestGroupsJoinPrefilter(APIBaseTest):
             ("physical_group_alias", "group_0.properties.industry = 'tech'"),
             ("group_type_name_alias", "company.properties.industry = 'tech'"),
             ("person_lazy_join", "person.properties.plan = 'pro'"),
+            # Table-qualified forms (`events.<alias>...`) are legal hand-written HogQL and name
+            # the same lazy joins; the guard must peel the leading `events` segment or they crash.
+            ("qualified_physical_group_alias", "events.group_0.properties.industry = 'tech'"),
+            ("qualified_group_type_name_alias", "events.company.properties.industry = 'tech'"),
+            ("qualified_person_lazy_join", "events.person.properties.plan = 'pro'"),
         ]
     )
     def test_skips_filter_when_outer_where_references_lazy_join(self, _name: str, where_predicate: str):
