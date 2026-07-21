@@ -31,11 +31,15 @@ class _CapturingBuffer(io.BytesIO):
 class _FakeS3:
     """Captures what the endpoint writes, standing in for the object store boundary."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, exists_result: bool = True) -> None:
         self.written: dict[str, bytes] = {}
+        self._exists_result = exists_result
 
     def open(self, path: str, mode: str) -> io.BytesIO:
         return _CapturingBuffer(self.written, path)
+
+    def exists(self, path: str) -> bool:
+        return self._exists_result
 
 
 @override_settings(DATAWAREHOUSE_BUCKET="test-bucket")
@@ -45,7 +49,7 @@ class TestExternalDataSourceUploadFile(APIBaseTest):
         self.url = f"/api/environments/{self.team.pk}/external_data_sources/upload_file/"
         self.s3 = _FakeS3()
 
-    def _upload(self, **data) -> object:
+    def _upload(self, **data):
         with patch(f"{VIEW_MODULE}.get_s3_client", return_value=self.s3):
             return self.client.post(self.url, data, format="multipart")
 
@@ -149,8 +153,7 @@ class TestFileUploadSourceCreation(APIBaseTest):
         assert upload.status_code == status.HTTP_201_CREATED, upload.json()
         upload_id = upload.json()["upload_id"]
 
-        existing_s3 = _FakeS3()
-        existing_s3.exists = lambda _path: True  # type: ignore[assignment]
+        existing_s3 = _FakeS3(exists_result=True)
         with patch(f"{SOURCE_MODULE}.get_s3_client", return_value=existing_s3):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
