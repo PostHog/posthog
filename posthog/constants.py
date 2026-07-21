@@ -58,7 +58,6 @@ class AvailableFeature(StrEnum):
 
 LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
     30: AvailableFeature.LOGS_RETENTION_30D,
-    90: AvailableFeature.LOGS_RETENTION_90D,
 }
 
 

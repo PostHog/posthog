@@ -163,16 +163,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.json()["logs_settings"]["retention_days"], 14)
 
     def test_project_creation_allows_paid_logs_retention_with_matching_feature(self):
-        self._set_unlimited_projects_with_logs_retention(AvailableFeature.LOGS_RETENTION_90D)
+        self._set_unlimited_projects_with_logs_retention(AvailableFeature.LOGS_RETENTION_30D)
 
         response = self.client.post(
             "/api/projects/",
-            {"name": "Logs Project", "logs_settings": {"retention_days": 90}},
+            {"name": "Logs Project", "logs_settings": {"retention_days": 30}},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["logs_settings"]["retention_days"], 90)
+        self.assertEqual(response.json()["logs_settings"]["retention_days"], 30)
 
     def test_project_creation_rejects_invalid_logs_retention(self):
         self._set_unlimited_projects()

@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
-const VALID_RETENTION_DAYS = [14, 30, 90] as const
+const VALID_RETENTION_DAYS = [14, 30] as const
 type LogsRetentionDays = (typeof VALID_RETENTION_DAYS)[number]
 
 export function LogsCaptureSettings(): JSX.Element {
@@ -145,9 +145,6 @@ export function LogsRetentionSettings(): JSX.Element {
         if (retentionDays === 30 && !hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)) {
             return 'Upgrade to a paid plan to use 30-day retention'
         }
-        if (retentionDays === 90 && !hasAvailableFeature(AvailableFeature.LOGS_RETENTION_90D)) {
-            return 'Upgrade to a paid plan to use 90-day retention'
-        }
         return undefined
     }
 
@@ -165,12 +162,6 @@ export function LogsRetentionSettings(): JSX.Element {
                 label: '30 days',
                 disabledReason: disabledReason ?? retentionFeatureDisabledReason(30),
                 'data-attr': 'logs-retention-button-30d',
-            },
-            {
-                value: 90,
-                label: '90 days',
-                disabledReason: disabledReason ?? retentionFeatureDisabledReason(90),
-                'data-attr': 'logs-retention-button-90d',
             },
         ]
     }

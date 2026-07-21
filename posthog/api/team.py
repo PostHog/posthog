@@ -1428,7 +1428,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    VALID_RETENTION_DAYS = {14, 30, 90}
+    VALID_RETENTION_DAYS = {14, 30}
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None:
