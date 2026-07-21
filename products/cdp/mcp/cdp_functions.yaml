@@ -65,7 +65,9 @@ tools:
                        {"type": "button", "text": {"type": "plain_text", "text": "View Insight"},
                         "url": "{project.url}/insights/{event.properties.insight_id}"},
                        {"type": "button", "text": {"type": "plain_text", "text": "View Alert"},
-                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"}
+                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"},
+                       {"type": "button", "text": {"type": "plain_text", "text": "Snooze for 1 day"},
+                        "action_id": "insight_alert_snooze", "value": "{event.properties.alert_id}|1d"}
                      ]}
                    ]}
                  }
