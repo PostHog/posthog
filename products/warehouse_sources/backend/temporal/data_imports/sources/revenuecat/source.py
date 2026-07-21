@@ -44,7 +44,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
     RevenueCatResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
-    REVENUECAT_API_ENDPOINTS,
     REVENUECAT_API_SCHEMA_NAMES,
     REVENUECAT_WEBHOOK_SCHEMA_NAMES,
 )
@@ -396,36 +395,15 @@ class RevenueCatSource(
         resumable_source_manager: ResumableSourceManager[RevenueCatResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        endpoint = REVENUECAT_API_ENDPOINTS[inputs.schema_name]
-
-        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        starting_after = resume.starting_after if resume is not None and resume.endpoint == inputs.schema_name else None
-
-        def on_cursor_advance(endpoint_name: str, last_id: str) -> None:
-            resumable_source_manager.save_state(RevenueCatResumeConfig(endpoint=endpoint_name, starting_after=last_id))
-
-        def items() -> Iterable[dict[str, Any]]:
-            yield from api_client.iterate_list_endpoint(
-                api_key=config.secret_api_key,
-                project_id=config.project_id,
-                path_suffix=endpoint.path_suffix,
-                endpoint_name=inputs.schema_name,
-                timestamp_fields=tuple(endpoint.partition_keys),
-                starting_after=starting_after,
-                on_cursor_advance=on_cursor_advance,
-            )
-
-        # Datetime partitioning on the endpoint's timestamp field (`created_at`,
-        # or `first_seen_at` for customers) — `iterate_list_endpoint` normalizes
-        # RevenueCat's ms-epoch value down to Unix seconds so the partition layer
-        # (which treats bare ints as seconds) produces sane bucket dates.
-        return SourceResponse(
-            items=items,
-            primary_keys=endpoint.primary_keys,
-            name=inputs.schema_name,
-            partition_keys=endpoint.partition_keys,
-            partition_mode="datetime",
-            partition_format="week",
-            partition_count=1,
-            partition_size=1,
+        # Datetime partitioning on the endpoint's timestamp field (`created_at`, or
+        # `first_seen_at` for customers) — the transport normalizes RevenueCat's ms-epoch value
+        # down to Unix seconds so the partition layer (which treats bare ints as seconds) produces
+        # sane bucket dates.
+        return api_client.revenuecat_api_source(
+            api_key=config.secret_api_key,
+            project_id=config.project_id,
+            schema_name=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )
