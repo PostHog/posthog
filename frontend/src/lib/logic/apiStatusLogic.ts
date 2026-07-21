@@ -35,6 +35,11 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+// A single failed fetch (a brief network blip, or a request racing a backend restart/deploy)
+// shouldn't flash the red connection banner. Only surface it once fetches keep failing for this
+// long with no successful response clearing them in the meantime.
+const CONNECTION_ISSUE_DEBOUNCE_MS = 5000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -74,17 +79,38 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
-        onApiResponse: async ({ response, error }, breakpoint) => {
-            if (error || !response?.status) {
-                await breakpoint(50)
-                // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if (error?.message === 'Failed to fetch') {
-                    actions.setInternetConnectionIssue(true)
+        onApiResponse: async ({ response, error }) => {
+            // Likely CORS/network errors (i.e. request failing without reaching Django).
+            if (error?.message === 'Failed to fetch') {
+                // Debounce on the leading edge: schedule the banner once on the first failure and
+                // don't reset the timer on subsequent failures, so a sustained outage still surfaces
+                // it. A successful response before the timer fires cancels it (see below).
+                if (!values.internetConnectionIssue && !cache.connectionIssuePending) {
+                    cache.connectionIssuePending = true
+                    cache.disposables.add(
+                        () => {
+                            const timer = window.setTimeout(() => {
+                                cache.connectionIssuePending = false
+                                actions.setInternetConnectionIssue(true)
+                            }, CONNECTION_ISSUE_DEBOUNCE_MS)
+                            return () => window.clearTimeout(timer)
+                        },
+                        'connectionIssueDebounce',
+                        // Connectivity is the whole point here — keep the timer running while hidden.
+                        { pauseOnPageHidden: false }
+                    )
                 }
             }
 
-            if (response?.ok && values.internetConnectionIssue) {
-                actions.setInternetConnectionIssue(false)
+            if (response?.ok) {
+                // Connectivity restored — cancel any pending banner and clear a shown one promptly.
+                if (cache.connectionIssuePending) {
+                    cache.connectionIssuePending = false
+                    cache.disposables.dispose('connectionIssueDebounce')
+                }
+                if (values.internetConnectionIssue) {
+                    actions.setInternetConnectionIssue(false)
+                }
             }
 
             try {

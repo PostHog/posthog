@@ -80,6 +80,42 @@ describe('apiStatusLogic', () => {
         })
     })
 
+    describe('internet connection banner debounce', () => {
+        const FAILED_FETCH = { message: 'Failed to fetch' }
+        const OK_RESPONSE = { ok: true } as Response
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('does not flash the banner for a brief blip that recovers before the debounce elapses', () => {
+            logic.actions.onApiResponse(undefined, FAILED_FETCH)
+            jest.advanceTimersByTime(1000)
+            expect(logic.values.internetConnectionIssue).toBe(false)
+
+            // Connection recovers before the debounce window: the banner must never appear.
+            logic.actions.onApiResponse(OK_RESPONSE)
+            jest.advanceTimersByTime(10000)
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('surfaces the banner once failures persist past the debounce, then clears on recovery', () => {
+            logic.actions.onApiResponse(undefined, FAILED_FETCH)
+            jest.advanceTimersByTime(10000)
+            expect(logic.values.internetConnectionIssue).toBe(true)
+
+            logic.actions.onApiResponse(OK_RESPONSE)
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+    })
+
     describe('read-only impersonation 403 handling', () => {
         const READ_ONLY_DETAIL = 'This action is not allowed during read-only user impersonation.'
 
