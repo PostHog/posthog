@@ -4,6 +4,7 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { DEFAULT_DATE_RANGE } from './tracingFiltersLogic'
 import { tracingOperationSceneLogic } from './tracingOperationSceneLogic'
 import type { Span } from './types'
 
@@ -198,5 +199,29 @@ describe('tracingOperationSceneLogic', () => {
 
         await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
         expect(getTraceSpy).toHaveBeenCalledWith('trace-1', expect.anything(), expect.anything())
+    })
+
+    it('restores a non-default date range from the URL', () => {
+        const dateRange = { date_from: '-7d', date_to: null }
+        router.actions.push('/tracing/operation', { service: 'web', name: 'db query', dateRange })
+        expect(logic.values.dateRange).toEqual(dateRange)
+    })
+
+    it('resets to the default range when navigating to a URL without one', () => {
+        logic.actions.setDateRange({ date_from: '-7d', date_to: null })
+        router.actions.push('/tracing/operation', { service: 'web', name: 'db query' })
+        expect(logic.values.dateRange).toEqual(DEFAULT_DATE_RANGE)
+    })
+
+    // A syntactically valid param of the wrong shape must not reach setDateRange and corrupt the query.
+    it.each([
+        ['a number', 42],
+        ['an array', []],
+        ['a wrong-typed field', { date_from: 5 }],
+    ])('keeps the current range when the URL date range is %s', (_label, dateRange) => {
+        const current = { date_from: '-7d', date_to: null }
+        logic.actions.setDateRange(current)
+        router.actions.push('/tracing/operation', { service: 'web', name: 'db query', dateRange })
+        expect(logic.values.dateRange).toEqual(current)
     })
 })
