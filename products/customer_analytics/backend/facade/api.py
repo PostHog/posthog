@@ -36,7 +36,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.contracts import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added

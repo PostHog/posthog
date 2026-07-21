@@ -12,8 +12,11 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
-from products.conversations.backend.facade.api import list_support_bot_channels
-from products.conversations.backend.facade.contracts import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import (
+    SupportSlackChannelsUnavailable,
+    SupportSlackNotConfigured,
+    list_support_bot_channels,
+)
 from products.customer_analytics.backend.facade.contracts import AnnouncementChannelView, AnnouncementValidationError
 from products.customer_analytics.backend.models import Account, Announcement, AnnouncementDelivery
 

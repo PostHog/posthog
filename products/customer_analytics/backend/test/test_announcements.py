@@ -5,7 +5,7 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.contracts import SupportChannel, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import SupportChannel, SupportSlackNotConfigured
 from products.customer_analytics.backend.models import Account, Announcement, AnnouncementDelivery
 
 HELPER = "products.customer_analytics.backend.logic.announcements.list_support_bot_channels"
