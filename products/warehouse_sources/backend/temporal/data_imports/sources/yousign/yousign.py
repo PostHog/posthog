@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -102,6 +103,37 @@ def _date_filter_value(value: Any) -> str | None:
     return (as_date - timedelta(days=1)).isoformat()
 
 
+# Signer fields that let the holder act as the signer. `signature_link` is the URL a signer
+# follows to sign, and Yousign's `no_otp` authentication mode makes it directly usable without
+# any second factor — so anyone granted access to the warehouse table (a broader set than the
+# Yousign account) could open it and sign. Strip these before any row reaches the warehouse.
+SIGNER_CAPABILITY_FIELDS = ("signature_link",)
+
+
+def _scrub_signer_capabilities(signer: dict[str, Any]) -> dict[str, Any]:
+    for field_name in SIGNER_CAPABILITY_FIELDS:
+        signer.pop(field_name, None)
+    return signer
+
+
+def _scrub_signature_request_row(row: dict[str, Any]) -> dict[str, Any]:
+    # Signature request rows embed a `signers` array whose entries carry the same signing links.
+    signers = row.get("signers")
+    if isinstance(signers, list):
+        for signer in signers:
+            if isinstance(signer, dict):
+                _scrub_signer_capabilities(signer)
+    return row
+
+
+def _row_transform_for(config: YousignEndpointConfig) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
+    if config.name == "signers":
+        return _scrub_signer_capabilities
+    if config.name == "signature_requests":
+        return _scrub_signature_request_row
+    return None
+
+
 def get_resource(
     config: YousignEndpointConfig,
     should_use_incremental_field: bool,
@@ -172,6 +204,7 @@ def yousign_source(
 ) -> SourceResponse:
     config = YOUSIGN_ENDPOINTS[endpoint]
     client_config = _client_config(api_key, environment)
+    row_transform = _row_transform_for(config)
 
     if webhook_source_manager is not None and config.supports_webhooks:
         if async_to_sync(webhook_source_manager.webhook_enabled)():
@@ -186,7 +219,7 @@ def yousign_source(
         # resumable — build_dependent_resource re-fetches the parent list on retry and merge
         # dedupes re-pulled rows.
         dependent_resource = cast(
-            Iterable[Any],
+            Resource,
             build_dependent_resource(
                 endpoint_configs=YOUSIGN_ENDPOINTS,
                 child_endpoint=endpoint,
@@ -208,7 +241,10 @@ def yousign_source(
                 },
             ),
         )
-        return _make_source_response(config, lambda: dependent_resource)
+        if row_transform is not None:
+            dependent_resource = dependent_resource.add_map(row_transform)
+        items = cast(Iterable[Any], dependent_resource)
+        return _make_source_response(config, lambda: items)
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
@@ -235,6 +271,8 @@ def yousign_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if row_transform is not None:
+        resource = resource.add_map(row_transform)
     return _make_source_response(config, lambda: resource)
 
 
@@ -306,6 +344,7 @@ def make_webhook_table_transformer() -> Callable[[pa.Table], pa.Table]:
             signature_request = _maybe_json_loads(data.get("signature_request"))
             if not isinstance(signature_request, dict) or signature_request.get("id") is None:
                 continue
+            _scrub_signature_request_row(signature_request)
             event_time = _event_time(raw_row)
             existing = best_by_id.get(signature_request["id"])
             if existing is None or event_time >= existing[0]:

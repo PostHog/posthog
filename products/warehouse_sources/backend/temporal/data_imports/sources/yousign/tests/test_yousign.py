@@ -5,9 +5,11 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
+import orjson
 from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.settings import (
     SIGNATURE_REQUEST_SOURCES,
     WEBHOOK_EVENTS,
@@ -288,6 +290,25 @@ class TestWebhookTableTransformer:
         # Envelope keys must not leak into the table — the rows merge with pulled API rows.
         assert "event_name" not in by_id["sr-1"]
 
+    def test_strips_signer_signature_link_from_webhook_rows(self) -> None:
+        # `signature_link` is a `no_otp`-usable signing URL — it must never reach the warehouse.
+        envelope = {
+            "event_name": "signature_request.activated",
+            "event_time": "100",
+            "data": {
+                "signature_request": {
+                    "id": "sr-1",
+                    "status": "ongoing",
+                    "signers": [{"id": "s-1", "signature_link": "https://yousign.app/sign/abc"}],
+                }
+            },
+        }
+        rows = make_webhook_table_transformer()(table_from_py_list([envelope])).to_pylist()
+        # Nested fields round-trip through parquet as JSON strings.
+        signers = orjson.loads(rows[0]["signers"]) if isinstance(rows[0]["signers"], str) else rows[0]["signers"]
+        assert signers[0].get("signature_link") is None
+        assert signers[0]["id"] == "s-1"
+
     def test_parses_json_string_data_and_drops_malformed_rows(self) -> None:
         table = table_from_py_list(
             [
@@ -302,6 +323,54 @@ class TestWebhookTableTransformer:
         )
         rows = make_webhook_table_transformer()(table).to_pylist()
         assert [row["id"] for row in rows] == ["sr-3"]
+
+
+def _static_resource(rows: list[dict[str, Any]]) -> Resource:
+    return Resource(lambda: iter([rows]), name="r", hints={})
+
+
+def _flatten(response: Any) -> list[dict[str, Any]]:
+    return [row for page in cast(Iterable[Any], response.items()) for row in page]
+
+
+class TestSignerCapabilityStripping:
+    """`signature_link` (and other capability fields) must never reach the warehouse on any path."""
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.build_dependent_resource"
+    )
+    def test_signers_fanout_strips_signature_link(self, mock_build: mock.MagicMock) -> None:
+        mock_build.return_value = _static_resource(
+            [{"signature_request_id": "sr-1", "id": "s-1", "status": "signed", "signature_link": "https://sign/abc"}]
+        )
+        response = yousign_source(
+            api_key="key",
+            environment="production",
+            endpoint="signers",
+            team_id=TEAM_ID,
+            job_id=JOB_ID,
+            resumable_source_manager=_make_manager(),
+        )
+        rows = _flatten(response)
+        assert rows[0].get("signature_link") is None
+        assert rows[0]["id"] == "s-1"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.rest_api_resource")
+    def test_signature_requests_strips_embedded_signer_links(self, mock_rest: mock.MagicMock) -> None:
+        mock_rest.return_value = _static_resource(
+            [{"id": "sr-1", "signers": [{"id": "s-1", "signature_link": "https://sign/abc"}]}]
+        )
+        response = yousign_source(
+            api_key="key",
+            environment="production",
+            endpoint="signature_requests",
+            team_id=TEAM_ID,
+            job_id=JOB_ID,
+            resumable_source_manager=_make_manager(),
+        )
+        rows = _flatten(response)
+        assert rows[0]["signers"][0].get("signature_link") is None
+        assert rows[0]["signers"][0]["id"] == "s-1"
 
 
 class TestWebhookManagement:
