@@ -264,6 +264,7 @@ the row lists both.
 | hellobaton                       | HTTP                        | requests                                                        | ✅                          |
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
+| hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
 | honeybadger                      | HTTP                        | requests                                                        | ✅                          |
 | honeycomb                        | HTTP                        | requests                                                        | ✅                          |
@@ -748,7 +749,6 @@ doesn't conflict with concurrent PRs.
 - heap
 - helpscout
 - hetzner
-- hex
 - heygen
 - hibob
 - high_level
