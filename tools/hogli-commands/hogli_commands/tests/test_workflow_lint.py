@@ -976,8 +976,8 @@ ENV_LOOP_GATE = """
 """
 
 
+# A gate whose display name doesn't end in "Pass", so only structural detection finds it.
 def _off_convention_gate(marker: str = "") -> str:
-    """A gate whose display name doesn't end in "Pass", so only structural detection finds it."""
     yaml_ = _gate(MIXED_BODY).replace("Thing Tests Pass", "Thing decision")
     if marker:
         yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
