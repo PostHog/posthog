@@ -515,8 +515,18 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
             actor_user=actor_user,
             repository=repository,
         )
-    except ReauthorizationRequired:
-        token = None  # new actor lacks usable access → log out (reauth surfaced elsewhere)
+    except ReauthorizationRequired as e:
+        # New actor has no usable GitHub access to this repo (missing/invalid integration,
+        # no app installation, or no repo permission), so we log the sandbox out rather than
+        # run under the prior actor's creds. Reauthorization is surfaced elsewhere.
+        logger.info(
+            "refresh_github_actor_reauthorization_required",
+            run_id=run_id,
+            user_id=actor_user.id,
+            repository=repository,
+            reason=str(e),
+        )
+        token = None
 
     if token:
         try:
