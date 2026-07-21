@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OktaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okta import OktaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta import OktaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.source import OktaSource

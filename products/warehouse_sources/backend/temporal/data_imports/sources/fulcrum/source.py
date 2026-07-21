@@ -32,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FulcrumSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fulcrum import (
+    FulcrumSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
