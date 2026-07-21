@@ -120,6 +120,30 @@ export interface SessionQueue extends SessionInputsStore {
     /** Block-claim the next session, returning null if none available within timeoutMs. */
     claim(timeoutMs: number): Promise<AgentSession | null>
     update(sessionId: string, patch: Partial<AgentSession>): Promise<void>
+    /**
+     * Wake a session because new input landed in `pending_inputs` (ingress
+     * `/send`, `/run`-resume, the janitor's approval-expiry wake). Sets
+     * `state = 'queued'` — except when the session is currently `running`,
+     * where it no-ops: the claim's row lock is released at claim-commit, so
+     * flipping a running session to `queued` would let a second worker claim
+     * it while the first still runs it. The running worker sees the input via
+     * `drainPendingInputs` at its next turn, and `finalizeRun` re-queues the
+     * session if the input arrived after its final drain.
+     */
+    requeueForInput(sessionId: string): Promise<void>
+    /**
+     * End-of-run state write (runner only). Persists conversation +
+     * usage_total unconditionally, but guards the state transition in SQL:
+     * a concurrent `queued` (re-queue) wins over the outcome, `cancelled`
+     * keeps the runner-reopen semantics, and completing with a non-empty
+     * `pending_inputs` re-queues instead of stranding the input on a
+     * `completed` row. Returns the state actually persisted (null when the
+     * session row is gone).
+     */
+    finalizeRun(
+        sessionId: string,
+        patch: { state: AgentSession['state']; conversation: ConversationMessage[]; usage_total: SessionUsageTotal }
+    ): Promise<AgentSession['state'] | null>
     /** Append directly into `conversation` (runner-side use only). */
     appendConversation(sessionId: string, msg: ConversationMessage): Promise<void>
     /**

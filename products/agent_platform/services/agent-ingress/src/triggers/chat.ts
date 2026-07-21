@@ -219,7 +219,9 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
                 sender: incomingPrincipal,
             })
         }
-        await deps.queue.update(sessionId, { state: 'queued' })
+        // Running sessions keep their state (the live worker drains the input
+        // or `finalizeRun` re-queues) — see `requeueForInput`.
+        await deps.queue.requeueForInput(sessionId)
     } catch (err) {
         try {
             await credentialWrite.rollback()

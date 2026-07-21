@@ -170,7 +170,7 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
                 timestamp: now.getTime(),
             }
             await deps.queue.appendPendingInput(row.session_id, msg)
-            await deps.queue.update(row.session_id, { state: 'queued' })
+            await deps.queue.requeueForInput(row.session_id)
             expiredApprovals++
         }
     }

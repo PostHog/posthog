@@ -191,6 +191,69 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(`UPDATE agent_session SET ${sets.join(', ')} WHERE id = $1`, params)
     }
 
+    async requeueForInput(sessionId: string): Promise<void> {
+        // The `state <> 'running'` guard is the double-claim defense: the
+        // claim's FOR UPDATE lock is released when the claim transaction
+        // commits, so a running session flipped to 'queued' here would be
+        // claimable by a second worker while the first still runs it. A
+        // running worker picks the appended input up via drainPendingInputs
+        // at its next turn, and `finalizeRun` re-queues the session if the
+        // input landed after the final drain — no wakeup is lost. Row
+        // locking serializes this against claim/finalize, so every
+        // interleaving converges on exactly one owner.
+        await this.pool.query(
+            `UPDATE agent_session
+             SET state = 'queued',
+                 updated_at = NOW()
+             WHERE id = $1 AND state <> 'running'`,
+            [sessionId]
+        )
+    }
+
+    async finalizeRun(
+        sessionId: string,
+        patch: {
+            state: AgentSession['state']
+            conversation: ConversationMessage[]
+            usage_total: SessionUsageTotal
+        }
+    ): Promise<AgentSession['state'] | null> {
+        // Single-statement CAS on the end-of-run state write:
+        //   - a concurrent re-queue ('queued') always wins over the worker's
+        //     outcome — the session has new input and must be claimable;
+        //   - 'cancelled' keeps the documented reopen semantics (the runner
+        //     overwrites ingress's durable cancel with its outcome);
+        //   - completing with undrained pending_inputs re-queues instead, so
+        //     a /send that landed after the last drain wakes the session
+        //     rather than stranding on a 'completed' row;
+        //   - everything else takes the worker's outcome verbatim.
+        const res = await this.pool.query<{ state: AgentSession['state'] }>(
+            `UPDATE agent_session
+             SET state = CASE
+                     WHEN state = 'queued' THEN state
+                     WHEN state = 'cancelled' THEN $2
+                     WHEN $2 = 'completed' AND jsonb_array_length(pending_inputs) > 0 THEN 'queued'
+                     ELSE $2
+                 END,
+                 conversation = $3::jsonb,
+                 search_text = $4,
+                 turn_count = $5,
+                 usage_total = $6::jsonb,
+                 updated_at = NOW()
+             WHERE id = $1
+             RETURNING state`,
+            [
+                sessionId,
+                patch.state,
+                JSON.stringify(patch.conversation),
+                buildSearchText(patch.conversation),
+                patch.conversation.length,
+                JSON.stringify(patch.usage_total),
+            ]
+        )
+        return res.rows[0]?.state ?? null
+    }
+
     async appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void> {
         await this.pool.query(
             `UPDATE agent_session
@@ -335,12 +398,15 @@ export class PgSessionQueue implements SessionQueue {
             }
             // Single statement: land the ACL entry, mark the request granted,
             // replay the proposed message, and re-queue — all under the lock.
+            // Same running-guard as `requeueForInput`: a running session keeps
+            // its state (the live worker drains the replayed message, or
+            // `finalizeRun` re-queues it) so a second worker can't claim it.
             await client.query(
                 `UPDATE agent_session
                  SET acl = $2::jsonb,
                      pending_elevation_requests = $3::jsonb,
                      pending_inputs = pending_inputs || $4::jsonb,
-                     state = 'queued',
+                     state = CASE WHEN state = 'running' THEN state ELSE 'queued' END,
                      updated_at = NOW()
                  WHERE id = $1`,
                 [

@@ -210,7 +210,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
             }
             await withPreparedSession(input, existing.id, async () => {
                 await deps.queue.appendPendingInput(existing.id, input.seed)
-                await deps.queue.update(existing.id, { state: 'queued' })
+                await deps.queue.requeueForInput(existing.id)
             })
             return { kind: 'resumed', sessionId: existing.id, isResume: true }
         }
