@@ -24,3 +24,4 @@ export const VariantChips: Story = { render: () => renderVariant('B') }
 export const GroupedByQuestion: Story = { render: () => renderVariant('C') }
 export const GridWithPresets: Story = { render: () => renderVariant('D') }
 export const TwoStep: Story = { render: () => renderVariant('E') }
+export const GroupedByQuestionAiry: Story = { render: () => renderVariant('F') }

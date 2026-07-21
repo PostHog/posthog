@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 //   C - grid grouped by the question being asked
 //   D - flat grid plus a "start from a preset" row
 //   E - two-step: pick a question, then a visualization
+//   F - like C, but airier: more whitespace and a description per section
 // Cycle with the floating bar at the bottom of the screen (arrow keys work too).
 import { useEffect, useState } from 'react'
 
@@ -38,7 +39,7 @@ import {
     WorldMapSketch,
 } from './InsightTypeSketch'
 
-export type NewInsightPickerVariant = 'A' | 'B' | 'C' | 'D' | 'E'
+export type NewInsightPickerVariant = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 
 export interface PickerCardSpec {
     key: string
@@ -308,17 +309,25 @@ export function VariantChipsVariant(): JSX.Element {
     )
 }
 
-// -- Variant C: grouped by the question being asked --
+// -- Variants C + F: grouped by the question being asked --
 
-export function SectionedVariant(): JSX.Element {
+interface QuestionSection {
+    title: string
+    description: string
+    cards: PickerCardSpec[]
+}
+
+function useQuestionSections(): QuestionSection[] {
     const { ai, byType } = usePickerCards()
-    const sections: { title: string; cards: (PickerCardSpec | undefined)[] }[] = [
+    const sections: { title: string; description: string; cards: (PickerCardSpec | undefined)[] }[] = [
         {
             title: 'How does it change over time?',
+            description: 'Follow a metric across days, weeks, or months to spot trends and dips.',
             cards: [byType[InsightType.TRENDS], byType[InsightType.STICKINESS], byType[InsightType.LIFECYCLE]],
         },
         {
             title: 'What are the totals?',
+            description: 'Add up a metric for a period and see what it is made of, or where it comes from.',
             cards: [
                 SUB_INSIGHT_CARDS.number,
                 SUB_INSIGHT_CARDS.table,
@@ -328,13 +337,23 @@ export function SectionedVariant(): JSX.Element {
         },
         {
             title: 'How do users behave?',
+            description: 'Follow users through conversion funnels, retention, and journeys in your product.',
             cards: [byType[InsightType.FUNNELS], byType[InsightType.RETENTION], byType[InsightType.PATHS]],
         },
         {
             title: 'Build your own',
+            description: 'Write SQL against your data, or ask AI to build the insight for you.',
             cards: [byType[InsightType.SQL], byType[InsightType.HOG], ai],
         },
     ]
+    return sections.map((section) => ({
+        ...section,
+        cards: section.cards.filter((spec): spec is PickerCardSpec => !!spec),
+    }))
+}
+
+export function SectionedVariant(): JSX.Element {
+    const sections = useQuestionSections()
     return (
         <div
             className="flex w-[42rem] max-w-[calc(100vw-1rem)] flex-col gap-3 overflow-y-auto p-1 max-h-[calc(100vh-10rem)]"
@@ -346,11 +365,33 @@ export function SectionedVariant(): JSX.Element {
                         {section.title}
                     </span>
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                        {section.cards
-                            .filter((spec): spec is PickerCardSpec => !!spec)
-                            .map((spec) => (
-                                <PickerCard key={spec.key} spec={spec} />
-                            ))}
+                        {section.cards.map((spec) => (
+                            <PickerCard key={spec.key} spec={spec} />
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    )
+}
+
+export function SectionedAiryVariant(): JSX.Element {
+    const sections = useQuestionSections()
+    return (
+        <div
+            className="flex w-[44rem] max-w-[calc(100vw-1rem)] flex-col gap-6 overflow-y-auto p-4 max-h-[calc(100vh-10rem)]"
+            data-attr="new-insight-type-picker"
+        >
+            {sections.map((section) => (
+                <div key={section.title} className="flex flex-col gap-2.5">
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-semibold text-default">{section.title}</span>
+                        <span className="text-xs text-secondary">{section.description}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                        {section.cards.map((spec) => (
+                            <PickerCard key={spec.key} spec={spec} />
+                        ))}
                     </div>
                 </div>
             ))}
@@ -573,6 +614,7 @@ export const NEW_INSIGHT_PICKER_VARIANTS: {
     { key: 'C', name: 'Grouped by question', component: SectionedVariant },
     { key: 'D', name: 'Grid + presets', component: PresetsRowVariant },
     { key: 'E', name: 'Two-step', component: TwoStepVariant },
+    { key: 'F', name: 'Grouped by question (airy)', component: SectionedAiryVariant },
 ]
 
 export function getPickerVariant(raw: unknown): NewInsightPickerVariant {
