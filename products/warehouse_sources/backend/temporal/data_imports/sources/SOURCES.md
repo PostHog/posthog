@@ -477,6 +477,7 @@ the row lists both.
 | shortcut                         | HTTP                        | requests                                                        | ✅                          |
 | shortio                          | HTTP                        | requests                                                        | ✅                          |
 | signoz                           | HTTP                        | requests                                                        | ✅                          |
+| simfin                           | HTTP                        | requests                                                        | ✅                          |
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
@@ -923,7 +924,6 @@ doesn't conflict with concurrent PRs.
 - sigma_computing
 - signnow
 - sim
-- simfin
 - simplecast
 - simplesat
 - singular
