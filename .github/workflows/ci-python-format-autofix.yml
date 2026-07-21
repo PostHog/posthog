@@ -1,0 +1,114 @@
+name: CI Python Format Autofix
+
+# When Python CI fails a PR and the ONLY failed jobs are the code-quality jobs,
+# try `ruff format` at the repo-locked version and push the fix commit to the
+# PR branch. Measured on this repo (2026-07): 37.5% of Python CI reds are pure
+# format drift — a red a robot can fix. Lint and type errors produce no diff
+# from `ruff format`, so they stay red for the author; nothing is masked.
+#
+# The push uses POSTHOG_BOT_PAT so the fix commit re-triggers CI (pushes made
+# with GITHUB_TOKEN dispatch no workflows and would strand the PR on a SHA with
+# no checks). Without that secret (forks of this repo, the FOSS mirror) the job
+# no-ops with a notice instead of failing. Same-repo PR branches only; the only
+# thing executed from the checked-out branch is `ruff format`, which reads
+# declarative config and runs no repository code.
+#
+# Loop safety: ruff format is idempotent at a fixed version, so a second pass
+# over the bot's own commit produces no diff and the job exits without pushing.
+
+on:
+    workflow_run:
+        workflows: ['Python CI']
+        types: [completed]
+
+permissions:
+    actions: read
+    contents: read
+
+concurrency:
+    group: python-format-autofix-${{ github.event.workflow_run.head_branch }}
+    cancel-in-progress: true
+
+jobs:
+    autofix:
+        name: Push ruff format fix
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        if: >
+            github.repository == 'PostHog/posthog' &&
+            github.event.workflow_run.conclusion == 'failure' &&
+            github.event.workflow_run.event == 'pull_request' &&
+            github.event.workflow_run.run_attempt == 1 &&
+            github.event.workflow_run.head_repository.full_name == github.repository
+        steps:
+            - name: Check the bot PAT is available
+              id: token
+              env:
+                  BOT_PAT: ${{ secrets.POSTHOG_BOT_PAT }}
+              run: |
+                  if [ -z "$BOT_PAT" ]; then
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                      echo "::notice::POSTHOG_BOT_PAT not available — skipping autofix"
+                  else
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Check only the quality jobs failed
+              id: gate
+              if: steps.token.outputs.available == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RUN_ID: ${{ github.event.workflow_run.id }}
+              run: |
+                  failed_jobs=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+                      --jq '[.jobs[] | select(.conclusion == "failure") | .name] | unique')
+                  echo "Failed jobs: ${failed_jobs}"
+                  only_quality=$(echo "${failed_jobs}" | jq '. != [] and all(.[]; test("code quality"))')
+                  echo "only_quality=${only_quality}" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.gate.outputs.only_quality == 'true'
+              with:
+                  ref: ${{ github.event.workflow_run.head_branch }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Bail if the branch moved past the failing run
+              id: fresh
+              if: steps.gate.outputs.only_quality == 'true'
+              env:
+                  EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+              run: |
+                  actual=$(git rev-parse HEAD)
+                  if [ "${actual}" != "${EXPECTED_SHA}" ]; then
+                      echo "::notice::Branch moved on from ${EXPECTED_SHA} — the newer push owns CI now"
+                      echo "fresh=false" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "fresh=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Run ruff format at the repo-locked version
+              id: fmt
+              if: steps.fresh.outputs.fresh == 'true'
+              run: |
+                  ruff_version=$(grep -A2 -m1 '^name = "ruff"$' uv.lock | grep '^version' | cut -d'"' -f2)
+                  echo "Using ruff ${ruff_version} (from uv.lock)"
+                  pip install --quiet "ruff==${ruff_version}"
+                  ruff format .
+                  if git diff --quiet; then
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
+                      echo "::notice::No format drift — this quality failure needs a human (lint or type error)"
+                  else
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Commit and push the fix
+              if: steps.fmt.outputs.changed == 'true'
+              env:
+                  HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+              run: |
+                  git config user.name "posthog-bot"
+                  git config user.email "hey@posthog.com"
+                  git add -u
+                  git commit -m "chore: apply ruff format (CI autofix)"
+                  git push origin "HEAD:${HEAD_BRANCH}" \
+                      || echo "::notice::Push rejected (branch moved or token lacks write) — leaving the red for the author"
