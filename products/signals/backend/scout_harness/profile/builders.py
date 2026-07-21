@@ -29,7 +29,8 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, OuterRef, Q, Subquery
+from django.db.models import Count, F, Max, OuterRef, Q, Subquery, TextField
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -58,6 +59,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
+from products.product_analytics.backend.models.insight import Insight
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
@@ -70,7 +72,20 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v9"
+INVENTORY_SOURCE_VERSION = "v10"
+
+# Product-analytics key as it appears in `Team.has_completed_onboarding_for` and the
+# `products_in_use` list (matches `ProductKey.PRODUCT_ANALYTICS`).
+PRODUCT_ANALYTICS_KEY = "product_analytics"
+
+# Saved-insight query kinds that mark genuine product-analytics usage — the behavioral
+# primitives the product-analytics scout scores. Matched against the new `query` JSON (cast
+# to text, the way the scout's own `query::text ILIKE` search works, so a nested `source.kind`
+# is found) and the legacy `filters.insight` type. Their presence credits `product_analytics`
+# in `products_in_use` even when the team never completed the onboarding step that writes the
+# flag — see `_products_in_use`.
+_BEHAVIORAL_QUERY_KINDS = ("FunnelsQuery", "RetentionQuery", "LifecycleQuery", "StickinessQuery", "PathsQuery")
+_LEGACY_BEHAVIORAL_INSIGHT_TYPES = ("FUNNELS", "RETENTION", "LIFECYCLE", "STICKINESS", "PATHS")
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -167,16 +182,50 @@ def _project_context(team: Team) -> dict[str, Any]:
 
 
 def _products_in_use(team: Team) -> list[str]:
-    """Products this team has completed onboarding for.
+    """Products this team is using — onboarding-completion flags, plus product analytics
+    inferred from concrete usage.
 
-    `Team.has_completed_onboarding_for` is a JSON map of `{product_key: bool}` — keys
-    we report are the ones the team explicitly finished onboarding. Missing or null
-    field returns an empty list rather than raising.
+    Starts from `Team.has_completed_onboarding_for`, a JSON map of `{product_key: bool}`;
+    the keys with a truthy value are the products the team explicitly finished onboarding.
+    A missing / null / non-dict field contributes nothing rather than raising.
+
+    That flag alone under-reports product analytics: a team accumulates saved funnels,
+    retention, and other behavioral insights without ever completing the onboarding step
+    that writes the flag (or was created before it existed), so `product_analytics` goes
+    missing even though the team clearly uses it. Scouts gate quick-close on this list, so a
+    missing key wrongly short-circuits scoring. Credit `product_analytics` whenever the team
+    has a saved behavioral insight — aligning the field with its name (in *use*, not merely
+    onboarded).
     """
     onboarded = team.has_completed_onboarding_for or {}
     if not isinstance(onboarded, dict):
-        return []
-    return sorted(key for key, value in onboarded.items() if bool(value))
+        onboarded = {}
+    products = {key for key, value in onboarded.items() if bool(value)}
+    if PRODUCT_ANALYTICS_KEY not in products and _has_saved_behavioral_insights(team):
+        products.add(PRODUCT_ANALYTICS_KEY)
+    return sorted(products)
+
+
+def _has_saved_behavioral_insights(team: Team) -> bool:
+    """Whether the team has a saved funnel / retention / lifecycle / stickiness / paths insight.
+
+    Deterministic Postgres corroboration that a team genuinely uses product analytics,
+    independent of the onboarding-completion flag. Mirrors the product-analytics scout's own
+    `system.insights` behavioral-kind search so the profile and the scout agree on "is there a
+    flow here to score." Matches both storage formats: the new `query` JSON (cast to text so a
+    nested `source.kind` is matched the way the scout's `query::text ILIKE` does) and the legacy
+    `filters.insight` type.
+    """
+    query_text = Cast("query", output_field=TextField())
+    kind_match = Q()
+    for kind in _BEHAVIORAL_QUERY_KINDS:
+        kind_match |= Q(query_text__icontains=kind)
+    return (
+        Insight.objects.filter(team=team, deleted=False)
+        .annotate(query_text=query_text)
+        .filter(kind_match | Q(filters__insight__in=_LEGACY_BEHAVIORAL_INSIGHT_TYPES))
+        .exists()
+    )
 
 
 def _product_intents(team: Team) -> list[dict[str, Any]]:
