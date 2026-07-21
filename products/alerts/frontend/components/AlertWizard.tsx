@@ -84,59 +84,63 @@ export function AlertWizard({
         <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
             <header className="border-b p-4">
                 <AlertEditorHeader title={title} onBack={onBack} />
-                <ol className="flex items-center gap-1 mt-3">
-                    {steps.map((s, i) => {
-                        const isCurrent = i === current
-                        const isComplete = i < current
-                        const canAccess = i <= current || steps.slice(current, i).every((st) => st.canAdvance !== false)
-                        return (
-                            <li key={s.key} className="flex items-center gap-1 min-w-0">
-                                <button
-                                    type="button"
-                                    disabled={!canAccess}
-                                    onClick={() => {
-                                        if (canAccess) {
-                                            setBlockedAdvanceAttempted(false)
-                                            if (i > current) {
-                                                captureCompletedSteps(i)
+                <nav aria-label="Alert setup progress" className="mt-3">
+                    <ol className="flex items-center gap-1">
+                        {steps.map((s, i) => {
+                            const isCurrent = i === current
+                            const isComplete = i < current
+                            const canAccess =
+                                i <= current || steps.slice(current, i).every((st) => st.canAdvance !== false)
+                            return (
+                                <li key={s.key} className="flex items-center gap-1 min-w-0">
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        disabled={!canAccess}
+                                        onClick={() => {
+                                            if (canAccess) {
+                                                setBlockedAdvanceAttempted(false)
+                                                if (i > current) {
+                                                    captureCompletedSteps(i)
+                                                }
+                                                setCurrent(i)
                                             }
-                                            setCurrent(i)
-                                        }
-                                    }}
-                                    className={cn(
-                                        'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                                        !canAccess && 'opacity-40 cursor-not-allowed',
-                                        isCurrent
-                                            ? 'bg-accent text-white font-semibold'
-                                            : isComplete
-                                              ? 'bg-success-highlight text-success'
-                                              : 'text-muted hover:bg-border'
-                                    )}
-                                    aria-current={isCurrent ? 'step' : undefined}
-                                >
-                                    <span
+                                        }}
                                         className={cn(
-                                            'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+                                            'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                                            !canAccess && 'opacity-40 cursor-not-allowed',
                                             isCurrent
-                                                ? 'bg-white text-accent'
+                                                ? 'bg-accent text-white font-semibold'
                                                 : isComplete
-                                                  ? 'bg-success text-white'
-                                                  : 'border border-border'
+                                                  ? 'bg-success-highlight text-success'
+                                                  : 'text-muted hover:bg-border'
                                         )}
+                                        aria-current={isCurrent ? 'step' : undefined}
                                     >
-                                        {i + 1}
-                                    </span>
-                                    <span className="truncate">{s.title}</span>
-                                </button>
-                                {!isLastStep(i, steps) ? (
-                                    <span className="text-border" aria-hidden>
-                                        →
-                                    </span>
-                                ) : null}
-                            </li>
-                        )
-                    })}
-                </ol>
+                                        <span
+                                            className={cn(
+                                                'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+                                                isCurrent
+                                                    ? 'bg-white text-accent'
+                                                    : isComplete
+                                                      ? 'bg-success text-white'
+                                                      : 'border border-border'
+                                            )}
+                                        >
+                                            {i + 1}
+                                        </span>
+                                        <span className="truncate">{s.title}</span>
+                                    </LemonButton>
+                                    {!isLastStep(i, steps) ? (
+                                        <span className="text-border" aria-hidden>
+                                            →
+                                        </span>
+                                    ) : null}
+                                </li>
+                            )
+                        })}
+                    </ol>
+                </nav>
             </header>
             <section className="p-4 min-h-0 flex-1 overflow-y-auto">
                 <div className="space-y-1 mb-3">
