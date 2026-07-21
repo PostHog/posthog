@@ -1,3 +1,5 @@
+from typing import cast
+
 from unittest import mock
 
 from django.http import HttpRequest
@@ -11,7 +13,7 @@ from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_executi
 
 
 def _request(refresh: str | None = None) -> Request:
-    drf_request = Request(HttpRequest())
+    drf_request = cast(Request, Request(HttpRequest()))
     drf_request._full_data = {"refresh": refresh} if refresh is not None else {}  # type: ignore[attr-defined]
     return drf_request
 
