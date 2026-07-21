@@ -12922,6 +12922,27 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkAddTagsRequest {
+      /**
+         * List of ticket UUIDs to add tags to.
+         * @maxItems 500
+         */
+      ids: string[];
+      /**
+         * Tags to add to every selected ticket. Existing tags on each ticket are preserved.
+         * @maxItems 50
+         * @items.maxLength 200
+         */
+      tags: string[];
+    }
+
+    export interface BulkAddTagsResponse {
+      /** Number of tickets that received at least one new tag. */
+      updated: number;
+      /** UUIDs of the tickets that received at least one new tag. */
+      ids: string[];
+    }
+
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out

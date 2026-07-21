@@ -54,6 +54,7 @@ export interface supportTicketsSceneLogicValues {
     aiTriageResultFilter: AITriageFilterValue[]
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
+    bulkTagsToAdd: string[]
     bulkUpdating: boolean
     channelFilter: TicketChannel | 'all'
     currentFilters: TicketViewFilters
@@ -88,6 +89,13 @@ export interface supportTicketsSceneLogicActions {
     applyViewFilters: (filters: TicketViewFilters) => {
         filters: TicketViewFilters
     }
+    bulkAddTags: (
+        ids: string[],
+        tags: string[]
+    ) => {
+        ids: string[]
+        tags: string[]
+    }
     bulkUpdateStatus: (
         ids: string[],
         status: TicketStatus
@@ -115,6 +123,9 @@ export interface supportTicketsSceneLogicActions {
     }
     setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
         assignees: AssigneeFilterEntry[]
+    }
+    setBulkTagsToAdd: (tags: string[]) => {
+        tags: string[]
     }
     setBulkUpdating: (updating: boolean) => {
         updating: boolean
@@ -239,6 +250,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         resetFilters: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        bulkAddTags: (ids: string[], tags: string[]) => ({ ids, tags }),
+        setBulkTagsToAdd: (tags: string[]) => ({ tags }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
@@ -394,6 +407,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             false,
             {
                 setBulkUpdating: (_, { updating }) => updating,
+            },
+        ],
+        bulkTagsToAdd: [
+            [] as string[],
+            {
+                setBulkTagsToAdd: (_, { tags }) => tags,
+                bulkAddTags: () => [],
+                clearSelectedTickets: () => [],
             },
         ],
         selectedTicketIds: [
@@ -630,6 +651,22 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to update tickets')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
+        bulkAddTags: async ({ ids, tags }) => {
+            if (tags.length === 0) {
+                return
+            }
+            actions.setBulkUpdating(true)
+            try {
+                const result = await api.conversationsTickets.bulkAddTags(ids, tags)
+                lemonToast.success(`Tagged ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.clearSelectedTickets()
+                actions.loadTickets()
+            } catch {
+                lemonToast.error('Failed to add tags')
             } finally {
                 actions.setBulkUpdating(false)
             }

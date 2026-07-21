@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
 import {
@@ -62,8 +62,10 @@ interface SupportTicketsTableProps {
 }
 
 function SupportTicketsBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, bulkUpdating } = useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
+    const { selectedTicketIds, selectedTickets, bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, bulkAddTags, setBulkTagsToAdd } = useActions(supportTicketsSceneLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
+    const [tagsDropdownOpen, setTagsDropdownOpen] = useState(false)
 
     const hasSelection = selectedTicketIds.length > 0
     const selectedStatuses = selectedTickets.map((t) => t.status)
@@ -74,21 +76,72 @@ function SupportTicketsBulkActions(): JSX.Element {
         return acc === s ? acc : 'mixed'
     }, null)
 
+    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
+    const addTagsLabel =
+        bulkTagsToAdd.length > 0
+            ? `Add ${bulkTagsToAdd.length} tag${bulkTagsToAdd.length === 1 ? '' : 's'}`
+            : 'Add tags'
+
     return (
-        <LemonSelect
-            onChange={(value) => {
-                if (!value || value === currentStatus) {
-                    return
+        <div className="flex items-center gap-2">
+            <LemonSelect
+                onChange={(value) => {
+                    if (!value || value === currentStatus) {
+                        return
+                    }
+                    bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
+                }}
+                value={null}
+                placeholder="Mark as"
+                loading={bulkUpdating}
+                disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
+                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+                size="small"
+            />
+            <LemonDropdown
+                visible={tagsDropdownOpen}
+                onVisibilityChange={setTagsDropdownOpen}
+                closeOnClickInside={false}
+                overlay={
+                    <div className="p-2 min-w-64 flex flex-col gap-2">
+                        <span className="text-muted text-xs">Add tags to {selectedTicketIds.length} selected</span>
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            value={bulkTagsToAdd}
+                            options={tagOptions}
+                            onChange={setBulkTagsToAdd}
+                            placeholder="Select or type tags..."
+                            data-attr="bulk-add-tags-input"
+                            autoFocus
+                        />
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            fullWidth
+                            center
+                            loading={bulkUpdating}
+                            disabledReason={bulkTagsToAdd.length === 0 ? 'Select at least one tag' : undefined}
+                            onClick={() => {
+                                bulkAddTags(selectedTicketIds, bulkTagsToAdd)
+                                setTagsDropdownOpen(false)
+                            }}
+                        >
+                            {addTagsLabel}
+                        </LemonButton>
+                    </div>
                 }
-                bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
-            }}
-            value={null}
-            placeholder="Mark as"
-            loading={bulkUpdating}
-            disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
-            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-            size="small"
-        />
+            >
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    sideIcon={<IconChevronDown />}
+                    disabledReason={!hasSelection ? 'Select tickets first' : undefined}
+                >
+                    Add tags
+                </LemonButton>
+            </LemonDropdown>
+        </div>
     )
 }
 

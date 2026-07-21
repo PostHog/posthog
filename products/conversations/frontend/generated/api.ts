@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiFeedbackRequestApi,
+    BulkAddTagsRequestApi,
+    BulkAddTagsResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -488,6 +490,31 @@ export const conversationsTicketsReplyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(ticketReplyRequestApi),
+    })
+}
+
+export const getConversationsTicketsBulkAddTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_add_tags/`
+}
+
+/**
+ * Add one or more tags to multiple tickets in a single request.
+ *
+ * Existing tags on each ticket are preserved; only tags not already present
+ * are added. Only tickets belonging to the current team are affected;
+ * other-team UUIDs are silently ignored. Each added tag is recorded on the
+ * ticket's activity timeline by the TaggedItem model activity signal.
+ */
+export const conversationsTicketsBulkAddTagsCreate = async (
+    projectId: string,
+    bulkAddTagsRequestApi: BulkAddTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddTagsResponseApi> => {
+    return apiMutator<BulkAddTagsResponseApi>(getConversationsTicketsBulkAddTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddTagsRequestApi),
     })
 }
 

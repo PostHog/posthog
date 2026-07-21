@@ -933,6 +933,27 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
+export interface BulkAddTagsRequestApi {
+    /**
+     * List of ticket UUIDs to add tags to.
+     * @maxItems 500
+     */
+    ids: string[]
+    /**
+     * Tags to add to every selected ticket. Existing tags on each ticket are preserved.
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+    tags: string[]
+}
+
+export interface BulkAddTagsResponseApi {
+    /** Number of tickets that received at least one new tag. */
+    updated: number
+    /** UUIDs of the tickets that received at least one new tag. */
+    ids: string[]
+}
+
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.

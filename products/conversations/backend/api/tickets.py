@@ -32,11 +32,12 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
+from posthog.models.tag import tagify
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
@@ -178,6 +179,7 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
 
 
 BULK_UPDATE_STATUS_MAX_IDS = 500
+BULK_ADD_TAGS_MAX_TAGS = 50
 
 
 class BulkUpdateStatusRequestSerializer(serializers.Serializer):
@@ -198,6 +200,29 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="UUIDs of the tickets whose status changed.",
+    )
+
+
+class BulkAddTagsRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to add tags to.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        allow_empty=False,
+        max_length=BULK_ADD_TAGS_MAX_TAGS,
+        help_text="Tags to add to every selected ticket. Existing tags on each ticket are preserved.",
+    )
+
+
+class BulkAddTagsResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets that received at least one new tag.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets that received at least one new tag.",
     )
 
 
@@ -1023,6 +1048,54 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         transaction.on_commit(_emit_bulk_side_effects)
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
+
+    @extend_schema(
+        request=BulkAddTagsRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkAddTagsResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_add_tags(self, request, *args, **kwargs):
+        """Add one or more tags to multiple tickets in a single request.
+
+        Existing tags on each ticket are preserved; only tags not already present
+        are added. Only tickets belonging to the current team are affected;
+        other-team UUIDs are silently ignored. Each added tag is recorded on the
+        ticket's activity timeline by the TaggedItem model activity signal.
+        """
+        serializer = BulkAddTagsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        normalized_tags = {tagify(t) for t in serializer.validated_data["tags"]}
+
+        changed_ids: list[str] = []
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            for ticket in tickets:
+                added = False
+                for tag_name in normalized_tags:
+                    tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=self.team_id)
+                    _, created = ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                    added = added or created
+                if added:
+                    changed_ids.append(str(ticket.id))
+
+        if changed_ids:
+
+            def _emit_bulk_side_effects() -> None:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk tags added",
+                        {"count": len(changed_ids), "tag_count": len(normalized_tags)},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+            transaction.on_commit(_emit_bulk_side_effects)
+
+        return Response({"updated": len(changed_ids), "ids": changed_ids})
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):

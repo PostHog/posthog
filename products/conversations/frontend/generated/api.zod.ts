@@ -312,6 +312,31 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
     .describe('Payload for posting a reply or internal note to a ticket.')
 
 /**
+ * Add one or more tags to multiple tickets in a single request.
+ *
+ * Existing tags on each ticket are preserved; only tags not already present
+ * are added. Only tickets belonging to the current team are affected;
+ * other-team UUIDs are silently ignored. Each added tag is recorded on the
+ * ticket's activity timeline by the TaggedItem model activity signal.
+ */
+export const conversationsTicketsBulkAddTagsCreateBodyIdsMax = 500
+
+export const conversationsTicketsBulkAddTagsCreateBodyTagsItemMax = 200
+
+export const conversationsTicketsBulkAddTagsCreateBodyTagsMax = 50
+
+export const ConversationsTicketsBulkAddTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(conversationsTicketsBulkAddTagsCreateBodyIdsMax)
+        .describe('List of ticket UUIDs to add tags to.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsBulkAddTagsCreateBodyTagsItemMax))
+        .max(conversationsTicketsBulkAddTagsCreateBodyTagsMax)
+        .describe('Tags to add to every selected ticket. Existing tags on each ticket are preserved.'),
+})
+
+/**
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs

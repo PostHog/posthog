@@ -850,6 +850,94 @@ class TestBulkUpdateStatus(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkAddTags(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_add_tags/"
+
+    def _tags_of(self, ticket) -> set[str]:
+        ticket.refresh_from_db()
+        return set(ticket.tagged_items.values_list("tag__name", flat=True))
+
+    def test_adds_tags_to_all_selected(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "tags": ["urgent", "billing"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 3)
+        self.assertEqual(set(response.json()["ids"]), set(ids))
+        for ticket in self.tickets:
+            self.assertEqual(self._tags_of(ticket), {"urgent", "billing"})
+
+    def test_preserves_existing_tags(self, mock_on_commit):
+        keep_tag, _ = Tag.objects.get_or_create(name="keep", team_id=self.team.id)
+        self.tickets[0].tagged_items.create(tag=keep_tag)
+        self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "tags": ["added"]},
+            format="json",
+        )
+        # Bulk add is a union, not a replace — the pre-existing tag must survive.
+        self.assertEqual(self._tags_of(self.tickets[0]), {"keep", "added"})
+
+    def test_skips_tickets_already_fully_tagged(self, mock_on_commit):
+        existing, _ = Tag.objects.get_or_create(name="dupe", team_id=self.team.id)
+        self.tickets[0].tagged_items.create(tag=existing)
+        ids = [str(self.tickets[0].id), str(self.tickets[1].id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "tags": ["dupe"]},
+            format="json",
+        )
+        # Only the ticket that gained a new tag is counted / returned.
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[1].id)])
+
+    def test_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "tags": ["leak"]},
+            format="json",
+        )
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        self.assertEqual(self._tags_of(other_ticket), set())
+
+    def test_rejects_empty_tags(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "tags": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()
