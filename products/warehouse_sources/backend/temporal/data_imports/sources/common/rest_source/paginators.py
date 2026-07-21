@@ -1,10 +1,25 @@
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from requests import Request, Response
 
 from .jsonpath_utils import TJsonPath, find_values
+
+# Where a paginator writes its pagination fields. "query" (default) mutates request.params;
+# "json" mutates the POST body — for APIs that carry page/cursor/limit inside the JSON payload.
+ParamLocation = Literal["query", "json"]
+
+
+def _inject_param(request: Request, location: ParamLocation, name: str, value: Any) -> None:
+    if location == "json":
+        if request.json is None:
+            request.json = {}
+        request.json[name] = value
+    else:
+        if request.params is None:
+            request.params = {}
+        request.params[name] = value
 
 
 class BasePaginator(ABC):
@@ -126,18 +141,18 @@ class JSONResponseCursorPaginator(BasePaginator):
         self,
         cursor_path: TJsonPath = "cursors.next",
         cursor_param: str = "cursor",
+        param_location: ParamLocation = "query",
     ) -> None:
         super().__init__()
         self.cursor_path = cursor_path
         self.cursor_param = cursor_param
+        self.param_location = param_location
         self._cursor_value: Optional[str] = None
 
     def init_request(self, request: Request) -> None:
         # Apply a seeded resume cursor to the first request.
         if self._cursor_value is not None:
-            if request.params is None:
-                request.params = {}
-            request.params[self.cursor_param] = self._cursor_value
+            _inject_param(request, self.param_location, self.cursor_param, self._cursor_value)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
@@ -152,9 +167,7 @@ class JSONResponseCursorPaginator(BasePaginator):
 
     def update_request(self, request: Request) -> None:
         if self._cursor_value is not None:
-            if request.params is None:
-                request.params = {}
-            request.params[self.cursor_param] = self._cursor_value
+            _inject_param(request, self.param_location, self.cursor_param, self._cursor_value)
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         return {"cursor": self._cursor_value} if self._has_next_page and self._cursor_value is not None else None
@@ -177,8 +190,10 @@ class OffsetPaginator(BasePaginator):
         offset_param: str = "offset",
         limit_param: str = "limit",
         total_path: Optional[TJsonPath] = "total",
+        total_header: Optional[str] = None,
         maximum_offset: Optional[int] = None,
         stop_after_empty_page: bool = True,
+        param_location: ParamLocation = "query",
     ) -> None:
         super().__init__()
         self.limit = limit
@@ -186,14 +201,16 @@ class OffsetPaginator(BasePaginator):
         self.offset_param = offset_param
         self.limit_param = limit_param
         self.total_path = total_path
+        # Some APIs report the grand total in a response header (e.g. X-*-Total) rather than the body;
+        # when set, this takes precedence over total_path for the stop check.
+        self.total_header = total_header
         self.maximum_offset = maximum_offset
         self.stop_after_empty_page = stop_after_empty_page
+        self.param_location = param_location
 
     def init_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-        request.params[self.offset_param] = self.offset
-        request.params[self.limit_param] = self.limit
+        _inject_param(request, self.param_location, self.offset_param, self.offset)
+        _inject_param(request, self.param_location, self.limit_param, self.limit)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         if self.stop_after_empty_page and (data is None or len(data) == 0):
@@ -205,6 +222,16 @@ class OffsetPaginator(BasePaginator):
         if self.maximum_offset is not None and self.offset >= self.maximum_offset:
             self._has_next_page = False
             return
+
+        if self.total_header:
+            raw_total = response.headers.get(self.total_header)
+            if raw_total is not None:
+                try:
+                    if self.offset >= int(raw_total):
+                        self._has_next_page = False
+                        return
+                except (TypeError, ValueError):
+                    pass
 
         if self.total_path:
             try:
@@ -224,9 +251,7 @@ class OffsetPaginator(BasePaginator):
         self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-        request.params[self.offset_param] = self.offset
+        _inject_param(request, self.param_location, self.offset_param, self.offset)
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         # self.offset already points at the next page to fetch (update_state incremented it).
@@ -248,22 +273,24 @@ class PageNumberPaginator(BasePaginator):
         base_page: int = 0,
         page: Optional[int] = None,
         page_param: str = "page",
-        total_path: Optional[TJsonPath] = "total",
+        total_path: Optional[TJsonPath] = None,
         maximum_page: Optional[int] = None,
         stop_after_empty_page: bool = True,
+        param_location: ParamLocation = "query",
     ) -> None:
         super().__init__()
         self.base_page = base_page
         self.page = page if page is not None else base_page
         self.page_param = page_param
+        # jsonpath to the TOTAL NUMBER OF PAGES in the response body (e.g. "pagination.total_pages").
+        # When set, pagination stops after the last page instead of paying one extra empty-page request.
         self.total_path = total_path
         self.maximum_page = maximum_page
         self.stop_after_empty_page = stop_after_empty_page
+        self.param_location = param_location
 
     def init_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-        request.params[self.page_param] = self.page
+        _inject_param(request, self.param_location, self.page_param, self.page)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         if self.stop_after_empty_page and (data is None or len(data) == 0):
@@ -276,12 +303,23 @@ class PageNumberPaginator(BasePaginator):
             self._has_next_page = False
             return
 
+        if self.total_path:
+            try:
+                values = find_values(self.total_path, response.json())
+                if values:
+                    total_pages = values[0]
+                    # self.page now points at the NEXT page; the last valid page is
+                    # base_page + total_pages - 1.
+                    if isinstance(total_pages, int) and self.page > self.base_page + total_pages - 1:
+                        self._has_next_page = False
+                        return
+            except Exception:
+                pass
+
         self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-        request.params[self.page_param] = self.page
+        _inject_param(request, self.param_location, self.page_param, self.page)
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         # self.page already points at the next page to fetch (update_state incremented it).

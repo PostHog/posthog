@@ -6,6 +6,7 @@ use futures::StreamExt;
 use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet, StatefulSet};
 use kube::api::{Api, ListParams};
 use kube::runtime::watcher::{self, Config as WatcherConfig, Event};
+use kube::runtime::WatchStreamExt;
 use kube::Client;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -167,7 +168,9 @@ async fn run_deployment_watcher(
     let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
     let config = WatcherConfig::default().fields(&format!("metadata.name={}", controller.name));
 
-    let stream = watcher::watcher(api, config);
+    // Without backoff, an unreachable API server makes the watcher retry
+    // its connection in a hot loop, flooding logs at sub-millisecond rate.
+    let stream = watcher::watcher(api, config).default_backoff();
     tokio::pin!(stream);
 
     loop {
@@ -402,7 +405,8 @@ async fn run_statefulset_watcher(
     let api: Api<StatefulSet> = Api::namespaced(client.clone(), namespace);
     let config = WatcherConfig::default().fields(&format!("metadata.name={}", controller.name));
 
-    let stream = watcher::watcher(api, config);
+    // Same backoff rationale as the deployment watcher above.
+    let stream = watcher::watcher(api, config).default_backoff();
     tokio::pin!(stream);
 
     loop {

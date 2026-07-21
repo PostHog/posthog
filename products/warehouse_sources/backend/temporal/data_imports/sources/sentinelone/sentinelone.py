@@ -6,12 +6,16 @@ from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.settings import (
     SENTINELONE_ENDPOINTS,
@@ -19,17 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelon
 )
 
 API_BASE_PATH = "/web/api/v2.1"
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 60
 
 HOST_NOT_ALLOWED_ERROR = "SentinelOne console URL is not allowed"
-
-
-class SentinelOneRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 class SentinelOneHostNotAllowedError(Exception):
@@ -108,23 +103,23 @@ def _build_initial_params(
     return params
 
 
-def _build_initial_url(console_url: str, config: SentinelOneEndpointConfig, params: dict[str, Any]) -> str:
-    url = f"{_base_url(console_url)}{config.path}"
-    if not params:
-        return url
-    return f"{url}?{urlencode(params)}"
+def _data_selector(config: SentinelOneEndpointConfig) -> str:
+    # Most list endpoints return `data` as a plain list; sites nests it under `data.sites`.
+    return f"data.{config.data_key}" if config.data_key else "data"
 
 
-def _next_page_url(current_url: str, cursor: str) -> str:
-    """Same endpoint + params as the current page, with the ``cursor`` param swapped in.
+def _next_url_from_cursor(
+    console_url: str, config: SentinelOneEndpointConfig, params: dict[str, Any], cursor: str
+) -> str:
+    """Rebuild the saved resume URL from the trusted console host, static params, and cursor.
 
-    SentinelOne's cursor is only valid for the exact query it was minted against, so every
-    non-cursor param must be carried over unchanged.
+    The cursor is only valid for the exact query it was minted against, so every non-cursor param
+    is carried over unchanged — the same URL the old hand-rolled pager persisted, kept identical so
+    previously saved ``SentinelOneResumeConfig`` state stays meaningful.
     """
-    parsed = urlparse(current_url)
-    params = dict(parse_qsl(parsed.query))
-    params["cursor"] = cursor
-    return parsed._replace(query=urlencode(params)).geturl()
+    query = dict(params)
+    query["cursor"] = cursor
+    return f"{_base_url(console_url)}{config.path}?{urlencode(query)}"
 
 
 def _is_same_host(url: str, console_url: str) -> bool:
@@ -137,15 +132,6 @@ def _is_same_host(url: str, console_url: str) -> bool:
         return (urlparse(url).hostname or "").lower() == normalize_console_url(console_url).lower()
     except Exception:
         return False
-
-
-def _extract_rows(payload: dict[str, Any], config: SentinelOneEndpointConfig) -> list[dict[str, Any]]:
-    data = payload.get("data")
-    if config.data_key is not None:
-        if isinstance(data, dict) and isinstance(data.get(config.data_key), list):
-            return data[config.data_key]
-        return []
-    return data if isinstance(data, list) else []
 
 
 def _normalize_row(row: dict[str, Any], config: SentinelOneEndpointConfig) -> dict[str, Any]:
@@ -176,6 +162,61 @@ def _parse_error_message(response: requests.Response) -> str:
     except Exception:
         pass
     return response.text
+
+
+class SentinelOneCursorPaginator(BasePaginator):
+    """Cursor pagination on ``pagination.nextCursor``, resumable via the cursor value.
+
+    Unlike the framework's ``JSONResponseCursorPaginator``, an empty page terminates the walk
+    even when the body still carries a cursor — this preserves the hand-rolled source's
+    ``if not rows: break`` behavior.
+    """
+
+    def __init__(
+        self, cursor_param: str = "cursor", cursor_path: tuple[str, str] = ("pagination", "nextCursor")
+    ) -> None:
+        super().__init__()
+        self.cursor_param = cursor_param
+        self.cursor_path = cursor_path
+        self._cursor: Optional[str] = None
+
+    def _apply_cursor(self, request: Request) -> None:
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor
+
+    def init_request(self, request: Request) -> None:
+        self._apply_cursor(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # An empty page ends the walk regardless of any cursor the body still carries.
+        if not data:
+            self._has_next_page = False
+            return
+        try:
+            body = response.json()
+            outer, inner = self.cursor_path
+            next_cursor = (body.get(outer) or {}).get(inner)
+        except Exception:
+            next_cursor = None
+        if next_cursor:
+            self._cursor = next_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._apply_cursor(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
 
 
 def validate_credentials(
@@ -233,143 +274,100 @@ def validate_credentials(
     return False, _parse_error_message(response)
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """Honor a whole-seconds ``Retry-After`` on 429. Ignore HTTP-date forms."""
-    raw = response.headers.get("Retry-After")
-    if raw and raw.strip().isdigit():
-        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
-    return None
-
-
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Honor a server-provided Retry-After when present, else exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, SentinelOneRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
-
-
-def get_rows(
-    console_url: str,
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SentinelOneResumeConfig],
-    team_id: int,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = SENTINELONE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-
-    # Re-check at run time (not just at source-create) in case the console URL was edited
-    # or now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(normalize_console_url(console_url), team_id)
-    if not host_ok:
-        raise SentinelOneHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-
-    params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
-
-    initial_url = _build_initial_url(console_url, config, params)
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and _is_same_host(resume_config.next_url, console_url):
-        url: str = resume_config.next_url
-        logger.debug(f"SentinelOne: resuming from URL: {url}")
-    else:
-        if resume_config is not None:
-            logger.warning("SentinelOne: ignoring resume URL whose host does not match the configured console URL")
-        url = initial_url
-
-    session = make_tracked_session(redact_values=(api_token,), capture=False, allow_redirects=False)
-
-    @retry(
-        retry=retry_if_exception_type((SentinelOneRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        # Don't follow redirects: an attacker-controlled host could 3xx to an internal
-        # address, bypassing the host validation done before the request (SSRF).
-        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-            raise SentinelOneRetryableError(
-                f"SentinelOne API error (retryable): status={response.status_code}, url={page_url}",
-                retry_after=retry_after,
-            )
-
-        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly
-        # rather than silently parsing the redirect body as data.
-        if response.is_redirect or response.is_permanent_redirect:
-            raise SentinelOneHostNotAllowedError(
-                f"SentinelOne API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(f"SentinelOne API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        payload = fetch_page(url)
-
-        rows = _extract_rows(payload, config)
-        if not rows:
-            break
-
-        next_cursor = (payload.get("pagination") or {}).get("nextCursor")
-
-        yield [_normalize_row(row, config) for row in rows]
-
-        if not next_cursor:
-            break
-
-        # Save AFTER yielding so a crash re-yields the last page instead of skipping it —
-        # merge dedupes the re-yielded rows on the primary key.
-        next_url = _next_page_url(url, next_cursor)
-        resumable_source_manager.save_state(SentinelOneResumeConfig(next_url=next_url))
-        url = next_url
-
-
 def sentinelone_source(
     console_url: str,
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SentinelOneResumeConfig],
     team_id: int,
+    job_id: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
-    endpoint_config = SENTINELONE_ENDPOINTS[endpoint]
+    config = SENTINELONE_ENDPOINTS[endpoint]
+
+    def _items() -> Iterator[Any]:
+        # Re-check at run time (not just at source-create) in case the console URL was edited
+        # or now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        host_ok, host_err = _is_host_safe(normalize_console_url(console_url), team_id)
+        if not host_ok:
+            raise SentinelOneHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
+        params = _build_initial_params(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+
+        rest_config: RESTAPIConfig = {
+            "client": {
+                "base_url": _base_url(console_url),
+                # Auth (the `ApiToken` header) is supplied via the framework auth config so its
+                # value is redacted from logs/errors; only the non-secret headers are set here.
+                "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+                "auth": {
+                    "type": "api_key",
+                    "api_key": f"ApiToken {api_token}",
+                    "name": "Authorization",
+                    "location": "header",
+                },
+                # An unexpected 3xx (potentially to an internal address) is rejected, not followed (SSRF).
+                "allow_redirects": False,
+                "paginator": SentinelOneCursorPaginator(),
+            },
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": params,
+                        "data_selector": _data_selector(config),
+                    },
+                }
+            ],
+        }
+
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resumable_source_manager.can_resume():
+            resume = resumable_source_manager.load_state()
+            # A poisoned resume URL on a foreign host is ignored (fall back to a fresh start),
+            # never followed; only the cursor is reused, rebuilt onto the trusted console host.
+            if resume is not None and _is_same_host(resume.next_url, console_url):
+                cursor = dict(parse_qsl(urlparse(resume.next_url).query)).get("cursor")
+                if cursor:
+                    initial_paginator_state = {"cursor": cursor}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+            # the last page (merge dedupes) rather than skipping it.
+            if state and state.get("cursor"):
+                next_url = _next_url_from_cursor(console_url, config, params, state["cursor"])
+                resumable_source_manager.save_state(SentinelOneResumeConfig(next_url=next_url))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
+        if config.hoist_datetime_fields_from:
+            resource.add_map(lambda row: _normalize_row(row, config))
+
+        yield from resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            console_url=console_url,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            team_id=team_id,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
-        primary_keys=[endpoint_config.primary_key],
+        items=_items,
+        primary_keys=[config.primary_key],
         # Incremental-capable endpoints request sortBy=<cursor field>&sortOrder=asc, so
         # ascending order is explicit rather than assumed from the API default.
         sort_mode="asc",
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )

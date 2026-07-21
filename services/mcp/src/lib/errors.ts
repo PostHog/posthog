@@ -129,9 +129,17 @@ export class PostHogValidationError extends Error {
  * noise problem the 4xx short-circuit exists to prevent.
  */
 export class ToolInputValidationError extends Error {
-    constructor(message: string) {
+    /** Value-free descriptors of the rejection for telemetry: offending
+     *  field paths + issue codes, and the top-level keys the caller sent. Never
+     *  includes input VALUES — see `describeValidationError`. */
+    public readonly fields: string[]
+    public readonly inputKeys: string[]
+
+    constructor(message: string, detail?: { fields?: string[]; inputKeys?: string[] }) {
         super(message)
         this.name = 'ToolInputValidationError'
+        this.fields = detail?.fields ?? []
+        this.inputKeys = detail?.inputKeys ?? []
     }
 }
 

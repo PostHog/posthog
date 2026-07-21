@@ -22,6 +22,10 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class InvalidCustomPropertyOptions(ValueError):
+    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
@@ -149,6 +153,39 @@ class ExternalAccount:
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
     custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountAssignment:
+    """An active relationship assignment on the external list wire shape.
+
+    Carries the assigned user's id and current email plus their display name so
+    external consumers (the billing service's ownership sync) don't need a
+    second lookup. ``name`` is None when the user has no name set.
+    """
+
+    user_id: int
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListItem:
+    """One account row on the external list wire shape, with active relationship
+    assignments to current organization members keyed by definition name."""
+
+    external_id: str
+    name: str
+    relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountListPage:
+    """A page of external account rows. ``next_cursor`` is the last account id
+    of a full page, or None when the listing is exhausted."""
+
+    results: list[ExternalAccountListItem] = field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class ExternalAccountUpdateError(Enum):

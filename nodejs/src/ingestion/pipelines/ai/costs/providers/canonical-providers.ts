@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-17 10:32:20 UTC
+// Generated at: 2026-07-21 10:42:35 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -14,6 +14,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
+    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'ambient-int4'
     | 'anthropic'
@@ -38,6 +39,8 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
+    | 'crusoe-fp4'
+    | 'crusoe-fp8'
     | 'darkbloom'
     | 'decart-fp4'
     | 'deepinfra'
@@ -80,8 +83,8 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'inflection'
     | 'io-net-fp8'
+    | 'ionstream-fp4'
     | 'ionstream-fp8'
-    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
     | 'meta'
@@ -140,12 +143,12 @@ export type CanonicalProvider =
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
+    | 'tencent-fp8'
     | 'together'
     | 'together-fp4'
     | 'together-fp8'
     | 'upstage'
     | 'venice'
-    | 'venice-beta'
     | 'venice-bf16'
     | 'venice-fp16'
     | 'venice-fp4'

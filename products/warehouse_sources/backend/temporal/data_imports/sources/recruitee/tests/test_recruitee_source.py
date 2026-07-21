@@ -97,32 +97,28 @@ class TestRecruiteeSource:
         assert not any(key in unrelated_error for key in non_retryable)
 
     @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+        "expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Recruitee company ID or API token"),
-            (403, False, "Invalid Recruitee company ID or API token"),
-            (500, False, "Recruitee returned HTTP 500"),
-            (0, False, "Could not connect to Recruitee: boom"),
+            (True, None),
+            (False, "Invalid Recruitee company ID or API token"),
+            (False, "Recruitee returned HTTP 500"),
+            (False, "Could not validate Recruitee credentials"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee.check_access")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.source.validate_credentials"
+    )
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
-        status: int,
+        mock_validate: mock.MagicMock,
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        message = (
-            "Recruitee returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Recruitee: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
+        mock_validate.return_value = (expected_valid, expected_message)
         is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
+        mock_validate.assert_called_once_with("acme", "rc-token")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())

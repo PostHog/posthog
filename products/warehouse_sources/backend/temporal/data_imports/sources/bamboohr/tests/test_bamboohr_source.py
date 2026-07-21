@@ -75,6 +75,7 @@ class TestBambooHRSource:
             subdomain="acme",
             api_key="key",
             endpoint="employees",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )
