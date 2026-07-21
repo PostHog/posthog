@@ -198,7 +198,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
     ]
 
     const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
-    const modalAlert = alert ?? alertsSortedByState.find((candidate) => candidate.id === alertId)
+    const alertForEditModal = alert ?? alertsSortedByState.find((candidate) => candidate.id === alertId)
     return (
         <>
             {isEmpty && (
@@ -219,16 +219,16 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                 />
             )}
 
-            {modalAlert && (
+            {alertForEditModal && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
                     isOpen
-                    alertId={modalAlert.id}
-                    insightShortId={modalAlert.insight.short_id}
-                    insightId={modalAlert.insight.id}
+                    alertId={alertForEditModal.id}
+                    insightShortId={alertForEditModal.insight.short_id}
+                    insightId={alertForEditModal.insight.id}
                     insightLogicProps={{
-                        dashboardItemId: modalAlert.insight.short_id,
-                        cachedInsight: modalAlert.insight,
+                        dashboardItemId: alertForEditModal.insight.short_id,
+                        cachedInsight: alertForEditModal.insight,
                     }}
                     useAlertCheckPreview
                     onEditSuccess={() => {
