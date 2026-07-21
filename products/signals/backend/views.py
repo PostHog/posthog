@@ -85,7 +85,10 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
