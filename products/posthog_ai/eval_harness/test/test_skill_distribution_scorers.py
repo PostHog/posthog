@@ -18,8 +18,10 @@ from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
 
 SKILL = "querying-posthog-data"
 QUALIFIED_SKILL = f"posthog:{SKILL}"
+PROJECT_QUALIFIED_SKILL = f"project:{SKILL}"
 EXEC_EXPECTED = skill_distribution_expectations(SKILL, ["execute-sql"], "exec")
 BUNDLED_EXPECTED = skill_distribution_expectations(SKILL, ["execute-sql"], "bundled")
+PROJECT_EXEC_EXPECTED = skill_distribution_expectations(SKILL, ["execute-sql"], "exec", source="project")
 
 
 def _acp_line(update: dict) -> str:
@@ -252,3 +254,23 @@ def test_exec_batch_read_counts_as_load_but_describe_does_not(load_command: str,
 )
 def test_delivery_specific_scorers_skip_the_other_arm(scorer: Scorer, expected: dict[str, dict[str, object]]) -> None:
     assert _score(scorer, _happy_path(), expected).score is None
+
+
+@pytest.mark.parametrize(
+    "scorer,output",
+    [
+        (
+            ExpectedSkillDiscovered(),
+            _output(_exec("search", "learn -s revenue", f'{{"name":"{PROJECT_QUALIFIED_SKILL}"}}')),
+        ),
+        (
+            ExpectedSkillLoaded(),
+            _output(
+                _exec("search", "learn -s revenue", PROJECT_QUALIFIED_SKILL),
+                _exec("load", f"learn {PROJECT_QUALIFIED_SKILL}"),
+            ),
+        ),
+    ],
+)
+def test_project_source_discovery_and_loading(scorer: Scorer, output: dict[str, object]) -> None:
+    assert _score(scorer, output, PROJECT_EXEC_EXPECTED).score == 1.0
