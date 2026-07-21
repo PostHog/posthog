@@ -959,7 +959,7 @@ class TestCli:
 
         result = CliRunner().invoke(
             cmd_lint_workflows,
-            ["--check", "WF007", "--workflows-dir", str(tmp_path)],
+            ["--check", "WF008", "--workflows-dir", str(tmp_path)],
         )
 
         assert result.exit_code == 0
