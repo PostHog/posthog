@@ -27,6 +27,7 @@ import type {
     ExternalDataSourcesRepairCdcCreate200,
     ExternalDataSourcesResumeCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
+    ExternalDataSourcesUploadFileCreateBody,
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
@@ -37,6 +38,7 @@ import type {
     SourceConnectLinkApi,
     SourceCredentialApi,
     SourceCredentialCreateApi,
+    SourceFileUploadApi,
     SourcePreviewRequestApi,
     SourcePreviewResponseApi,
     SourceSetupApi,
@@ -1091,6 +1093,39 @@ export const externalDataSourcesStoredCredentialsList = async (
     return apiMutator<SourceCredentialApi[]>(getExternalDataSourcesStoredCredentialsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesUploadFileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/upload_file/`
+}
+
+/**
+ * Store an uploaded file in PostHog's object storage so a source can be created from it.
+ *
+ * The source-create endpoint is JSON-only and needs the file to already exist (it discovers
+ * schemas at create time), so uploading is a separate first step: this returns an `upload_id`
+ * that the caller passes in the source payload. The file is written under a team-scoped prefix,
+ * so a source can only ever read back its own team's uploads.
+ * @summary Upload a file for a new data warehouse source
+ */
+export const externalDataSourcesUploadFileCreate = async (
+    projectId: string,
+    externalDataSourcesUploadFileCreateBody?: ExternalDataSourcesUploadFileCreateBody,
+    options?: RequestInit
+): Promise<SourceFileUploadApi> => {
+    const formData = new FormData()
+    if (externalDataSourcesUploadFileCreateBody?.file !== undefined) {
+        formData.append(`file`, externalDataSourcesUploadFileCreateBody.file)
+    }
+    if (externalDataSourcesUploadFileCreateBody?.file_format !== undefined) {
+        formData.append(`file_format`, externalDataSourcesUploadFileCreateBody.file_format)
+    }
+
+    return apiMutator<SourceFileUploadApi>(getExternalDataSourcesUploadFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 

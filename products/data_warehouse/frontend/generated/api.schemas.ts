@@ -1248,6 +1248,7 @@ export interface CredentialApi {
 }
 
 /**
+ * * `FileUpload` - FileUpload
  * * `Ashby` - Ashby
  * * `Supabase` - Supabase
  * * `CustomerIO` - CustomerIO
@@ -2117,6 +2118,7 @@ export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
 
 export const ExternalDataSourceTypeEnumApi = {
+    FileUpload: 'FileUpload',
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',

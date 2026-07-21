@@ -505,6 +505,9 @@ tools:
             been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to
             be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret).
             Fails if no webhook has been created for this source yet — call create-webhook first.
+    external-data-sources-upload-file-create:
+        operation: external_data_sources_upload_file_create
+        enabled: false
     external-data-sources-webhook-info-retrieve:
         operation: external_data_sources_webhook_info_retrieve
         enabled: true

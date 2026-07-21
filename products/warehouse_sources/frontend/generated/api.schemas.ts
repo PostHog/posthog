@@ -415,6 +415,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
 } as const
 
 /**
+ * * `FileUpload` - FileUpload
  * * `Ashby` - Ashby
  * * `Supabase` - Supabase
  * * `CustomerIO` - CustomerIO
@@ -1284,6 +1285,7 @@ export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
 
 export const ExternalDataSourceTypeEnumApi = {
+    FileUpload: 'FileUpload',
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -2290,6 +2292,7 @@ export const ExternalDataSourceCreateCreatedViaEnumApi = {
 export interface ExternalDataSourceCreateApi {
     /** The source type (e.g. 'Postgres', 'Stripe').
      *
+     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -3371,6 +3374,7 @@ export interface ExternalDataSourceConnectionOptionApi {
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
+     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -4262,6 +4266,7 @@ export interface ExternalDataSourceConnectionOptionApi {
 export interface DatabaseSchemaRequestApi {
     /** The source type to validate against.
      *
+     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -5213,6 +5218,7 @@ export type SourcePreviewRequestApiPayload = { [key: string]: unknown }
 export interface SourcePreviewRequestApi {
     /** The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.
      *
+     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -6121,6 +6127,7 @@ export type SourceSetupApiPayload = { [key: string]: unknown }
 export interface SourceSetupApi {
     /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
      *
+     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -7036,6 +7043,7 @@ export type SourceCredentialCreateApiPayload = { [key: string]: unknown }
 export interface SourceCredentialCreateApi {
     /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
      *
+     * * `FileUpload` - FileUpload
      * * `Ashby` - Ashby
      * * `Supabase` - Supabase
      * * `CustomerIO` - CustomerIO
@@ -7916,6 +7924,17 @@ export interface SourceCredentialApi {
     expires_at: string
 }
 
+export interface SourceFileUploadApi {
+    /** Id of the stored upload. Pass it in the source payload as {'upload_id': <id>} when creating the source. */
+    upload_id: string
+    /** Sanitized name the file was stored under. */
+    filename: string
+    /** Format the file will be parsed as: 'csv', 'json', or 'parquet'. */
+    file_format: string
+    /** Size of the stored file in bytes. */
+    size_bytes: number
+}
+
 export type ExternalDataSchemasListParams = {
     /**
      * Number of results to return per page.
@@ -8042,6 +8061,25 @@ export type ExternalDataSourcesStoredCredentialsListParams = {
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
      */
     source_type?: string
+}
+
+/**
+ * How the file should be parsed when it is imported.
+ */
+export type ExternalDataSourcesUploadFileCreateBodyFileFormat =
+    (typeof ExternalDataSourcesUploadFileCreateBodyFileFormat)[keyof typeof ExternalDataSourcesUploadFileCreateBodyFileFormat]
+
+export const ExternalDataSourcesUploadFileCreateBodyFileFormat = {
+    Csv: 'csv',
+    Json: 'json',
+    Parquet: 'parquet',
+} as const
+
+export type ExternalDataSourcesUploadFileCreateBody = {
+    /** The file to upload. */
+    file: Blob
+    /** How the file should be parsed when it is imported. */
+    file_format: ExternalDataSourcesUploadFileCreateBodyFileFormat
 }
 
 export type ExternalDataSourcesWizardRetrieveParams = {
