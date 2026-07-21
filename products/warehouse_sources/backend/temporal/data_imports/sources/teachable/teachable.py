@@ -70,6 +70,10 @@ def _rest_api_client_config(api_key: str) -> ClientConfig:
         "base_url": TEACHABLE_BASE_URL,
         "auth": {"type": "api_key", "name": "apiKey", "api_key": api_key, "location": "header"},
         "headers": {"Accept": "application/json"},
+        # Pin every request (and the apiKey header) to the Teachable host and refuse to follow a
+        # 3xx, so a server-side redirect can never replay the credential header off-host.
+        "allowed_hosts": [],
+        "allow_redirects": False,
     }
 
 
@@ -161,7 +165,7 @@ class TeachableUsersPaginator(BasePaginator):
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    response = make_tracked_session(redact_values=(api_key,)).get(
+    response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
         f"{TEACHABLE_BASE_URL}/v1/courses",
         headers={"apiKey": api_key, "Accept": "application/json"},
         params={"per": 1},

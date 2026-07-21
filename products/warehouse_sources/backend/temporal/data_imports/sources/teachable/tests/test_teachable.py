@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.
     TeachableResumeConfig,
     TeachableUsersPaginator,
     _format_teachable_datetime,
+    _rest_api_client_config,
     get_resource,
     teachable_source,
     validate_credentials,
@@ -133,6 +134,14 @@ class TestTeachableTransport:
         call = mock_session.return_value.get.call_args
         assert call.args[0] == "https://developers.teachable.com/v1/courses"
         assert call.kwargs["headers"]["apiKey"] == "teachable-key"
+        # The validation session must refuse redirects so a 3xx can't replay the apiKey off-host.
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+
+    def test_rest_client_config_pins_host_and_blocks_redirects(self) -> None:
+        # A redirect off the Teachable host would otherwise replay the apiKey credential header.
+        config = _rest_api_client_config("teachable-key")
+        assert config["allowed_hosts"] == []
+        assert config["allow_redirects"] is False
 
     def test_get_resource_transactions_incremental(self) -> None:
         resource = cast(dict[str, Any], get_resource("transactions", should_use_incremental_field=True))
