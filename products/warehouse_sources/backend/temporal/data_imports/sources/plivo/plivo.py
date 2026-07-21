@@ -171,7 +171,7 @@ def get_rows(
         window_start_iso = window_start.isoformat()
         window_end_iso = window_end.isoformat()
 
-        def checkpoint(
+        def window_checkpoint(
             offset: int | None, window_start_iso: str = window_start_iso, window_end_iso: str = window_end_iso
         ) -> None:
             if offset is not None:
@@ -184,7 +184,7 @@ def get_rows(
                 # at "now", so a late retry only fetches the gap since this run.
                 resumable_source_manager.save_state(PlivoResumeConfig(window_start=window_end_iso, offset=0))
 
-        yield from _paginate(client, path, params, config, initial_offset, checkpoint)
+        yield from _paginate(client, path, params, config, initial_offset, window_checkpoint)
 
 
 def plivo_source(
