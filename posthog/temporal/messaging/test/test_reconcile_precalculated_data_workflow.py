@@ -80,9 +80,11 @@ class TestGetReconciliationRunConfigActivity:
 
 async def _stream_reject():
     # An async generator that fails at query submission (before streaming any row) — the shape
-    # of a TOO_MANY_SIMULTANEOUS_QUERIES rejection.
+    # of a TOO_MANY_SIMULTANEOUS_QUERIES rejection. The empty loop makes this an async
+    # generator function without an unreachable `yield` after the raise.
+    for _ in range(0):
+        yield {}
     raise ClickHouseTooManySimultaneousQueriesError("TOO_MANY_SIMULTANEOUS_QUERIES")
-    yield  # unreachable, but makes this an async generator function
 
 
 @pytest.mark.asyncio
