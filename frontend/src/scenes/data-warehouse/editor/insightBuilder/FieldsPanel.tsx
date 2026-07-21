@@ -1,8 +1,8 @@
 import { useDraggable } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconDatabase, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
+import { IconCalendar } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -27,7 +27,6 @@ import {
 } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
 import { InsightBuilderAggregation } from '~/queries/schema/schema-general'
 
-import { EditorMode } from '../outputPaneLogic'
 import { BuilderField, COUNT_STAR_COLUMN, DEFAULT_DATE_GRAIN, insightBuilderLogic } from './insightBuilderLogic'
 
 export const COUNT_OF_ROWS_FIELD: BuilderField = {
@@ -144,45 +143,21 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
 }
 
 export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
-    const { baseFields, baseFieldsLoading, baseOutOfSync, baseViewName } = useValues(insightBuilderLogic({ tabId }))
+    const { baseFields, baseFieldsLoading, baseOutOfSync } = useValues(insightBuilderLogic({ tabId }))
     const { loadBaseColumns, refreshBase } = useActions(insightBuilderLogic({ tabId }))
-    const { setEditorMode } = useActions(insightBuilderLogic({ tabId }))
 
     const dimensions = baseFields.filter((field) => !field.isNumerical)
     const measures = baseFields.filter((field) => field.isNumerical)
 
     return (
-        <div className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r bg-surface-primary p-2">
-            <div className="flex items-center justify-between gap-2 px-2 pb-2">
-                <span className="text-xs font-semibold uppercase text-tertiary">Source</span>
-                {baseViewName ? (
-                    <LemonTag
-                        type="highlight"
-                        icon={<IconDatabase />}
-                        className="max-w-40 truncate"
-                        title={baseViewName}
-                    >
-                        {baseViewName}
-                    </LemonTag>
-                ) : (
-                    <LemonTag
-                        type="option"
-                        icon={<IconPencil />}
-                        onClick={() => setEditorMode(EditorMode.Data)}
-                        title="Edit the base query in the Data tab"
-                        data-attr="sql-builder-source-edit"
-                    >
-                        Custom query (Edit)
-                    </LemonTag>
-                )}
-            </div>
+        <div className="flex flex-col p-2">
             {baseOutOfSync ? (
                 <LemonBanner
                     type="warning"
                     className="mb-2 text-xs"
                     action={{ children: 'Refresh fields', onClick: () => refreshBase() }}
                 >
-                    The base query changed in the Data tab.
+                    The data source changed.
                 </LemonBanner>
             ) : null}
             {baseFieldsLoading ? (
@@ -193,12 +168,9 @@ export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
                 </div>
             ) : baseFields.length === 0 ? (
                 <div className="flex flex-col gap-2 p-2 text-sm text-secondary">
-                    <span>No fields yet. Run a valid query in the Data tab, then refresh.</span>
+                    <span>No fields yet. Pick a data source above, then refresh.</span>
                     <LemonButton size="small" type="secondary" onClick={() => loadBaseColumns()}>
                         Refresh fields
-                    </LemonButton>
-                    <LemonButton size="small" type="tertiary" onClick={() => setEditorMode(EditorMode.Data)}>
-                        Go to Data tab
                     </LemonButton>
                 </div>
             ) : (

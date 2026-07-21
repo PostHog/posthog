@@ -7,6 +7,8 @@ import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -41,10 +43,11 @@ import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
+import { DataSourceRow } from './insightBuilder/DataSourceRow'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputPane } from './OutputPane'
-import { EditorMode, outputPaneLogic } from './outputPaneLogic'
+import { DataSource, outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -106,15 +109,15 @@ export function SQLEditor({
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
     const insightBuilderEnabled = useFeatureFlag('SQL_EDITOR_INSIGHT_BUILDER')
-    const { editorMode } = useValues(outputPaneLogic({ tabId: tabId || '' }))
-    const isBuildMode = insightBuilderEnabled && mode === SQLEditorMode.FullScene && editorMode === EditorMode.Build
+    const { dataSource, fullscreen } = useValues(outputPaneLogic({ tabId: tabId || '' }))
 
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
     const showQueryPanel = panel !== SQLEditorPanel.Output
     const showOutputPanel = panel !== SQLEditorPanel.Query
     const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
-    // The insight builder has its own fields panel — the database tree only applies to Data mode
-    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree && !isBuildMode
+    // The two-row builder layout: a data-source row on top, results/visualization below
+    const isBuilderLayout = insightBuilderEnabled && mode === SQLEditorMode.FullScene && panel === SQLEditorPanel.Full
+    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
     const showFullSceneModals = mode === SQLEditorMode.FullScene
 
     const editorSizingLogicProps = useMemo(
@@ -154,6 +157,17 @@ export function SQLEditor({
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
+
+    // Draggable height for the Custom SQL editor row in the builder layout
+    const dataSourceRowRef = useRef<HTMLDivElement>(null)
+    const dataSourceRowResizerProps: ResizerLogicProps = {
+        containerRef: dataSourceRowRef,
+        logicKey: `sql-data-source-row-${tabId || 'default'}`,
+        placement: 'bottom',
+        persistent: true,
+    }
+    const { desiredSize: dataSourceRowDesiredHeight } = useValues(resizerLogic(dataSourceRowResizerProps))
+    const dataSourceRowHeight = Math.min(Math.max(dataSourceRowDesiredHeight || 380, 200), 800)
 
     useOnMountEffect(() => {
         return () => {
@@ -239,6 +253,69 @@ export function SQLEditor({
                                                 onShareTab={onShareTab}
                                             />
                                         </div>
+                                    ) : isBuilderLayout ? (
+                                        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
+                                            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                                {showSceneTitle ? <SQLEditorSceneTitle /> : null}
+                                                {/* Row 1: data source. Hidden while the output row is fullscreen. */}
+                                                {!fullscreen ? (
+                                                    <div
+                                                        ref={dataSourceRowRef}
+                                                        className="relative flex shrink-0 flex-col overflow-hidden"
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={
+                                                            dataSource === DataSource.Sql
+                                                                ? { height: dataSourceRowHeight }
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        <DataSourceRow tabId={tabId || ''}>
+                                                            <div className="flex min-h-0 flex-1">
+                                                                {showDatabaseTreePanel && (
+                                                                    <DatabaseTree
+                                                                        databaseTreeRef={databaseTreeRef}
+                                                                        tabId={tabId || ''}
+                                                                        extraTreeSections={extraTreeSections}
+                                                                    />
+                                                                )}
+                                                                <div
+                                                                    data-attr="editor-scene"
+                                                                    className="EditorScene relative flex min-h-0 grow flex-row overflow-hidden"
+                                                                    ref={ref}
+                                                                >
+                                                                    <ViewLoadingOverlay />
+                                                                    <QueryWindow
+                                                                        mode={mode}
+                                                                        tabId={tabId || ''}
+                                                                        showDatabaseTree={showDatabaseTreePanel}
+                                                                        onShowDatabaseTree={() =>
+                                                                            setHasShownDatabaseTree(true)
+                                                                        }
+                                                                        showQueryPanel
+                                                                        showOutputPanel={false}
+                                                                        onSetMonacoAndEditor={(
+                                                                            nextMonaco,
+                                                                            nextEditor
+                                                                        ) =>
+                                                                            setMonacoAndEditor([nextMonaco, nextEditor])
+                                                                        }
+                                                                        onShareTab={onShareTab}
+                                                                        autoFocusQueryPane={autoFocusQueryPane}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </DataSourceRow>
+                                                        {dataSource === DataSource.Sql ? (
+                                                            <Resizer {...dataSourceRowResizerProps} />
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
+                                                {/* Row 2: results + visualization (the builder) */}
+                                                <div className="flex min-h-0 flex-1 overflow-hidden">
+                                                    <OutputPane tabId={tabId || ''} onShareTab={onShareTab} />
+                                                </div>
+                                            </div>
+                                        </BindLogic>
                                     ) : (
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
                                             <div className="flex h-full min-h-0 flex-col overflow-hidden">

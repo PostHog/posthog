@@ -97,7 +97,7 @@ import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
-import { EditorMode, OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { DataSource, OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import {
@@ -389,8 +389,8 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     if (values.activeTab?.draft) {
         hash['draft'] = values.activeTab.draft.id
     }
-    if (values.editorMode === EditorMode.Build) {
-        hash['mode'] = EditorMode.Build
+    if (values.dataSource) {
+        hash['data_source'] = values.dataSource
     }
 
     return hash
@@ -482,7 +482,7 @@ export interface sqlEditorLogicValues {
     databaseLoading: boolean // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    editorMode: EditorMode // outputPaneLogic
+    dataSource: DataSource | null // outputPaneLogic
     outputActiveTab: OutputTab // outputPaneLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     user: UserType | null // userLogic
@@ -724,8 +724,8 @@ export interface sqlEditorLogicActions {
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
     } // outputPaneLogic
-    setEditorMode: (mode: EditorMode) => {
-        mode: EditorMode
+    setDataSource: (dataSource: DataSource | null) => {
+        dataSource: DataSource | null
     } // outputPaneLogic
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
@@ -1096,7 +1096,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             databaseTableListLogic,
             ['database', 'databaseLoading', 'connectionId as databaseConnectionId'],
             outputPaneLogic({ tabId: props.tabId }),
-            ['activeTab as outputActiveTab', 'editorMode'],
+            ['activeTab as outputActiveTab', 'dataSource'],
             dataModelingLogic,
             ['dags', 'selectedDagId'],
         ],
@@ -1114,7 +1114,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'updateDataWarehouseSavedQuery',
             ],
             outputPaneLogic({ tabId: props.tabId }),
-            ['setActiveTab', 'setEditorMode'],
+            ['setActiveTab', 'setDataSource'],
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
@@ -1749,10 +1749,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     )
                 }
 
-                // Leaving Build mode when the tab's new content isn't a builder insight
-                if (values.editorMode === EditorMode.Build && !insightVisualizationQuery?.builder?.enabled) {
-                    actions.setEditorMode(EditorMode.Data)
+                // Infer the data source for the new tab: builder insights come back to the source
+                // they were built on; any other content (view/draft/query/classic insight) opens
+                // in Custom SQL; a truly blank new tab leaves it unpicked so the user chooses.
+                const savedQueryNames = new Set(values.dataWarehouseSavedQueries.map((q) => q.name))
+                let nextDataSource: DataSource | null
+                if (insightVisualizationQuery?.builder?.enabled) {
+                    const baseView = insightVisualizationQuery.builder.baseView
+                    nextDataSource = baseView
+                        ? savedQueryNames.has(baseView)
+                            ? DataSource.View
+                            : DataSource.Warehouse
+                        : DataSource.Sql
+                } else if (query || draft || view || insightVisualizationQuery) {
+                    nextDataSource = DataSource.Sql
+                } else {
+                    nextDataSource = null
                 }
+                actions.setDataSource(nextDataSource)
 
                 // Focus the editor after creating a new tab
                 props.editor?.focus()
@@ -3016,10 +3030,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
-            const editorModeFromUrl =
-                (searchParams.mode ?? hashParams.mode) === EditorMode.Build &&
-                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER]
-                    ? EditorMode.Build
+            const dataSourceFromUrl =
+                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_INSIGHT_BUILDER] &&
+                Object.values(DataSource).includes(hashParams.data_source as DataSource)
+                    ? (hashParams.data_source as DataSource)
                     : null
             const draftIdFromUrl = searchParams.open_draft || hashParams.draft
             const viewIdFromUrl = searchParams.open_view || hashParams.view
@@ -3063,7 +3077,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.insight &&
                 !hashParams.draft &&
                 !hashParams.output_tab &&
-                !hashParams.mode &&
+                !hashParams.data_source &&
                 values.queryInput !== null
             ) {
                 if (shouldSyncDatabaseConnection && !values.databaseLoading) {
@@ -3108,8 +3122,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
                 }
-                if (editorModeFromUrl && values.editorMode !== editorModeFromUrl) {
-                    actions.setEditorMode(editorModeFromUrl)
+                if (dataSourceFromUrl && values.dataSource !== dataSourceFromUrl) {
+                    actions.setDataSource(dataSourceFromUrl)
                 }
 
                 if (
@@ -3246,10 +3260,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (insightVisualizationQuery) {
                         actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
+                    // editInsight → createTab infers the data source; here we just land on the
+                    // Visualization tab so the insight opens showing its chart, not raw results
                     actions.editInsight(queryToOpen, insight)
-                    if (isBuilderInsight) {
-                        actions.setEditorMode(EditorMode.Build)
-                    } else if (!outputTabFromUrl) {
+                    if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }
 

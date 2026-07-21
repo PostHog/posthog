@@ -131,7 +131,16 @@ const RESERVED_ALIASES = new Set([
 
 export function dimensionExpr(dim: InsightBuilderDimension): string {
     const ref = escapePropertyAsHogQLIdentifier(dim.column)
-    return dim.dateGrain ? `${DATE_GRAIN_FUNCTIONS[dim.dateGrain]}(${ref})` : ref
+    if (dim.dateGrain) {
+        return `${DATE_GRAIN_FUNCTIONS[dim.dateGrain]}(${ref})`
+    }
+    // Fixed-width numeric bins: group each value into [floor(v/w)*w, +w). Width is numeric so
+    // it's inlined directly (not a string literal). Non-positive widths are ignored.
+    if (dim.numericBinWidth && dim.numericBinWidth > 0) {
+        const w = dim.numericBinWidth
+        return `floor(${ref} / ${w}) * ${w}`
+    }
+    return ref
 }
 
 export function measureExpr(measure: InsightBuilderMeasure): string {
@@ -228,7 +237,13 @@ export function sanitizeAlias(raw: string, taken: Set<string>): string {
 }
 
 function dimensionAliasBase(dim: InsightBuilderDimension): string {
-    return dim.dateGrain ? `${dim.column}_${dim.dateGrain}` : dim.column
+    if (dim.dateGrain) {
+        return `${dim.column}_${dim.dateGrain}`
+    }
+    if (dim.numericBinWidth && dim.numericBinWidth > 0) {
+        return `${dim.column}_binned`
+    }
+    return dim.column
 }
 
 function measureAliasBase(measure: InsightBuilderMeasure): string {

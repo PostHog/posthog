@@ -3,12 +3,15 @@ import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconDatabase, IconGear, IconPalette } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { measureLabel } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
-import { BuilderWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
+import { BuilderWell, isWellEnabled } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import { InsightBuilderDimension, InsightBuilderFilter, InsightBuilderMeasure } from '~/queries/schema/schema-general'
 
+import { BuilderColumnShell } from './BuilderColumnShell'
 import { BuilderPreview } from './BuilderPreview'
 import { ChartTypePicker } from './ChartTypePicker'
 import { FieldsPanel } from './FieldsPanel'
@@ -39,8 +42,8 @@ function dragLabel(data: DragData): string {
 
 export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
     const logic = insightBuilderLogic({ tabId })
-    const { wells, filterItems, baseFields } = useValues(logic)
-    const { addField, removeField, moveField } = useActions(logic)
+    const { wells, filterItems, baseFields, builderDisplay, collapsedColumns } = useValues(logic)
+    const { addField, removeField, moveField, toggleColumnCollapsed } = useActions(logic)
     const [activeDragLabel, setActiveDragLabel] = useState<string | null>(null)
 
     // The 4px activation distance keeps plain clicks (menus, close buttons) from starting a drag
@@ -100,7 +103,12 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
             return
         }
 
-        // Drops always land — if the addition exceeds the current chart, the logic switches to one that fits
+        // Chart type is primary: reject drops onto a well the current chart doesn't use
+        if (!isWellEnabled(targetWell, builderDisplay)) {
+            lemonToast.info(`This chart type doesn't use ${targetWell}`)
+            return
+        }
+
         if (data.type === 'field') {
             addToWell(targetWell, data.field.name, data.field)
             return
@@ -132,13 +140,43 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
             onDragEnd={onDragEnd}
             onDragCancel={() => setActiveDragLabel(null)}
         >
-            <div className="flex min-h-0 flex-1 border-t" data-attr="sql-builder-canvas">
-                <FieldsPanel tabId={tabId} />
-                <div className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto border-r bg-surface-primary p-3">
-                    <ChartTypePicker tabId={tabId} />
-                    <Wells tabId={tabId} />
+            <div className="flex min-h-0 flex-1" data-attr="sql-builder-canvas">
+                <BuilderColumnShell
+                    columnKey="data"
+                    icon={<IconDatabase />}
+                    label="Data"
+                    side="left"
+                    collapsed={!!collapsedColumns.data}
+                    onToggle={() => toggleColumnCollapsed('data')}
+                >
+                    <FieldsPanel tabId={tabId} />
+                </BuilderColumnShell>
+                <BuilderColumnShell
+                    columnKey="setup"
+                    icon={<IconGear />}
+                    label="Setup"
+                    side="left"
+                    collapsed={!!collapsedColumns.setup}
+                    onToggle={() => toggleColumnCollapsed('setup')}
+                >
+                    <div className="flex flex-col gap-4 p-3">
+                        <ChartTypePicker tabId={tabId} />
+                        <Wells tabId={tabId} />
+                    </div>
+                </BuilderColumnShell>
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <BuilderPreview tabId={tabId} />
                 </div>
-                <BuilderPreview tabId={tabId} />
+                <BuilderColumnShell
+                    columnKey="format"
+                    icon={<IconPalette />}
+                    label="Format"
+                    side="right"
+                    collapsed={!!collapsedColumns.format}
+                    onToggle={() => toggleColumnCollapsed('format')}
+                >
+                    <SideBar />
+                </BuilderColumnShell>
             </div>
             <DragOverlay dropAnimation={null}>
                 {activeDragLabel ? (

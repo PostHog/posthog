@@ -1,6 +1,6 @@
 import { ChartDisplayType } from '~/types'
 
-import { BuilderWells, bestDisplayForWells, isWellOverCapacity, validateWellsForDisplay } from './chartCapabilities'
+import { BuilderWells, bestDisplayForWells, isWellEnabled, validateWellsForDisplay } from './chartCapabilities'
 
 const wells = (rows: number, columns: number, values: number): BuilderWells => ({
     rows: Array.from({ length: rows }, (_, i) => ({ column: `row_${i}` })),
@@ -57,26 +57,21 @@ describe('chartCapabilities', () => {
         })
     })
 
-    describe('isWellOverCapacity', () => {
+    describe('isWellEnabled', () => {
         it.each([
-            // [well, display, rows, columns, values, expected]
-            // Adding a Columns field to charts that don't use Columns — the auto-switch trigger
-            ['columns' as const, ChartDisplayType.ActionsBar, 1, 1, 1, true],
-            ['columns' as const, ChartDisplayType.ActionsPie, 1, 1, 1, true],
-            ['rows' as const, ChartDisplayType.BoldNumber, 1, 0, 1, true],
-            // A second field where only one fits
-            ['rows' as const, ChartDisplayType.ActionsLineGraph, 2, 0, 1, true],
-            ['values' as const, ChartDisplayType.ActionsStackedBar, 1, 1, 2, true],
-            // Line charts cap values at 1 once Columns is used
-            ['values' as const, ChartDisplayType.ActionsLineGraph, 1, 1, 2, true],
-            // Filling toward an unmet minimum is never over capacity — incomplete charts stay selected
-            ['rows' as const, ChartDisplayType.TwoDimensionalHeatmap, 1, 0, 1, false],
-            ['values' as const, ChartDisplayType.ActionsLineGraph, 1, 0, 1, false],
-            ['rows' as const, ChartDisplayType.ActionsTable, 5, 0, 0, false],
-            // Filters never affect chart choice
-            ['filters' as const, ChartDisplayType.BoldNumber, 0, 0, 1, false],
-        ])('%s added on %s with %i/%i/%i wells → %s', (well, display, rows, columns, values, expected) => {
-            expect(isWellOverCapacity(well, wells(rows, columns, values), display)).toEqual(expected)
+            // [well, display, enabled] — chart type drives which wells accept fields
+            ['columns' as const, ChartDisplayType.ActionsBar, false],
+            ['columns' as const, ChartDisplayType.ActionsPie, false],
+            ['columns' as const, ChartDisplayType.ActionsStackedBar, true],
+            ['columns' as const, ChartDisplayType.ActionsLineGraph, true],
+            ['rows' as const, ChartDisplayType.BoldNumber, false],
+            ['values' as const, ChartDisplayType.BoldNumber, true],
+            ['rows' as const, ChartDisplayType.ActionsBar, true],
+            // Filters apply to every chart
+            ['filters' as const, ChartDisplayType.BoldNumber, true],
+            ['filters' as const, ChartDisplayType.ActionsPie, true],
+        ])('%s on %s → enabled: %s', (well, display, enabled) => {
+            expect(isWellEnabled(well, display)).toEqual(enabled)
         })
     })
 

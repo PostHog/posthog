@@ -112,35 +112,34 @@ describe('insightBuilderLogic', () => {
         await expectLogic(builderLogic).toNotHaveDispatchedActions(['applyWells'])
     })
 
-    it('switches to a chart that fits when a new field exceeds the current chart', async () => {
+    it('picks a starting chart for the first field but never auto-switches afterward', async () => {
         sqlLogic.actions.setQueryInput(BASE_QUERY)
         builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+
+        // First field on a fresh (Table) builder picks a sensible chart
         builderLogic.actions.addField('rows', 'event')
         builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
         builderLogic.actions.setBuilderDisplay(ChartDisplayType.ActionsBar)
 
+        // Chart type is now primary — adding a Column does not switch the chart away from bar
         await expectLogic(builderLogic, () => {
             builderLogic.actions.addField('columns', 'region')
-        })
-            .toMatchValues({ builderDisplay: ChartDisplayType.ActionsStackedBar })
-            .toDispatchActions(sqlLogic, ['setSourceQuery'])
-
-        // Stacked bar reads the wells inverted: Columns drives the x-axis, Rows the stacks
-        const settings = sqlLogic.values.sourceQuery.chartSettings
-        expect(settings?.xAxis?.column).toEqual('region')
-        expect(settings?.seriesBreakdownColumn).toEqual('event')
+        }).toMatchValues({ builderDisplay: ChartDisplayType.ActionsBar })
     })
 
-    it('keeps a deliberately chosen chart while fields fill toward its requirements', async () => {
+    it('compiles a numeric bin width into the source query', async () => {
         sqlLogic.actions.setQueryInput(BASE_QUERY)
         builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+        builderLogic.actions.addField('rows', 'amount')
         builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
-        builderLogic.actions.setBuilderDisplay(ChartDisplayType.TwoDimensionalHeatmap)
 
         await expectLogic(builderLogic, () => {
-            // Heatmap still needs a Column — adding the Row moves toward the requirement, not past it
-            builderLogic.actions.addField('rows', 'event')
-        }).toMatchValues({ builderDisplay: ChartDisplayType.TwoDimensionalHeatmap })
+            builderLogic.actions.setNumericBinWidth('rows', 0, 10)
+        }).toDispatchActions(sqlLogic, ['setSourceQuery'])
+
+        const node = sqlLogic.values.sourceQuery
+        expect(node.builder?.rows).toEqual([{ column: 'amount', numericBinWidth: 10, dateGrain: undefined }])
+        expect(node.source.query).toContain('floor(amount / 10) * 10')
     })
 
     it('compiles filters into the query and reruns when a filter completes', async () => {

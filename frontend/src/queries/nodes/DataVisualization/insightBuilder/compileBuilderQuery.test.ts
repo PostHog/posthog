@@ -135,6 +135,12 @@ describe('compileBuilderQuery', () => {
             [{ column: 'ts', dateGrain: 'year' } as const, 'toStartOfYear(ts)'],
             [{ column: 'plain' } as const, 'plain'],
             [{ column: 'order value' } as const, '"order value"'],
+            [{ column: 'amount', numericBinWidth: 10 } as const, 'floor(amount / 10) * 10'],
+            [{ column: 'order value', numericBinWidth: 2.5 } as const, 'floor("order value" / 2.5) * 2.5'],
+            // Non-positive bin width is ignored (treated as exact)
+            [{ column: 'amount', numericBinWidth: 0 } as const, 'amount'],
+            // Date grain wins if both are somehow set
+            [{ column: 'ts', dateGrain: 'day', numericBinWidth: 10 } as const, 'toStartOfDay(ts)'],
         ])('compiles %o to %s', (dim, expected) => {
             expect(dimensionExpr(dim)).toEqual(expected)
         })

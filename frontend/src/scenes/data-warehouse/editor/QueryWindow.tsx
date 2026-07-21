@@ -31,11 +31,8 @@ import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/fro
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
-import { BuilderCanvas } from './insightBuilder/BuilderCanvas'
-import { BuilderModeTabs } from './insightBuilder/BuilderModeTabs'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
-import { EditorMode, outputPaneLogic } from './outputPaneLogic'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
@@ -112,9 +109,8 @@ export function QueryWindow({
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const insightBuilderEnabled = useFeatureFlag('SQL_EDITOR_INSIGHT_BUILDER')
-    const { editorMode } = useValues(outputPaneLogic({ tabId }))
-    const showBuilderTabs = insightBuilderEnabled && mode === SQLEditorMode.FullScene && showQueryPanel
-    const isBuildMode = showBuilderTabs && editorMode === EditorMode.Build
+    // The builder now owns "save as view" from the data-source row; keep it here otherwise
+    const showSaveAsView = insightBuilderEnabled && mode === SQLEditorMode.FullScene && showQueryPanel
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
@@ -250,9 +246,7 @@ export function QueryWindow({
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {showBuilderTabs ? <BuilderModeTabs tabId={tabId} /> : null}
-            {/* Data mode stays mounted (hidden) in Build mode so the Monaco editor instance and its undo history survive mode switches */}
-            <div className={cn('flex grow flex-col overflow-hidden', isBuildMode && 'hidden')}>
+            <div className="flex grow flex-col overflow-hidden">
                 {showQueryPanel ? (
                     <div
                         className={cn(
@@ -298,7 +292,7 @@ export function QueryWindow({
                         </div>
 
                         <div className="ml-auto flex items-center gap-2">
-                            {showBuilderTabs && !editingView ? (
+                            {showSaveAsView && !editingView ? (
                                 <LemonButton
                                     type="secondary"
                                     size="small"
@@ -394,7 +388,6 @@ export function QueryWindow({
 
                 {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
             </div>
-            {isBuildMode ? <BuilderCanvas tabId={tabId} /> : null}
         </div>
     )
 }

@@ -1525,6 +1525,13 @@ class InsightBuilderDimension(BaseModel):
     dateGrain: InsightBuilderDateGrain | None = Field(
         default=None, description="Date bucketing applied to DATE/DATETIME columns"
     )
+    numericBinWidth: float | None = Field(
+        default=None,
+        description=(
+            "Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) *"
+            " binWidth. Mutually exclusive with dateGrain."
+        ),
+    )
 
 
 class InsightBuilderMeasure(BaseModel):

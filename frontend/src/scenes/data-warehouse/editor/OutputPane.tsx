@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -11,6 +11,7 @@ import {
     IconColumns,
     IconCopy,
     IconDownload,
+    IconCollapse45,
     IconExpand45,
     IconGear,
     IconGraph,
@@ -85,6 +86,10 @@ import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
+
+// Lazy to break the OutputPane ⇄ BuilderCanvas import cycle (BuilderPreview renders
+// InternalDataTableVisualization, which lives here).
+const BuilderCanvas = lazy(() => import('./insightBuilder/BuilderCanvas').then((m) => ({ default: m.BuilderCanvas })))
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -601,11 +606,14 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const insightBuilderEnabled = useFeatureFlag('SQL_EDITOR_INSIGHT_BUILDER')
+    const { fullscreen } = useValues(outputPaneLogic)
+    const { toggleFullscreen } = useActions(outputPaneLogic)
 
-    // With the insight builder, Data mode is results-only — visualization lives in the builder.
-    // Legacy SQL insights (saved without a builder config) keep the classic Visualization tab.
-    const resultsOnly = insightBuilderEnabled && !isEmbeddedMode && !(editingInsight && !sourceQuery.builder?.enabled)
-    const effectiveTab = resultsOnly ? OutputTab.Results : activeTab
+    // In the builder layout the Visualization tab hosts the BI canvas. Legacy SQL insights (saved
+    // without a builder config) keep the classic Visualization panel so their chart still renders.
+    const builderLayout = insightBuilderEnabled && !isEmbeddedMode && !(editingInsight && !sourceQuery.builder?.enabled)
+    // The builder canvas replaces the split view; force a single active tab there.
+    const effectiveTab = builderLayout && activeTab === OutputTab.Both ? OutputTab.Visualization : activeTab
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
@@ -802,6 +810,8 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
+        builderLayout,
+        tabId,
     }
     const sharedActionsProps = {
         response,
@@ -859,9 +869,20 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         <>
             {showToolbar ? (
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                    <div className="flex min-h-[41px] gap-2 ml-4">
-                        {resultsOnly ? null : splitToggle}
-                        {(resultsOnly ? outputTabs.slice(0, 1) : outputTabs).map((tab) => (
+                    <div className="flex min-h-[41px] items-center gap-2 ml-2">
+                        {builderLayout ? (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={fullscreen ? <IconCollapse45 /> : <IconExpand45 />}
+                                onClick={() => toggleFullscreen()}
+                                tooltip={fullscreen ? 'Exit fullscreen' : 'Expand to fullscreen'}
+                                data-attr="sql-editor-output-fullscreen"
+                            />
+                        ) : (
+                            splitToggle
+                        )}
+                        {outputTabs.map((tab) => (
                             <OutputTabLabel
                                 key={tab.key}
                                 tab={tab}
@@ -1117,6 +1138,8 @@ const Content = ({
     insightLoading,
     showVisualizationSettings,
     isEmbeddedMode,
+    builderLayout,
+    tabId,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1160,6 +1183,16 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Visualization) {
+        // The builder canvas owns its own empty/loading states and data-source prompts
+        if (builderLayout) {
+            return (
+                <div className="flex min-h-0 flex-1 border-t">
+                    <Suspense fallback={<LoadingBar />}>
+                        <BuilderCanvas tabId={tabId} />
+                    </Suspense>
+                </div>
+            )
+        }
         if (!response && !responseLoading && !insightLoading) {
             return (
                 <div

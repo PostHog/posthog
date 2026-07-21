@@ -172,29 +172,18 @@ export function validateWellsForDisplay(wells: BuilderWells, display: ChartDispl
 }
 
 /**
- * True when adding to `well` just pushed the wells past what `display` supports — the signal to
- * auto-switch to a chart that fits. Unmet minimums never trigger this: an incomplete chart the
- * user chose deliberately stays selected while the preview guides them.
+ * Whether a well accepts fields for the given chart type. Chart type is primary: a well the chart
+ * doesn't use (max === 0) is disabled in the UI. Filters apply to every chart, so always enabled.
  */
-export function isWellOverCapacity(well: BuilderWell, wells: BuilderWells, display: ChartDisplayType): boolean {
+export function isWellEnabled(well: BuilderWell, display: ChartDisplayType): boolean {
     if (well === 'filters') {
-        return false
+        return true
     }
     const capability = getChartCapability(display)
     if (!capability) {
-        return false
-    }
-
-    const requirement = capability[well]
-    if (requirement.max !== null && wells[well].length > requirement.max) {
         return true
     }
-    return (
-        capability.maxValuesWithColumns !== undefined &&
-        (well === 'values' || well === 'columns') &&
-        wells.columns.length > 0 &&
-        wells.values.length > capability.maxValuesWithColumns
-    )
+    return capability[well].max !== 0
 }
 
 /** Pick a sensible chart type for the current wells (used when the user hasn't chosen one explicitly). */

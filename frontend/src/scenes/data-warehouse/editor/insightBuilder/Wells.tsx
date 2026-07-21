@@ -4,8 +4,10 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
+import { LemonDialog } from '@posthog/lemon-ui'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { cn } from 'lib/utils/css-classes'
@@ -20,7 +22,7 @@ import {
     NUMERIC_AGGREGATIONS,
     operatorNeedsValue,
 } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
-import { BuilderWell } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
+import { BuilderWell, isWellEnabled } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import {
     InsightBuilderAggregation,
     InsightBuilderDimension,
@@ -70,16 +72,35 @@ function DimensionPill({
     dimension: InsightBuilderDimension
 }): JSX.Element {
     const { baseFields } = useValues(insightBuilderLogic({ tabId }))
-    const { removeField, setDateGrain } = useActions(insightBuilderLogic({ tabId }))
+    const { removeField, setDateGrain, setNumericBinWidth } = useActions(insightBuilderLogic({ tabId }))
 
     const field = baseFields.find((candidate) => candidate.name === dimension.column)
     const isDate = field?.isDate || !!dimension.dateGrain
+    // A numeric column (that isn't a date) can be bucketed into fixed-width bins
+    const isNumeric = !isDate && (field?.isNumerical ?? false)
     const isMissing = baseFields.length > 0 && !field
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: pillId(well, index),
         data: { type: 'pill', well, index, item: dimension },
     })
+
+    const openBinModal = (): void => {
+        LemonDialog.openForm({
+            title: `Bin ${dimension.column}`,
+            description: 'Group values into fixed-width buckets, e.g. a width of 10 gives 0–10, 10–20, …',
+            initialValues: { binWidth: dimension.numericBinWidth ?? 10 },
+            content: (
+                <LemonField name="binWidth" label="Bin width">
+                    <LemonInput type="number" min={0} step="any" autoFocus />
+                </LemonField>
+            ),
+            errors: {
+                binWidth: (value) => (!value || Number(value) <= 0 ? 'Enter a width greater than 0' : undefined),
+            },
+            onSubmit: ({ binWidth }) => setNumericBinWidth(well, index, Number(binWidth)),
+        })
+    }
 
     return (
         <LemonSnack
@@ -106,6 +127,13 @@ function DimensionPill({
                             </DropdownMenuItem>
                         ))}
                         <DropdownMenuItem onClick={() => setDateGrain(well, index, null)}>Exact value</DropdownMenuItem>
+                    </PillMenu>
+                ) : isNumeric ? (
+                    <PillMenu label={dimension.numericBinWidth ? `Bins of ${dimension.numericBinWidth}` : 'Exact'}>
+                        <DropdownMenuItem onClick={openBinModal}>Set bin width…</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setNumericBinWidth(well, index, null)}>
+                            Exact value
+                        </DropdownMenuItem>
                     </PillMenu>
                 ) : null}
             </span>
@@ -247,39 +275,64 @@ function Well({
     emptyHint,
     children,
     count,
+    disabled,
+    disabledReason,
 }: {
     well: BuilderWell
     title: string
     emptyHint: string
     children: React.ReactNode
     count: number
+    disabled?: boolean
+    disabledReason?: string
 }): JSX.Element {
-    const { setNodeRef, isOver } = useDroppable({ id: `well:${well}`, data: { type: 'well', well } })
+    const { setNodeRef, isOver } = useDroppable({
+        id: `well:${well}`,
+        data: { type: 'well', well },
+        disabled,
+    })
 
     return (
-        <div>
+        <div className={cn(disabled && 'opacity-50')}>
             <div className="mb-1 text-xs font-semibold uppercase text-tertiary">{title}</div>
             <div
                 ref={setNodeRef}
                 className={cn(
                     'flex min-h-12 flex-col gap-1 rounded border border-dashed p-1 transition-colors',
-                    isOver && 'border-accent bg-accent-highlight-secondary',
+                    isOver && !disabled && 'border-accent bg-accent-highlight-secondary',
                     count === 0 && 'items-center justify-center'
                 )}
                 data-attr={`sql-builder-well-${well}`}
             >
-                {count === 0 ? <span className="px-2 text-xs text-tertiary">{emptyHint}</span> : children}
+                {disabled ? (
+                    <span className="px-2 text-xs text-tertiary">{disabledReason}</span>
+                ) : count === 0 ? (
+                    <span className="px-2 text-xs text-tertiary">{emptyHint}</span>
+                ) : (
+                    children
+                )}
             </div>
         </div>
     )
 }
 
 export function Wells({ tabId }: { tabId: string }): JSX.Element {
-    const { rows, columnDims, measures, filterItems } = useValues(insightBuilderLogic({ tabId }))
+    const { rows, columnDims, measures, filterItems, builderDisplay } = useValues(insightBuilderLogic({ tabId }))
+
+    const wellDisabled = (well: BuilderWell): { disabled: boolean; disabledReason?: string } =>
+        isWellEnabled(well, builderDisplay)
+            ? { disabled: false }
+            : { disabled: true, disabledReason: `Not used by this chart type` }
 
     return (
         <div className="flex flex-col gap-3">
-            <Well well="rows" title="Rows" emptyHint="Drop a field to group by" count={rows.length}>
+            <Well
+                well="rows"
+                title="Rows"
+                emptyHint="Drop a field to group by"
+                count={rows.length}
+                {...wellDisabled('rows')}
+            >
                 <SortableContext
                     items={rows.map((_, index) => pillId('rows', index))}
                     strategy={verticalListSortingStrategy}
@@ -295,7 +348,13 @@ export function Wells({ tabId }: { tabId: string }): JSX.Element {
                     ))}
                 </SortableContext>
             </Well>
-            <Well well="columns" title="Columns" emptyHint="Drop a field to split series" count={columnDims.length}>
+            <Well
+                well="columns"
+                title="Columns"
+                emptyHint="Drop a field to split series"
+                count={columnDims.length}
+                {...wellDisabled('columns')}
+            >
                 <SortableContext
                     items={columnDims.map((_, index) => pillId('columns', index))}
                     strategy={verticalListSortingStrategy}
@@ -311,7 +370,13 @@ export function Wells({ tabId }: { tabId: string }): JSX.Element {
                     ))}
                 </SortableContext>
             </Well>
-            <Well well="values" title="Values" emptyHint="Drop a field to summarize" count={measures.length}>
+            <Well
+                well="values"
+                title="Values"
+                emptyHint="Drop a field to summarize"
+                count={measures.length}
+                {...wellDisabled('values')}
+            >
                 <SortableContext
                     items={measures.map((_, index) => pillId('values', index))}
                     strategy={verticalListSortingStrategy}

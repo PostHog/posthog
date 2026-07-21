@@ -1338,6 +1338,8 @@ export interface InsightBuilderDimension {
     column: string
     /** Date bucketing applied to DATE/DATETIME columns */
     dateGrain?: InsightBuilderDateGrain
+    /** Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain. */
+    numericBinWidth?: number
 }
 
 export interface InsightBuilderMeasure {

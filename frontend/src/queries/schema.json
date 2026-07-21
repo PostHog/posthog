@@ -26431,6 +26431,10 @@
                 "dateGrain": {
                     "$ref": "#/definitions/InsightBuilderDateGrain",
                     "description": "Date bucketing applied to DATE/DATETIME columns"
+                },
+                "numericBinWidth": {
+                    "description": "Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain.",
+                    "type": "number"
                 }
             },
             "required": ["column"],
