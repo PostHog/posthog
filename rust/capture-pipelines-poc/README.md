@@ -34,8 +34,10 @@ The public vocabulary matches the plan page and the design doc (§3.2–3.4):
 `Step`, `FallibleStep`, `StepResult`, `Outputs`/`NoOutputs`, `OutputRegistry`,
 `fail_open`, `HasSink`, and the capability traits `HasToken` / `HasEventName` /
 `HasDistinctId` / `HasTimestamp` / `HasTeamId` / `HasLane` (plus a demo `HasGeo`
-enrichment capability). The demo pipeline mirrors the plan's step templates: `Validate`
-→ `ApplyQuota.fail_open()` → `ApplyRestrictions` → an async `BatchAnnotate` chunk stage.
+enrichment capability).
+The demo pipeline composes the plan's step templates *and* the structural combinators end to end (`pipeline::run_analytics_batch`, exercised by `analytics_demo.rs`):
+`Validate` → `ApplyQuota.fail_open()` → `Branching` (a `$$`-prefixed heatmap split that skips restrictions, mirroring capture's real split) → an async `concurrently_per_group` policy stage keyed on `token:distinct_id` (mirroring the Node joined pipeline's post-team block) → a `concurrently` per-item enrichment.
+The end-to-end test asserts positional verdicts, branch routing, in-group ordering, and observed cross-group concurrency — all through the composed runner, not standalone demos.
 
 Three properties from the design are made *structural* here:
 
@@ -129,10 +131,10 @@ Every structurally-impactful Node builder maps to a Rust demonstration or a docu
 
 | Node builder | Rust demonstration |
 |---|---|
-| `concurrently(maxConcurrency)` | [`concurrently(max, proc, items)`] — `futures` `buffered`; bounded concurrency, FIFO emission. Proven in `combinators.rs` (order preserved, `max_in_flight == 2`). |
-| `concurrentlyPerGroup(groupingFn)` | [`concurrently_per_group(max, key_of, proc, items)`] — groups run concurrently (bounded), items strictly in-order within a group. Emits **positionally** (vs Node's group-completion order) because verdicts are recorded by position. Proven: in-group order, cross-group overlap (`max_in_flight == 3`), bounded (`== 1`), positional verdicts. |
+| `concurrently(maxConcurrency)` | [`concurrently(max, proc, items)`] — `futures` `buffered`; bounded concurrency, FIFO emission. **Used in the demo pipeline** as the per-item enrichment stage; also proven in isolation in `combinators.rs` (order preserved, `max_in_flight == 2`). |
+| `concurrentlyPerGroup(groupingFn)` | [`concurrently_per_group(max, key_of, proc, items)`] — groups run concurrently (bounded), items strictly in-order within a group. Emits **positionally** (vs Node's group-completion order) because verdicts are recorded by position. **Used in the demo pipeline** as the `token:distinct_id` policy stage (the Node post-team block); proven both there and in `combinators.rs` (in-group order, cross-group overlap, bounded, positional verdicts). |
 | `sequentially` | The default. Sync steps chain with `.step().step()` (no combinator); an async `sequentially(proc, items)` is provided for symmetry. |
-| `branching` (`Exclude<TRemaining, B>`) | `Branching { classify, route }` — a classifier maps to a user enum, the router `match`es it. Exhaustiveness is the compiler's match check: adding a variant breaks every router until handled — the Rust answer to the `Exclude` builder trick. |
+| `branching` (`Exclude<TRemaining, B>`) | `Branching { classify, route }` — a classifier maps to a user enum, the router `match`es it. Exhaustiveness is the compiler's match check: adding a variant breaks every router until handled — the Rust answer to the `Exclude` builder trick. **Used in the demo pipeline** as the `$$`-heatmap split (`BranchStep`). |
 | `gather` | Implicit: chunk stages already receive and return the whole `Vec<In>`, so gathering a chunk into one emission needs no combinator. |
 | `filterMap` | `filter_map(results, f)` — map `Continue` values (which may re-drop), pass non-`Continue` verdicts through positionally. |
 | retry (`withStepRetry` / `isRetriable`) | `Retry<S>` / `.retry(tries, backoff)` around a `FallibleStep`; backoff is an injectable `Fn(u32)` (tests record attempts, no real sleep). Still fallible, so it composes with `.fail_open()`. |
