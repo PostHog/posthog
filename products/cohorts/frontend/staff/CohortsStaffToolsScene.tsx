@@ -19,7 +19,7 @@ export const scene: SceneExport = {
 }
 
 function LookupPanel(): JSX.Element {
-    const { cohortIdsInput, lookupResponse, lookupCohorts, lookupResponseLoading } = useValues(cohortsStaffToolsLogic)
+    const { cohortIdsInput, lookupResponse, lookedUpCohorts, lookupResponseLoading } = useValues(cohortsStaffToolsLogic)
     const { setCohortIdsInput, lookUpCohorts, recalculateCohorts } = useActions(cohortsStaffToolsLogic)
 
     const hasIds = parseCohortIds(cohortIdsInput).length > 0
@@ -32,6 +32,7 @@ function LookupPanel(): JSX.Element {
                 <LemonInput
                     className="flex-1"
                     placeholder="Cohort ids, comma-separated (e.g. 128418, 34012)"
+                    aria-label="Cohort ids to look up"
                     value={cohortIdsInput}
                     onChange={setCohortIdsInput}
                     onPressEnter={() => hasIds && !lookupResponseLoading && lookUpCohorts()}
@@ -51,7 +52,7 @@ function LookupPanel(): JSX.Element {
                 <LemonBanner type="warning">Cohort ids not found: {notFound.join(', ')}</LemonBanner>
             )}
             <StaffCohortsTable
-                cohorts={lookupCohorts}
+                cohorts={lookedUpCohorts}
                 loading={lookupResponseLoading}
                 emptyState="Enter one or more cohort ids to inspect their calculation state."
                 onRecalculate={(cohortId) => recalculateCohorts({ cohortIds: [cohortId] })}
@@ -75,7 +76,13 @@ function StuckCohortsPanel(): JSX.Element {
                         showing {stuckCohorts.length} of {totalCount}
                     </span>
                 )}
-                <LemonButton type="tertiary" size="small" className="ml-auto" onClick={() => loadStuckCohorts()}>
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    className="ml-auto"
+                    loading={stuckResponseLoading}
+                    onClick={() => loadStuckCohorts()}
+                >
                     Refresh
                 </LemonButton>
             </div>

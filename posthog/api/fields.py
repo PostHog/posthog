@@ -5,6 +5,7 @@ reuse them instead of redefining local copies.
 """
 
 import json
+from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -34,7 +35,7 @@ class RepeatedOrCommaSeparatedListField(serializers.ListField):
     without this a caller using the generated client gets a validation error.
     """
 
-    def get_value(self, dictionary):
+    def get_value(self, dictionary: Any) -> Any:
         value = super().get_value(dictionary)
         if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str) and "," in value[0]:
             return value[0].split(",")

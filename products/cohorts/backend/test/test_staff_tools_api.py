@@ -68,6 +68,11 @@ class TestCohortsStaffToolsAPI(APIBaseTest):
         self.assertEqual(result["pending_version"], 5)
         self.assertEqual(result["count"], 123)
 
+    def test_lookup_rejects_more_than_max_cohorts(self):
+        cohort_ids = ",".join(str(i) for i in range(1, 52))
+        response = self.client.get(f"/api/cohorts_staff/?cohort_ids={cohort_ids}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_lookup_includes_deleted_cohorts(self):
         cohort = Cohort.objects.create(team=self.team, name="Deleted Cohort", deleted=True)
 

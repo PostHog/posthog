@@ -8,11 +8,11 @@ import { urls } from 'scenes/urls'
 import { cohortsStaffToolsLogic, StaffCohort } from './cohortsStaffToolsLogic'
 
 function recalculateDisabledReason(cohort: StaffCohort): string | undefined {
-    if (cohort.is_static) {
-        return 'Static cohorts are populated from their source and cannot be recalculated'
-    }
     if (cohort.deleted) {
         return 'This cohort is deleted'
+    }
+    if (cohort.is_static) {
+        return 'Static cohorts are populated from their source and cannot be recalculated'
     }
     return undefined
 }
