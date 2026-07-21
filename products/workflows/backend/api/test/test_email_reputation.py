@@ -6,6 +6,8 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.models import Team
+
 from products.workflows.backend.models import EmailReputationSnapshot, HogFlow
 
 RUN_2 = timezone.now().replace(microsecond=0) - timedelta(days=1)
@@ -39,7 +41,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_endpoint_returns_empty_shape_before_first_evaluation(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"reputation": None, "history": [], "workflows": []}
+        assert response.json() == {"reputation": None, "workflows": []}
 
     def test_reputation_endpoint_returns_latest_history_and_worst_first_workflows(self):
         ok_flow = self._create_flow("Fine workflow")
@@ -64,8 +66,6 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["reputation"]["state"] == "warning"
         assert data["reputation"]["scope"] == "team"
 
-        assert [row["state"] for row in data["history"]] == ["healthy", "warning"]  # oldest first
-
         assert [(row["hog_flow_name"], row["state"]) for row in data["workflows"]] == [
             ("Toxic workflow", "critical"),
             ("Fine workflow", "healthy"),
@@ -75,3 +75,36 @@ class TestEmailReputationAPI(APIBaseTest):
         # Each workflow entry carries its own per-run history, oldest first
         assert [row["state"] for row in data["workflows"][1]["history"]] == ["critical", "healthy"]
         assert [row["state"] for row in data["workflows"][0]["history"]] == ["critical"]
+
+    def test_reputation_endpoint_never_returns_other_teams_snapshots(self):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_flow = HogFlow.objects.create(
+            team=other_team,
+            name="Other team workflow",
+            status="active",
+            trigger={"type": "event"},
+            edges=[],
+            actions=[],
+            billable_action_types=["function_email"],
+        )
+        EmailReputationSnapshot(
+            team=other_team,
+            hog_flow=None,
+            scope=EmailReputationSnapshot.Scope.TEAM,
+            state="critical",
+            bounce_rate=0.5,
+            evaluated_at=RUN_2,
+        ).save()
+        EmailReputationSnapshot(
+            team=other_team,
+            hog_flow=other_flow,
+            scope=EmailReputationSnapshot.Scope.WORKFLOW,
+            state="critical",
+            bounce_rate=0.5,
+            evaluated_at=RUN_2,
+        ).save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+        assert response.status_code == status.HTTP_200_OK
+        # Nothing from the other team leaks: no aggregate, no workflow rows
+        assert response.json() == {"reputation": None, "workflows": []}

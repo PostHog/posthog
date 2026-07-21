@@ -1037,9 +1037,7 @@ export interface WorkflowEmailReputationSnapshotApi {
 export interface TeamEmailReputationResponseApi {
     /** Latest project-wide email reputation snapshot across all workflows; null until first evaluated. */
     readonly reputation: EmailReputationSnapshotApi | null
-    /** Recent project-wide snapshots (oldest first, one per daily evaluation run). */
-    readonly history: readonly EmailReputationSnapshotApi[]
-    /** Latest snapshot per workflow, worst state and highest rates first. */
+    /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
     readonly workflows: readonly WorkflowEmailReputationSnapshotApi[]
 }
 

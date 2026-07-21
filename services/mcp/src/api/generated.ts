@@ -67750,9 +67750,7 @@ export namespace Schemas {
     export interface TeamEmailReputationResponse {
       /** Latest project-wide email reputation snapshot across all workflows; null until first evaluated. */
       readonly reputation: EmailReputationSnapshot | null;
-      /** Recent project-wide snapshots (oldest first, one per daily evaluation run). */
-      readonly history: readonly EmailReputationSnapshot[];
-      /** Latest snapshot per workflow, worst state and highest rates first. */
+      /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
       readonly workflows: readonly WorkflowEmailReputationSnapshot[];
     }
 

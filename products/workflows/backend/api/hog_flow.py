@@ -912,15 +912,12 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="Latest project-wide email reputation snapshot across all workflows; null until first evaluated.",
     )
-    history = EmailReputationSnapshotSerializer(
-        many=True,
-        read_only=True,
-        help_text="Recent project-wide snapshots (oldest first, one per daily evaluation run).",
-    )
     workflows = WorkflowEmailReputationSnapshotSerializer(
         many=True,
         read_only=True,
-        help_text="Latest snapshot per workflow, worst state and highest rates first.",
+        help_text=(
+            "Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows."
+        ),
     )
 
 
@@ -2284,7 +2281,10 @@ class HogFlowViewSet(
         EmailReputationSnapshot.State.INSUFFICIENT_DATA: 3,
     }
 
-    TEAM_REPUTATION_HISTORY_LIMIT = 30
+    # Cap the per-workflow breakdown: without it, hundreds of email workflows each carrying a
+    # week of history make one unbounded response. Worst-first sorting means the cut tail is the
+    # healthiest workflows.
+    WORKFLOW_REPUTATION_LIMIT = 50
     # Workflows drop off the breakdown once the evaluator stops producing snapshots for them
     # (i.e. no sends within its lookback), so a long-dead sender's last bad rate isn't pinned
     # to the top of the list forever.
@@ -2298,9 +2298,9 @@ class HogFlowViewSet(
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
-        Email deliverability reputation for this project: the latest project-wide snapshot, recent
-        project-wide history for trend display, and the latest recent snapshot per workflow (worst
-        first). Written daily by the Node evaluator; everything is null/empty until the first run.
+        Email deliverability reputation for this project: the latest project-wide snapshot and the
+        latest recent snapshot per workflow (worst first, capped). Written daily by the Node
+        evaluator; everything is null/empty until the first run.
         """
         # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
         # filtered per object grant — only members with project-wide workflow read access get it.
@@ -2309,16 +2309,14 @@ class HogFlowViewSet(
 
         # for_team(canonical=True): rows are keyed by the raw team_id the Node evaluator writes,
         # which may be a child environment id that canonical resolution would rewrite and miss.
-        team_snapshots = (
-            list(
-                EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
-                .filter(hog_flow__isnull=True)
-                .order_by("-evaluated_at")[: self.TEAM_REPUTATION_HISTORY_LIMIT]
-            )
+        latest = (
+            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
+            .filter(hog_flow__isnull=True)
+            .order_by("-evaluated_at")
+            .first()
             if can_read_all_workflows
-            else []
+            else None
         )
-        latest = team_snapshots[0] if team_snapshots else None
 
         # One row per workflow per run over the history window, grouped in Python so each workflow
         # entry carries its recent history alongside the latest snapshot.
@@ -2359,12 +2357,12 @@ class HogFlowViewSet(
                 -s.bounce_rate,
             )
         )
+        workflow_snapshots = workflow_snapshots[: self.WORKFLOW_REPUTATION_LIMIT]
 
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
                     "reputation": latest,
-                    "history": list(reversed(team_snapshots)),
                     "workflows": workflow_snapshots,
                 },
                 context={"workflow_history": history_by_flow},
