@@ -51,6 +51,26 @@ export const SandboxCustomImagesCreateBody = /* @__PURE__ */ zod
     .describe('Request body for creating a custom sandbox base image.')
 
 /**
+ * Rename or update the description of a custom image. Only mutable metadata (name, description) is editable; the build spec and status are managed by the build flow.
+ */
+export const sandboxCustomImagesPartialUpdateBodyNameMax = 255
+
+export const SandboxCustomImagesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .min(1)
+            .max(sandboxCustomImagesPartialUpdateBodyNameMax)
+            .optional()
+            .describe('New display name for the custom image. Omit to leave unchanged.'),
+        description: zod
+            .string()
+            .optional()
+            .describe('New description. Omit to leave unchanged; pass an empty string to clear it.'),
+    })
+    .describe('Request body for renaming \/ re-describing a custom sandbox base image.')
+
+/**
  * Persist the image spec (from the request body or the builder agent's sandbox), run the security scan, and on pass build and publish the image.
  */
 export const SandboxCustomImagesBuildCreateBody = /* @__PURE__ */ zod

@@ -120,6 +120,7 @@ __all__ = [
     "append_task_run_log",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "can_mint_readonly_github_token",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
@@ -1450,6 +1451,41 @@ def build_sandbox_custom_image(
     return _reload_image_dto(image.pk)
 
 
+def update_sandbox_custom_image(
+    image_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> contracts.SandboxCustomImageDTO | None:
+    """Rename (and optionally re-describe) a visible custom image.
+
+    Only mutable metadata (`name`, `description`) is editable here — the build spec,
+    status, and published image reference are managed by the build/scan flow. Returns
+    ``None`` when the image is not visible to the caller.
+    """
+    updates: dict[str, str] = {}
+    if name is not None:
+        updates["name"] = name
+    if description is not None:
+        updates["description"] = description
+    if not updates:
+        return get_sandbox_custom_image(image_id, team_id, user_id)
+
+    updated = (
+        _accessible_custom_images(team_id, user_id)
+        .filter(id=image_id)
+        .update(**updates, updated_at=django_timezone.now())
+    )
+    if not updated:
+        return None
+    # Re-read through get_sandbox_custom_image rather than _reload_image_dto: if a
+    # concurrent delete removes the row between the update above and this read,
+    # `.first()` returns None (→ 404) instead of .get() raising DoesNotExist (→ 500).
+    return get_sandbox_custom_image(image_id, team_id, user_id)
+
+
 def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
     image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
@@ -1681,6 +1717,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_fallback_cleanup_complete",
         "pending_external_followups",
         "pending_external_followups_generation",
+        # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
+        # runner); a PATCHable key would let any task controller mint a GitHub token onto a
+        # queued repo-less run.
+        "github_read_access",
     }
 )
 
@@ -3922,6 +3962,20 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     return github_integration_id if exists else None
 
 
+def can_mint_readonly_github_token(team_id: int) -> bool:
+    """Whether a repo-less sandbox requesting `github_read_access` would actually get a token.
+
+    Preflight for callers that condition user-visible behavior (e.g. prompt guidance naming `gh`)
+    on the read-only token being obtainable — true only when the team has a usable team-level
+    GitHub installation. Never raises.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        can_mint_readonly_github_token as _can_mint,
+    )
+
+    return _can_mint(team_id)
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -4354,6 +4408,13 @@ def run_task(
         prev_wizard_head_branch = (previous_run.state or {}).get("wizard_head_branch")
         if prev_wizard_head_branch:
             extra_state["wizard_head_branch"] = prev_wizard_head_branch
+
+        # A read-only GitHub grant describes how the task was created, not one run — without the
+        # carry-forward, a resumed successor of a repo-less read-only run falls through to the
+        # full credential path and regains the write-capable token. (The key is PATCH-protected,
+        # so this server-side copy is the only way it reaches a successor run.)
+        if (previous_run.state or {}).get("github_read_access") is True:
+            extra_state["github_read_access"] = True
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

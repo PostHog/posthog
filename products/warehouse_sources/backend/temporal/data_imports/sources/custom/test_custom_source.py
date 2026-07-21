@@ -55,7 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     validate_manifest_structure,
     validate_manifest_urls,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -2691,7 +2691,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
         sent_urls: list[str] = []
 
-        def _send(prepared):
+        def _send(prepared, **kwargs):
             sent_urls.append(prepared.url)
             if prepared.url.endswith("/forms"):
                 return _response({"items": [{"id": f"f{index}"} for index in range(PREVIEW_MAX_FANOUT_PARENTS + 20)]})

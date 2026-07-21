@@ -71,7 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [

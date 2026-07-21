@@ -272,7 +272,7 @@ class CHQueryErrorTooManyBytes(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorCannotParseUuid(InternalCHQueryError):
+class CHQueryErrorCannotParseUuid(ExposedCHQueryError):
     pass
 
 
