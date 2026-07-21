@@ -99,20 +99,11 @@ export interface scannerQualityLogicActions {
         suggestionId: string,
         config: Record<string, unknown>
     ) => {
-        suggestionId: string
         config: Record<string, unknown>
+        suggestionId: string
     }
     evaluateSuggestionFailure: () => {
         value: true
-    }
-    setFieldValue: (
-        suggestionId: string,
-        field: string,
-        value: unknown
-    ) => {
-        suggestionId: string
-        field: string
-        value: unknown
     }
     evaluateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => {
         suggestion: ReplayScannerPromptSuggestionApi
@@ -173,6 +164,15 @@ export interface scannerQualityLogicActions {
     loadSuggestionHistorySuccess: (history: ReplayScannerPromptSuggestionApi[]) => {
         history: ReplayScannerPromptSuggestionApi[]
     }
+    setFieldValue: (
+        suggestionId: string,
+        field: string,
+        value: unknown
+    ) => {
+        field: string
+        suggestionId: string
+        value: unknown
+    }
     setPage: (page: number) => {
         page: number
     }
@@ -199,6 +199,25 @@ export interface scannerQualityLogicMeta {
             ratedCount: number,
             testSessionLimit: number | null
         ) => number
+        fieldValues: (
+            currentSuggestion: ReplayScannerPromptSuggestionApi | null,
+            fieldValueOverrides: Record<string, Record<string, unknown>>
+        ) => Record<string, unknown>
+        hasEditableFields: (currentSuggestion: ReplayScannerPromptSuggestionApi | null) => boolean
+        assembledConfig: (
+            currentSuggestion: ReplayScannerPromptSuggestionApi | null,
+            fieldValues: Record<string, unknown>
+        ) => Record<string, unknown>
+        recommendationEditedSinceTest: (
+            currentSuggestion: ReplayScannerPromptSuggestionApi | null,
+            assembledConfig: Record<string, unknown>,
+            lastTestedConfigs: Record<string, Record<string, unknown>>
+        ) => boolean
+        applyIsNoop: (
+            currentSuggestion: ReplayScannerPromptSuggestionApi | null,
+            hasEditableFields: boolean,
+            assembledConfig: Record<string, unknown>
+        ) => boolean
     }
 }
 
