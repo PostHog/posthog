@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -72,9 +73,12 @@ class VeeqoPaginator(PageNumberPaginator):
     - the ``X-Total-Pages-Count`` response header, so the terminal page doesn't
       cost one extra empty-page request;
     - a short (partial) page, which is always the last page for offset-backed
-      page-number pagination. This also guards endpoints that ignore pagination
-      params entirely and return the full list in one response (``/tags``
-      documents no pagination) from looping on the same page forever.
+      page-number pagination.
+
+    Endpoints that document no pagination params at all (``/tags``) must not use
+    this paginator — they're configured ``single_page`` instead, because an API
+    that ignores ``page`` and returns ``page_size``-or-more rows would loop on
+    the same full list forever.
     """
 
     def __init__(self, page_size: int) -> None:
@@ -127,7 +131,9 @@ def _build_initial_params(
     incremental_field: str | None,
 ) -> dict[str, Any]:
     """Query params for the first page (the paginator only advances ``page``)."""
-    params: dict[str, Any] = {"page_size": config.page_size, **config.extra_params}
+    # Single-page endpoints document no pagination params, so none are sent.
+    params: dict[str, Any] = {} if config.single_page else {"page_size": config.page_size}
+    params.update(config.extra_params)
 
     use_incremental = (
         config.supports_incremental
@@ -196,6 +202,10 @@ def veeqo_source(
                 "name": "x-api-key",
                 "location": "header",
             },
+            # requests preserves the custom x-api-key header when following a
+            # redirect, so a redirect response could replay the full-account key
+            # to another host — refuse redirects outright.
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": {
@@ -215,7 +225,9 @@ def veeqo_source(
                     # Veeqo list responses are bare JSON arrays (no wrapper key) —
                     # fail loud if the response shape ever changes.
                     "data_selector_required": True,
-                    "paginator": VeeqoPaginator(page_size=config.page_size),
+                    "paginator": SinglePagePaginator()
+                    if config.single_page
+                    else VeeqoPaginator(page_size=config.page_size),
                 },
                 "table_format": "delta",
             }

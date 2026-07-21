@@ -82,9 +82,9 @@ class TestVeeqoPaginator:
         assert paginator.page == 2
 
     def test_short_page_stops_even_without_headers(self) -> None:
-        # `/tags` documents no pagination params; if the API ignores `page` and
-        # returns the same short list every time, stopping on a partial page is
-        # what prevents an infinite loop on the same response.
+        # A partial page is always the last page for offset-backed page-number
+        # pagination; without this stop the terminal page costs one extra
+        # empty-page request whenever the total-pages header is missing.
         paginator = VeeqoPaginator(page_size=100)
         short_page = [{"id": 1}, {"id": 2}]
         paginator.update_state(_response(short_page), short_page)
@@ -304,6 +304,36 @@ class TestPagination:
 
         # The filter must stay on every page — the paginator only advances `page`.
         assert all(p["updated_at_min"] == "2026-01-01 00:00:00" for p in params)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tags_fetches_a_single_unpaginated_page(self, MockSession) -> None:
+        # `/tags` documents no pagination params. If the API ignores `page` and an
+        # account has page_size-or-more tags, a page-number paginator would refetch
+        # the same full list forever — tags must issue exactly one request, without
+        # pagination params.
+        session = MockSession.return_value
+        params = _wire(session, [_response(_full_page(150))])
+
+        manager = _make_manager()
+        rows = _rows(veeqo_source("key", "tags", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert len(rows) == 150
+        assert session.send.call_count == 1
+        assert "page" not in params[0]
+        assert "page_size" not in params[0]
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_redirects_are_refused(self, MockSession) -> None:
+        # requests preserves the custom x-api-key header across redirects, so a
+        # redirect response could replay the full-account key to another host —
+        # every sync request must be sent with redirects disabled.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
+
+        _rows(veeqo_source("key", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+
+        assert session.send.call_args.kwargs["allow_redirects"] is False
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_fails_loud(self, MockSession) -> None:

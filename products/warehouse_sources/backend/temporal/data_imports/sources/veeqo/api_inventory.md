@@ -29,17 +29,17 @@ Source: Veeqo — multichannel ecommerce inventory, order and shipping managemen
 
 ## Endpoints
 
-| Schema             | Path                | Primary key | Partition key | Incremental | Notes                                                          |
-| ------------------ | ------------------- | ----------- | ------------- | ----------- | -------------------------------------------------------------- |
-| `orders`           | `/orders`           | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`.              |
+| Schema             | Path                | Primary key | Partition key | Incremental | Notes                                                           |
+| ------------------ | ------------------- | ----------- | ------------- | ----------- | --------------------------------------------------------------- |
+| `orders`           | `/orders`           | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`.               |
 | `products`         | `/products`         | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`; max page 100. |
-| `customers`        | `/customers`        | `id`        | —             | ➖ full     | Only `page`/`page_size`/`query`/`customer_type` documented.    |
-| `purchase_orders`  | `/purchase_orders`  | `id`        | `created_at`  | ➖ full     | `show_complete=true` sent so completed POs are included.       |
-| `suppliers`        | `/suppliers`        | `id`        | —             | ➖ full     |                                                                |
-| `warehouses`       | `/warehouses`       | `id`        | —             | ➖ full     |                                                                |
-| `stores`           | `/channels`         | `id`        | —             | ➖ full     | Veeqo calls stores "channels" in the API.                      |
-| `tags`             | `/tags`             | `id`        | —             | ➖ full     | No pagination params documented; short-page stop guards loops. |
-| `delivery_methods` | `/delivery_methods` | `id`        | `created_at`  | ➖ full     |                                                                |
+| `customers`        | `/customers`        | `id`        | —             | ➖ full     | Only `page`/`page_size`/`query`/`customer_type` documented.     |
+| `purchase_orders`  | `/purchase_orders`  | `id`        | `created_at`  | ➖ full     | `show_complete=true` sent so completed POs are included.        |
+| `suppliers`        | `/suppliers`        | `id`        | —             | ➖ full     |                                                                 |
+| `warehouses`       | `/warehouses`       | `id`        | —             | ➖ full     |                                                                 |
+| `stores`           | `/channels`         | `id`        | —             | ➖ full     | Veeqo calls stores "channels" in the API.                       |
+| `tags`             | `/tags`             | `id`        | —             | ➖ full     | No pagination params documented; fetched as a single page.      |
+| `delivery_methods` | `/delivery_methods` | `id`        | `created_at`  | ➖ full     |                                                                 |
 
 ## Possible future work
 

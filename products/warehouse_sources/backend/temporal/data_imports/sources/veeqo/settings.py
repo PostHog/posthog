@@ -30,6 +30,10 @@ class VeeqoEndpointConfig:
     # Static query params sent on every request (e.g. purchase_orders' show_complete).
     extra_params: dict[str, Any] = field(default_factory=dict)
     page_size: int = DEFAULT_PAGE_SIZE
+    # True for endpoints that document no pagination params: the whole list arrives in
+    # one response, so a page-number paginator would refetch the same full list forever
+    # once it holds page_size or more rows.
+    single_page: bool = False
 
     @property
     def supports_incremental(self) -> bool:
@@ -100,11 +104,12 @@ VEEQO_ENDPOINTS: dict[str, VeeqoEndpointConfig] = {
         name="stores",
         path="/channels",
     ),
-    # `/tags` documents no pagination params at all; the paginator's short-page stop
-    # keeps a single-page response from looping.
+    # `/tags` documents no pagination params at all, so it's fetched as a single page —
+    # paginating an endpoint that ignores `page` would refetch the same full list forever.
     "tags": VeeqoEndpointConfig(
         name="tags",
         path="/tags",
+        single_page=True,
     ),
     "delivery_methods": VeeqoEndpointConfig(
         name="delivery_methods",
