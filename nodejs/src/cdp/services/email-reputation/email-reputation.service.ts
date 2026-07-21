@@ -153,6 +153,13 @@ export class EmailReputationService {
             if (!flowId) {
                 continue
             }
+            // Defense in depth: the flow lookups aren't team-filtered, so a cross-team
+            // app_source_id would otherwise attribute one team's bounces to another team's
+            // workflow snapshot. Mismatched rows still count toward their own team's aggregate.
+            const flow = flows.get(flowId)
+            if (!flow || flow.team_id !== row.teamId) {
+                continue
+            }
             addBucket(getOrCreate(workflowBuckets, flowId), row)
         }
         for (const [flowId, buckets] of workflowBuckets) {
@@ -222,7 +229,12 @@ export class EmailReputationService {
     private async fetchHourlyEmailMetrics(teamIds: number[], evaluatedAt: string): Promise<HourlyEmailMetricsRow[]> {
         const result = await this.clickhouse.query({
             // email_blocked is how SES complaint events are recorded (see helpers/ses.ts), hence
-            // the `complained` alias. No HAVING sent > 0: buckets holding only late-arriving
+            // the `complained` alias. Note email_bounced includes ALL SES bounce types, while
+            // AWS's account bounce rate counts only hard bounces — so our rate deliberately
+            // overcounts (greylisting/mailbox-full push it up). Conservative in the safe
+            // direction for a visibility-only phase; splitting transient bounces into their own
+            // metric at the SES webhook is the enforcement-phase fix (it changes live metric
+            // semantics for every app_metrics2 consumer, so it doesn't belong in this service). No HAVING sent > 0: buckets holding only late-arriving
             // bounces/complaints must still count toward the window they fall into.
             query: `
                 SELECT

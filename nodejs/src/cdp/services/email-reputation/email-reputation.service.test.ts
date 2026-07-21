@@ -196,6 +196,16 @@ describe('EmailReputationService', () => {
             { teamId, appSourceId: batchJobId, hourBucket: HOURS_AGO(3), sent: 600, bounced: 20, complained: 0 },
             // Matches neither a flow nor a batch job (e.g. deleted flow): team aggregate only
             { teamId, appSourceId: randomUUID(), hourBucket: HOURS_AGO(2), sent: 100, bounced: 100, complained: 0 },
+            // Cross-team app_source_id (another team's metrics naming our flow): must not touch
+            // our workflow snapshot, and counts only toward the foreign team's aggregate
+            {
+                teamId: teamId + 1,
+                appSourceId: flow.id,
+                hourBucket: HOURS_AGO(2),
+                sent: 500,
+                bounced: 250,
+                complained: 0,
+            },
         ])
 
         await service.evaluateTeamBatch([teamId], EVALUATED_AT)
