@@ -193,10 +193,10 @@ class TestPostSlackUpdate(TestCase):
             state={},
         )
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
-        # This milestone ping tags the task starter, not whoever last touched the
-        # thread: latest_actor is a casual joiner here, and this update can fire long
-        # after the PR opened (once the CI follow-up loop settles), so tagging them
-        # would spam the wrong person.
+        # No resolved actor in run state, so the ping falls back to the original
+        # mentioner. The mapping's latest_actor is deliberately not consulted: this
+        # update can fire long after the PR opened (once the CI follow-up loop settles),
+        # so the last person to touch the thread is often a casual joiner.
         mock_mapping = MagicMock()
         mock_mapping.latest_actor_slack_user_id = "U123"
         mock_mapping.mentioning_slack_user_id = "U_ORIG"
@@ -221,6 +221,51 @@ class TestPostSlackUpdate(TestCase):
         mock_post_progress.assert_not_called()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
         mock_run.save.assert_not_called()
+
+    @patch("products.slack_app.backend.models.SlackThreadTaskMapping")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "post_or_update_progress")
+    @patch.object(SlackThreadHandler, "post_pr_opened")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_pr_notification_tags_resolved_run_actor_over_original_mentioner(
+        self,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_post_pr_opened,
+        mock_post_progress,
+        mock_update_reaction,
+        mock_mapping_class,
+    ):
+        # A run picked up by someone other than the original mentioner (e.g. a resume)
+        # carries the resolved actor in run state. The PR-opened ping tags that actor,
+        # not the person who first mentioned the bot.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.IN_PROGRESS,
+            stage="Building",
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+            state={"slack_actor_slack_user_id": "U_RESUMER"},
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+        mock_mapping = MagicMock()
+        mock_mapping.mentioning_slack_user_id = "U_ORIG"
+        mock_mapping_class.objects.filter.return_value.first.return_value = mock_mapping
+
+        post_slack_update(
+            PostSlackUpdateInput(
+                run_id="run-1",
+                slack_thread_context={
+                    **self.slack_thread_context,
+                    "mentioning_slack_user_id": "U_ORIG",
+                },
+            )
+        )
+
+        mock_post_pr_opened.assert_called_once_with(
+            "https://github.com/org/repo/pull/1",
+            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+            reply_target_slack_user_id="U_RESUMER",
+        )
 
     @parameterized.expand(
         [
