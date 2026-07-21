@@ -27,12 +27,13 @@ DEBUG=1 python manage.py sync_mcp_server_templates --skip-probe  # local seed wi
 
 Catalog icons are not committed image assets.
 Templates carry an `icon_domain` (the vendor's brand domain, e.g. `linear.app`).
-The frontend renders them through the authenticated proxy endpoint `GET /api/projects/:team_id/mcp_servers/icon/?domain=<domain>`.
+The frontend renders them through the authenticated proxy endpoint `GET /api/projects/:team_id/mcp_servers/icon/?domain=<domain>&theme=<light|dark>`.
 The proxy fetches each brand icon from [logo.dev](https://logo.dev) through the egress-gated `CDPIconsService`.
+Logos are transparent retina PNGs matched to the active UI theme instead of logo.dev's default white-tiled JPGs.
 Icon bytes are never stored on PostHog infrastructure because our logo.dev plan does not include a data-caching license.
 Browsers cache responses via `Cache-Control`, and only the fact of a definitive miss is cached server-side.
 Custom installations without a template derive a best-effort brand domain from their server URL.
-Unknown domains fall back to a generic server glyph.
+Domains without a logo return 404 and the UI falls back to a generic server glyph.
 
 ### Self-hosted instances
 
