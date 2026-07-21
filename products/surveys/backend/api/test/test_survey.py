@@ -2812,9 +2812,7 @@ class TestSurvey(APIBaseTest):
         # created_by is serialized. If any stops being select_related/prefetched, list latency
         # grows with survey count and times out on large sets. Assert the query count is flat.
         def create_survey(name: str) -> None:
-            sampling_flag = FeatureFlag.objects.create(
-                team=self.team, key=f"sampling-{name}", created_by=self.user
-            )
+            sampling_flag = FeatureFlag.objects.create(team=self.team, key=f"sampling-{name}", created_by=self.user)
             Survey.objects.create(
                 team=self.team,
                 name=name,
