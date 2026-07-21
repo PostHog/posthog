@@ -502,7 +502,13 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
 
     sandbox = _resolve_live_sandbox(state)
     if sandbox is None:
-        return True  # no live handle; the periodic refresh loop reconciles identity
+        # We are past the same-actor fast path, so this is an unconfirmed transition. The
+        # follow-up can still reach a live agent through the saved sandbox URL, so proceeding
+        # would run it under the prior actor's retained credentials. A missing handle (dead
+        # sandbox, or a transient control-plane lookup failure) is not proof the sandbox is
+        # safe, so fail closed rather than deliver without a confirmed rebind or clear.
+        logger.info("refresh_github_no_sandbox_handle_fail_closed", run_id=run_id, user_id=actor_user.id)
+        return False
 
     repository = task.repository
     token: str | None = None
@@ -529,17 +535,22 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
         token = None
 
     if token:
+        applied = False
         try:
-            apply_github_credentials_to_sandbox(sandbox, repository, token)
+            applied = apply_github_credentials_to_sandbox(sandbox, repository, token)
         except Exception:
             logger.warning("refresh_github_apply_failed", run_id=run_id, exc_info=True)
-        else:
+        if applied:
+            # Record the new actor only on a fully-confirmed rebind. A partial write leaves one
+            # credential location on the prior actor's token, so fall through to logout instead.
             mark_sandbox_github_identity(scope, actor_user.id)
             logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
             return True
+        logger.warning("refresh_github_apply_incomplete", run_id=run_id, user_id=actor_user.id)
 
-    # No usable rebind: log the sandbox out. Fail closed only if even the clear
-    # can't be confirmed — the previous actor's credentials might still be live.
+    # No usable rebind (no token, or the rebind write could not be confirmed): log the sandbox
+    # out. Fail closed only if even the clear can't be confirmed — the previous actor's
+    # credentials might still be live.
     if clear_github_credentials_from_sandbox(sandbox, repository):
         mark_sandbox_github_identity(scope, actor_user.id)
         logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
