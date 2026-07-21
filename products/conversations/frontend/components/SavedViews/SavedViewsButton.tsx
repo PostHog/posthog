@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBookmark, IconChevronDown } from '@posthog/icons'
+import { IconBookmark, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
@@ -34,10 +34,7 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                               ],
                     },
                     {
-                        items: [
-                            { label: 'All saved views', onClick: openModal },
-                            activeView && { label: 'Clear view and reset filters', onClick: resetFilters },
-                        ],
+                        items: [{ label: 'All saved views', onClick: openModal }],
                     },
                 ]}
             >
@@ -45,9 +42,17 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                     size="small"
                     type="secondary"
                     icon={<IconBookmark />}
-                    sideIcon={<IconChevronDown />}
                     active={!!activeView}
                     tooltip={activeView ? `Viewing "${activeView.name}"` : undefined}
+                    sideAction={
+                        activeView
+                            ? {
+                                  icon: <IconX />,
+                                  onClick: resetFilters,
+                                  tooltip: 'Clear view and reset filters',
+                              }
+                            : undefined
+                    }
                 >
                     {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
                 </LemonButton>
