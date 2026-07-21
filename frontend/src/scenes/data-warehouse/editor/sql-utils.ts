@@ -177,6 +177,15 @@ export const buildQueryForColumnClick = async (
     return `SELECT ${columns.map((column) => (column === '*' ? column : escapeQualifiedIdentifier(column))).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 }
 
+/** True when the query's top-level SELECT has an ORDER BY clause. */
+export const queryHasOrderBy = async (query: string | null): Promise<boolean> => {
+    if (!query) {
+        return false
+    }
+    const orderBy = (await tryParseSelect(query))?.order_by
+    return Array.isArray(orderBy) && orderBy.length > 0
+}
+
 export const parseQueryTablesAndColumns = async (
     queryInput: string | null
 ): Promise<Record<string, Record<string, boolean>>> => {

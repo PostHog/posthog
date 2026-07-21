@@ -23,7 +23,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { editorSceneLogic } from './editorSceneLogic'
-import { OutputTab } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
@@ -1920,6 +1920,45 @@ describe('sqlEditorLogic', () => {
                 rejectText,
                 source,
             })
+        })
+    })
+
+    describe('Results-tab sort vs query ORDER BY', () => {
+        it.each([
+            ['SELECT event FROM events ORDER BY event', true],
+            ['SELECT event FROM events', false],
+        ])('runQuery on `%s` resets the client-side sort: %s', async (query, shouldReset) => {
+            jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({
+                results: [],
+                columns: [],
+                types: [],
+            } as never)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            const paneLogic = outputPaneLogic({ tabId: TAB_ID })
+            paneLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: query })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            // Simulate the user having sorted the Results grid by clicking a column header.
+            paneLogic.actions.setResultsSortColumns([{ columnKey: 'event', direction: 'ASC' }])
+
+            logic.actions.runQuery()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(paneLogic.values.resultsSortColumns).toEqual(
+                shouldReset ? [] : [{ columnKey: 'event', direction: 'ASC' }]
+            )
+
+            paneLogic.unmount()
         })
     })
 })
