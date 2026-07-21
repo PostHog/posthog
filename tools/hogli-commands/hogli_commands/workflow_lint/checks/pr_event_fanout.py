@@ -76,7 +76,6 @@ class PrEventFanoutCheck(WorkflowCheck):
     id = "WF008-pr-event-fanout"
     label = "PR event fanout"
     description = "unscoped PR event subscriptions stay within the repo-wide workflow dispatch budget"
-    blocking = False
 
     def __init__(self, budget: Mapping[str, int] | None = None) -> None:
         self._budget = dict(PR_EVENT_FANOUT_BUDGET if budget is None else budget)

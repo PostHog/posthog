@@ -28,13 +28,11 @@ def _gh_annotation(level: str, check_label: str, issue: Issue) -> None:
 
 def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> int:
     """Run a single check, print results, return the issue count."""
-    mode = "" if check.blocking else ", advisory"
-    click.echo(f"  {check.id} ({check.label}{mode})...")
+    click.echo(f"  {check.id} ({check.label})...")
     result = check.run(workflows)
-    marker = "✗" if check.blocking else "!"
     for issue in result.issues:
-        click.echo(f"    {marker} {issue.render()}")
-        _gh_annotation("error" if check.blocking else "warning", check.label, issue)
+        click.echo(f"    ✗ {issue.render()}")
+        _gh_annotation("error", check.label, issue)
     if not result.issues:
         click.echo("    ✓ ok")
     return len(result.issues)
@@ -65,8 +63,7 @@ def _default_workflows_dir() -> Path:
 def cmd_lint_workflows(check_id: str | None, list_checks: bool, workflows_dir: Path | None) -> None:
     if list_checks:
         for check in CHECKS:
-            mode = "" if check.blocking else " [advisory]"
-            click.echo(f"{check.id}\t{check.label}{mode} — {check.description}")
+            click.echo(f"{check.id}\t{check.label} — {check.description}")
         return
 
     if check_id is not None:
@@ -87,30 +84,19 @@ def cmd_lint_workflows(check_id: str | None, list_checks: bool, workflows_dir: P
     click.echo(f"Linting {len(workflows)} workflow(s) with {len(selected)} check(s):\n")
 
     total_issues = 0
-    blocking_issues = 0
-    checks_with_issues: list[WorkflowCheck] = []
+    failing_checks: list[WorkflowCheck] = []
     for check in selected:
-        check_issues = _run_one(check, workflows)
-        total_issues += check_issues
-        if check.blocking:
-            blocking_issues += check_issues
-        if check_issues:
-            checks_with_issues.append(check)
+        issues = _run_one(check, workflows)
+        total_issues += issues
+        if issues:
+            failing_checks.append(check)
 
     click.echo("")
-    if checks_with_issues:
-        for check in checks_with_issues:
+    if failing_checks:
+        for check in failing_checks:
             if check.fix_hint:
                 click.echo(f"Fix for {check.id}:\n{check.fix_hint}\n")
-
-    if blocking_issues:
-        advisory_issues = total_issues - blocking_issues
-        advisory_summary = f" and {advisory_issues} advisory issue(s)" if advisory_issues else ""
-        click.echo(f"✗ {blocking_issues} blocking issue(s){advisory_summary}")
+        click.echo(f"✗ {total_issues} issue(s) across {len(failing_checks)} check(s)")
         raise SystemExit(1)
-
-    if total_issues:
-        click.echo(f"! {total_issues} advisory issue(s); all blocking checks passed")
-        return
 
     click.echo(f"✓ All {len(selected)} check(s) passed across {len(workflows)} workflow(s)")

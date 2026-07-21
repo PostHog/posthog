@@ -944,7 +944,7 @@ class TestRegistry:
 
 
 class TestCli:
-    def test_advisory_check_reports_without_failing(self, tmp_path: Path) -> None:
+    def test_fanout_over_budget_fails_run(self, tmp_path: Path) -> None:
         _write(
             tmp_path,
             "assigned.yml",
@@ -962,30 +962,8 @@ class TestCli:
             ["--check", "WF008", "--workflows-dir", str(tmp_path)],
         )
 
-        assert result.exit_code == 0
-        assert "1 advisory issue(s); all blocking checks passed" in result.output
-
-    def test_blocking_check_still_fails(self, tmp_path: Path) -> None:
-        _write(
-            tmp_path,
-            "missing-timeout.yml",
-            """
-            name: Missing timeout
-            on: [push]
-            jobs:
-              test:
-                runs-on: ubuntu-latest
-                steps: []
-            """,
-        )
-
-        result = CliRunner().invoke(
-            cmd_lint_workflows,
-            ["--check", "WF001", "--workflows-dir", str(tmp_path)],
-        )
-
         assert result.exit_code == 1
-        assert "1 blocking issue(s)" in result.output
+        assert "1 issue(s) across 1 check(s)" in result.output
 
 
 class TestLiveTreeSmoke:
