@@ -33,7 +33,9 @@ const summary = report.overBudget
 const lines = [
     'What the toolbar ships to customer pages, measured from the esbuild *output* (minified, post-tree-shake). ' +
         'The eager set is the entry plus everything statically imported from it — fetched before any feature runs; ' +
-        'deferred chunks load lazily. Shipped size is enforced here; the module boundary is enforced separately by ' +
+        `deferred chunks load lazily. The eager guardrail is ${formatBytes(report.budgetBytes)}. ` +
+        'Each output file must also stay below 10 MB, ' +
+        'where CloudFront stops compressing it. The module boundary is enforced separately by ' +
         '[check-toolbar-graph](https://github.com/PostHog/posthog/blob/master/frontend/bin/check-toolbar-graph.mjs).',
     '',
     '| Metric | Size | Δ vs base | Budget |',
