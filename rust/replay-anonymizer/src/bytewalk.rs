@@ -24,7 +24,7 @@ use crate::dom::{
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
-use crate::url::{scrub_url, scrub_url_opts};
+use crate::url::scrub_url;
 
 // rrweb NodeType (mirrors dom.rs).
 const NODE_DOCUMENT: u8 = 0;
@@ -901,8 +901,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
             scan::write_json_string(&blurred, out);
         } else {
-            let scrubbed =
-                scrub_url_opts(self.ctx, &existing, true).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
