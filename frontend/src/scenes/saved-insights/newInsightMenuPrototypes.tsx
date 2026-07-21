@@ -25,8 +25,8 @@ import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, InsightType } from '~/types'
+import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { BaseMathType, ChartDisplayType, FunnelVizType, InsightType } from '~/types'
 
 import {
     AiSketch,
@@ -246,16 +246,54 @@ export function FlatGridVariant(): JSX.Element {
     )
 }
 
-// -- Variant B: flat grid, Trends card grows sub-insight chips --
+// -- Variant B: flat grid, Trends and Funnel cards grow sub-insight chips --
 
-const TRENDS_CHIPS: { label: string; to: string; dataAttr: string }[] = [
-    { label: 'Table', to: PRESET_URLS.table, dataAttr: 'new-insight-menu-chip-table' },
-    { label: 'Map', to: PRESET_URLS.worldMap, dataAttr: 'new-insight-menu-chip-map' },
-    { label: 'Number', to: PRESET_URLS.number, dataAttr: 'new-insight-menu-chip-number' },
-    { label: 'Pie', to: PRESET_URLS.pie, dataAttr: 'new-insight-menu-chip-pie' },
-]
+function funnelsPresetUrl(vizType: FunnelVizType): string {
+    const query: InsightVizNode<FunnelsQuery> = {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+            ],
+            funnelsFilter: { funnelVizType: vizType },
+        },
+    }
+    return urls.insightNew({ query })
+}
 
-function ChipCard({ spec }: { spec: PickerCardSpec }): JSX.Element {
+interface CardChip {
+    label: string
+    to: string
+    dataAttr: string
+}
+
+const CARD_CHIPS: Partial<Record<InsightType, CardChip[]>> = {
+    [InsightType.TRENDS]: [
+        { label: 'Table', to: PRESET_URLS.table, dataAttr: 'new-insight-menu-chip-table' },
+        { label: 'Map', to: PRESET_URLS.worldMap, dataAttr: 'new-insight-menu-chip-map' },
+        { label: 'Number', to: PRESET_URLS.number, dataAttr: 'new-insight-menu-chip-number' },
+        { label: 'Pie', to: PRESET_URLS.pie, dataAttr: 'new-insight-menu-chip-pie' },
+    ],
+    [InsightType.FUNNELS]: [
+        {
+            label: 'Time to convert',
+            to: funnelsPresetUrl(FunnelVizType.TimeToConvert),
+            dataAttr: 'new-insight-menu-chip-time-to-convert',
+        },
+        {
+            label: 'Conversion trend',
+            to: funnelsPresetUrl(FunnelVizType.Trends),
+            dataAttr: 'new-insight-menu-chip-conversion-trend',
+        },
+    ],
+}
+
+function ChipCard({ spec, chips }: { spec: PickerCardSpec; chips: CardChip[] }): JSX.Element {
     const Icon = spec.icon
     return (
         <div
@@ -277,7 +315,7 @@ function ChipCard({ spec }: { spec: PickerCardSpec }): JSX.Element {
                 </div>
             </Link>
             <div className="flex flex-wrap gap-1 px-2 pb-2 pt-1">
-                {TRENDS_CHIPS.map((chip) => (
+                {chips.map((chip) => (
                     <Link
                         key={chip.label}
                         to={chip.to}
@@ -297,13 +335,14 @@ export function VariantChipsVariant(): JSX.Element {
     return (
         <div className="w-[42rem] max-w-[calc(100vw-1rem)] p-1" data-attr="new-insight-type-picker">
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                {[ai, ...ordered].map((spec) =>
-                    spec.key === InsightType.TRENDS ? (
-                        <ChipCard key={spec.key} spec={spec} />
+                {[ai, ...ordered].map((spec) => {
+                    const chips = CARD_CHIPS[spec.key as InsightType]
+                    return chips ? (
+                        <ChipCard key={spec.key} spec={spec} chips={chips} />
                     ) : (
                         <PickerCard key={spec.key} spec={spec} />
                     )
-                )}
+                })}
             </div>
         </div>
     )
