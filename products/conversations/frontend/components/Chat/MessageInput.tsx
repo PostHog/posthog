@@ -208,9 +208,16 @@ export function MessageInput({
                 )}
                 <div className="flex items-center gap-2">
                     {onDraftModeChange && (
-                        <Tooltip title="In draft mode, sending asks you to confirm the recipient first.">
+                        <Tooltip
+                            title={isPrivate ? null : 'In draft mode, sending asks you to confirm the recipient first.'}
+                        >
                             <span>
-                                <LemonSwitch checked={draftMode} onChange={onDraftModeChange} label="Draft mode" />
+                                <LemonSwitch
+                                    checked={draftMode}
+                                    onChange={onDraftModeChange}
+                                    label="Draft mode"
+                                    disabledReason={isPrivate ? 'Draft mode has no effect on private notes' : undefined}
+                                />
                             </span>
                         </Tooltip>
                     )}
