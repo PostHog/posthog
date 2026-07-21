@@ -343,7 +343,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             <div className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="text-muted text-sm">
                     {ratedCount === 0
-                        ? 'Rate results below to get AI-recommended prompt improvements here.'
+                        ? 'Rate results below to get PostHog AI recommendations here.'
                         : 'No recommendation yet for the current ratings.'}
                 </span>
                 <LemonButton
@@ -365,8 +365,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <p className="text-sm m-0">
-                    Your scanner configuration looks good! The AI reviewed the rated sessions and has no prompt changes
-                    to recommend.
+                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
+                    changes to recommend.
                 </p>
                 {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
                 <SuggestionMeta suggestion={currentSuggestion} />
@@ -927,7 +927,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
                 Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
-                ratings power the AI prompt recommendation below.
+                ratings power the PostHog AI prompt recommendation below.
             </p>
 
             <ConfigRecommendationPanel scannerId={scannerId} />

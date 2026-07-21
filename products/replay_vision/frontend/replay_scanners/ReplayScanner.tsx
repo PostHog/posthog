@@ -83,7 +83,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply AI config recommendations in the Quality tab"
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Quality tab"
                                 onClick={() => setActiveTab(ReplayScannerTab.Quality)}
                                 data-attr="replay-vision-open-quality-tab"
                             >
