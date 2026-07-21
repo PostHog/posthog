@@ -8,7 +8,7 @@ from products.engineering_analytics.backend.logic.queries.team_ci_health import 
     query_team_ci_health,
 )
 from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
-from products.engineering_analytics.backend.logic.test_health import (
+from products.engineering_analytics.backend.logic.suite_health import (
     _DEFAULT_FLAKY_MIN_FAILED_PRS,
     _DEFAULT_FLAKY_MIN_RERUN_PASSES,
     _MAX_FLAKY_WINDOW_DAYS,

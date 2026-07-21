@@ -30,14 +30,14 @@ from products.engineering_analytics.backend.logic.quarantine import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource as CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import build_github_sources as build_github_sources
+from products.engineering_analytics.backend.logic.suite_health import (
+    build_broken_tests as build_broken_tests,
+    build_flaky_tests as build_flaky_tests,
+)
 from products.engineering_analytics.backend.logic.teams import (
     build_team_ci_activity as build_team_ci_activity,
     build_team_ci_health as build_team_ci_health,
     build_team_merge_trend as build_team_merge_trend,
-)
-from products.engineering_analytics.backend.logic.test_health import (
-    build_broken_tests as build_broken_tests,
-    build_flaky_tests as build_flaky_tests,
 )
 from products.engineering_analytics.backend.logic.workflows import (
     build_current_branch_health as build_current_branch_health,
