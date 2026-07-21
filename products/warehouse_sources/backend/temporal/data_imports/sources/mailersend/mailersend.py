@@ -1,43 +1,43 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import MAILERSEND_ENDPOINTS
 
 # MailerSend serves every account from a single global base URL (no per-account hostname).
 MAILERSEND_BASE_URL = "https://api.mailersend.com/v1"
-REQUEST_TIMEOUT = 60
 
-
-class MailerSendRetryableError(Exception):
-    pass
+# Parent resource name for the Activity fan-out. include_from_parent=["id"] injects the parent
+# domain's id as `_domains_id`; a data_map renames it to `domain_id` so each activity row carries
+# the same key it did before the rest_source migration.
+_DOMAINS_PARENT = "domains"
 
 
 @dataclasses.dataclass
 class MailerSendResumeConfig:
-    # Page to resume from within the current endpoint (1-based, MailerSend page-number pagination).
+    # Legacy fields kept (with defaults) so resume state saved by the pre-migration source still
+    # deserializes via `dataclass(**saved)`. New runs checkpoint through `fanout_state` — the
+    # rest_source paginator/fan-out snapshot. If only the legacy fields are present we start that
+    # endpoint fresh; full-refresh replaces and Activity's merge dedupes, so nothing is lost.
     next_page: int = 1
-    # The sending domain currently being paged, for the Activity fan-out. A stable domain id (not a
-    # positional index) so domains added/removed between a crash and the retry can't resume us into
-    # the wrong domain. None for the top-level (non-fan-out) endpoints.
     domain_id: str | None = None
-
-
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    fanout_state: dict[str, Any] | None = None
 
 
 def _to_datetime(value: Any) -> datetime:
@@ -85,222 +85,143 @@ def check_credentials(api_token: str, schema_name: Optional[str] = None) -> tupl
     None) and only reject an outright 401. Per-schema scope gaps surface later via the sync-time
     non-retryable error handling.
     """
-    try:
-        response = make_tracked_session().get(
-            f"{MAILERSEND_BASE_URL}/domains",
-            headers=_get_headers(api_token),
-            params={"limit": 10},
-            timeout=10,
-        )
-    except Exception:
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{MAILERSEND_BASE_URL}/domains?limit=10",
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
+    )
+
+    if status is None:
         return False, "Could not reach MailerSend. Please check your connection and try again."
-
-    if response.status_code == 200:
+    if status == 200:
         return True, None
-    if response.status_code == 403 and schema_name is None:
+    if status == 403 and schema_name is None:
         return True, None
-    if response.status_code in (401, 403):
+    if status in (401, 403):
         return False, "Invalid or insufficiently-scoped MailerSend API token."
-    return False, f"Unexpected response from MailerSend (status {response.status_code})."
+    return False, f"Unexpected response from MailerSend (status {status})."
 
 
-@retry(
-    retry=retry_if_exception_type((MailerSendRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    # MailerSend rate-limits per endpoint (Activity is just 10 req/min) and returns a Retry-After
-    # header on 429. We fall back to exponential jitter capped at 60s, which comfortably spans the
-    # per-minute windows without parsing the header.
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> dict:
-    response = session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise MailerSendRetryableError(f"MailerSend API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"MailerSend API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _iter_domain_ids(
-    session: requests.Session, headers: dict[str, str], page_size: int, logger: FilteringBoundLogger
-) -> Iterator[str]:
-    """Page through /domains and yield each sending domain's id (drives the Activity fan-out)."""
-    page = 1
-    url = f"{MAILERSEND_BASE_URL}/domains"
-    while True:
-        data = _fetch_page(session, url, headers, {"page": page, "limit": page_size}, logger)
-        items = data.get("data", [])
-        for item in items:
-            yield item["id"]
-        if not items or not data.get("links", {}).get("next"):
-            break
-        page += 1
-
-
-def _iter_top_level_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    path: str,
-    page_size: int,
-    resumable_source_manager: ResumableSourceManager[MailerSendResumeConfig],
-) -> Iterator[Any]:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume and resume.next_page else 1
-    url = f"{MAILERSEND_BASE_URL}{path}"
-
-    while True:
-        data = _fetch_page(session, url, headers, {"page": page, "limit": page_size}, logger)
-        items = data.get("data", [])
-        if not items:
-            break
-
-        has_next = bool(data.get("links", {}).get("next"))
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-                # page rather than skipping it.
-                if has_next:
-                    resumable_source_manager.save_state(MailerSendResumeConfig(next_page=page + 1))
-
-        if not has_next:
-            break
-        page += 1
-
-
-def _iter_activity_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    path: str,
-    page_size: int,
-    date_from: int,
-    date_to: int,
-    resumable_source_manager: ResumableSourceManager[MailerSendResumeConfig],
-) -> Iterator[Any]:
-    """Fan out over every sending domain, paging /activity/{domain_id} within the date window.
-
-    Each row is stamped with its domain_id so the [domain_id, id] primary key stays unique across the
-    whole table (activity ids are only guaranteed unique within a domain).
-    """
-    domain_ids = list(_iter_domain_ids(session, headers, page_size, logger))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = domain_ids
-    resume_page = 1
-    if resume is not None and resume.domain_id is not None and resume.domain_id in domain_ids:
-        remaining = domain_ids[domain_ids.index(resume.domain_id) :]
-        resume_page = resume.next_page or 1
-        logger.debug(f"MailerSend: resuming activity from domain_id={resume.domain_id}, page={resume_page}")
-
-    for index, domain_id in enumerate(remaining):
-        page = resume_page if index == 0 else 1
-        resume_page = 1
-        url = f"{MAILERSEND_BASE_URL}{path.format(domain_id=domain_id)}"
-
-        while True:
-            params = {"page": page, "limit": page_size, "date_from": date_from, "date_to": date_to}
-            data = _fetch_page(session, url, headers, params, logger)
-            items = data.get("data", [])
-            if not items:
-                break
-
-            has_next = bool(data.get("links", {}).get("next"))
-            for item in items:
-                batcher.batch({**item, "domain_id": domain_id})
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    if has_next:
-                        resumable_source_manager.save_state(
-                            MailerSendResumeConfig(next_page=page + 1, domain_id=domain_id)
-                        )
-
-            if not has_next:
-                break
-            page += 1
-
-        # Deliberately NO cross-domain checkpoint here. A domain smaller than one batcher chunk
-        # (~20 pages) never triggers a mid-domain yield, so its rows are still buffered and unwritten
-        # when its loop ends — advancing the bookmark to the next domain would skip them on a crash.
-        # The only checkpoints are the after-yield saves above, each written only once its full chunk
-        # has been flushed. On resume we restart from the last such checkpoint and re-fetch forward
-        # across the remaining domains; merge upsert dedupes the re-pulled rows, so nothing is lost.
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[MailerSendResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = MAILERSEND_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-    # Source-side batching at the same thresholds the pipeline uses keeps the resume checkpoint
-    # aligned with a written chunk, so save_state-after-yield can't skip unpersisted rows.
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
-
-    if config.fan_out_over_domains:
-        date_from, date_to = _activity_date_window(
-            should_use_incremental_field, db_incremental_field_last_value, config.default_lookback_days or 30
-        )
-        yield from _iter_activity_rows(
-            session,
-            headers,
-            logger,
-            batcher,
-            config.path,
-            config.page_size,
-            date_from,
-            date_to,
-            resumable_source_manager,
-        )
-    else:
-        yield from _iter_top_level_rows(
-            session, headers, logger, batcher, config.path, config.page_size, resumable_source_manager
-        )
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+def _client_config(api_token: str) -> ClientConfig:
+    return {
+        "base_url": MAILERSEND_BASE_URL,
+        # Auth (Bearer) is supplied via framework auth so the token is redacted from logs and errors;
+        # only the non-secret content-negotiation headers are set here.
+        "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+        "auth": {"type": "bearer", "token": api_token},
+        # MailerSend returns the next page as a full URL under `links.next`, null on the last page.
+        "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        # `links.next` is followed verbatim, so pin every request (and the Bearer token) to
+        # api.mailersend.com and refuse redirects — a tampered/off-host `links.next` or a 3xx can't
+        # retarget the credentialed request. `allowed_hosts=[]` means base-host only.
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
 
 
 def mailersend_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[MailerSendResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = MAILERSEND_ENDPOINTS[endpoint]
 
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist AFTER a page yields (framework saves only when a next page/parent remains) so a
+        # crash re-yields the last chunk rather than skipping it; merge/replace dedupes the overlap.
+        if state is not None:
+            resumable_source_manager.save_state(MailerSendResumeConfig(fanout_state=state))
+
+    if config.fan_out_over_domains:
+        date_from, date_to = _activity_date_window(
+            should_use_incremental_field, db_incremental_field_last_value, config.default_lookback_days or 30
+        )
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(api_token),
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": _DOMAINS_PARENT,
+                    "endpoint": {
+                        "path": "/domains",
+                        "params": {"limit": config.page_size},
+                        "data_selector": "data",
+                    },
+                },
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": {
+                            "domain_id": {
+                                "type": "resolve",
+                                "resource": _DOMAINS_PARENT,
+                                "field": "id",
+                            },
+                            "limit": config.page_size,
+                            # The window is computed once per run and rides as static query params —
+                            # MailerSend filters server-side on created_at within [date_from, date_to].
+                            "date_from": date_from,
+                            "date_to": date_to,
+                        },
+                        "data_selector": "data",
+                    },
+                    "include_from_parent": ["id"],
+                    # activity ids are only unique within a domain, so stamp each row with its
+                    # domain_id — the [domain_id, id] primary key stays unique table-wide.
+                    "data_map": rename_parent_fields(_DOMAINS_PARENT, {"id": "domain_id"}),
+                },
+            ],
+        }
+        resources = {
+            resource.name: resource
+            for resource in rest_api_resources(
+                rest_config,
+                team_id,
+                job_id,
+                None,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=initial_state,
+            )
+        }
+        resource = resources[endpoint]
+    else:
+        simple_config: RESTAPIConfig = {
+            "client": _client_config(api_token),
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": {"limit": config.page_size},
+                        "data_selector": "data",
+                    },
+                }
+            ],
+        }
+        resource = rest_api_resource(
+            simple_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

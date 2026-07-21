@@ -1,18 +1,23 @@
 import re
 import base64
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
     XMATTERS_ENDPOINTS,
     XmattersEndpointConfig,
@@ -27,14 +32,6 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
 
 # xMatters caps `limit` at 1000; using the max reduces round-trips.
 PAGE_SIZE = 1000
-
-# Retry/throttle settings kept near the top for easy tuning.
-RETRY_ATTEMPTS = 5
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class XmattersRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -73,13 +70,52 @@ def _get_headers(username: str, password: str) -> dict[str, str]:
     }
 
 
+class XmattersPaginator(OffsetPaginator):
+    """Offset paginator driven by xMatters' `links.next` signal.
+
+    xMatters list endpoints page with `limit`/`offset` and wrap results in `{"data": [...],
+    "count", "total", "links"}`. It signals more pages via a `links.next` URL; we fall back to
+    the page-fill heuristic (a full page implies another may follow) when that field is absent.
+    An empty page stops iteration.
+    """
+
+    def __init__(self, limit: int = PAGE_SIZE, offset: int = 0) -> None:
+        super().__init__(
+            limit=limit,
+            offset=offset,
+            offset_param="offset",
+            limit_param="limit",
+            # Termination is driven by links.next / page-fill below, not a body `total`.
+            total_path=None,
+            stop_after_empty_page=True,
+        )
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is None or len(data) == 0:
+            self._has_next_page = False
+            return
+
+        try:
+            body = response.json()
+            has_next_link = bool(body.get("links", {}).get("next")) if isinstance(body, dict) else False
+        except (ValueError, AttributeError):
+            has_next_link = False
+
+        # More pages iff the API hands us a `next` link OR the page came back full.
+        if not (has_next_link or len(data) >= self.limit):
+            self._has_next_page = False
+            return
+
+        self.offset += self.limit
+        self._has_next_page = True
+
+
 def _build_params(
     config: XmattersEndpointConfig,
-    offset: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset}
+    params: dict[str, Any] = {}
 
     if config.supports_from:
         # START_TIME is the event's initiation (created) time, which is exactly what `from`
@@ -96,10 +132,10 @@ def _build_params(
 
 def validate_credentials(
     subdomain: str, username: str, password: str, endpoint: Optional[str] = None
-) -> tuple[bool, int, str | None]:
+) -> tuple[bool, int | None, str | None]:
     """Probe xMatters with a cheap single-row request.
 
-    Returns ``(ok, status_code, error_message)``. ``status_code`` is 0 on transport failure.
+    Returns ``(ok, status_code, error_message)``. ``status_code`` is ``None`` on transport failure.
     The caller decides how to treat 403 (valid credentials, missing permission for the probed
     endpoint).
     """
@@ -107,83 +143,18 @@ def validate_credentials(
     path = config.path if config else "/people"
     url = f"{_base_url(subdomain)}{path}?{urlencode({'limit': 1})}"
 
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(username, password), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, 0, str(e)
-
-    if response.status_code == 200:
-        return True, 200, None
-    if response.status_code == 401:
-        return False, 401, "Invalid xMatters credentials"
-    if response.status_code == 403:
-        return False, 403, "Your xMatters account does not have access to this resource"
-
-    try:
-        message = response.json().get("message", response.text)
-    except Exception:
-        message = response.text
-    return False, response.status_code, message
-
-
-def get_rows(
-    subdomain: str,
-    username: str,
-    password: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[XmattersResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = XMATTERS_ENDPOINTS[endpoint]
-    headers = _get_headers(username, password)
-    base_url = _base_url(subdomain)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume_config.offset if resume_config is not None else 0
-    if resume_config is not None:
-        logger.debug(f"xMatters: resuming {endpoint} from offset {offset}")
-
-    @retry(
-        retry=retry_if_exception_type((XmattersRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(password,)),
+        url,
+        headers=_get_headers(username, password),
     )
-    def fetch_page(page_offset: int) -> dict:
-        params = _build_params(config, page_offset, should_use_incremental_field, db_incremental_field_last_value)
-        url = f"{base_url}{config.path}?{urlencode(params)}"
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise XmattersRetryableError(f"xMatters API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"xMatters API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(offset)
-
-        items = data.get("data", [])
-        if not items:
-            break
-
-        yield items
-
-        # xMatters signals more pages via a `links.next` URL. Fall back to the page-fill
-        # heuristic if the field is absent.
-        has_next = bool(data.get("links", {}).get("next")) or len(items) >= PAGE_SIZE
-        if not has_next:
-            break
-
-        offset += PAGE_SIZE
-
-        # Save AFTER yielding so a crash re-fetches the last page; merge dedupes on primary key.
-        resumable_source_manager.save_state(XmattersResumeConfig(offset=offset))
+    if ok:
+        return True, status, None
+    if status == 401:
+        return False, status, "Invalid xMatters credentials"
+    if status == 403:
+        return False, status, "Your xMatters account does not have access to this resource"
+    return False, status, None
 
 
 def xmatters_source(
@@ -191,25 +162,60 @@ def xmatters_source(
     username: str,
     password: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[XmattersResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = XMATTERS_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(subdomain),
+            # Auth (HTTP Basic) is supplied via the framework auth config so the password is
+            # redacted from logs and raised error messages; only non-secret headers go here.
+            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+            "auth": {"type": "http_basic", "username": username, "password": password},
+            "paginator": XmattersPaginator(limit=PAGE_SIZE),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": _build_params(config, should_use_incremental_field, db_incremental_field_last_value),
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(XmattersResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            subdomain=subdomain,
-            username=username,
-            password=password,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         # We request START_TIME ascending where a sort is available, and full-refresh endpoints
         # replace wholesale, so ascending is correct everywhere.
@@ -219,4 +225,5 @@ def xmatters_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

@@ -629,7 +629,9 @@ class HogFunctionViewSet(
         if not query:
             return Response([])
 
-        icons = CDPIconsService().list_icons(query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=")
+        icons = CDPIconsService().list_icons(
+            query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=", team_id=self.team_id
+        )
 
         return Response(icons)
 
@@ -641,7 +643,7 @@ class HogFunctionViewSet(
 
         icon_service = CDPIconsService()
 
-        return icon_service.get_icon_http_response(id)
+        return icon_service.get_icon_http_response(id, team_id=self.team_id)
 
     @extend_schema(
         request=HogFunctionInvocationSerializer,

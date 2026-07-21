@@ -65,20 +65,58 @@ from products.tasks.backend.temporal.task_management.activities.ensure_execute_s
     ensure_execute_sandbox_started,
 )
 from products.tasks.backend.temporal.task_management.activities.pending_followups import (
+    TASK_RUN_NOT_FOUND_ERROR_TYPE,
     PersistPendingFollowupsInput,
+    PersistPendingFollowupsV2Input,
     ReadPendingFollowupsInput,
     persist_pending_followups,
+    persist_pending_followups_v2,
     read_pending_followups,
 )
 
 _PATCH_ID_CAPABILITY_GATED_STEERING = "tasks-capability-gated-steering-signal"
 _PATCH_ID_ACK_BEFORE_COMPLETION = "tasks-task-management-ack-before-completion"
+_PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION = "tasks-task-management-ack-before-completion-sandbox-generation"
+_PATCH_ID_CLOSED_CHILD_FOLLOWUP_RECOVERY = "tasks-task-management-closed-child-followup-recovery"
+_PATCH_ID_CLOSED_CHILD_COMPLETION_RECOVERY = "tasks-task-management-closed-child-completion-recovery"
+_PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY = "tasks-task-management-closed-child-ack-retry-recovery"
+_PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY = "tasks-task-management-clear-steer-on-sandbox-boundary"
+_PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY = "tasks-task-management-bounded-sandbox-replacement-recovery"
+_PATCH_ID_PERSIST_REPLACEMENT_BUDGET = "tasks-task-management-persist-replacement-budget"
+_PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET = "tasks-task-management-accepted-ack-resets-replacement-budget"
+_PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE = "tasks-task-management-durable-replacement-budget-persistence"
+_PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER = "tasks-task-management-terminal-pending-followup-barrier"
+_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS = "tasks-task-management-generation-safe-pending-followups"
+_CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
+    "ExternalWorkflowExecutionNotFound",
+    "NamespaceNotFound",
+}
+MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES = 5
+MAX_SANDBOX_REPLACEMENT_BACKOFF_SECONDS = 30
 
 
 def _ack_before_completion() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ACK_BEFORE_COMPLETION)
+
+
+def _ack_before_completion_for_sandbox_generation(generation: int) -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(f"{_PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION}-{generation}")
+
+
+def _patch_enabled(patch_id: str) -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(patch_id)
+
+
+def _child_cannot_receive_signals(error: Exception) -> bool:
+    return (
+        isinstance(error, temporalio.exceptions.ApplicationError) and error.type in _CHILD_SIGNAL_TERMINAL_ERROR_TYPES
+    )
 
 
 @dataclass
@@ -204,6 +242,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # can skip the DB roundtrip when nothing changed (e.g., draining an
         # already-empty queue still triggers a persist call).
         self._last_persisted_followups: list[dict[str, Any]] = []
+        self._last_persistence_generation: int = 0
+        self._persist_pending_followups_on_exit: bool = False
 
         # Sandbox-side state.
         self._sandbox_workflow_id: Optional[str] = None
@@ -211,12 +251,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._pending_ack_slots: dict[str, PendingAckSlot] = {}
         self._child_completion: Optional[ChildCompletion] = None
         self._ack_before_completion: bool = True
+        self._sandbox_generation: int = 0
         # True between a successful `_ensure_sandbox_workflow_started` and
         # the next `PARENT_COMPLETED_SIGNAL`. The orchestrator lives for the
         # whole task run and spawns sandboxes lazily: when a follow-up arrives
         # while `_sandbox_alive=False`, we re-bootstrap before forwarding.
         self._sandbox_alive: bool = False
         self._child_steering_protocol_version: int = 0
+        self._consecutive_sandbox_replacement_failures: int = 0
 
         # Activity tracking for CI follow-up timing. `_last_active_time` is
         # set when the sandbox workflow forwards a heartbeat with
@@ -490,8 +532,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
             )
 
         finally:
-            if self._slack_thread_context and self._context:
-                await self._post_slack_update(sandbox_cleaned=not self._sandbox_alive)
+            try:
+                if self._slack_thread_context and self._context:
+                    await self._post_slack_update(sandbox_cleaned=not self._sandbox_alive)
+            finally:
+                if self._persist_pending_followups_on_exit:
+                    await workflow.wait_condition(workflow.all_handlers_finished)
+                    await self._persist_pending_followups_until_stable()
 
     # ------------------------------------------------------------------
     # Event-wait loop
@@ -584,6 +631,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # nothing meaningful to complete when no sandbox is running.
         if not self._sandbox_alive:
             if self._pending_external_followups:
+                await self._wait_before_replacement_sandbox()
                 workflow.logger.info(
                     "task_management_rebootstrapping_for_followup",
                     run_id=self._run_id,
@@ -602,7 +650,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # terminal and handled last so we don't drop in-flight messages.
         while self._pending_external_followups:
             followup = self._pending_external_followups.pop(0)
-            await self._signal_child_followup(
+            delivered = await self._signal_child_followup(
                 message=followup.message,
                 artifact_ids=followup.artifact_ids,
                 source=followup.source,
@@ -612,6 +660,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 steer=followup.steer,
                 sequence=followup.sequence,
             )
+            if delivered is False:
+                return
         # The persisted queue is the orchestrator's recovery buffer — keep
         # it in sync after every drain so a restart sees an accurate picture
         # rather than re-delivering work we already forwarded.
@@ -647,6 +697,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 if followup is not None:
                     requeued_followups.append(followup)
                 continue
+            if ack.accepted and slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL}:
+                self._consecutive_sandbox_replacement_failures = 0
             workflow.logger.info(
                 "task_management_ack_received",
                 run_id=self._run_id,
@@ -660,6 +712,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         for followup in requeued_followups:
             self._insert_external_followup_in_arrival_order(followup)
         if requeued_followups:
+            if _patch_enabled(_PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY):
+                self._clear_pending_steer_intent()
+            self._record_sandbox_replacement_failure()
             # Sync the recovery buffer to reflect the re-queue; otherwise an
             # orchestrator restart would forget about the rejected follow-up.
             await self._persist_pending_followups()
@@ -707,6 +762,91 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 return
         self._pending_external_followups.append(followup)
 
+    def _clear_pending_steer_intent(self) -> None:
+        for followup in self._pending_external_followups:
+            followup.steer = False
+
+    def _record_sandbox_replacement_failure(self) -> None:
+        if _patch_enabled(_PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY):
+            self._consecutive_sandbox_replacement_failures += 1
+
+    async def _wait_before_replacement_sandbox(self) -> None:
+        if not _patch_enabled(_PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY):
+            return
+        failures = self._consecutive_sandbox_replacement_failures
+        if failures >= MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES:
+            if _patch_enabled(_PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE):
+                if _patch_enabled(_PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER):
+                    self._persist_pending_followups_on_exit = True
+                else:
+                    await self._persist_pending_followups_until_stable()
+                raise RuntimeError(
+                    f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+                )
+            if not _patch_enabled(_PATCH_ID_PERSIST_REPLACEMENT_BUDGET):
+                raise RuntimeError(
+                    f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+                )
+            if await self._persist_pending_followups():
+                raise RuntimeError(
+                    f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+                )
+            workflow.logger.warning(
+                "task_management_sandbox_replacement_budget_persist_failed",
+                run_id=self._run_id,
+                consecutive_failures=failures,
+            )
+        if failures == 0:
+            return
+        delay_seconds = min(2 ** (failures - 1), MAX_SANDBOX_REPLACEMENT_BACKOFF_SECONDS)
+        workflow.logger.warning(
+            "task_management_sandbox_replacement_backoff",
+            run_id=self._run_id,
+            consecutive_failures=failures,
+            delay_seconds=delay_seconds,
+        )
+        await workflow.sleep(delay_seconds)
+
+    async def _recover_closed_sandbox(self, error: Exception) -> None:
+        child_acks_by_id = {ack.ack_id: ack for ack in self._child_acks}
+        accepted_followup_ack = False
+        requeued = 0
+        for ack_id, slot in self._pending_ack_slots.items():
+            ack = child_acks_by_id.get(ack_id)
+            if ack is not None:
+                if ack.accepted:
+                    if slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL}:
+                        accepted_followup_ack = True
+                    continue
+                if ack.detail != SHUTDOWN_REJECTION_DETAIL:
+                    continue
+            if slot.signal_name not in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL} or slot.signal_args is None:
+                continue
+            self._insert_external_followup_in_arrival_order(self._external_followup_from_slot(slot))
+            requeued += 1
+
+        if accepted_followup_ack and _patch_enabled(_PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET):
+            self._consecutive_sandbox_replacement_failures = 0
+        self._clear_pending_steer_intent()
+        if requeued:
+            self._record_sandbox_replacement_failure()
+        workflow.logger.warning(
+            "task_management_closed_sandbox_recovered",
+            run_id=self._run_id,
+            requeued=requeued,
+            error=str(error),
+        )
+        self._pending_ack_slots.clear()
+        self._child_acks.clear()
+        self._child_completion = None
+        self._sandbox_alive = False
+        self._child_steering_protocol_version = 0
+        self._ci_repetitions = 0
+        self._pr_fingerprint = None
+        self._heartbeat_received = False
+        self._last_active_time = None
+        await self._persist_pending_followups()
+
     # ------------------------------------------------------------------
     # Sandbox session lifecycle (multiple sessions per orchestrator)
     # ------------------------------------------------------------------
@@ -746,6 +886,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 run_id=self._run_id,
                 count=requeued,
             )
+            self._record_sandbox_replacement_failure()
+
+        if _patch_enabled(_PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY):
+            self._clear_pending_steer_intent()
 
         # Hard-reset per-session state. The next session starts clean —
         # CI counters, fingerprint, heartbeat all belong to the previous
@@ -813,7 +957,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             count=len(result.followups),
         )
 
-    async def _persist_pending_followups(self) -> None:
+    async def _persist_pending_followups(self) -> bool:
         """Mirror the in-memory queue into `TaskRun.state`.
 
         Best-effort: failure here doesn't compromise the current execution,
@@ -823,24 +967,85 @@ class TaskManagementWorkflow(PostHogWorkflow):
         and an empty-to-empty no-op would still take a row lock.
         """
         if self._run_id is None:
-            return
+            return False
         payload = [asdict(f) for f in self._pending_external_followups]
         if payload == self._last_persisted_followups:
-            return
+            return True
         try:
-            await workflow.execute_activity(
-                persist_pending_followups,
-                PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            if _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS):
+                await workflow.execute_activity(
+                    persist_pending_followups_v2,
+                    PersistPendingFollowupsV2Input(
+                        run_id=self._run_id,
+                        followups=payload,
+                        generation=self._new_persistence_generation(),
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            else:
+                await workflow.execute_activity(
+                    persist_pending_followups,
+                    PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             self._last_persisted_followups = payload
+            return True
         except Exception as e:
             workflow.logger.warning(
                 "task_management_persist_pending_failed",
                 run_id=self._run_id,
                 error=str(e),
             )
+            return False
+
+    async def _persist_pending_followups_until_stable(self) -> None:
+        """Durably park the complete queue before exhausting recovery.
+
+        Signals can append follow-ups while the persistence activity is
+        running. Keep writing snapshots until the completed write still
+        matches the in-memory queue. The schedule-to-close deadline bounds
+        permanent storage failures without provisioning more sandboxes.
+        """
+        if self._run_id is None:
+            raise RuntimeError("Cannot persist pending follow-ups without a run id")
+        while True:
+            payload = [asdict(followup) for followup in self._pending_external_followups]
+            if _patch_enabled(_PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS):
+                await workflow.execute_activity(
+                    persist_pending_followups_v2,
+                    PersistPendingFollowupsV2Input(
+                        run_id=self._run_id,
+                        followups=payload,
+                        generation=self._new_persistence_generation(),
+                    ),
+                    schedule_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=0,
+                        non_retryable_error_types=[TASK_RUN_NOT_FOUND_ERROR_TYPE],
+                    ),
+                )
+            else:
+                await workflow.execute_activity(
+                    persist_pending_followups,
+                    PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=0),
+                )
+            self._last_persisted_followups = payload
+            if payload == [asdict(followup) for followup in self._pending_external_followups]:
+                return
+
+    def _new_persistence_generation(self) -> int:
+        now = workflow.now() if workflow.in_workflow() else datetime.now()
+        timestamp_generation = int(now.timestamp() * 1_000_000)
+        self._last_persistence_generation = max(
+            self._last_persistence_generation + 1,
+            timestamp_generation,
+        )
+        return self._last_persistence_generation
 
     # ------------------------------------------------------------------
     # Sandbox workflow management
@@ -879,6 +1084,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._child_steering_protocol_version = protocol_version if isinstance(protocol_version, int) else 0
+        self._sandbox_generation += 1
+        # The startup patch is memoized for the workflow lifetime. A distinct
+        # marker per sandbox lets an old replay keep its recorded ordering,
+        # then adopt ACK-first handling when a later sandbox starts live.
+        self._ack_before_completion = self._ack_before_completion or _ack_before_completion_for_sandbox_generation(
+            self._sandbox_generation
+        )
         # Activity success means Signal-With-Start landed — either delivered
         # to an already-running execution or kicked off a fresh one. Either
         # way, a sandbox session is now in-flight.
@@ -898,14 +1110,14 @@ class TaskManagementWorkflow(PostHogWorkflow):
         message_context: dict[str, Any] | None = None,
         steer: bool = False,
         sequence: int | None = None,
-    ) -> None:
+    ) -> bool | None:
         if self._sandbox_workflow_id is None:
             workflow.logger.warning(
                 "task_management_followup_dropped_no_sandbox",
                 run_id=self._run_id,
                 source=source,
             )
-            return
+            return None
         ack_id = self._new_ack_id()
         if sequence is None:
             sequence = self._next_followup_sequence
@@ -937,6 +1149,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             await self._sandbox_handle().signal(signal_name, args=signal_args)
         except Exception as e:
+            if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_FOLLOWUP_RECOVERY):
+                await self._recover_closed_sandbox(e)
+                return False
             # Keep the slot — `_retry_stale_acks` will try again after
             # ACK_TIMEOUT. This is the "child is dead, parent retries"
             # branch the design relies on.
@@ -946,6 +1161,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 source=source,
                 error=str(e),
             )
+        return True
 
     async def _signal_child_complete(self, status: str, error_message: Optional[str]) -> None:
         if self._sandbox_workflow_id is None or not self._sandbox_alive:
@@ -963,6 +1179,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             await self._sandbox_handle().signal(COMPLETE_TASK_SIGNAL, args=signal_args)
         except Exception as e:
+            if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_COMPLETION_RECOVERY):
+                await self._recover_closed_sandbox(e)
+                return
             workflow.logger.warning(
                 "task_management_signal_complete_failed",
                 run_id=self._run_id,
@@ -1013,6 +1232,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     retry_count=slot.retry_count,
                 )
             except Exception as e:
+                if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY):
+                    await self._recover_closed_sandbox(e)
+                    return
                 # Don't advance sent_at on failure — we want to retry again
                 # at the next deadline rather than push it out by ACK_TIMEOUT.
                 workflow.logger.warning(
