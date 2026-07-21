@@ -31,6 +31,7 @@ from rest_framework.response import Response
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -1372,9 +1373,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         detail=True,
         methods=["post"],
         pagination_class=None,
-        # Session-authenticated staff only. Keeping APIScopePermission (without classifying this
-        # action as a read/write scope) blocks all personal-API-key and OAuth token access — a
-        # staff member's PAT of any scope must not be able to mint real money.
+        # Session-authenticated staff only. Restricting to SessionAuthentication keeps every
+        # non-session credential (personal API keys, OAuth tokens, and the internal impersonation
+        # JWT that the viewset's default authenticators would otherwise accept) from reaching a
+        # money-minting action; APIScopePermission stays as belt-and-suspenders on the scope path.
+        authentication_classes=[SessionAuthentication],
         permission_classes=[IsAuthenticated, IsStaffUser, APIScopePermission],
         throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
     )

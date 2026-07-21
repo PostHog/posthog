@@ -37,13 +37,15 @@ class TestGenerateMerchCode(APIBaseTest):
 
     @patch("products.conversations.backend.api.tickets.create_merch_code")
     def test_personal_api_key_cannot_mint_even_for_staff(self, mock_create) -> None:
-        # A staff member's PAT (any scope) must not reach a money-minting endpoint — token auth is
-        # blocked by APIScopePermission since this action carries no scope classification.
+        # A staff member's PAT (any scope) must not reach this money-minting action: it is restricted
+        # to SessionAuthentication, so a token-only request never authenticates. Drop the test
+        # client's session so only the Bearer token is presented.
         self._make_staff()
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="merch test", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
         )
+        self.client.logout()
         response = self.client.post(
             self._url(), {"value_usd": "30"}, format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
