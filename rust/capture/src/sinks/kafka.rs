@@ -919,6 +919,13 @@ pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
 /// having been hoisted into `prepare_batch`).
 #[async_trait]
 impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError> {
+        self.prepare_batch(events).await
+    }
+
     async fn publish_batch(&self, prepared: Vec<PreparedRecord>) -> Vec<SinkResult> {
         let mut results: Vec<SinkResult> = Vec::with_capacity(prepared.len());
 

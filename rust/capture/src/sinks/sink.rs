@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::api::CaptureError;
 use crate::sinks::producer::ProduceRecord;
+use crate::v0_request::ProcessedEvent;
 
 /// Classification of a single publish attempt. Mirrors the v1 `Outcome`; lets a
 /// caller reason about retriability without re-inspecting the concrete
@@ -51,6 +52,23 @@ pub struct PreparedRecord {
 pub struct SinkResult {
     pub uuid: Uuid,
     pub result: Result<(), CaptureError>,
+}
+
+/// Build a placeholder [`PreparedRecord`] for a sink that does not route to
+/// Kafka (`print`, `noop`, `s3`). Those sinks consume the record only for its
+/// `uuid` (result correlation) and, for `s3`, its `payload`; `topic` / `key` /
+/// `headers` are inert. This keeps a non-Kafka sink on the unified [`Sink`]
+/// trait without inventing routing it never uses.
+pub fn passthrough_record(event: &ProcessedEvent, payload: Vec<u8>) -> PreparedRecord {
+    PreparedRecord {
+        uuid: event.event.uuid,
+        record: ProduceRecord {
+            topic: String::new(),
+            key: None,
+            payload,
+            headers: event.event.to_headers(),
+        },
+    }
 }
 
 impl SinkResult {
@@ -87,6 +105,20 @@ impl SinkResult {
 /// whole-request semantics (see [`super::kafka`]).
 #[async_trait]
 pub trait Sink: Send + Sync {
+    /// Turn a batch of `ProcessedEvent`s into ready-to-publish
+    /// [`PreparedRecord`]s: serialization, routing, and any envelope live here,
+    /// so [`publish_batch`](Sink::publish_batch) is pure enqueue mechanism. A
+    /// single prep failure aborts the whole batch (v0's fail-fast guarantee).
+    ///
+    /// Kept on the trait — not just the Kafka mechanism — so a composite sink
+    /// (e.g. [`FallbackSink`](super::FallbackSink)) can prepare a batch through
+    /// its inner sink without knowing the concrete backend, and so the
+    /// [`Event`](super::Event) shim is uniform across every sink.
+    async fn prepare(
+        &self,
+        events: Vec<ProcessedEvent>,
+    ) -> Result<Vec<PreparedRecord>, CaptureError>;
+
     /// Publish an already-prepared batch, returning one [`SinkResult`] per event
     /// the sink attempted. Events prepared upstream are always publishable, so
     /// there is no "skipped" result.
