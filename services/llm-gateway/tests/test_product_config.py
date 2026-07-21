@@ -645,5 +645,6 @@ class TestSurveyProductConfig:
     def test_survey_products_allow_the_model_the_django_callers_default_to(self, product: str):
         # The surveys package defaults to this model; a rename on either side 400s
         # every call.
-        assert PRODUCTS[product].allowed_models is not None
-        assert "claude-haiku-4-5" in PRODUCTS[product].allowed_models
+        allowed_models = PRODUCTS[product].allowed_models
+        assert allowed_models is not None
+        assert "claude-haiku-4-5" in allowed_models
