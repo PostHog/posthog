@@ -366,9 +366,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
-    # These models use a plain organization_id and keep Team only as a delivery context.
-    # Classify them as organization-scoped so the IDOR Semgrep rules cover their lookups.
-    organization_scoped_by_id = {
+    # Billing alerts are organization-scoped. BillingAlertConfiguration keeps Team only as an
+    # execution context; claim and event records use plain organization_id snapshots.
+    organization_scoped_overrides = {
+        "BillingAlertConfiguration",
         "BillingAlertEvaluationClaim",
         "BillingAlertEvent",
     }
@@ -384,7 +385,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         if model._meta.proxy:
             continue
 
-        if model_name in organization_scoped_by_id:
+        if model_name in organization_scoped_overrides:
             org_scoped.add(model_name)
             continue
 
