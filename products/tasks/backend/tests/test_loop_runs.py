@@ -22,6 +22,7 @@ from products.tasks.backend.logic.services.loop_runs import (
     render_trigger_context,
 )
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run
 from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
 
 LOOP_RUNS_MODULE = "products.tasks.backend.logic.services.loop_runs"
@@ -788,6 +789,37 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
             loop, "needs_attention", {"reason": "auto_paused", "consecutive_failures": LOOP_AUTO_PAUSE_THRESHOLD}
         )
         mock_dispatch.assert_any_call(
+            loop,
+            "run_failed",
+            {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
+        )
+
+
+class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_workflow_start_failure_feeds_loop_bookkeeping(self, mock_dispatch, _mock_publish):
+        # A run that fails before its workflow starts never reaches the update_task_run_status
+        # activity, so the terminalize path must invoke the loop bookkeeping itself.
+        loop = self.create_loop(consecutive_failures=0)
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Loop run",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+        )
+        task_run = task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
+
+        terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
+
+        self.assertTrue(terminalized)
+        loop.refresh_from_db()
+        self.assertEqual(loop.consecutive_failures, 1)
+        self.assertEqual(loop.last_run_status, TaskRun.Status.FAILED)
+        self.assertEqual(loop.last_error, "workflow start failed")
+        mock_dispatch.assert_called_once_with(
             loop,
             "run_failed",
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},

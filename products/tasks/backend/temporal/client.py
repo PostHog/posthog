@@ -87,6 +87,18 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
             "duration_seconds": task_run._duration_seconds(),
         },
     )
+
+    # A run that never starts its workflow never reaches the update_task_run_status activity, so
+    # loop bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
+    # Swallowed so a bookkeeping failure never masks the start failure being reported.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        handle_loop_run_terminal,
+    )
+
+    try:
+        handle_loop_run_terminal(task_run)
+    except Exception:
+        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
     return True
 
 
