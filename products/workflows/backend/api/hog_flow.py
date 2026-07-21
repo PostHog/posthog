@@ -2334,6 +2334,8 @@ class HogFlowViewSet(
         )
         history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
         for row in workflow_rows:
+            if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy
+                continue
             history_by_flow.setdefault(row.hog_flow_id, []).append(row)
 
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
