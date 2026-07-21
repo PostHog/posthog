@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FileUploadSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fileupload import (
+    FileUploadSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
