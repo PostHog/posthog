@@ -106,11 +106,62 @@ export interface _TracingAggregationQueryBodyApi {
     serviceNames?: string[]
     /** Property filters applied to spans in both windows. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /**
+     * Max rows to return, ordered by total_duration_nano DESC. Defaults to 100; hard max 5000. Keep this small to bound the response size — a high value on high-cardinality span names (e.g. untemplated URL paths) returns a very large payload. Prefer narrowing with `serviceNames`/`filterGroup` over raising the limit.
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
+    /**
+     * Row offset for pagination. Combine with `limit` and the `next_offset` returned in the response to page through results beyond the first page.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export interface _TracingAggregationRequestApi {
     /** The span aggregation query to execute. */
     query: _TracingAggregationQueryBodyApi
+}
+
+export interface _AggregatedSpanRowApi {
+    /** Service that emitted the spans in this group. */
+    service_name: string
+    /** Span name (operation) for this group. */
+    name: string
+    /** Number of spans matched in this group. */
+    count: number
+    /** Sum of span durations in nanoseconds. */
+    total_duration_nano: number
+    /** Average span duration in nanoseconds. */
+    avg_duration_nano: number
+    /** Median span duration in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th percentile span duration in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th percentile span duration in nanoseconds. */
+    p99_duration_nano: number
+    /** 99.9th percentile span duration in nanoseconds. */
+    p999_duration_nano: number
+    /** Spans with OTel status code Error (status_code = 2). */
+    error_count: number
+}
+
+export interface _TracingAggregationResponseApi {
+    /** One row per (service_name, name) group, ordered by total_duration_nano descending. */
+    results: _AggregatedSpanRowApi[]
+    /**
+     * Rows for the comparison window when compareFilter.compare is true, else null.
+     * @nullable
+     */
+    compare: _AggregatedSpanRowApi[] | null
+    /** True when more rows exist beyond this page — page further with `next_offset`, or narrow the query. */
+    has_more: boolean
+    /**
+     * Offset to request the next page, or null when this is the last page.
+     * @nullable
+     */
+    next_offset: number | null
 }
 
 /**

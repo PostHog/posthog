@@ -55,16 +55,12 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+# _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
+# facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
+from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-
-
-# Hard cap on number of rows returned per period. Keeps payloads bounded when name
-# cardinality blows up (e.g. untemplated URL paths). The flame graph collapses long
-# tails anyway so the lower-ranked rows aren't visible.
-_ROW_LIMIT = 5000
 
 
 class _SpanAggregationMixin:
@@ -246,11 +242,20 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
     query: TraceSpansAggregationQuery
     cached_response: CachedTraceSpansAggregationQueryResponse
 
-    def __init__(self, query: TraceSpansAggregationQuery, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        query: TraceSpansAggregationQuery,
+        *args,
+        limit: int | None = None,
+        offset: int = 0,
+        **kwargs,
+    ) -> None:
         super().__init__(query, *args, **kwargs)
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         self._extract_filters()
+        self._limit = _ROW_LIMIT if limit is None else max(1, min(limit, _ROW_LIMIT))
+        self._offset = max(0, offset)
 
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
@@ -278,10 +283,12 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             GROUP BY service_name, name
             ORDER BY total_duration_nano DESC
             LIMIT {limit}
+            OFFSET {offset}
             """,
             placeholders={
                 "where": self._where_without_date_range(),
-                "limit": ast.Constant(value=_ROW_LIMIT),
+                "limit": ast.Constant(value=self._limit),
+                "offset": ast.Constant(value=self._offset),
                 **query_date_range.to_placeholders(),
             },
         )

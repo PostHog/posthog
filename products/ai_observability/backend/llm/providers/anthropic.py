@@ -58,9 +58,9 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes expensive
+    # Models available in the PostHog-funded playground. Excludes expensive
     # opus tiers and includes one flagship sonnet for quality evaluation.
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ]

@@ -87,9 +87,11 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
+    '/alerts': ['Alerts', 'alerts'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
+    '/cohorts/staff': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -144,6 +146,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
+    '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -483,6 +486,12 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'llm_clusters',
     },
+    Alerts: {
+        projectBased: true,
+        name: 'Alerts',
+        iconType: 'inbox',
+        description: 'Monitor insight metrics and get notified when conditions are met.',
+    },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -504,6 +513,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Drop events at ingestion time based on event metadata.',
         iconType: 'data_pipeline',
     },
+    CohortsStaffTools: { instanceLevel: true, name: 'Cohorts staff tools' },
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
@@ -615,6 +625,7 @@ export const productConfiguration: Record<string, any> = {
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
+    ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -930,12 +941,15 @@ export const productUrls = {
         runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
     aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
+    alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
+    alerts: (): string => '/alerts',
     businessKnowledge: (): string => '/business-knowledge',
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+    cohortsStaffTools: (cohortId?: number): string => `/cohorts/staff${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
@@ -1073,9 +1087,18 @@ export const productUrls = {
             searchQuery?: string
             dateRange?: DateRange
             filterGroup?: UniversalFiltersGroup
+            utm_source?: string
+            utm_campaign?: string
+            utm_medium?: string
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
+    errorTrackingFingerprint: (
+        fingerprint: string,
+        params: {
+            timestamp?: string
+        } = {}
+    ): string => combineUrl(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`, params).url,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     experiment: (
@@ -1219,8 +1242,6 @@ export const productUrls = {
     insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
-    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
-    alerts: (): string => `/insights?tab=alerts`,
     insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
@@ -1830,7 +1851,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingIssueFingerprints'],
+        sceneKeys: [
+            'ErrorTracking',
+            'ErrorTrackingIssue',
+            'ErrorTrackingIssueFingerprints',
+            'ErrorTrackingFingerprint',
+        ],
     },
     {
         path: 'Evaluations',

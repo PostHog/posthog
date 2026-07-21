@@ -269,7 +269,13 @@ export function buildApp(opts: BuildAppOpts): Express {
     app.use(
         express.json({
             verify: (req: Request, _res, buf) => {
-                ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
+                const r = req as Request & { rawBody?: string; rawBodyBytes?: Buffer }
+                // Keep both: `rawBody` (string) for consumers that hash text
+                // (Slack), and `rawBodyBytes` for signature schemes that must
+                // hash the exact bytes the sender signed (a UTF-8 re-decode is
+                // lossy for non-UTF-8 payloads).
+                r.rawBody = buf.toString('utf-8')
+                r.rawBodyBytes = buf
             },
         })
     )
@@ -280,7 +286,13 @@ export function buildApp(opts: BuildAppOpts): Express {
         express.urlencoded({
             extended: false,
             verify: (req: Request, _res, buf) => {
-                ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
+                const r = req as Request & { rawBody?: string; rawBodyBytes?: Buffer }
+                // Keep both: `rawBody` (string) for consumers that hash text
+                // (Slack), and `rawBodyBytes` for signature schemes that must
+                // hash the exact bytes the sender signed (a UTF-8 re-decode is
+                // lossy for non-UTF-8 payloads).
+                r.rawBody = buf.toString('utf-8')
+                r.rawBodyBytes = buf
             },
         })
     )

@@ -114,6 +114,9 @@ class TestTransientRPCRetry:
             # A mid-stream HTTP/2 transport interruption surfaces as UNKNOWN, not one of the
             # transient statuses above — it must still be ridden out in-process.
             ("h2 protocol error: error reading a body from connection", RPCStatusCode.UNKNOWN),
+            # tonic cancels a call that outruns the client's RPC deadline with status CANCELLED and
+            # message "Timeout expired" — a client-side timeout that must be ridden out, not raised.
+            ("Timeout expired", RPCStatusCode.CANCELLED),
         ],
     )
     @patch(
@@ -163,6 +166,8 @@ class TestTransientRPCRetry:
             ("workflow execution not found for", RPCStatusCode.NOT_FOUND),
             # UNKNOWN alone must not be retried — only UNKNOWN carrying a transport signature is.
             ("internal server error", RPCStatusCode.UNKNOWN),
+            # CANCELLED alone must not be retried — only the "Timeout expired" phrase qualifies.
+            ("Cancelled by caller", RPCStatusCode.CANCELLED),
         ],
     )
     @patch(

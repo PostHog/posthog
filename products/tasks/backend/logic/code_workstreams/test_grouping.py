@@ -244,3 +244,20 @@ def test_quick_action_is_carried_onto_workstream_task():
     result = build_workstreams([task], {task.id: _pr(ci_status="failing")}, NOW)
     ws = result.needs_attention[0]
     assert ws.tasks[0].quick_action == "Fix CI"
+
+
+@pytest.mark.parametrize(
+    "task,pr_by_task",
+    [
+        (_task(), {"t1": _pr(state="merged")}),
+        (
+            _task(cloud_pr_url="https://github.com/posthog/posthog/pull/1", cloud_pr_merged=True),
+            {},
+        ),
+    ],
+)
+def test_merged_pr_is_omitted_from_active_workstreams(task, pr_by_task):
+    result = build_workstreams([task], pr_by_task, NOW)
+
+    assert not result.needs_attention
+    assert not result.in_progress
