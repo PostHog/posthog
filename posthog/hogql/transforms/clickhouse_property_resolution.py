@@ -43,14 +43,14 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
-from posthog.clickhouse.property_groups import property_groups
-from posthog.models.event.sql import (
+from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
-from posthog.models.property import PropertyName, TableColumn
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
+from posthog.clickhouse.property_groups import property_groups
+from posthog.property_columns import PropertyName, TableColumn
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.

@@ -33,7 +33,10 @@ if (issue_response.status != 200) {
 
 let linear_issue_id := issue_response.body.data.issueCreate.issue.identifier;
 
-let attachment_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}';
+let attachment_url := inputs.posthog_issue_url;
+if (empty(attachment_url)) {
+  attachment_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}';
+}
 let attachment_mutation := f'mutation AttachmentCreate \\{ attachmentCreate(input: \\{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }) \\{ success } }';
 
 query(attachment_mutation);`,
@@ -83,6 +86,16 @@ query(attachment_mutation);`,
             hidden: true,
             required: true,
             default: '{event.properties.$exception_issue_id}',
+        },
+        {
+            key: 'posthog_issue_url',
+            type: 'string',
+            label: 'PostHog issue URL',
+            description:
+                'Link back to the PostHog issue. When empty, a link is built from the PostHog issue ID instead.',
+            secret: false,
+            hidden: true,
+            required: false,
         },
     ],
 }

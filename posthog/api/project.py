@@ -1479,6 +1479,21 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
         team_ids = [team.id for team in teams]
 
+        # Remove each environment from the org's managed warehouse first (no-op for orgs
+        # without one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
+        # requires deprovisioning the warehouse (or deleting the organization) instead.
+        # Environments already removed before a block are re-pushed lazily on the next
+        # warehouse status read, so a partial pass self-heals.
+        # Keep the product API off the core import path.
+        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
+            block_team_deletion,
+        )
+
+        for team_id in team_ids:
+            warehouse_block_reason = block_team_deletion(team_id, organization_id)
+            if warehouse_block_reason:
+                raise exceptions.ValidationError(warehouse_block_reason)
+
         # Mark as pending deletion so the UI locks this project out until the async task removes it.
         project.is_pending_deletion = True
         project.save(update_fields=["is_pending_deletion"])

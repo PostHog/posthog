@@ -35,6 +35,7 @@ logger = structlog.get_logger(__name__)
 
 # Cheap, fast model — this is an interactive form helper, not a recording scan.
 _SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
+_MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_SUGGESTIONS = 8
 # Bounds on assembled context so a large team/scanner can't blow up the prompt.
 _MAX_REASONING_SAMPLES = 15
@@ -252,7 +253,12 @@ def suggest_classifier_tags(
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSuggestions:
     # Inline the key resolution (rather than importing the temporal helper) to keep this off the temporal import path.
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-    client = genai.Client(api_key=api_key, posthog_client=posthoganalytics.default_client)
+    # Runs inline on the interactive request path, so a hung provider call must time out.
+    client = genai.Client(
+        api_key=api_key,
+        posthog_client=posthoganalytics.default_client,
+        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+    )
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",

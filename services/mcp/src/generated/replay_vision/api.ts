@@ -44,6 +44,16 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()
@@ -153,7 +163,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
+            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.'
         ),
     scanner_type: zod
         .string()
@@ -489,6 +499,16 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .boolean()
         .optional()
@@ -542,6 +562,16 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()
@@ -592,6 +622,16 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
 })
 
 export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.'),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.'
+        ),
     labeled: zod
         .string()
         .optional()

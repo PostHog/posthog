@@ -62,6 +62,31 @@ fn set_telemetry_env_id(env_id: &str) {
     }
 }
 
+/// Attaches the project id from the environment to telemetry, for commands that
+/// never load stored credentials (notably `api` with env-var auth). Values that
+/// don't look like a real project id are ignored so telemetry can never pick up
+/// an arbitrary string from a misconfigured environment.
+pub fn set_telemetry_env_id_from_environment() {
+    const ENV_ID_ENV_VARS: &[&str] = &[
+        "POSTHOG_CLI_PROJECT_ID",
+        "POSTHOG_CLI_ENV_ID",
+        "POSTHOG_PROJECT_ID",
+    ];
+
+    let Some(env_id) = ENV_ID_ENV_VARS
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+    else {
+        return;
+    };
+
+    if !matches!(env_id_validator(&env_id), Ok(Validation::Valid)) {
+        return;
+    }
+
+    set_telemetry_env_id(&env_id);
+}
+
 fn apply_telemetry_properties(event: &mut Event) {
     let _ = event.insert_prop("cli_version", env!("CARGO_PKG_VERSION"));
     let _ = event.insert_prop("invocation_id", telemetry_invocation_id());
@@ -84,6 +109,22 @@ fn telemetry_invocation_id() -> String {
         .lock()
         .map(|context| context.invocation_id.clone())
         .unwrap_or_else(|_| "unknown".to_string())
+}
+
+pub fn current_invocation_id() -> String {
+    telemetry_invocation_id()
+}
+
+/// Captures the `posthog cli command run` usage event without requiring an
+/// `InvocationContext` — the `api` command usually runs without one, which left
+/// it with no usage telemetry at all. Callers must join the handle before the
+/// process exits so the event reaches the queue ahead of the final flush.
+pub fn capture_command_run_without_context() -> JoinHandle<()> {
+    std::thread::spawn(|| {
+        debug!("Capturing command run event");
+        posthog_rs::capture(Event::new_anon("posthog cli command run"));
+        debug!("Event queued successfully");
+    })
 }
 
 fn telemetry_command_name() -> Option<String> {
