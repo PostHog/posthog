@@ -82,7 +82,13 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
-    if (!visionActionsLoading && visionActions.length === 0) {
+    // The scanner's built-in daily digest lives on the Observations tab (ScannerDigestCard), not this
+    // table — so this table lists only the summaries and alerts a user created, and its empty state is
+    // meaningful again. Filtered here, not in visionActionsLogic, so the digest stays in the shared
+    // list the card reads from.
+    const rows = visionActions.filter((a) => !a.is_scanner_digest)
+
+    if (!visionActionsLoading && rows.length === 0) {
         return (
             <ProductIntroduction
                 productName="Summaries and alerts"
@@ -253,7 +259,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={visionActions}
+                dataSource={rows}
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
