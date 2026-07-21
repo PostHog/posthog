@@ -758,6 +758,7 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshservice
 - fulcrum
+- fusionauth
 - gerrit
 - getstream
 - gitea
@@ -852,6 +853,7 @@ doesn't conflict with concurrent PRs.
 - ninjaone_rmm
 - nocrm
 - northpass_lms
+- nuntly
 - nutshell
 - nylas
 - octolens
@@ -968,6 +970,7 @@ doesn't conflict with concurrent PRs.
 - swonkie
 - synthesia
 - systeme
+- tally
 - telli
 - tempo
 - terra_api
