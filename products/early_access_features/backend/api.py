@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -15,7 +16,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -271,8 +271,11 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         read_only_fields = ["id", "feature_flag", "created_at"]
 
     def validate(self, data):
-        # PostHog's own project (US cloud) requires a description on every new early access feature.
-        if is_cloud() and self.context["team_id"] == POSTHOG_TEAM_ID and not (data.get("description") or "").strip():
+        # PostHog's own dogfooding project requires a description on every new early access feature.
+        # Scoped to US cloud specifically: project ids are allocated per region, so id 2 is only
+        # PostHog's own team on US — on EU/DEV/E2E it belongs to an unrelated customer.
+        is_us_cloud = (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
+        if is_us_cloud and self.context["team_id"] == POSTHOG_TEAM_ID and not (data.get("description") or "").strip():
             raise serializers.ValidationError({"description": "A description is required for early access features."})
 
         feature_flag_id = data.get("feature_flag_id", None)

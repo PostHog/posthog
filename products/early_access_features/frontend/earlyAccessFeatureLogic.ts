@@ -12,6 +12,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { identifierToHuman } from 'lib/utils/strings'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -27,9 +28,11 @@ import {
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    PreflightStatus,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
+    Region,
 } from '~/types'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
@@ -53,6 +56,7 @@ export interface EarlyAccessFeatureLogicProps {
 export interface earlyAccessFeatureLogicValues {
     earlyAccessFeatures: EarlyAccessFeatureType[] // earlyAccessFeaturesLogic
     currentTeamId: number | null // teamLogic
+    preflight: PreflightStatus | null // preflightLogic
     activeTab: EarlyAccessFeatureTabs
     breadcrumbs: Breadcrumb[]
     earlyAccessFeature: EarlyAccessFeatureType | NewEarlyAccessFeatureType
@@ -229,7 +233,14 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            earlyAccessFeaturesLogic,
+            ['earlyAccessFeatures'],
+            preflightLogic,
+            ['preflight'],
+        ],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
@@ -314,9 +325,15 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             errors: ({ name, description, payload }) =>
                 ({
                     name: !name ? 'Feature name must be set' : undefined,
-                    // PostHog's own project (id 2) requires a description — mirrors the backend POSTHOG_TEAM_ID rule.
+                    // Mirrors the backend rule: PostHog's own project (US cloud, id 2) requires a description
+                    // on newly created features. Create-only and US-only to match the serializer.
                     description:
-                        values.currentTeamId === 2 && !description?.trim() ? 'A description is required' : undefined,
+                        props.id === 'new' &&
+                        values.preflight?.region === Region.US &&
+                        values.currentTeamId === 2 &&
+                        !description?.trim()
+                            ? 'A description is required'
+                            : undefined,
                     // payload is edited as a JSON string in the form, but typed as Record<string, any>
                     payload:
                         payload && typeof payload === 'string'

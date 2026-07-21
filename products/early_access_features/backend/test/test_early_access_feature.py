@@ -119,9 +119,9 @@ class TestEarlyAccessFeature(APIBaseTest):
             ("whitespace_only", "   "),
         ]
     )
-    def test_posthog_team_requires_description_on_cloud(self, _name, description):
+    def test_posthog_team_requires_description_on_us_cloud(self, _name, description):
         with (
-            patch("products.early_access_features.backend.api.is_cloud", return_value=True),
+            self.settings(CLOUD_DEPLOYMENT="US"),
             patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
         ):
             data: dict = {"name": "Hick bondoogling", "stage": "concept"}
@@ -139,9 +139,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["attr"] == "description"
         assert not EarlyAccessFeature.objects.filter(name="Hick bondoogling").exists()
 
-    def test_posthog_team_allows_creation_with_description_on_cloud(self):
+    def test_posthog_team_allows_creation_with_description_on_us_cloud(self):
         with (
-            patch("products.early_access_features.backend.api.is_cloud", return_value=True),
+            self.settings(CLOUD_DEPLOYMENT="US"),
             patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
         ):
             response = self.client.post(
@@ -154,9 +154,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["description"] == "A real description"
 
-    def test_other_team_does_not_require_description_on_cloud(self):
+    def test_other_team_does_not_require_description_on_us_cloud(self):
         with (
-            patch("products.early_access_features.backend.api.is_cloud", return_value=True),
+            self.settings(CLOUD_DEPLOYMENT="US"),
             patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id + 1000),
         ):
             response = self.client.post(
@@ -168,9 +168,16 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
 
-    def test_posthog_team_does_not_require_description_off_cloud(self):
+    @parameterized.expand(
+        [
+            ("eu_cloud", "EU"),
+            ("self_hosted", ""),
+        ]
+    )
+    def test_team_id_2_does_not_require_description_outside_us_cloud(self, _name, cloud_deployment):
+        # project id 2 is PostHog's own team only on US cloud — elsewhere it's an unrelated customer.
         with (
-            patch("products.early_access_features.backend.api.is_cloud", return_value=False),
+            self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
             patch("products.early_access_features.backend.api.POSTHOG_TEAM_ID", self.team.id),
         ):
             response = self.client.post(
