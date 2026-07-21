@@ -115,7 +115,7 @@ class TestSpotlerCRMSourceBehavior:
             return next(response_iter)
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
@@ -251,3 +251,35 @@ class TestSpotlerCRMCredentials:
             permissions = get_endpoint_permissions("test-token", ["Accounts"])
 
         assert permissions["Accounts"] is None
+
+
+class TestSpotlerCRMHttpSampleCapture:
+    # CRM records carry arbitrary custom fields and free-text content the name-based
+    # scrubbers can't recognise, so both the sync and probe sessions must opt out of
+    # HTTP sample capture. Dropping `capture=False` would persist raw records to S3.
+    def test_sync_session_opts_out_of_capture(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.make_tracked_session"
+            ) as MockSession,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.rest_api_resource"
+            ),
+        ):
+            spotlercrm_source("test-token", "Accounts", 1, "job", manager)
+
+        MockSession.assert_called_once()
+        assert MockSession.call_args.kwargs["capture"] is False
+
+    def test_probe_session_opts_out_of_capture(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.make_tracked_session"
+        ) as MockSession:
+            MockSession.return_value.get.return_value = _make_http_response({}, status_code=200)
+
+            validate_credentials("test-token")
+
+        assert MockSession.call_args.kwargs["capture"] is False

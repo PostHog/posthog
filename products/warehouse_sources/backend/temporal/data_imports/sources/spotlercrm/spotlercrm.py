@@ -107,6 +107,14 @@ def spotlercrm_source(
                 "token": access_token,
             },
             "headers": {"Accept": "application/json"},
+            # `capture=False`: raw Accounts/Contacts/Activities/Documents rows carry arbitrary
+            # CRM custom fields and free-text content the name-based scrubbers can't recognise,
+            # so keep them out of the shared HTTP sample store (still metered and logged).
+            "session": make_tracked_session(
+                capture=False,
+                redact_values=(access_token,),
+                allow_redirects=False,
+            ),
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -154,7 +162,13 @@ def spotlercrm_source(
 
 
 def _probe_endpoint(access_token: str, path: str) -> Response:
-    return make_tracked_session(redact_values=(access_token,)).get(
+    # `capture=False`: probe responses return the same CRM record shapes as the sync, so
+    # exclude them from HTTP sample capture too.
+    return make_tracked_session(
+        redact_values=(access_token,),
+        capture=False,
+        allow_redirects=False,
+    ).get(
         f"{BASE_URL}{path}",
         params={"limit": 1},
         headers={
