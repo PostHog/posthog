@@ -35,10 +35,10 @@ export interface ticketPreviewLogicActions {
         errorObject?: any
     }
     loadPreviewSuccess: (
-        preview: TicketPreview | null,
+        preview: TicketPreview,
         payload?: any
     ) => {
-        preview: TicketPreview | null
+        preview: TicketPreview
         payload?: any
     }
 }
