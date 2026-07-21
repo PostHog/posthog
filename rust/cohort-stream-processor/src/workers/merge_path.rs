@@ -16,7 +16,7 @@ use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{TeamFiltersBuilder, TeamId};
 use crate::merge::apply_handler::{handle_transfer, ApplyOutcome};
-use crate::merge::drain_handler::{handle_merge_event, DrainOutcome};
+use crate::merge::drain_handler::{handle_merge_event_with_transfer_mode, DrainOutcome};
 use crate::merge::transfer::{MergeStateTransfer, PendingTransfer, PersonMergeEvent};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
@@ -39,6 +39,7 @@ use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
     affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
+use crate::workers::ReconcileDeps;
 
 /// Inline bounded backoff for the transfer produce.
 ///
@@ -127,6 +128,8 @@ pub struct MergeWorkerDeps {
     pub seed_tracker: Arc<OffsetTracker>,
     /// Fold-frontier watermarks the seed fence reads; the worker advances them post-mark.
     pub live_watermarks: Arc<LiveWatermarks>,
+    /// Reconcile admission and the pod-wide scheduler wake-up count.
+    pub reconcile: ReconcileDeps,
 }
 
 impl MergeWorkerDeps {
@@ -146,6 +149,7 @@ impl MergeWorkerDeps {
             seed_tile_sink: Arc::new(CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(OffsetTracker::new()),
             live_watermarks: Arc::new(LiveWatermarks::new()),
+            reconcile: ReconcileDeps::default(),
         })
     }
 }
@@ -173,6 +177,7 @@ pub(crate) async fn handle_merge(
         let snapshot = snapshot.clone();
         let event_owned = event.clone();
         let partition_count = merge.partition_count;
+        let register_transfer_mode = merge.reconcile.register_transfer_mode();
         handle
             .run_section("merge_drain", move |store| {
                 let fallback: TeamFilters;
@@ -186,13 +191,14 @@ pub(crate) async fn handle_merge(
                 // Timed inside the section so the histogram keeps measuring drain execution only;
                 // permit and pool-queue waits are on `store_offload_*{op="merge_drain"}`.
                 let started = Instant::now();
-                let outcome = handle_merge_event(
+                let outcome = handle_merge_event_with_transfer_mode(
                     partition_id,
                     store,
                     filters,
                     &event_owned,
                     msg_coords,
                     partition_count,
+                    register_transfer_mode,
                 );
                 histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
                 outcome
@@ -252,14 +258,23 @@ pub(crate) async fn handle_merge(
         }
         Ok(DrainOutcome::Drained { transfer, effects }) => {
             effects.apply_to(queue);
-            // Nothing to apply without leaves or a person-record dedup — skip the produce. A record-only
-            // transfer still produces so P_new absorbs the ancestry (matches the drain's staging).
-            if transfer.leaves.is_empty() && transfer.person_dedup.is_none() {
+            // Nothing to apply — skip the produce. The transfer type owns this predicate so drain
+            // staging and worker settlement cannot disagree about new payload classes.
+            if !transfer.has_payload() {
                 counter!(MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL).increment(1);
                 mark_processed(&merge.merge_tracker, partition_id, offset);
                 return;
             }
             produce_and_settle(partition_id, handle, merge, &transfer, &pending_key, offset).await;
+        }
+        Ok(DrainOutcome::AwaitingRegisterTransferEnablement) => {
+            warn!(
+                partition_id,
+                team_id = event.team_id,
+                old_person = %event.old_person_uuid,
+                "cross-partition merge retained until membership-register transfer is enabled",
+            );
+            hold(&merge.merge_tracker, partition_id, offset);
         }
         Ok(DrainOutcome::AlreadyDrained) => {
             match handle.get_pending_transfer(&pending_key).await {
@@ -818,6 +833,7 @@ mod tests {
             source_partition: 0,
             source_offset: 0,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,
@@ -846,6 +862,7 @@ mod tests {
             source_partition: 0,
             source_offset: 0,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,
@@ -886,6 +903,7 @@ mod tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            reconcile: ReconcileDeps::default(),
         }
     }
 
@@ -908,6 +926,7 @@ mod tests {
                     AppliedOffsets::default(),
                 ),
             )],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,
@@ -1095,6 +1114,7 @@ mod tests {
             source_partition: 9,
             source_offset: 100,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 1,
 
             person_dedup: None,

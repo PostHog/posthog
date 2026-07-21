@@ -11,6 +11,7 @@ import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { createCohortMembershipEvent, createCohortMembershipEvents, createKafkaMessage } from '../_tests/fixtures'
 import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
+import { counterCohortMembershipControlMessageSkipped } from './metrics'
 
 jest.setTimeout(20_000)
 
@@ -29,6 +30,7 @@ describe('CdpCohortMembershipConsumer', () => {
     afterEach(async () => {
         await consumer.stop()
         await closeHub(hub)
+        jest.restoreAllMocks()
     })
 
     describe('end-to-end cohort membership processing', () => {
@@ -212,6 +214,60 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(result.rows[0].in_cohort).toBe(false)
         })
 
+        it('should skip typed control messages while persisting membership changes', async () => {
+            const skippedControlMessageCounter = jest.spyOn(counterCohortMembershipControlMessageSkipped, 'inc')
+            const messages = [
+                createKafkaMessage(
+                    createCohortMembershipEvent({
+                        person_id: personId1,
+                        cohort_id: 456,
+                        team_id: 1,
+                        status: 'entered',
+                    }),
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+                ),
+                createKafkaMessage(
+                    {
+                        type: 'reconcile_complete',
+                        team_id: 1,
+                        cohort_id: 456,
+                        partition: 7,
+                        run_id: new UUIDT().toString(),
+                        last_updated: '2026-05-26 12:34:56.789123',
+                    },
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 1 }
+                ),
+                createKafkaMessage(
+                    createCohortMembershipEvent({
+                        person_id: personId2,
+                        cohort_id: 456,
+                        team_id: 1,
+                        status: 'left',
+                    }),
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 2 }
+                ),
+            ]
+
+            const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
+            await consumer['persistCohortMembershipChanges'](cohortMembershipChanges)
+
+            const result = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                'SELECT person_id, in_cohort FROM cohort_membership WHERE team_id = $1 ORDER BY person_id',
+                [1],
+                'testQuery'
+            )
+
+            expect(result.rows).toHaveLength(2)
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    { person_id: personId1, in_cohort: true },
+                    { person_id: personId2, in_cohort: false },
+                ])
+            )
+            expect(skippedControlMessageCounter).toHaveBeenCalledTimes(1)
+        })
+
         it('should reject entire batch when invalid messages are present', async () => {
             const validEvent = {
                 person_id: personId1,
@@ -220,8 +276,11 @@ describe('CdpCohortMembershipConsumer', () => {
                 status: 'entered',
             }
 
-            const messages: Message[] = [
-                createKafkaMessage(validEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }),
+            const validMessage = createKafkaMessage(validEvent, {
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                offset: 0,
+            })
+            const invalidMessages: Message[] = [
                 {
                     value: Buffer.from('invalid json'),
                     topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -243,7 +302,9 @@ describe('CdpCohortMembershipConsumer', () => {
                 },
             ]
 
-            expect(() => consumer['_parseAndValidateBatch'](messages)).toThrow()
+            for (const invalidMessage of invalidMessages) {
+                expect(() => consumer['_parseAndValidateBatch']([validMessage, invalidMessage])).toThrow()
+            }
 
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,

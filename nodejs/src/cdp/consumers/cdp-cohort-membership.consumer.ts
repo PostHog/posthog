@@ -10,6 +10,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { counterCohortMembershipControlMessageSkipped } from './metrics'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
@@ -21,6 +22,12 @@ const CohortMembershipChangeSchema = z.object({
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
+
+type TypedControlMessage = { type: unknown }
+
+function isTypedControlMessage(message: unknown): message is TypedControlMessage {
+    return typeof message === 'object' && message !== null && 'type' in message && message.type !== undefined
+}
 
 export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
@@ -96,7 +103,16 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                     throw new Error('Empty message received')
                 }
 
-                const parsedMessage = parseJSON(messageValue)
+                const parsedMessage: unknown = parseJSON(messageValue)
+
+                if (isTypedControlMessage(parsedMessage)) {
+                    counterCohortMembershipControlMessageSkipped.inc()
+                    logger.info('Skipping typed cohort membership control message', {
+                        messageType:
+                            typeof parsedMessage.type === 'string' ? parsedMessage.type : typeof parsedMessage.type,
+                    })
+                    continue
+                }
 
                 // Validate using Zod schema
                 const validationResult = CohortMembershipChangeSchema.safeParse(parsedMessage)

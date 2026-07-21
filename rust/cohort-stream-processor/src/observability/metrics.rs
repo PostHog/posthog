@@ -426,6 +426,8 @@ pub const STAGE2_ORPHAN_GC_SKIPPED_TOTAL: &str = "stage2_orphan_gc_skipped_total
 /// `cf_stage2` keys the orphan GC could not classify and left in place (counter): a key the decoder
 /// rejected, or an id that overflows `i32`.
 pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_undecodable_keys_total";
+/// `cf_stage2` keys a cohort-prefix scan could not decode and skipped (counter).
+pub const STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL: &str = "stage2_scan_undecodable_keys_total";
 
 /// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
 /// `popped == evicted + dropped`.
@@ -465,6 +467,24 @@ pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
 pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
 /// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
 pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
+/// Reconcile jobs admitted to partition-local queues (counter).
+pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
+/// Reconcile jobs that emitted their completion marker and released their seed floor (counter).
+pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
+/// Queued jobs replaced by a higher Kafka offset for the same team and cohort (counter).
+pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
+/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` (counter).
+pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
+/// Stage 2 rows read by reconcile scan attempts (counter).
+pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_total";
+/// Snapshot membership rows acknowledged by Kafka, labelled by `status` (counter).
+pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
+/// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
+pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
+/// Reconcile completion markers acknowledged by Kafka (counter).
+pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
+/// Partition-local reconcile queue depth, labelled by `partition` (gauge).
+pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
 
 /// Install the global Prometheus recorder. Call once at startup.
 ///
@@ -668,6 +688,10 @@ mod tests {
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
         );
+        assert_eq!(
+            STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL,
+            "stage2_scan_undecodable_keys_total",
+        );
     }
 
     #[test]
@@ -708,7 +732,52 @@ mod tests {
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
         assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
         assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");
+        assert_eq!(
+            RECONCILE_JOBS_ENQUEUED_TOTAL,
+            "cohort_reconcile_jobs_enqueued_total"
+        );
+        assert_eq!(
+            RECONCILE_JOBS_SUPERSEDED_TOTAL,
+            "cohort_reconcile_jobs_superseded_total"
+        );
         assert_eq!(LIVE_WATERMARK_AGE_MS, "cohort_live_watermark_age_ms");
+    }
+
+    #[test]
+    fn reconcile_metric_names_are_stable() {
+        assert_eq!(
+            RECONCILE_JOBS_ENQUEUED_TOTAL,
+            "cohort_reconcile_jobs_enqueued_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_COMPLETED_TOTAL,
+            "cohort_reconcile_jobs_completed_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_SUPERSEDED_TOTAL,
+            "cohort_reconcile_jobs_superseded_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_DISCARDED_TOTAL,
+            "cohort_reconcile_jobs_discarded_total",
+        );
+        assert_eq!(
+            RECONCILE_ROWS_SCANNED_TOTAL,
+            "cohort_reconcile_rows_scanned_total",
+        );
+        assert_eq!(
+            RECONCILE_ROWS_EMITTED_TOTAL,
+            "cohort_reconcile_rows_emitted_total",
+        );
+        assert_eq!(
+            RECONCILE_BITS_FIXED_TOTAL,
+            "cohort_reconcile_bits_fixed_total",
+        );
+        assert_eq!(
+            RECONCILE_MARKERS_EMITTED_TOTAL,
+            "cohort_reconcile_markers_emitted_total",
+        );
+        assert_eq!(RECONCILE_QUEUE_DEPTH, "cohort_reconcile_queue_depth");
     }
 
     #[test]
