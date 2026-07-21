@@ -75,8 +75,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksSchemaNotFoundError",
     # Raised when the Databricks warehouse is stopped.
     "DatabricksWarehouseStoppedError",
-    # Raised when the destination table's column types are incompatible with the exported data
-    # (e.g. the table column is VARIANT but the export is configured to write STRING).
+    # Raised when the destination table's column names or types are incompatible with the exported
+    # data (e.g. the table column is VARIANT but the export is configured to write STRING).
     "DatabricksIncompatibleSchemaError",
 ]
 
@@ -798,6 +798,12 @@ class DatabricksClient:
         try:
             async with handle_common_errors("Merge into target table", timeout):
                 await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
+        except ServerOperationError as err:
+            if err.message and "[DELTA_MERGE_UNRESOLVED_EXPRESSION]" in err.message:
+                raise DatabricksIncompatibleSchemaError(
+                    operation=f"MERGE INTO `{target_table}`", reason=err.message
+                ) from err
+            raise
         except Exception:
             self.logger.exception(
                 "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
