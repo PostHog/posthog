@@ -133,6 +133,14 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
+    /// Release a deferring key's next stashed group as soon as the send
+    /// blocking it resolves, instead of waiting for the owning batch to become
+    /// the oldest completed one. Breaks the deferral cascade where a hot key
+    /// re-stashes on every arriving batch faster than completion-paced flushes
+    /// drain it. The completion-time flush remains as backstop either way.
+    #[envconfig(from = "DISPATCHER_EAGER_DEFERRED_FLUSH", default = "false")]
+    pub dispatcher_eager_deferred_flush: bool,
+
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
     /// `/debug/events` SSE) on the health server, recording structured events

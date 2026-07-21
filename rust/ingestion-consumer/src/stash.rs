@@ -163,6 +163,25 @@ impl Stash {
         taken
     }
 
+    /// Pop the key's oldest deferred entry for eager release, returning the
+    /// owning batch id and the messages. Does not change the outstanding
+    /// count — the caller is routing the group now, and [`Stash::completed`]
+    /// fires when its send resolves, exactly as with [`Stash::take_batch`].
+    pub fn pop_next(&mut self, routing_key: &str) -> Option<(String, Vec<SerializedKafkaMessage>)> {
+        let queue = self.queues.get_mut(routing_key)?;
+        let entry = queue.pop_front()?;
+        if queue.is_empty() {
+            self.queues.remove(routing_key);
+        }
+        match self.batch_live.get_mut(&entry.batch_id) {
+            Some(n) if *n > 1 => *n -= 1,
+            _ => {
+                self.batch_live.remove(&entry.batch_id);
+            }
+        }
+        Some((entry.batch_id, entry.messages))
+    }
+
     /// Re-stash a taken group that couldn't be routed yet (no healthy worker).
     pub fn put_back(&mut self, batch_id: &str, group: DeferredGroup) {
         let batch_seq = self.seq_for(batch_id);
@@ -345,8 +364,8 @@ mod tests {
     fn test_late_deferral_for_registered_older_batch_queues_ahead() {
         // batch-1 arrives before batch-2 (registration order), but its
         // deferral lands later (a failed send re-defers after the newer batch
-        // already stashed). The older batch's entry must still be retrievable
-        // by its own batch id, ahead of the newer batch's for the same key.
+        // already stashed). The older batch's entry must still queue ahead of
+        // the newer batch's for the same key.
         let mut stash = Stash::new();
         stash.register_batch("batch-1");
         stash.register_batch("batch-2");
@@ -354,10 +373,31 @@ mod tests {
         stash.defer("batch-2", group("t:a", 1));
         stash.defer("batch-1", group("t:a", 2));
 
-        let taken = stash.take_batch("batch-1");
-        assert_eq!(taken.len(), 1, "batch-1's entry is retrievable");
-        assert_eq!(taken[0].messages.len(), 2);
-        assert!(stash.has_batch("batch-2"));
-        assert!(!stash.has_batch("batch-1"));
+        let (batch_id, messages) = stash.pop_next("t:a").unwrap();
+        assert_eq!(batch_id, "batch-1", "older batch pops first");
+        assert_eq!(messages.len(), 2);
+        let (batch_id, _) = stash.pop_next("t:a").unwrap();
+        assert_eq!(batch_id, "batch-2");
+        assert!(stash.pop_next("t:a").is_none());
+    }
+
+    #[test]
+    fn test_pop_next_keeps_outstanding_until_completed() {
+        let mut stash = Stash::new();
+        stash.defer("batch-1", group("t:a", 1));
+
+        let (batch_id, _) = stash.pop_next("t:a").unwrap();
+        assert_eq!(batch_id, "batch-1");
+        assert!(
+            !stash.has_batch("batch-1"),
+            "popped entry no longer counts toward its batch"
+        );
+        assert!(
+            stash.is_deferring("t:a"),
+            "popping for a flush attempt must not clear the outstanding count"
+        );
+
+        stash.completed("t:a");
+        assert!(!stash.is_deferring("t:a"));
     }
 }
