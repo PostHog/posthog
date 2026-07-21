@@ -1,4 +1,65 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "playwright/e2e/qmatrix",
+            "runner": "playwright",
+            "reason": "CI proof: directory selector, mode run",
+            "owner": "@rnegron",
+            "issue": "https://github.com/PostHog/posthog/pull/67974",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "playwright/e2e/qmatrix/control.spec.ts",
+            "runner": "jest",
+            "reason": "CI proof: jest-runner entry must be ignored by the playwright adapter",
+            "owner": "@rnegron",
+            "issue": "https://github.com/PostHog/posthog/pull/67974",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "playwright/e2e/qmatrix/control.spec.ts",
+            "runner": "playwright",
+            "reason": "CI proof: file selector, mode run",
+            "owner": "@rnegron",
+            "issue": "https://github.com/PostHog/posthog/pull/67974",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "playwright/e2e/qmatrix/runmode.spec.ts::runmode still executes",
+            "runner": "playwright",
+            "reason": "CI proof: exact name-qualified selector, mode run",
+            "owner": "@rnegron",
+            "issue": "https://github.com/PostHog/posthog/pull/67974",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        },
+        {
+            "id": "playwright/e2e/qmatrix/skipmode.spec.ts::Skip outer",
+            "runner": "playwright",
+            "reason": "CI proof: nested-describe skip via space boundary",
+            "owner": "@rnegron",
+            "issue": "https://github.com/PostHog/posthog/pull/67974",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "skip"
+        },
+        {
+            "id": "product:links",
+            "runner": "playwright",
+            "reason": "CI proof: product selector, mode run",
+            "owner": "@rnegron",
+            "issue": "https://github.com/PostHog/posthog/pull/67974",
+            "added": "2026-07-21",
+            "expires": "2026-08-04",
+            "mode": "run"
+        }
+    ]
 }
