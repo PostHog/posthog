@@ -142,7 +142,12 @@ fn is_bundleable_go_source(path: &str) -> bool {
             && path.as_bytes()[0].is_ascii_alphabetic()
             && path.as_bytes()[1] == b':'
             && matches!(path.as_bytes()[2], b'/' | b'\\'));
-    absolute && (path.ends_with(".go") || path.ends_with(".s"))
+    // Compiler-normalized paths never contain dot components; a spoofed one
+    // could otherwise smuggle `..` into derived ZIP entry names (zip slip).
+    let normalized = !path
+        .split(['/', '\\'])
+        .any(|component| component == "." || component == "..");
+    absolute && normalized && (path.ends_with(".go") || path.ends_with(".s"))
 }
 
 /// Drop Go toolchain sources, keeping project code. Runs for any binary with
@@ -377,6 +382,37 @@ fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> CuInfo {
     out
 }
 
+/// Read one DWARF-named source file. Such paths are only expected to be
+/// source files, but a hostile or corrupt entry can point anywhere, so:
+/// symlinks are refused (a compiler records the file it read, not a link —
+/// and a link named `legit.go` could target a credential file), the checks
+/// run against the opened handle's metadata so the file can't be swapped
+/// between check and read, non-regular files (devices, FIFOs) are refused,
+/// and reads are capped generously enough that even large generated sources
+/// (protobuf output, amalgamated C) are never clipped.
+fn read_source_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::{Error, ErrorKind, Read};
+
+    const MAX_SOURCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+    let err = |msg: &str| Err(Error::new(ErrorKind::InvalidInput, msg));
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return err("path is a symlink");
+    }
+    let file = fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return err("not a regular file");
+    }
+    if meta.len() > MAX_SOURCE_FILE_BYTES {
+        return err("exceeds the source file size limit");
+    }
+
+    let mut data = Vec::with_capacity(meta.len() as usize);
+    file.take(MAX_SOURCE_FILE_BYTES).read_to_end(&mut data)?;
+    Ok(data)
+}
+
 /// Return the longest common directory prefix shared by all `paths`.
 ///
 /// Only directory components are considered (the filename is stripped before
@@ -509,32 +545,8 @@ pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
     // and if there are collisions, use increasingly longer path components.
     let zip_paths = build_zip_relative_paths(dwarf_paths);
 
-    // DWARF-named paths are only expected to be source files; a hostile or
-    // corrupt entry can point anywhere, so refuse non-regular files (devices,
-    // FIFOs) before reading, and bound memory with a per-file cap generous
-    // enough that even large generated sources (protobuf output, amalgamated
-    // C) are never clipped.
-    const MAX_SOURCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
-
     for (dwarf_path, zip_rel_path) in dwarf_paths.iter().zip(zip_paths.iter()) {
-        let path = Path::new(dwarf_path);
-        match fs::metadata(path) {
-            Ok(meta) if !meta.is_file() => {
-                warn!("Skipping non-regular source file {}", dwarf_path);
-                continue;
-            }
-            Ok(meta) if meta.len() > MAX_SOURCE_FILE_BYTES => {
-                warn!(
-                    "Skipping source file {} ({} bytes exceeds the {} byte limit)",
-                    dwarf_path,
-                    meta.len(),
-                    MAX_SOURCE_FILE_BYTES
-                );
-                continue;
-            }
-            _ => {}
-        }
-        match fs::read(path) {
+        match read_source_file(Path::new(dwarf_path)) {
             Ok(data) => {
                 let zip_path = format!("__source/{}", zip_rel_path);
                 manifest_files.insert(dwarf_path.to_string(), zip_path.clone());
@@ -623,9 +635,15 @@ fn build_zip_relative_paths(paths: &[&str]) -> Vec<String> {
             if indices.len() > 1 {
                 has_duplicates = true;
                 for &idx in indices {
-                    // Add one more parent component
-                    let components: Vec<&str> =
-                        paths[idx].split('/').filter(|s| !s.is_empty()).collect();
+                    // Add one more parent component. Dot components are
+                    // dropped: they never disambiguate, and a literal `..`
+                    // would end up verbatim in a ZIP entry name, letting a
+                    // crafted DWARF path escape the __source/ prefix on
+                    // extraction (zip slip).
+                    let components: Vec<&str> = paths[idx]
+                        .split('/')
+                        .filter(|s| !s.is_empty() && *s != "." && *s != "..")
+                        .collect();
                     let current_depth = result[idx].matches('/').count() + 1;
                     let new_depth = (current_depth + 1).min(components.len());
                     let start = components.len().saturating_sub(new_depth);
@@ -674,7 +692,10 @@ pub fn load_sources_from_zip(
 
 #[cfg(test)]
 mod tests {
-    use super::{filter_go_toolchain_sources, is_bundleable_go_source};
+    use super::{
+        build_zip_relative_paths, filter_go_toolchain_sources, is_bundleable_go_source,
+        read_source_file,
+    };
 
     #[test]
     fn go_line_table_paths_are_gated_to_absolute_source_files() {
@@ -692,6 +713,42 @@ mod tests {
         // `//line` directives name arbitrary files; only source is bundleable.
         assert!(!is_bundleable_go_source("/etc/passwd"));
         assert!(!is_bundleable_go_source("/home/u/.ssh/id_rsa"));
+
+        // Dot components never appear in compiler-normalized paths and could
+        // smuggle `..` into ZIP entry names.
+        assert!(!is_bundleable_go_source("/a/../conflict.go"));
+        assert!(!is_bundleable_go_source("/a/./conflict.go"));
+        assert!(!is_bundleable_go_source(r"C:\a\..\conflict.go"));
+    }
+
+    #[test]
+    fn zip_entry_names_never_contain_dot_components() {
+        // Two same-basename paths force the collision loop to pull parent
+        // components into the entry name; a literal `..` there would escape
+        // the __source/ prefix on extraction.
+        let paths = ["/a/../conflict.go", "/a/b/conflict.go"];
+        for name in build_zip_relative_paths(&paths) {
+            assert!(
+                name.split('/')
+                    .all(|c| c != ".." && c != "." && !c.is_empty()),
+                "zip entry name {name:?} contains a traversal component"
+            );
+        }
+    }
+
+    #[test]
+    fn symlinked_source_files_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret");
+        std::fs::write(&target, "sensitive").unwrap();
+        let link = dir.path().join("legit.go");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&target, &link).unwrap();
+
+        assert!(read_source_file(&link).is_err());
+        assert_eq!(read_source_file(&target).unwrap(), b"sensitive");
     }
 
     fn goroot_witnesses(root: &str, sep: char) -> Vec<String> {
