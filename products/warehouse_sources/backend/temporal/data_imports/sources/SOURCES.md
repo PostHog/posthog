@@ -425,6 +425,7 @@ the row lists both.
 | planhat                          | HTTP                        | requests                                                        | ✅                          |
 | platform_sh                      | HTTP                        | requests                                                        | ✅                          |
 | plausible                        | HTTP                        | requests                                                        | ✅                          |
+| plivo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
@@ -869,7 +870,6 @@ doesn't conflict with concurrent PRs.
 - pivotal_tracker
 - piwik
 - planetscale
-- plivo
 - plunk
 - pocket
 - podium
