@@ -526,6 +526,7 @@ the row lists both.
 | thinkific                        | HTTP                        | requests                                                        | ✅                          |
 | tickettailor                     | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| tinyemail                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tmdb                             | HTTP                        | requests                                                        | ✅                          |
 | todoist                          | HTTP                        | requests                                                        | ✅                          |
 | together_ai                      | HTTP                        | requests                                                        | ✅                          |
@@ -962,7 +963,6 @@ doesn't conflict with concurrent PRs.
 - ticktick
 - tile38
 - timely
-- tinyemail
 - toggl
 - track_pms
 - tremendous
