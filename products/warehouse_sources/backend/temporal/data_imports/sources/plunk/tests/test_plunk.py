@@ -1,4 +1,6 @@
+import io
 import json
+import threading
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -10,19 +12,27 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk import plunk as plunk_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.plunk import (
+    DEFAULT_TIMEOUT_SECONDS,
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     PUBLIC_KEY_ERROR,
     PlunkHostNotAllowedError,
+    PlunkResponseTimeoutError,
+    PlunkResponseTooLargeError,
     PlunkResumeConfig,
+    _make_bounded_session,
+    _read_bounded,
     normalize_base_url,
     plunk_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.settings import PLUNK_ENDPOINTS
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# The sync path runs through a bounded session built by `_make_bounded_session`; patch that so the
+# pagination tests can drive `session.send` directly (RESTClient uses the session it's handed).
+CLIENT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.plunk.plunk._make_bounded_session"
+)
 
 
 def _response(*, status_code: int = 200, body: Any = None) -> Response:
@@ -304,7 +314,9 @@ class TestCursorPagination:
         _rows(_source(_make_manager()))
 
         assert prepared[0].headers["Authorization"] == "Bearer sk_test"
-        assert MockSession.call_args.kwargs["redact_values"] == ("sk_test",)
+        # The key is handed to the session factory, which wires it into the tracked adapter's
+        # value redaction (asserted directly in TestBoundedSession).
+        assert MockSession.call_args.args == ("sk_test",)
         assert session.send.call_args.kwargs["allow_redirects"] is False
 
 
@@ -396,3 +408,71 @@ class TestHostSafety:
         with pytest.raises(PlunkHostNotAllowedError):
             _rows(_source(_make_manager(), base_url="http://plunk.example.com"))
         session.send.assert_not_called()
+
+
+class _FakeStreamResponse:
+    """Minimal streamed `requests.Response` stand-in: yields fixed chunks and records close()."""
+
+    def __init__(self, chunks: list[bytes], *, block: bool = False) -> None:
+        self._chunks = chunks
+        self._block = block
+        self._released = threading.Event()
+        self.closed = False
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        yield from self._chunks
+        if self._block:
+            # Never completes on its own; only close() releases it. Models a host that stops mid-body.
+            self._released.wait()
+
+    def close(self) -> None:
+        self.closed = True
+        self._released.set()
+
+
+class TestReadBounded:
+    def test_reads_full_body_under_cap(self):
+        response = _FakeStreamResponse([b"hel", b"lo"])
+        assert _read_bounded(response, max_bytes=100) == b"hello"
+
+    def test_raises_when_body_exceeds_byte_cap(self):
+        # The cap is what stops a huge (or gzip-bombed) body from exhausting a worker's memory.
+        response = _FakeStreamResponse([b"a" * 8, b"b" * 8])
+        with pytest.raises(PlunkResponseTooLargeError):
+            _read_bounded(response, max_bytes=10)
+
+    def test_times_out_and_closes_a_stalled_body(self):
+        # A host that stalls mid-body must not pin the worker: the deadline fires and the socket is
+        # closed. max_seconds=0 makes the join return immediately while the reader is still blocked.
+        response = _FakeStreamResponse([b"partial"], block=True)
+        with pytest.raises(PlunkResponseTimeoutError):
+            _read_bounded(response, max_bytes=100, max_seconds=0)
+        assert response.closed is True
+
+
+class TestBoundedSession:
+    def test_send_pins_default_timeout_and_rebuffers_body(self):
+        session = _make_bounded_session("sk_test")
+        captured: dict[str, Any] = {}
+
+        def fake_super_send(request, **kwargs):
+            captured.update(kwargs)
+            resp = requests.Response()
+            resp.status_code = 200
+            resp.raw = io.BytesIO(b'{"data": []}')
+            return resp
+
+        with mock.patch.object(requests.Session, "send", side_effect=fake_super_send):
+            response = session.send(requests.PreparedRequest())
+
+        # A timeout is pinned when the caller passes none, redirects are refused, and the body is
+        # streamed — then re-buffered so RESTClient's `.json()` still works.
+        assert captured["timeout"] == DEFAULT_TIMEOUT_SECONDS
+        assert captured["allow_redirects"] is False
+        assert captured["stream"] is True
+        assert response.json() == {"data": []}
+
+    def test_factory_wires_key_redaction_into_adapter(self):
+        session = _make_bounded_session("sk_secret")
+        adapter = session.get_adapter("https://plunk.example.com")
+        assert adapter._redact_values == ("sk_secret",)
