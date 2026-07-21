@@ -36,7 +36,7 @@ function makeCatalog(): SkillCatalog {
 function makeProjectSkills(overrides: Partial<Record<string, unknown>> = {}): ProjectSkillCatalog {
     return {
         listNames: vi.fn(async () => ({ count: 1, names: ['team-conventions'], truncated: false })),
-        descriptions: vi.fn(async () => new Map([['team-conventions', 'Team-specific conventions.']])),
+        describe: vi.fn(async () => new Map([['team-conventions', 'Team-specific conventions.']])),
         searchResults: vi.fn(async () => []),
         read: vi.fn(async () => 'project skill'),
         searchFile: vi.fn(async () => 'project file match'),
@@ -339,6 +339,37 @@ describe('SkillCatalog and exec learn', () => {
                 { source: 'posthog', skill: 'retention-analysis', path: 'references/functions.md', readKind: 'file' },
                 { source: 'project', skill: 'team-conventions', path: 'notes.md', readKind: 'file_lines' },
             ])
+        })
+
+        it('reports one invocation per file in a successful multi-file batch', async () => {
+            const invocations: unknown[] = []
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() }, (inv) => invocations.push(inv))
+
+            await learn.execute('posthog:retention-analysis references/functions.md scripts/run.ts')
+
+            expect(invocations).toEqual([
+                { source: 'posthog', skill: 'retention-analysis', path: 'references/functions.md', readKind: 'file' },
+                { source: 'posthog', skill: 'retention-analysis', path: 'scripts/run.ts', readKind: 'file' },
+            ])
+        })
+
+        it('fires no invocations when a file batch fails on one path', async () => {
+            const invocations: unknown[] = []
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() }, (inv) => invocations.push(inv))
+
+            // The command returns no content, so a successful sibling must not report.
+            await expect(
+                learn.execute('posthog:retention-analysis references/functions.md missing.md')
+            ).rejects.toThrow()
+            expect(invocations).toEqual([])
+        })
+
+        it('fires no invocations when a multi-skill batch fails on one skill', async () => {
+            const invocations: unknown[] = []
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() }, (inv) => invocations.push(inv))
+
+            await expect(learn.execute('posthog:retention-analysis posthog:missing')).rejects.toThrow()
+            expect(invocations).toEqual([])
         })
 
         it('keeps learn working when the listener throws', async () => {

@@ -141,6 +141,10 @@ export class InstructionsBuilder {
         }
         const guides = guidesEnabled ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state)) : []
         const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
+        // The catalog (and this closure) is rebuilt per request, so this Set dedupes
+        // within one exec command — a 5-file batch of one skill fires a single event,
+        // while separate commands each still count.
+        const invokedIdentifiers = new Set<string>()
         return new ExecLearnCatalog(
             guides,
             skillsEnabled
@@ -152,7 +156,14 @@ export class InstructionsBuilder {
                           : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
                   }
                 : undefined,
-            (invocation) => void trackSkillInvoked(state, invocation)
+            (invocation) => {
+                const identifier = `${invocation.source}:${invocation.skill}`
+                if (invokedIdentifiers.has(identifier)) {
+                    return
+                }
+                invokedIdentifiers.add(identifier)
+                void trackSkillInvoked(state, invocation)
+            }
         )
     }
 

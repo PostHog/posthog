@@ -467,14 +467,30 @@ interface NormalizedQuery {
 
 // Longest-first so the longest matching suffix is stripped (e.g. "sessions" → "session", not "sessionation").
 const STEM_SUFFIXES = ['ations', 'ation', 'tions', 'tion', 'ings', 'ing', 'es', 'ed', 's']
-const MIN_STEM_VARIANT_LENGTH = 5
+// Shortest token length the scorer treats as informative — also the floor for derived stems.
+export const MIN_STEM_VARIANT_LENGTH = 5
+
+/**
+ * Deduped, lower-cased query tokens using the same tokenization the scorer applies, exported so
+ * callers derive tokens identically instead of inventing a divergent tokenizer.
+ */
+export function extractQueryTokens(query: string): string[] {
+    return [
+        ...new Set(
+            query
+                .trim()
+                .toLowerCase()
+                .match(/[\p{L}\p{N}]+/gu) ?? []
+        ),
+    ]
+}
 
 function normalizeQuery(query: string): NormalizedQuery {
     const phrase = query.trim().toLowerCase()
     if (!phrase) {
         throw new Error('Search query cannot be empty.')
     }
-    const rawTokens = [...new Set(phrase.match(/[\p{L}\p{N}]+/gu) ?? [])]
+    const rawTokens = extractQueryTokens(query)
     if (rawTokens.length === 0) {
         throw new Error('Search query must contain a letter or number.')
     }

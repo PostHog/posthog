@@ -7,7 +7,7 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
-import type { ExecLearnCatalog } from './exec-learn'
+import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -85,13 +85,23 @@ const SKILLS_GATE_MESSAGE =
  * including file reads within a skill). Generic guide reads, listings, searches,
  * and describes don't count — a guide is not a skill, and opening the gate on
  * `learn analytics` would restore exactly the bypass the gate exists to catch.
+ *
+ * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
+ * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
+ * a naive whitespace split disagrees on both. An unterminated quote can't be a
+ * skill load (and `execute` would have thrown first), so it returns false.
  */
 function isSkillLoad(rest: string): boolean {
-    const tokens = rest.trim().split(/\s+/)
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return false
+    }
     if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
         return false
     }
-    return tokens.some((token) => token.startsWith('posthog:') || token.startsWith('project:'))
+    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
 }
 
 /**

@@ -34,7 +34,7 @@ const MAX_DESCRIBE_SKILLS = 20
 const MAX_BATCH_READS = 10
 // Above this total, the zero-hit recovery links to `learn skills` instead of inlining every name.
 const ZERO_HIT_INLINE_LIMIT = 25
-const QUALIFIED_IDENTIFIER = /^(posthog|project):/
+export const QUALIFIED_IDENTIFIER = /^(posthog|project):/
 // A path that itself starts with `posthog:`/`project:` parses as a multi-skill read, not a file read.
 const SKILL_READ_USAGE =
     'Usage: learn <source>:<skill> [path...], learn <source>:<skill> <path> -s <query>, or learn <source>:<skill> <path> --lines <start>:<end>. Reads with several qualified names load several skills.'
@@ -172,16 +172,25 @@ export class ExecLearnCatalog {
             throw new Error(`learn reads at most ${MAX_BATCH_READS} skills at once. Split the batch.`)
         }
         const skills = identifiers.map((identifier) => parseQualifiedSkill(identifier))
-        const outputs = await Promise.all(skills.map((skill) => this.readSkill(skill)))
-        return fitLearnOutput(outputs.join('\n\n'))
+        // Fetch all before reporting any: a mid-batch failure rejects the whole
+        // command, so no already-read sibling should fire an invocation.
+        const reads = await Promise.all(skills.map((skill) => this.readSkillContent(skill)))
+        for (const read of reads) {
+            this.reportInvocation(read.invocation)
+        }
+        return fitLearnOutput(reads.map((read) => read.content).join('\n\n'))
     }
 
     private async batchReadFiles(skill: QualifiedSkill, paths: string[]): Promise<string> {
         if (paths.length > MAX_BATCH_READS) {
             throw new Error(`learn reads at most ${MAX_BATCH_READS} files at once. Split the batch.`)
         }
-        const outputs = await Promise.all(paths.map((path) => this.readSkill(skill, path)))
-        return fitLearnOutput(outputs.join('\n\n'))
+        // See batchReadSkills: report only after every read resolves.
+        const reads = await Promise.all(paths.map((path) => this.readSkillContent(skill, path)))
+        for (const read of reads) {
+            this.reportInvocation(read.invocation)
+        }
+        return fitLearnOutput(reads.map((read) => read.content).join('\n\n'))
     }
 
     private async describeSkills(identifiers: string[]): Promise<string> {
@@ -195,12 +204,15 @@ export class ExecLearnCatalog {
         const parsed = identifiers.map((identifier) => ({ identifier, skill: tryParseQualifiedSkill(identifier) }))
         let projectDescriptions: Map<string, string> | undefined
         let projectUnavailable: string | undefined
-        if (parsed.some(({ skill }) => skill?.source === 'project')) {
+        const projectNames = parsed.filter(({ skill }) => skill?.source === 'project').map(({ skill }) => skill!.name)
+        if (projectNames.length > 0) {
             if (!this.skillSources?.project) {
                 projectUnavailable = this.requireProjectUnavailableReason()
             } else {
                 try {
-                    projectDescriptions = await this.skillSources.project.descriptions()
+                    // Resolves names past a truncated listing via the exact-name endpoint, so a real
+                    // skill beyond the list cap isn't misreported as unknown.
+                    projectDescriptions = await this.skillSources.project.describe(projectNames)
                 } catch (error) {
                     projectUnavailable = formatProjectError(error)
                 }
@@ -340,12 +352,26 @@ export class ExecLearnCatalog {
     }
 
     private async readSkill(skill: QualifiedSkill, path?: string): Promise<string> {
+        const { content, invocation } = await this.readSkillContent(skill, path)
+        this.reportInvocation(invocation)
+        return content
+    }
+
+    /** Fetches skill content and builds its invocation signal without reporting it —
+     *  batch reads report only after every sibling read resolves, so a mid-batch
+     *  failure can't over-report the reads that already succeeded. */
+    private async readSkillContent(
+        skill: QualifiedSkill,
+        path?: string
+    ): Promise<{ content: string; invocation: SkillInvocation }> {
         const content =
             skill.source === 'posthog'
                 ? this.requirePostHogSkills().read(skill.name, path, skill.identifier)
                 : await this.requireProjectSkills().read(skill.name, path)
-        this.reportInvocation({ source: skill.source, skill: skill.name, path, readKind: path ? 'file' : 'skill' })
-        return content
+        return {
+            content,
+            invocation: { source: skill.source, skill: skill.name, path, readKind: path ? 'file' : 'skill' },
+        }
     }
 
     private async searchSkillFile(skill: QualifiedSkill, path: string, query: string): Promise<string> {
@@ -446,7 +472,7 @@ function tryParseQualifiedSkill(identifier: string): QualifiedSkill | undefined 
     return { source: match[1] as SkillSource, name: match[2], identifier }
 }
 
-function tokenizeLearnInput(input: string): string[] {
+export function tokenizeLearnInput(input: string): string[] {
     const tokens: string[] = []
     let token = ''
     let quote: '"' | "'" | undefined

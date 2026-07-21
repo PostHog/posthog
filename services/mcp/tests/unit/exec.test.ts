@@ -203,6 +203,30 @@ describe('exec tool', () => {
             )
         })
 
+        it('does not open the gate when a search flag is quoted', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            // Quotes make a naive whitespace split miss the leading `-s`, so the
+            // command reads as a skill load and wrongly opens the gate.
+            await exec.handler(mockContext, { command: "learn '-s' bot traffic" })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
+        })
+
+        it('opens the gate when the skill identifier is quoted', async () => {
+            const { session } = makeSkillsSession()
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })
+
+            // A leading quote defeats a naive `startsWith('posthog:')` check, so a
+            // real skill load would fail to open the gate.
+            await exec.handler(mockContext, { command: "learn 'posthog:bot-traffic'" })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
         it('call --no-skills acknowledges once and opens the gate for the session', async () => {
             const { session } = makeSkillsSession()
             const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: session })

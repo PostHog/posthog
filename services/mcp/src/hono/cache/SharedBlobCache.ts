@@ -77,8 +77,18 @@ export class SharedBlobCache {
     protected async writeCache(bytes: Uint8Array, validator?: string): Promise<void> {
         const b64 = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64')
         const freshUntil = Date.now() + this.freshSeconds * 1000
+        // Land the bytes before their validator, since the two live under separate
+        // Redis keys with no cross-key transaction. If the validator write landed
+        // first (or in parallel) and the bytes write then failed, Redis would keep
+        // old bytes paired with the new validator — a stuck state where every later
+        // conditional refresh sends the new validator, gets a 304, and touches the
+        // stale bytes fresh again. Ordering it the other way makes both partial
+        // failures self-heal: if the bytes write fails, the old bytes keep the old
+        // validator (consistent); if only the validator write fails after new bytes
+        // land, the next conditional refresh sends the old validator, gets a full
+        // 200, and rewrites everything.
+        await this.redis.set(this.cacheKey, b64, 'EX', this.cacheTtlSeconds)
         await Promise.all([
-            this.redis.set(this.cacheKey, b64, 'EX', this.cacheTtlSeconds),
             this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
             // Keep the validator in lockstep with the bytes: store it when present,
             // clear any stale one otherwise so a later conditional request can't
