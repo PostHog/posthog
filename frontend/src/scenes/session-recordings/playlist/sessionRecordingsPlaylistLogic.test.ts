@@ -27,8 +27,8 @@ import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
+    preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
-    setPreferredRecordingsSort,
 } from './sessionRecordingsPlaylistLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
@@ -1453,13 +1453,13 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it.each<[string, () => void, string, string]>([
                 [
                     'an explicitly chosen sort overrides the relevance default',
-                    () => setPreferredRecordingsSort({ order: 'start_time', order_direction: 'DESC' }),
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'DESC' }),
                     DEFAULT_RECORDING_FILTERS_ORDER_BY,
                     'DESC',
                 ],
                 [
                     'the chosen direction is kept',
-                    () => setPreferredRecordingsSort({ order: 'start_time', order_direction: 'ASC' }),
+                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'ASC' }),
                     DEFAULT_RECORDING_FILTERS_ORDER_BY,
                     'ASC',
                 ],
@@ -1479,7 +1479,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('keeps recency on person pages regardless of the stored preference', () => {
                 mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
-                setPreferredRecordingsSort({ order: 'activity_score', order_direction: 'DESC' })
+                preferredRecordingsSortStorage.set({ order: 'activity_score', order_direction: 'DESC' })
                 expect(getDefaultFilters('some-person-uuid').order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
             })
         })

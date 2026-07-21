@@ -16,6 +16,7 @@ import {
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
+import { z } from 'zod'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -33,6 +34,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
+import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
@@ -175,42 +177,14 @@ const getDefaultFilterTestAccounts = (): boolean => {
     return stored === 'true'
 }
 
-const PREFERRED_SORT_STORAGE_KEY = 'replay_list_preferred_sort'
-
-export interface PreferredRecordingsSort {
-    order: NonNullable<RecordingUniversalFilters['order']>
-    order_direction: NonNullable<RecordingUniversalFilters['order_direction']>
-}
-
-// A sort the user explicitly picked in the list settings. It wins over the relevance
+// The sort the user explicitly picked in the list settings. It wins over the relevance
 // rollout/experiment default, so users who prefer another order aren't re-defaulted
-// into relevance on every visit and filter reset.
-export const setPreferredRecordingsSort = (sort: PreferredRecordingsSort): void => {
-    try {
-        localStorage.setItem(PREFERRED_SORT_STORAGE_KEY, JSON.stringify(sort))
-    } catch {
-        // localStorage can be unavailable. Losing the preference is fine
-    }
-}
-
-const getPreferredRecordingsSort = (): PreferredRecordingsSort | null => {
-    try {
-        const stored = localStorage.getItem(PREFERRED_SORT_STORAGE_KEY)
-        if (!stored) {
-            return null
-        }
-        const parsed = JSON.parse(stored)
-        if (
-            typeof parsed?.order === 'string' &&
-            (parsed?.order_direction === 'ASC' || parsed?.order_direction === 'DESC')
-        ) {
-            return { order: parsed.order, order_direction: parsed.order_direction }
-        }
-        return null
-    } catch {
-        return null
-    }
-}
+// into relevance on every visit and filter reset. `order` stays a plain string: the
+// union of valid orders has no runtime source, and writes only come from the sort menu
+export const preferredRecordingsSortStorage = localStorageSlot(
+    'replay_list_preferred_sort',
+    z.object({ order: z.string(), order_direction: z.enum(['ASC', 'DESC']) })
+)
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -234,14 +208,14 @@ export const getDefaultFilters = (
     const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
     // A sort the user explicitly picked beats the relevance default, but specific-intent
     // surfaces keep recency regardless
-    const preferredSort = hasSpecificIntent ? null : getPreferredRecordingsSort()
+    const preferredSort = hasSpecificIntent ? null : preferredRecordingsSortStorage.get()
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
         // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
         order:
-            preferredSort?.order ??
+            (preferredSort?.order as RecordingUniversalFilters['order']) ??
             (!hasSpecificIntent &&
             (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
                 posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
