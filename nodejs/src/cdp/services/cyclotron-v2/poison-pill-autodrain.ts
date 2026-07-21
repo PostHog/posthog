@@ -23,6 +23,11 @@ const autodrainErrorsCounter = new Counter({
     help: 'Groups the autodrain service failed to enqueue a rerun for',
 })
 
+const autodrainSkippedInFlightCounter = new Counter({
+    name: 'cdp_cyclotron_v2_autodrain_skipped_in_flight_total',
+    help: 'Groups skipped because a non-terminal rerun wrapper was already outstanding',
+})
+
 export interface CyclotronPoisonPillAutodrainConfig {
     intervalMs: number
     windowHours: number
@@ -101,6 +106,16 @@ export class CyclotronPoisonPillAutodrain {
             const teamId = Number(group.team_id)
             const functionKind = group.function_kind as RerunFunctionKind
             try {
+                // Skip if a wrapper for this group is still outstanding. A rerun
+                // clears a group from discovery only once the worker re-enqueues
+                // its invocations (they flip to `running`); if the worker is down
+                // or stalled that never happens, so without this guard every tick
+                // would pile another wrapper into cyclotron_jobs indefinitely for
+                // the duration of the outage.
+                if (await this.rerunManager.hasInFlightWrapper(teamId, group.function_id)) {
+                    autodrainSkippedInFlightCounter.inc()
+                    continue
+                }
                 await this.rerunManager.enqueue(teamId, functionKind, group.function_id, {
                     filter: {
                         window_start: windowStartIso,
@@ -156,7 +171,15 @@ export class CyclotronPoisonPillAutodrain {
      */
     private async discoverGroups(windowStartIso: string, windowEndIso: string): Promise<DiscoveredGroupRow[]> {
         // The table is partitioned by toYYYYMMDD(scheduled_at), so the window
-        // bound pins the query to a handful of partitions instead of a full scan.
+        // bound pins the query to a handful of partitions. But this table has no
+        // error_kind index and its primary key leads with team_id, so without a
+        // team/function predicate the per-invocation argMax aggregation would read
+        // every lifecycle row in those partitions, fleet-wide — cost scaling with
+        // total invocation volume, not the (tiny) poison-pill count. So first pick
+        // the candidate invocation_ids that recorded a poison pill (a cheap
+        // single-column scan), then run the full lifecycle aggregation only over
+        // those — the argMax(...) HAVING still validates the LATEST row per
+        // invocation (self-dedup correctness), just over a much smaller set.
         const result = await this.clickhouse.query({
             query: `/* query_type:cyclotron_poison_pill_autodrain_discover */
                 SELECT team_id, function_kind, function_id, count() AS pending
@@ -165,6 +188,13 @@ export class CyclotronPoisonPillAutodrain {
                     FROM hog_invocation_results
                     WHERE scheduled_at >= {window_start:DateTime64(6,'UTC')}
                       AND scheduled_at <  {window_end:DateTime64(6,'UTC')}
+                      AND invocation_id IN (
+                          SELECT invocation_id
+                          FROM hog_invocation_results
+                          WHERE scheduled_at >= {window_start:DateTime64(6,'UTC')}
+                            AND scheduled_at <  {window_end:DateTime64(6,'UTC')}
+                            AND error_kind = {error_kind:String}
+                      )
                     GROUP BY team_id, function_kind, function_id, invocation_id
                     HAVING argMax(is_deleted, version) = 0
                        AND argMax(status, version) = 'failed'

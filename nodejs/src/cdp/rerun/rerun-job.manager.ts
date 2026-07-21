@@ -52,6 +52,17 @@ export class RerunJobManager {
     }
 
     /**
+     * Whether a non-terminal (available/running) rerun wrapper already exists for
+     * this function. Wrapper jobs live on the `rerun` queue with `function_id` set
+     * to the target function, so this is scoped to that queue — the automatic
+     * autodrain uses it to avoid piling up duplicate wrappers for the same group
+     * while a prior one is still outstanding (e.g. the rerun worker is down).
+     */
+    async hasInFlightWrapper(teamId: number, functionId: string): Promise<boolean> {
+        return (await this.manager.countInFlightJobsInQueue(teamId, functionId, RERUN_QUEUE_NAME)) > 0
+    }
+
+    /**
      * Create a new rerun wrapper job. Returns the cyclotron job id —
      * downstream callers (the Django API, eventually a status-poll endpoint)
      * use it to look up progress.

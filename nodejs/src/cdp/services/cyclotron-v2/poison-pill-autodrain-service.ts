@@ -63,8 +63,20 @@ export class CyclotronPoisonPillAutodrainService {
     }
 
     async start(): Promise<void> {
-        // Open the cyclotron-node pool before the first tick can enqueue.
-        await this.rerunManager.connect()
+        // Eagerly probe the cyclotron-node pool before the first tick, but never
+        // let a boot-time blip reject start(): this service is co-located in the
+        // janitor pod and the serviceLoaders are awaited together (Promise.all),
+        // so a rejection here would crash the shared pod — the critical janitor
+        // included. The pool connects lazily on first query, and the worker's
+        // interval retries (its runOnce is itself wrapped in a catch), so a
+        // transient Postgres failure at boot must not take the pod down.
+        try {
+            await this.rerunManager.connect()
+        } catch (err) {
+            logger.warn('CyclotronPoisonPillAutodrainService: pool connect failed at boot, retrying on tick', {
+                error: String(err),
+            })
+        }
         await this.worker.start()
         logger.info('CyclotronPoisonPillAutodrainService started')
     }

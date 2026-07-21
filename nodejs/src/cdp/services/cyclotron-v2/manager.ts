@@ -444,6 +444,18 @@ export class CyclotronV2Manager {
         return result.rows[0].count
     }
 
+    // Same as countInFlightJobs but scoped to a single queue — lets a caller ask
+    // "is there already a non-terminal job for this function on queue X?" without
+    // counting the function's own invocations on other queues.
+    async countInFlightJobsInQueue(teamId: number, functionId: string, queueName: string): Promise<number> {
+        const result = await this.pool.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+             WHERE team_id = $1 AND function_id = $2 AND queue_name = $3 AND status IN ('available', 'running')`,
+            [teamId, functionId, queueName]
+        )
+        return result.rows[0].count
+    }
+
     /**
      * Pull forward the wake times of a workflow's parked jobs after a timing
      * edit (issue #66380): jobs parked on one of `actionIds` get

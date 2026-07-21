@@ -17,6 +17,7 @@ describe('CyclotronPoisonPillAutodrain', () => {
 
     let queryMock: jest.Mock
     let enqueueMock: jest.Mock
+    let hasInFlightWrapperMock: jest.Mock
     let clickhouse: ClickHouseClient
     let rerunManager: RerunJobManager
     let worker: CyclotronPoisonPillAutodrain
@@ -31,8 +32,12 @@ describe('CyclotronPoisonPillAutodrain', () => {
         jest.useFakeTimers({ now: NOW })
         queryMock = jest.fn()
         enqueueMock = jest.fn().mockResolvedValue('job-id')
+        hasInFlightWrapperMock = jest.fn().mockResolvedValue(false)
         clickhouse = { query: queryMock } as unknown as ClickHouseClient
-        rerunManager = { enqueue: enqueueMock } as unknown as RerunJobManager
+        rerunManager = {
+            enqueue: enqueueMock,
+            hasInFlightWrapper: hasInFlightWrapperMock,
+        } as unknown as RerunJobManager
         worker = new CyclotronPoisonPillAutodrain(clickhouse, rerunManager, config)
     })
 
@@ -88,6 +93,25 @@ describe('CyclotronPoisonPillAutodrain', () => {
         expect(enqueueMock).toHaveBeenCalledTimes(3)
     })
 
+    it('skips a group that already has an in-flight rerun wrapper', async () => {
+        mockDiscovered([
+            { team_id: '1', function_kind: 'hog_flow', function_id: 'fn-a', pending: '5' },
+            { team_id: '2', function_kind: 'hog_flow', function_id: 'fn-b', pending: '3' },
+        ])
+        // fn-a already has an outstanding wrapper; fn-b does not. Without the
+        // in-flight guard both would enqueue, piling up duplicate wrappers when a
+        // downstream rerun-worker outage keeps a group discoverable every tick.
+        hasInFlightWrapperMock.mockImplementation((_teamId: number, functionId: string) =>
+            Promise.resolve(functionId === 'fn-a')
+        )
+
+        const result = await worker.runOnce()
+
+        expect(result).toEqual({ groups: 2, enqueued: 1 })
+        expect(enqueueMock).toHaveBeenCalledTimes(1)
+        expect(enqueueMock).toHaveBeenCalledWith(2, 'hog_flow', 'fn-b', expect.anything())
+    })
+
     it('scopes discovery to the not-deleted failed poison-pill predicate under the attempts cap', async () => {
         mockDiscovered([])
 
@@ -97,6 +121,10 @@ describe('CyclotronPoisonPillAutodrain', () => {
         expect(query).toContain("argMax(status, version) = 'failed'")
         expect(query).toContain('argMax(error_kind, version) = {error_kind:String}')
         expect(query).toContain('argMax(attempts, version) < {max_attempts:UInt8}')
+        // The aggregation is narrowed to invocations that recorded a poison pill,
+        // rather than scanning every invocation in the window fleet-wide.
+        expect(query).toContain('invocation_id IN (')
+        expect(query).toContain('AND error_kind = {error_kind:String}')
         expect(queryMock.mock.calls[0][0].query_params).toMatchObject({
             error_kind: JANITOR_POISON_PILL_ERROR_KIND,
             max_attempts: 3,
