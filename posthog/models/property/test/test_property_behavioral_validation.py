@@ -97,7 +97,7 @@ class TestBehavioralPropertyValueAlias(BaseTest):
 
     def test_accepts_time_bound_like_canonical_type(self) -> None:
         prop = self._build(operator_value=1, time_value=3650, time_interval="day")
-        self.assertEqual(prop.value, "performed_event_multiple_times")
+        self.assertEqual(prop.value, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE)
 
     def test_still_requires_operator_value(self) -> None:
         # PERFORMED_EVENT_MULTIPLE's unconditional required attrs (VALIDATE_BEHAVIORAL_PROP_TYPES)

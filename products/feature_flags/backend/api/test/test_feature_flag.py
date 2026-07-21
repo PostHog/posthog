@@ -5499,6 +5499,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "time_interval": "day",
                     "operator_value": 1,
                 },
+                "performed_event_multiple",
             ),
             (
                 "bytecode_only_unbounded_condition",
@@ -5514,10 +5515,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {"key": "$current_url", "type": "event", "value": "some-path", "operator": "icontains"}
                     ],
                 },
+                "performed_event",
             ),
         ]
     )
-    def test_creating_feature_flag_with_realtime_style_behavioral_leaf_is_rejected(self, _name, behavioral_leaf):
+    def test_creating_feature_flag_with_realtime_style_behavioral_leaf_is_rejected(
+        self, _name, behavioral_leaf, expected_condition_value
+    ):
         # Regression: both of these leaf shapes used to raise inside Property(**leaf) and
         # get silently dropped by _parse_properties, so cohort.properties.flat came back
         # with no behavioral property and this guard never fired — letting the flag save
@@ -5538,7 +5542,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": f"Cohort 'realtime-behavioral-cohort' has an event-based condition on '$pageview' ({behavioral_leaf['value']}) and cannot be used in feature flags.",
+                "detail": f"Cohort 'realtime-behavioral-cohort' has an event-based condition on '$pageview' ({expected_condition_value}) and cannot be used in feature flags.",
                 "attr": "filters",
             }.items(),
             response.json().items(),

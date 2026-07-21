@@ -347,7 +347,7 @@ class TestCohort(BaseTest):
                     "time_interval": "day",
                     "operator_value": 1,
                 },
-                "performed_event_multiple_times",
+                "performed_event_multiple",
             ),
             (
                 # Regression: an unbounded realtime-compiled condition ("did this person ever do X")

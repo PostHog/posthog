@@ -154,7 +154,10 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
 # produced by cohort filter generators and are equivalent for validation purposes.
 # Keyed by the raw stored value string; resolves to the canonical type whose
 # VALIDATE_BEHAVIORAL_PROP_TYPES / VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES rules apply.
-# `self.value` itself is left untouched so stored filter data round-trips unchanged.
+# `Property.__init__` normalizes `self.value` to this canonical string once validation
+# passes, so downstream consumers that compare `prop.value` against the canonical
+# BehavioralPropertyType strings (e.g. HogQLCohortQuery._get_condition_for_property)
+# don't each need their own alias awareness.
 BEHAVIORAL_VALUE_ALIASES: dict[str, BehavioralPropertyType] = {
     "performed_event_multiple_times": BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE,
 }
@@ -370,6 +373,8 @@ class Property:
                     raise PropertyValidationError(
                         f"Missing required parameters, atleast one of values ({'), ('.join([' & '.join(condition) for condition in condition_list])}) for property type {self.type}::{self.value}"
                     )
+
+            self.value = behavioral_value
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
