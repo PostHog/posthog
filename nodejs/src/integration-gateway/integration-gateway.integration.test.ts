@@ -1,8 +1,10 @@
+import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
+import { setupExpressApp } from '~/common/api/router'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { EncryptedFields } from '~/common/utils/encryption-utils'
@@ -29,12 +31,18 @@ describe('integration gateway credential API', () => {
     let encryptedFields: EncryptedFields
     let teamId: number
 
+    // ultimate-express binds its listen socket asynchronously, so supertest's lazy `app.listen(0)`
+    // reads an unresolved address and throws "Invalid URL". Mirror the sibling cdp-api test: build
+    // via setupExpressApp (same wiring as the real server, incl. body parsing) and listen eagerly,
+    // tracking each server so afterEach can close it.
+    const servers: Server[] = []
+
     // A cache is shared across requests to one app so the cache-hit test can observe staleness.
-    const buildApp = (maxBatchSize = 100, cache = new CredentialCache(30, 1000)): express.Express => {
+    const buildApp = (maxBatchSize = 100, cache = new CredentialCache(30, 1000)): express.Application => {
         const service = new IntegrationService(new IntegrationRepository(hub.postgres), encryptedFields, cache, null)
-        const app = express()
-        app.use(express.json())
+        const app = setupExpressApp()
         app.use('/', createGatewayRouter({ service, auth: new GatewayAuth(SECRET), maxBatchSize }))
+        servers.push(app.listen(0))
         return app
     }
 
@@ -47,6 +55,11 @@ describe('integration gateway credential API', () => {
     })
 
     afterEach(async () => {
+        // Best-effort, non-awaited close (matches cdp-api.test.ts): ultimate-express's server.close
+        // never fires its callback, so awaiting one hangs the hook.
+        for (const server of servers.splice(0)) {
+            server.close()
+        }
         await closeHub(hub)
     })
 
@@ -76,11 +89,15 @@ describe('integration gateway credential API', () => {
     it('resolves owned ids and renders wrong-team and missing ids as null in one batch', async () => {
         const team = await getTeam(hub.postgres, 2)
         const otherTeam = await createTeam(hub.postgres, team!.organization_id)
+        // Explicit distinct ids: the fixture defaults id to 1, so two rows in one test collide on
+        // the real integer primary key.
         const owned = await insertIntegration(hub.postgres, teamId, {
+            id: 1,
             kind: 'slack',
             sensitive_config: { access_token: encryptedFields.encrypt('mine') },
         })
         const otherTeamsRow = await insertIntegration(hub.postgres, otherTeam, {
+            id: 2,
             kind: 'slack',
             sensitive_config: { access_token: encryptedFields.encrypt('theirs') },
         })
