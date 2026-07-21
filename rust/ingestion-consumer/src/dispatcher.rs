@@ -333,7 +333,8 @@ impl Dispatcher {
             .collect();
 
         let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
-        let mut deferred_count = 0u64;
+        let mut drain_deferred_count = 0u64;
+        let mut cascade_deferred_count = 0u64;
         let mut unroutable_deferred_count = 0u64;
 
         for group in key_groups {
@@ -356,6 +357,15 @@ impl Dispatcher {
                     // Pinned to a draining/dead worker, or the key already has
                     // deferred groups pending — defer so newer messages can't
                     // race ahead of the key's earlier in-flight/deferred ones.
+                    // A key that is already deferring counts as cascade
+                    // (queued behind its own deferred work) regardless of the
+                    // pinned worker's state, so the seed (drain) and the
+                    // amplification (cascade) are measured separately.
+                    if table.stash.is_deferring(&group.routing_key) {
+                        cascade_deferred_count += 1;
+                    } else {
+                        drain_deferred_count += 1;
+                    }
                     table.stash.defer(
                         batch_id,
                         DeferredGroup {
@@ -363,7 +373,6 @@ impl Dispatcher {
                             messages: group.messages,
                         },
                     );
-                    deferred_count += 1;
                 }
                 None if table.stash.is_deferring(&group.routing_key) => {
                     // No pin, but the key already has stashed groups (it was
@@ -376,7 +385,7 @@ impl Dispatcher {
                             messages: group.messages,
                         },
                     );
-                    deferred_count += 1;
+                    cascade_deferred_count += 1;
                 }
                 None => unpinned_groups.push(group),
             }
@@ -461,12 +470,19 @@ impl Dispatcher {
             .increment(message_count as u64);
         }
 
-        if deferred_count > 0 {
+        if drain_deferred_count > 0 {
             counter!(
                 "ingestion_consumer_dispatcher_deferred_groups_total",
                 "reason" => "drain",
             )
-            .increment(deferred_count);
+            .increment(drain_deferred_count);
+        }
+        if cascade_deferred_count > 0 {
+            counter!(
+                "ingestion_consumer_dispatcher_deferred_groups_total",
+                "reason" => "queued_behind_deferral",
+            )
+            .increment(cascade_deferred_count);
         }
         if unroutable_deferred_count > 0 {
             counter!(
@@ -478,11 +494,18 @@ impl Dispatcher {
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
         record_stash_gauges(&table.stash);
 
-        if deferred_count > 0 {
+        if drain_deferred_count > 0 {
             record_if(&self.debug_recorder, || DebugEventKind::Deferred {
                 batch_id: batch_id.to_string(),
                 reason: "drain",
-                groups: deferred_count,
+                groups: drain_deferred_count,
+            });
+        }
+        if cascade_deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "queued_behind_deferral",
+                groups: cascade_deferred_count,
             });
         }
         if unroutable_deferred_count > 0 {
@@ -496,7 +519,7 @@ impl Dispatcher {
             batch_id: batch_id.to_string(),
             distinct_ids,
             sub_batches: assignments.sub_batch_infos(),
-            deferred_groups: deferred_count,
+            deferred_groups: drain_deferred_count + cascade_deferred_count,
             unroutable_groups: unroutable_deferred_count,
         });
 
@@ -1621,6 +1644,42 @@ mod tests {
             "messages for a draining-pinned key must be deferred, not routed"
         );
         assert!(dispatcher.has_deferred("batch-2"));
+    }
+
+    #[test]
+    fn test_deferral_reason_splits_drain_seed_from_cascade() {
+        let registry = healthy_registry(2);
+        let mut dispatcher = Dispatcher::new(Arc::clone(&registry));
+        let recorder = DebugRecorder::new(100, Duration::from_secs(60));
+        dispatcher.set_debug_recorder(Arc::clone(&recorder));
+
+        // Pin user-1, then drain its worker.
+        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        registry.start_draining(&b1[0].worker);
+
+        // First deferral: pin points at a drainer, nothing stashed yet — seed.
+        assert!(dispatcher
+            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .is_empty());
+        // Second deferral: the key is already deferring — cascade, even though
+        // the pinned worker is still draining.
+        assert!(dispatcher
+            .assign("batch-3", make_msgs(&[("t", "user-1")]))
+            .is_empty());
+
+        let reasons: Vec<_> = recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|e| match e.kind {
+                DebugEventKind::Deferred { reason, groups, .. } => Some((reason, groups)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reasons,
+            vec![("drain", 1), ("queued_behind_deferral", 1)],
+            "seed defers as drain, subsequent deferrals as queued_behind_deferral"
+        );
     }
 
     #[tokio::test]
