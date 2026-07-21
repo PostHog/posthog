@@ -1109,11 +1109,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
-                    const sampleGlobalsContext = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
-                    if (sampleGlobalsContext) {
+                    const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
+                    if (sampleGlobalsLoader) {
                         try {
                             await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                            const globals = await sampleGlobalsContext.load({
+                            const globals = await sampleGlobalsLoader({
                                 projectId: String(values.currentProject?.id),
                                 exampleGlobals: values.exampleInvocationGlobals,
                             })
@@ -1121,7 +1121,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             return globals
                         } catch (e: any) {
                             if (!isBreakpoint(e)) {
-                                actions.setSampleGlobalsError(e.message ?? sampleGlobalsContext.fallbackErrorMessage)
+                                actions.setSampleGlobalsError(e.message)
                             }
                             return values.exampleInvocationGlobals
                         }

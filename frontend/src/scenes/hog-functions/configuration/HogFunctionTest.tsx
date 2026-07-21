@@ -24,7 +24,6 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
-import { DEFAULT_SAMPLE_GLOBALS_COPY, SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export function HogFunctionTestPlaceholder({
     title,
@@ -154,9 +153,8 @@ export const HogFunctionTestEditor = ({
 }
 
 export function HogFunctionTest(): JSX.Element {
-    const { logicProps, canLoadSampleGlobals, contextId, hogFunction, template, configuration } =
+    const { logicProps, canLoadSampleGlobals, hogFunction, template, configuration } =
         useValues(hogFunctionConfigurationLogic)
-    const sampleGlobalsCopy = SAMPLE_GLOBALS_CONTEXTS[contextId] ?? DEFAULT_SAMPLE_GLOBALS_COPY
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const {
         isTestInvocationSubmitting,
@@ -326,12 +324,10 @@ export function HogFunctionTest(): JSX.Element {
                                                     loadSampleGlobals()
                                                 }
                                             }}
-                                            tooltip={sampleGlobalsCopy.loadButtonTooltip}
+                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
                                             icon={sampleGlobalsLoadingAndNotCancelled ? <Spinner /> : undefined}
                                         >
-                                            {sampleGlobalsLoadingAndNotCancelled
-                                                ? 'Cancel loading'
-                                                : sampleGlobalsCopy.loadButtonLabel}
+                                            {sampleGlobalsLoadingAndNotCancelled ? 'Cancel loading' : 'Load new event'}
                                         </LemonButton>
                                     ) : null}
                                     <LemonButton
