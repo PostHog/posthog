@@ -6,7 +6,9 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UnstructuredSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unstructured import (
+    UnstructuredSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source import UnstructuredSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.unstructured import (

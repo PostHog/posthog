@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TicketTailorSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tickettailor import (
+    TicketTailorSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

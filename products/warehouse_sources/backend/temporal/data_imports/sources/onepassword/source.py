@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OnePasswordSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepassword import (
+    OnePasswordSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.onepassword import (
     ONEPASSWORD_REGION_HOSTS,
     OnePasswordResumeConfig,

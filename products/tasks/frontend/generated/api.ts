@@ -26,6 +26,7 @@ import type {
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
     PatchedChannelWriteApi,
+    PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
     PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
@@ -201,6 +202,27 @@ export const sandboxCustomImagesRetrieve = async (
     return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * Rename or update the description of a custom image. Only mutable metadata (name, description) is editable; the build spec and status are managed by the build flow.
+ */
+export const sandboxCustomImagesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSandboxCustomImageUpdateApi?: PatchedSandboxCustomImageUpdateApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSandboxCustomImageUpdateApi),
     })
 }
 

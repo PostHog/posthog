@@ -449,6 +449,28 @@ def team_api_test_factory():
                 )
             assert mock_capture.call_args_list == expected_capture_calls
 
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        @patch(
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            return_value="Deprovision the managed warehouse first.",
+        )
+        def test_delete_team_blocked_by_managed_warehouse(
+            self,
+            mock_block: MagicMock,
+            mock_start_workflow: MagicMock,
+        ):
+            # Wiring guard: perform_destroy must consult the managed-warehouse guard before
+            # dispatching the deletion workflow, and a block must stop the deletion entirely.
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("managed warehouse", response.json()["detail"])
+            mock_block.assert_called_once()
+            mock_start_workflow.assert_not_called()
+            self.assertTrue(Team.objects.filter(pk=team.pk).exists())
+
         @freeze_time("2022-02-08")
         def test_reset_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
