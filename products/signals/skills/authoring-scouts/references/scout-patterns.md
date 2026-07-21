@@ -75,9 +75,9 @@ This is one of the most common genuinely-new shapes users author for themselves,
   Naming the heartbeat is the whole design job — without one the scout can't tell an outage from a quiet day.
 - **Two granularities, same discriminator:**
   - **Aggregate silence** — one stream goes quiet while its companion keeps firing.
-    E.g. a security/compliance audit event stops appearing in CI while the release-metadata event still fires (the control silently stopped running); an automation/workflow shows `active` with zero executions while its trigger event still has volume (a filter or config change silently dropped 100% of traffic).
+    E.g. a scheduled compliance or security check's success event stops appearing while the rest of the pipeline's events continue (the control silently stopped running); an automation/workflow shows `active` with zero executions while its trigger event still has volume (a filter or config change silently dropped 100% of traffic).
   - **Per-item reconciliation ("promise made vs promise kept")** — join each antecedent event to its expected consequent within a window, and score the **unmatched share** against its own baseline.
-    E.g. rewarded-ad completed → entitlement granted (validating an ad-network callback); payment initiated → webhook received; an in-product flow started → the third-party API fetch that should complete it (a completion-rate cliff with zero exceptions is exactly this shape); cancellation → rebooking within 24h (recovery vs churn).
+    E.g. payment initiated → webhook received; order placed → fulfillment confirmed; an in-product flow started → the third-party fetch that should complete it (a completion-rate cliff with zero exceptions is exactly this shape).
 - **Proven variants:**
   - **Compliance / control liveness** — the expected event is a security, privacy, or audit control; its absence is a compliance gap by definition, so report even when nothing user-facing broke.
   - **Automation liveness** — the watched entity is a PostHog automation (a workflow, a CDP destination): configured-active with zero successes _and_ zero failures while the trigger has volume is the silently-dark shape a delivery-failure watcher misses.
@@ -162,7 +162,7 @@ The watched surface is not analytics data at all — it's whatever that upstream
 ### Custom / single-event scout
 
 When one bespoke event captured into PostHog carries the whole signal (a product's own telemetry, a feedback event, a domain-specific action).
-The event doesn't have to come from a web or mobile app: CI pipelines, server-side jobs, ad-network callbacks, wearable syncs, and even physical hardware (an access-control system's badge-created/deactivated events) all land as ordinary events, and a scout watches them identically.
+The event doesn't have to come from a web or mobile app: CI pipelines, server-side jobs, third-party callbacks, and even physical hardware (a device fleet's heartbeat or fault events) all land as ordinary events, and a scout watches them identically.
 
 - **Watched data:** one event, confirmed via `read-data-schema` (the event **and** the properties you'll filter on — both are team-specific and may be absent).
 - **Discriminator:** a discriminating property on the event.
@@ -339,7 +339,7 @@ These compose into any pattern above:
   The even-coverage cousin of the watchlist: a watchlist re-checks what matters most, a coverage map makes sure nothing is _never_ checked.
 - **Blast-radius corroboration** — turn a qualitative signal into a quantified one by cross-checking a second source over the same window.
   Raises confidence, and gives the human a number to act on.
-- **Leading-indicator proxies (watch the coping behavior, not the system)** — users route around a problem before telemetry names it, and their coping behavior is often the earliest available signal: a manual-refresh or re-sync spike when data goes stale, date-range narrowing when recent data looks wrong, a surge in FAQ/help/contact-page traffic when something confuses, a rising share of requests blocked by a usage cap before an upgrade-or-churn decision.
+- **Leading-indicator proxies (watch the coping behavior, not the system)** — users route around a problem before telemetry names it, and their coping behavior is often the earliest available signal: a manual-refresh or re-sync spike when data goes stale, a surge in FAQ/help/contact-page traffic when something confuses, a rising share of requests blocked by a usage cap before an upgrade-or-churn decision.
   Score the proxy against its own baseline like any metric, but frame the finding around the underlying problem it implies — and corroborate against the system's own health signals before claiming a cause.
 - **Opt-in scoping via tags** — let users opt entities into a scout by tagging them in PostHog (e.g. only funnels tagged `<scout-scope>` get scored).
   The tag is the configuration surface: users curate scope in the UI without touching the skill body, the quick close-out is "are any entities tagged?", and untagging is the off switch.
