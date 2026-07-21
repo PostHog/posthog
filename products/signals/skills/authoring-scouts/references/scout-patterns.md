@@ -32,9 +32,7 @@ The warehouse row is the big unlock: once a Slack channel, a Stripe account, a C
 | Pattern                                     | Watch this when…                                                                                                                                     | Canonical example                                                                 |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **Anomaly watcher**                         | a product surface has a metric with a baseline that can move (bursts, drops, regressions).                                                           | `signals-scout-error-tracking`, `-logs`, `-revenue-analytics`, `-csp-violations`  |
-
 | **Liveness / absence watcher**              | the signal is an expected event **not** happening — a control gone silent, a promise unfulfilled, an automation stalled.                             | (see detailed patterns and variants below)                                        |
-
 | **Watchlist (explore/exploit, or curated)** | the surface has more to watch than one run can cover — _discovered_ over time (explore/exploit) or a _fixed set you already know matters_ (curated). | `signals-scout-anomaly-detection` (discovered); a curated-dashboard scout (below) |
 | **Cross-product correlation**               | the question spans products — a cause in one surface, an effect in another.                                                                          | `signals-scout-general`                                                           |
 | **Recommendation / gap**                    | nothing is broken, but the team is missing coverage or following an anti-pattern.                                                                    | `signals-scout-observability-gaps`                                                |
@@ -75,6 +73,7 @@ This is one of the most common genuinely-new shapes users author for themselves,
 - **Discriminator — absence gated by a heartbeat.** Silence alone is ambiguous: "broken" and "nothing to do" look identical.
   Pair the watched event with a **companion heartbeat** that proves the system is otherwise alive, and fire only on _heartbeat present, expected event absent_.
   Naming the heartbeat is the whole design job — without one the scout can't tell an outage from a quiet day.
+  **Override the standard quick close-out.** `scout-anatomy.md` tells a scout to write `not-in-use:` and stop when the watched event is missing — for this pattern that closes out at the exact moment the finding appears. Gate the early exit on the **heartbeat and the recorded cadence**, never on the expected event: no heartbeat (or no cadence learned yet) means genuinely not in use; heartbeat present with the expected event missing is the finding.
 - **Two granularities, same discriminator:**
   - **Aggregate silence** — one stream goes quiet while its companion keeps firing.
     E.g. a scheduled compliance or security check's success event stops appearing while the rest of the pipeline's events continue (the control silently stopped running); an automation/workflow shows `active` with zero executions while its trigger event still has volume (a filter or config change silently dropped 100% of traffic).
@@ -88,7 +87,7 @@ This is one of the most common genuinely-new shapes users author for themselves,
   - **Release verification / first exposure** — an exact-once watcher that a rollout actually reached a real user: watch for the first occurrence of the event+property combination that proves the feature landed.
     A digest-style exception to "reports are for problems": the scout files **at most one report** — the landing confirmation, or an overdue alarm once the exposure stays conspicuously absent past a soak window — then retires.
 - **Dedupe + memory:** absence has no row to key on — dedupe on the **stable entity/control id** (`dedupe:<domain>:<control>`, with the ongoing-silence window stored in the value), and keep a `report:<domain>:<control>` pointer so a persisting absence **edits the live report** rather than filing a fresh one each run.
-  Record the expected cadence as a `pattern:<domain>:cadence` baseline so the next run knows how long silence must last before it's signal.
+  Record the expected cadence **per watched control** (`pattern:<domain>:cadence:<control>`) so the next run knows how long silence must last before it's signal — a single unqualified cadence key gets overwritten by whichever control ran last, and a daily control inherits an hourly threshold.
 - **Gotchas:**
   - **Give the consequent its natural lag.** Callbacks, webhooks, and settlement events arrive late; score only windows old enough for the pair to have closed, or every run ends in false alarms.
   - **Gate by active hours.** Many expected events only fire during business hours or on weekdays — compare silence against the entity's own schedule, not the wall clock.
