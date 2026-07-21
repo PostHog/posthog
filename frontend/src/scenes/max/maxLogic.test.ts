@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
 import {
+    PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
     SIDE_PANEL_PANEL_ID,
     maxLogic,
@@ -29,6 +30,7 @@ describe('maxLogic', () => {
 
     beforeEach(() => {
         localStorage.clear()
+        sessionStorage.clear()
         useMocks(maxMocks)
         initKeaTests()
     })
@@ -127,6 +129,25 @@ describe('maxLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+        })
+
+        it('clears any pending deep-link context even when consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            sessionStorage.setItem(
+                PENDING_MAX_CONTEXT_KEY,
+                JSON.stringify({ context: { dashboards: [] }, timestamp: Date.now() })
+            )
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+            expect(sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)).toBeNull()
         })
 
         it('auto-sends via askMax without prefilling when AI consent is granted', async () => {

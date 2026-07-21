@@ -888,14 +888,8 @@ export const maxLogic = kea<maxLogicType>([
                 // kea-router coerces numeric-looking URL params to numbers
                 const askPrompt = String(search.ask)
 
-                if (!values.dataProcessingAccepted) {
-                    // Without AI data-processing consent, askMax silently no-ops and the prompt is lost.
-                    // Prefill the composer instead so the deep-linked prompt stays visible and the user's
-                    // manual submit runs it (which surfaces the consent flow).
-                    actions.setQuestion(askPrompt)
-                    return
-                }
-
+                // Consume any pending deep-link context up front, before the consent gate, so an
+                // unapproved link doesn't leave a stale entry behind for a later one to pick up.
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
@@ -909,6 +903,14 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 } catch {
                     // sessionStorage unavailable or data malformed, agent will handle it
+                }
+
+                if (!values.dataProcessingAccepted) {
+                    // Without AI data-processing consent, askMax silently no-ops and the prompt is lost.
+                    // Prefill the composer instead so the deep-linked prompt stays visible and the user's
+                    // manual submit runs it (which surfaces the consent flow).
+                    actions.setQuestion(askPrompt)
+                    return
                 }
 
                 window.setTimeout(() => {
