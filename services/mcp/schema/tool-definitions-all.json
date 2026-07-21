@@ -6550,7 +6550,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-destroy": {
         "description": "Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project admin can delete a loop.",
@@ -6565,7 +6565,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-list": {
         "description": "List loops visible to the current user in the project: personal loops the user owns plus every team-visible loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`, `consecutive_failures`).",
@@ -6580,7 +6580,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-partial-update": {
         "description": "Update an existing loop's config. On a team loop, identity-bearing fields (`instructions`, `repositories`, `connectors`, `behaviors`, `triggers`) are editable only by the current owner: editing them as another member takes ownership and re-validates repositories and connectors against that member's own access. Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.",
@@ -6595,7 +6595,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-preview-create": {
         "description": "Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's prompt before enabling it.",
@@ -6610,7 +6610,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-retrieve": {
         "description": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
@@ -6625,7 +6625,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-review": {
         "description": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
@@ -6654,7 +6654,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "loops-runs-retrieve": {
         "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced.",
@@ -6669,7 +6669,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "tasks"
+        "feature_flag": "loops"
     },
     "managed-migrations-support-get": {
         "description": "Get one batch import (managed migration) job by id, from any PostHog team, including the raw worker `state` and `import_config` blobs. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope (a full-access `*` key is rejected; OAuth sign-in can never grant it).\n\nAdds to the list fields:\n\n- `state`: the worker-owned progress blob, `{\"parts\": [{\"key\", \"current_offset\", \"total_size\"}]}`. A part is done when `current_offset >= total_size`; parts are processed in order, so the first unfinished part is the one in flight. `current_offset` is a byte offset into the DECOMPRESSED part - only meaningful against the exact byte stream it was measured on.\n- `import_config`: the job's source / data format / sink configuration. It references credentials by secret key NAME only; secret values live in an encrypted column that is never returned by any API.\n- `created_by_email`: who started the migration, when known.\n\nTroubleshooting reminders (same semantics as the list tool): `waiting_to_start` = running with no worker lease yet; `lease_expired: true` on a running job = the worker died or the job is about to be re-claimed; a `paused` job keeps its lease and resuming (a Django admin action - this API is read-only) must clear it; `paused` with an invalid-JSON parse error at the resume point usually means the source bytes changed under the committed offset and the in-flight part needs a reset to offset 0 via Django admin's \"Resume + re-import in-flight part\".",
