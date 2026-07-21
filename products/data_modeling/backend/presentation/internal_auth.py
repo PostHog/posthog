@@ -121,9 +121,11 @@ class DataModelingOpsAuthenticationMixin:
     TeamAndOrgViewSetMixin.get_authenticators always appends the session/PAT/OAuth
     authenticators after the custom ones, which on these internal routes would let any
     logged-in user through. Must precede TeamAndOrgViewSetMixin in the bases.
-    """
 
-    authentication_classes = [DataModelingOpsOIDCAuthentication]
+    Overriding get_authenticators rather than setting authentication_classes is what
+    makes the pinning stick, since both mixins' get_authenticators ignore the attribute
+    once this one wins the MRO. The session-only rejection test guards it.
+    """
 
     def get_authenticators(self) -> list[BaseAuthentication]:
         return [DataModelingOpsOIDCAuthentication()]
