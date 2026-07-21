@@ -162,14 +162,15 @@ function ExperimentContextRow({
     onSeek,
     outOfWindow,
     timeInRecording,
-    trailing,
+    leading,
 }: {
     item: ExperimentSessionContextItemApi
     onSeek?: () => void
     outOfWindow?: boolean
     timeInRecording?: number | null
-    // Extra action rendered after the open-experiment icon — used for the metric-events expand toggle.
-    trailing?: JSX.Element | null
+    // Leading slot rendered before the timestamp — the metric-events expand toggle, or an empty
+    // spacer of the same width so the timestamp and name columns line up across rows.
+    leading?: JSX.Element | null
 }): JSX.Element {
     let name: JSX.Element
     if (onSeek) {
@@ -197,11 +198,11 @@ function ExperimentContextRow({
     // button wrapped in a non-flex span, which would otherwise let its tag hug the text).
     return (
         <div className="flex flex-row items-center gap-x-2 min-w-0">
+            {leading}
             {timeInRecording != null ? <ExposureTime timeInRecording={timeInRecording} /> : null}
             <div className="flex-1 min-w-0 truncate">{name}</div>
             <VariantTag item={item} />
             <OpenExperimentButton item={item} />
-            {trailing}
         </div>
     )
 }
@@ -234,6 +235,10 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
         timestampMs >= recordingStartMs &&
         timestampMs <= recordingEndMs
 
+    // Reserve a leading gutter on every seen row (so timestamps and names align) only when at least
+    // one experiment has an expand toggle; with nothing expandable, keep the list flush-left.
+    const anySeenExpandable = seenItems.some((seenItem) => seenItem.metrics_in_session.length > 0)
+
     return (
         <div
             className="rounded border bg-surface-primary px-2 py-1 flex flex-col gap-y-1"
@@ -264,21 +269,24 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                             timeInRecording={
                                 exposedAtMs != null && recordingStartMs != null ? exposedAtMs - recordingStartMs : null
                             }
-                            trailing={
-                                hasMetrics ? (
-                                    <LemonButton
-                                        size="xsmall"
-                                        noPadding
-                                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                                        onClick={() => setExperimentExpanded(item.experiment_id, !isExpanded)}
-                                        tooltip={
-                                            isExpanded
-                                                ? 'Hide metric events'
-                                                : `Show metric events (${item.metrics_in_session.length})`
-                                        }
-                                        data-attr="replay-experiment-context-expand-metrics"
-                                    />
-                                ) : null
+                            leading={
+                                anySeenExpandable ? (
+                                    <div className="shrink-0 flex w-[1.625rem] justify-center">
+                                        {hasMetrics ? (
+                                            <LemonButton
+                                                size="xsmall"
+                                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                                onClick={() => setExperimentExpanded(item.experiment_id, !isExpanded)}
+                                                tooltip={
+                                                    isExpanded
+                                                        ? 'Hide metric events'
+                                                        : `Show metric events (${item.metrics_in_session.length})`
+                                                }
+                                                data-attr="replay-experiment-context-expand-metrics"
+                                            />
+                                        ) : null}
+                                    </div>
+                                ) : undefined
                             }
                         />
                         {isExpanded && hasMetrics ? (
