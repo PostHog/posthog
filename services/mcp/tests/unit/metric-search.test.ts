@@ -110,11 +110,15 @@ describe('metric-search', () => {
         expect(outcomes[0]?.status).not.toBe('ok')
     })
 
-    it('resolves to an empty array within the bound when the request never settles', async () => {
+    it('resolves empty within the bound and aborts the outbound request when it never settles', async () => {
         vi.useFakeTimers()
         const outcomes: MetricSearchOutcome[] = []
+        let requestSignal: AbortSignal | undefined
         const searcher = createGovernedMetricsSearcher(
-            makeDeps(() => new Promise(() => {})),
+            makeDeps((opts) => {
+                requestSignal = (opts as { signal?: AbortSignal }).signal
+                return new Promise(() => {})
+            }),
             { timeoutMs: 2000, onOutcome: (outcome) => outcomes.push(outcome) }
         )
 
@@ -123,6 +127,7 @@ describe('metric-search', () => {
 
         await expect(pending).resolves.toEqual([])
         expect(outcomes[0]?.status).toBe('timeout')
+        expect(requestSignal?.aborted).toBe(true)
     })
 
     it('caps results and truncates long descriptions', async () => {

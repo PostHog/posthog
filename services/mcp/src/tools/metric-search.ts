@@ -104,21 +104,26 @@ function rankMetrics(metrics: Schemas.DataCatalogMetric[], query: string): Gover
         .map(toMatch)
 }
 
-async function fetchMetrics(deps: MetricSearchDeps): Promise<Schemas.DataCatalogMetric[]> {
+async function fetchMetrics(deps: MetricSearchDeps, signal: AbortSignal): Promise<Schemas.DataCatalogMetric[]> {
     const projectId = await deps.stateManager.getProjectId()
     const response = await deps.api.request<Schemas.PaginatedDataCatalogMetricList>({
         method: 'GET',
         path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
         query: { limit: METRICS_FETCH_LIMIT },
+        signal,
     })
     return response.results ?? []
 }
 
-// `ApiClient.request` exposes no timeout/AbortSignal option, so a hung endpoint
-// would otherwise stall every flag-on search — race a timer instead.
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+// The race supplies the typed timeout error the moment the bound elapses;
+// `onTimeout` aborts the outbound request so a hung endpoint doesn't keep
+// paying network cost after the result was already discarded.
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new MetricFetchTimeoutError(timeoutMs)), timeoutMs)
+        const timer = setTimeout(() => {
+            onTimeout()
+            reject(new MetricFetchTimeoutError(timeoutMs))
+        }, timeoutMs)
         promise
             .then((value) => resolve(value))
             .catch((error) => reject(error))
@@ -143,8 +148,11 @@ export function createGovernedMetricsSearcher(
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     return async (query: string): Promise<GovernedMetricMatch[]> => {
         const startMs = Date.now()
+        const controller = new AbortController()
         try {
-            const metrics = await withTimeout(fetchMetrics(deps), timeoutMs)
+            const metrics = await withTimeout(fetchMetrics(deps, controller.signal), timeoutMs, () =>
+                controller.abort()
+            )
             const matches = rankMetrics(metrics, query)
             options.onOutcome?.({ status: 'ok', durationMs: Date.now() - startMs })
             return matches

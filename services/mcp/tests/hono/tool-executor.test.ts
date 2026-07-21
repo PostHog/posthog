@@ -15,6 +15,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -167,7 +168,7 @@ describe('ToolExecutor', () => {
 
         function makeCatalogState(flagOn: boolean, request: ReturnType<typeof vi.fn>): ResolvedState {
             const state = makeState([], {
-                toolFeatureFlags: { 'product-data-catalog': flagOn },
+                toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: flagOn },
             })
             state.context = {
                 ...state.context,
