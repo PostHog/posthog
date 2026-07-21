@@ -1,7 +1,12 @@
 name: Inkeep Agent
+# The `label-docs` job below adds the `docs` label to Inkeep-authored or `docs`-typed
+# PRs via pull_request_target (see the comment on that job for why it's safe).
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request:
         types: [closed]
+    pull_request_target: # nosemgrep: semgrep.rules.github-actions-pull-request-target
+        types: [opened, reopened, ready_for_review, edited]
     issue_comment:
         types: [created]
     pull_request_review_comment:
@@ -10,11 +15,10 @@ on:
         types: [submitted]
 permissions:
     contents: read
-    pull-requests: read
-    id-token: write
 jobs:
     trigger-agent:
         if: |
+            github.event_name != 'pull_request_target' &&
             !contains(github.event.pull_request.labels.*.name, 'skip-inkeep-docs') &&
             !contains(github.event.issue.labels.*.name, 'skip-inkeep-docs') &&
             (
@@ -28,6 +32,10 @@ jobs:
                  (github.event.review.author_association == 'OWNER' || github.event.review.author_association == 'MEMBER' || github.event.review.author_association == 'COLLABORATOR'))
               )
             )
+        permissions:
+            contents: read
+            pull-requests: read
+            id-token: write
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -36,3 +44,32 @@ jobs:
               with:
                   trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
                   pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'
+
+    # Adds the `docs` label to PRs opened by the Inkeep docs bot, or whose title
+    # uses the conventional-commit `docs` type (`docs:` / `docs(scope):`), so the
+    # website team's project board can exclude them (project filters can't match
+    # on author). pull_request_target gives a write token for the Inkeep app's
+    # PRs; this job never checks out or runs PR code, reads the title only inside
+    # `if:` (never in a shell), and only ever applies one fixed label — so an
+    # untrusted PR has nothing to inject.
+    label-docs:
+        if: >-
+            github.event_name == 'pull_request_target' &&
+            (
+              github.event.pull_request.user.login == 'inkeep[bot]' ||
+              startsWith(github.event.pull_request.title, 'docs:') ||
+              startsWith(github.event.pull_request.title, 'docs(')
+            )
+        permissions:
+            contents: read
+            pull-requests: write
+            issues: write
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Add docs label
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label docs
