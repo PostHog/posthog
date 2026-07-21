@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { ToolInputValidationError } from '@/lib/errors'
+import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -580,10 +580,42 @@ describe('exec tool', () => {
             expect(calls).toHaveLength(1)
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
+            // A plain Error is not a typed API failure, so no status is attached.
+            expect(calls[0]!.properties.error_status).toBeUndefined()
             expect(calls[0]!.properties.output_format).toBe('text')
             // Token estimates are success-only — nothing useful to measure on a throw.
             expect(calls[0]!.properties.input_tokens).toBeUndefined()
             expect(calls[0]!.properties.output_tokens).toBeUndefined()
+        })
+
+        it('attaches error_status when the inner tool throws a typed API error', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const failing = makeMockTool({
+                handler: async () => {
+                    throw new PostHogApiError({
+                        status: 429,
+                        statusText: 'Too Many Requests',
+                        body: 'rate limited',
+                        url: 'https://example.com/api/projects/1/insights/',
+                        method: 'GET',
+                    })
+                },
+            })
+            const exec = createExecTool(
+                [failing],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool' })).rejects.toThrow()
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.properties.success).toBe(false)
+            expect(calls[0]!.properties.error_status).toBe(429)
         })
 
         it('invokes the inner-call tracker with validation_error=true when input fails validation', async () => {

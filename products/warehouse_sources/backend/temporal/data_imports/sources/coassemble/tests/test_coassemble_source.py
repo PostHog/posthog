@@ -118,6 +118,8 @@ class TestCoassembleSource:
         assert kwargs["workspace_id"] == "ws-1"
         assert kwargs["api_key"] == "sk-key"
         assert kwargs["endpoint"] == "courses"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:

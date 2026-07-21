@@ -161,7 +161,8 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
         return mem0_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field
             and inputs.schema_name == MEMORIES_ENDPOINT,
