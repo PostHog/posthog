@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -1091,7 +1092,9 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
-    team, stamphog_chain: StamphogChain, failure: tuple[str, object]
+    team,
+    stamphog_chain: StamphogChain,
+    failure: tuple[Literal["response"], int] | tuple[Literal["side_effect"], Exception],
 ) -> None:
     # The ReviewHog handoff is a secondary, cross-product notification that runs BEFORE the durable
     # terminal save, so any exception it raises must be caught or the refusal is lost (the sticky
@@ -1103,11 +1106,12 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
-    kind, value = failure
-    if kind == "response":
-        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(int(value), text="handoff failure")
+    if failure[0] == "response":
+        status = failure[1]
+        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(status, text="handoff failure")
     else:
-        stamphog_chain.recorder.add_label_side_effect = value  # type: ignore[assignment]
+        side_effect = failure[1]
+        stamphog_chain.recorder.add_label_side_effect = side_effect
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
