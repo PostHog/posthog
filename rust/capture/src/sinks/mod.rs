@@ -9,9 +9,18 @@ pub mod print;
 pub mod producer;
 pub mod registry;
 pub mod s3;
+pub mod sink;
 pub mod split;
 #[cfg(test)]
 pub(crate) mod test_sink;
+
+pub use sink::{fold_results, Outcome, PreparedRecord, Sink, SinkResult};
+
+/// Legacy per-request sink trait. Now a thin shim over [`Sink`]: production
+/// impls serialize into a prepared batch, call [`Sink::publish_batch`], and
+/// fold the per-event results back into one [`CaptureError`]. Retained so the
+/// four call sites stay frozen while the migration is in flight; removed in
+/// Step 9 once every call site is on [`Sink`] directly.
 #[async_trait]
 pub trait Event {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
