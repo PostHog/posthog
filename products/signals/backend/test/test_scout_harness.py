@@ -287,9 +287,12 @@ class TestPromptBuilder(BaseTest):
         assert "session recordings" in prompt
         # Dedupe rules point a signal scout at the inbox with `include_all_statuses=true` —
         # human-dismissed reports are hidden by default, and their dismissal notes carry the
-        # human rationale the scout needs before re-surfacing a topic.
+        # human rationale the scout needs before re-surfacing a topic. The note is free text
+        # any task:write caller can author, so the guidance must keep the untrusted-content
+        # boundary — a scout holds write scopes an injected note could otherwise steer.
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "scout-emit-report" not in prompt
@@ -375,9 +378,12 @@ class TestPromptBuilder(BaseTest):
         # The inbox search must widen to human-dismissed reports (`include_all_statuses=true`) and
         # read their dismissal notes — a human's dismissal rationale is context the scout needs
         # before re-surfacing a topic. Dropping either re-opens the "re-report what a human
-        # already dismissed" failure mode.
+        # already dismissed" failure mode. The note is free text any task:write caller can
+        # author, so the guidance must keep the untrusted-content boundary — a scout holds
+        # write scopes an injected note could otherwise steer.
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "scout-emit-signal" not in prompt
