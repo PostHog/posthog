@@ -365,18 +365,6 @@ def with_insert_session_id_set_filter(no_join_template: str) -> str:
     )
 
 
-def splice_after_sessions_anchor(template: str, fragment_sql: str) -> str:
-    """Splice an extra sessions-side WHERE term after the no-join anchor line.
-
-    Same contract as `with_insert_session_id_set_filter`: the source template is
-    untouched, so the unfiltered variant's AST hash never moves."""
-    assert template.count(_SESSIONS_SIDE_ANCHOR) == 1, "no-join template sessions-side anchor drifted"
-    return template.replace(
-        _SESSIONS_SIDE_ANCHOR,
-        _SESSIONS_SIDE_ANCHOR + "\n        " + fragment_sql,
-    )
-
-
 class _PartialPlaceholderReplacer(CloningVisitor):
     """Substitute only the given placeholders, leaving unknown ones (the
     framework-managed `{time_window_min}`/`{time_window_max}`) as `ast.Placeholder`

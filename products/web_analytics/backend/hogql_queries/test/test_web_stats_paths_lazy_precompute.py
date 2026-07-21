@@ -977,12 +977,12 @@ class _SessionIdInCounter:
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
-    """The filtered-insert chooser and the pair-set insert's parity with the join
-    insert. Paths cannot use a plain session-id set: the join attributes bounce
-    per (session, path) from filtered events, so the id-set variant carries a
-    (session_id, entry_path) PAIR membership check — the parity fixture encodes
-    the exact divergence (a session whose only matching event is NOT on its
-    entry path)."""
+    """The filtered-insert chooser and the pruned-join insert's parity with the plain
+    join insert. Paths cannot use a plain session-id set: the join attributes bounce
+    per (session, path) from filtered events, so the filtered variant keeps the join's
+    exact per-path attribution — but with the sessions side pruned to the id-set. The
+    parity fixture encodes the divergence a plain id-set would introduce (a session whose
+    only matching event is NOT on its entry path) and asserts the pruned-join avoids it."""
 
     HOST_FILTER = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
 
@@ -1000,7 +1000,7 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("unfiltered_page", [], WebStatsBreakdown.PAGE, True, "no_join"),
-            ("filtered_page_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, True, "pair_set"),
+            ("filtered_page_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, True, "pruned_join"),
             ("filtered_page_not_allowlisted", HOST_FILTER, WebStatsBreakdown.PAGE, False, "join"),
             ("filtered_initial_page", HOST_FILTER, WebStatsBreakdown.INITIAL_PAGE, True, "join"),
         ]
@@ -1034,16 +1034,16 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
         if expected == "no_join":
             assert insert_query is mod.NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED
             assert modifiers is None
-        elif expected == "pair_set":
+        elif expected == "pruned_join":
             assert isinstance(insert_query, ast.SelectQuery)
             assert modifiers is not None and modifiers.sessionIdPushdown is True
             # Only the framework-managed windows are left for per-job substitution.
             assert captured["placeholders"] == {}
             leftover = {str(c[0]) for c in find_placeholders(insert_query).placeholder_fields}
             assert leftover == {"time_window_min", "time_window_max"}
-            # Exactly one GLOBAL pair IN (post-GROUP-BY attribution) and one plain
-            # single-id IN (rewritten below the GROUP BY at print time).
-            assert _SessionIdInCounter().count(insert_query) == (1, 1)
+            # Exactly one single-column session-id IN (rewritten onto the pruned
+            # raw_sessions build side at print time) and no tuple pair IN.
+            assert _SessionIdInCounter().count(insert_query) == (0, 1)
         else:
             assert insert_query is mod.INSERT_QUERY_TEMPLATE_CAPPED
             assert "session_id_v7 IN" not in insert_query
@@ -1051,11 +1051,11 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_filtered_insert_matches_join_insert(self):
-        """The pair-set insert must store the same finalized per-path metrics as the
-        join insert for the same filtered key. The fixture carries the divergence
+        """The pruned-join insert must store the same finalized per-path metrics as the
+        plain join insert for the same filtered key. The fixture carries the divergence
         case: s1 enters /landing but its only filter-matching event is on /pricing —
         a plain session-id set admits s1's bounce to /landing (asserted below, so
-        the fixture can't silently go vacuous); the pair set must not."""
+        the fixture can't silently go vacuous); the pruned-join must not."""
         from datetime import UTC, datetime
 
         from posthog.hogql.context import HogQLContext
@@ -1148,13 +1148,13 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
                 """
                 return sync_execute(merged, context.values, team_id=self.team.pk)
 
-            pair_ast = build_insert_select_ast(mod.SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE, placeholders)
+            pruned_ast = build_insert_select_ast(mod.PRUNED_JOIN_INSERT_QUERY_TEMPLATE, placeholders)
             join_rows = run_template(mod.INSERT_QUERY_TEMPLATE, pushdown=False)
             plain_set_rows = run_template(
                 with_insert_session_id_set_filter(mod.NO_JOIN_INSERT_QUERY_TEMPLATE), pushdown=True
             )
-            pair_rows = run_template(pair_ast, pushdown=True)
+            pruned_rows = run_template(pruned_ast, pushdown=True)
 
         assert join_rows, "join insert produced no rows — fixture broken"
         assert plain_set_rows != join_rows, "fixture no longer exercises the cross-path divergence"
-        assert pair_rows == join_rows
+        assert pruned_rows == join_rows

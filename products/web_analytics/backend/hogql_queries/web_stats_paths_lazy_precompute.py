@@ -38,8 +38,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     build_insert_select_ast,
     is_constant_true,
-    splice_after_sessions_anchor,
-    with_insert_session_id_set_filter,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
@@ -430,47 +428,97 @@ WHERE breakdown_rank <= """ + str(PATHS_TOP_K)
 INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _NO_JOIN_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 
-# Sessions-side PAIR filter for FILTERED PAGE keys. A plain session-id set is not
-# enough for paths: the join insert attributes bounce per (session, path) from
-# FILTERED events — a session's bounce lands on its entry path only when the
-# session had a matching event ON that path, and a global id set admits the
-# bounce whenever the session matched anywhere (~2% relative bounce drift
-# measured on prod). This pair membership reproduces the join's semantics
-# exactly: `{entry_breakdown_value_sessions_expr}` and `{breakdown_value_expr}`
-# share the same cleaning shape (the join template's own equality check relies
-# on that), and a NULL entry path never matches the IN — the same sessions the
-# join drops via its `equals(breakdown_value, entry_breakdown_value)` guard.
+# Pruned-join variant for FILTERED PAGE keys. Paths bounce must attribute per
+# (session, path) — a session's bounce lands on its entry path only when it had a
+# matching event ON that path — so the events↔sessions association must be kept at
+# row level (a two-scan session-id set can't reproduce it; a global id set admits
+# the bounce whenever the session matched anywhere, ~2% relative bounce drift on
+# prod). This template keeps the join's EXACT semantics: the outer
+# `if(equals(breakdown_value, entry_breakdown_value), is_bounce, NULL)` is the same
+# per-path attribution the JOIN template uses.
 #
-# The pair check can only run AFTER the per-session GROUP BY (entry path is an
-# argMin output), so it complements — not replaces — the shared single-id
-# fragment, which the `sessionIdPushdown` rewrite moves below the GROUP BY to
-# prune the sessions scan. The tuple IN is upgraded to GLOBAL IN at parse time
-# (`build_insert_select_ast`); HogQL has no grammar for it, hence the AST-input
-# path into `ensure_precomputed`.
-_INSERT_SESSION_ID_PAIR_SET_FILTER_SQL = """(sessions.session_id_v7, {entry_breakdown_value_sessions_expr}) IN (
-            SELECT DISTINCT
-                _toUInt128(events.$session_id_uuid),
-                {breakdown_value_expr}
-            FROM events
-            WHERE and(
-                events.$session_id_uuid IS NOT NULL,
-                equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
-                {event_type_filter},
-                timestamp >= {time_window_min},
-                timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
-                {user_filter},
-                {test_account_filter}
-            )
-        ),"""
+# The win over the plain JOIN template: instead of HogQL's implicit events→sessions
+# join reading ALL sessions in range per shard (the read amplification #70847
+# removed for live queries), the sessions side is an explicit `FROM sessions`
+# subquery pruned to the id-set. `sessionIdPushdown` rewrites the single-column
+# `session_id_v7 IN (…)` onto `raw_sessions.session_id_v7` below the per-session
+# GROUP BY, and HogQL globalizes the events↔sessions join automatically, so the
+# small per-session summary (entry path, bounce, start) is broadcast once and
+# probed by events. Prod (team 2, 1 day): ~1.9s / 1.1 GiB / 22 GiB read vs the
+# JOIN template's ~3.7s / 1.7 GiB / 45 GiB — faster and lighter on every axis.
+#
+# The IN is single-column, so unlike the earlier pair-set shape this needs no tuple
+# GLOBAL-IN upgrade; it still goes through the AST-input path (`build_insert_select_ast`)
+# because the explicit join + person access does not resolve through `parse_select`
+# with inline placeholders. INNER (not LEFT) join drops non-uuidv7 sessions, matching
+# the no-join / session-id-set shapes already shipped for this feature.
+_PRUNED_JOIN_PER_WINDOW_AGG_SQL = """
+SELECT
+    toStartOfHour(start_timestamp) AS time_window_start,
+    breakdown_value AS breakdown_value,
+    uniqState(session_person_id) AS uniq_users_state,
+    sumState(assumeNotNull(toInt(filtered_pageview_count))) AS sum_pageviews_state,
+    avgState(
+        if(
+            equals(breakdown_value, entry_breakdown_value),
+            toFloat(is_bounce),
+            NULL
+        )
+    ) AS avg_bounce_state
+FROM (
+    SELECT
+        any(events.person_id) AS session_person_id,
+        {events_session_id} AS session_id,
+        {breakdown_value_expr} AS breakdown_value,
+        any(s.entry_breakdown_value) AS entry_breakdown_value,
+        countIf({event_type_filter}) AS filtered_pageview_count,
+        any(s.is_bounce) AS is_bounce,
+        min(s.start_timestamp) AS start_timestamp
+    FROM events
+    INNER JOIN (
+        SELECT
+            sessions.session_id_v7 AS session_id_v7,
+            {entry_breakdown_value_sessions_expr} AS entry_breakdown_value,
+            sessions.$is_bounce AS is_bounce,
+            sessions.$start_timestamp AS start_timestamp
+        FROM sessions
+        WHERE and(
+            sessions.session_id_v7 IN (
+                SELECT DISTINCT events.$session_id_uuid
+                FROM events
+                WHERE and(
+                    events.$session_id_uuid IS NOT NULL,
+                    equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+                    {event_type_filter},
+                    timestamp >= {time_window_min},
+                    timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+                    {user_filter},
+                    {test_account_filter}
+                )
+            ),
+            or(sessions.$pageview_count > 0, sessions.$screen_count > 0)
+        )
+    ) AS s ON events.$session_id_uuid = s.session_id_v7
+    WHERE and(
+        {events_session_id} IS NOT NULL,
+        {event_type_filter},
+        timestamp >= {time_window_min},
+        timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+        {user_filter},
+        {test_account_filter}
+    )
+    GROUP BY session_id, breakdown_value
+    HAVING and(
+        breakdown_value IS NOT NULL,
+        toStartOfHour(min(s.start_timestamp)) >= {time_window_min},
+        toStartOfHour(min(s.start_timestamp)) < {time_window_max}
+    )
+)
+GROUP BY time_window_start, breakdown_value
+"""
 
-_PAIR_SET_PER_WINDOW_AGG_SQL = splice_after_sessions_anchor(
-    with_insert_session_id_set_filter(_NO_JOIN_PER_WINDOW_AGG_SQL),
-    _INSERT_SESSION_ID_PAIR_SET_FILTER_SQL,
-)
-SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE = _PAIR_SET_PER_WINDOW_AGG_SQL
-SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE_CAPPED = (
-    "WITH per_window AS (" + _PAIR_SET_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
-)
+PRUNED_JOIN_INSERT_QUERY_TEMPLATE = _PRUNED_JOIN_PER_WINDOW_AGG_SQL
+PRUNED_JOIN_INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _PRUNED_JOIN_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 
 
 def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
@@ -546,16 +594,16 @@ def ensure_web_stats_paths_precomputed(
 
     # Unfiltered PAGE keys use the no-join shape (events self-attribute to the
     # session-start hour via the UUIDv7 session id; bounce comes from the sessions
-    # table). Filtered PAGE keys with events-evaluable filters use the pair-set
-    # variant of the same shape (see `_INSERT_SESSION_ID_PAIR_SET_FILTER_SQL` for
-    # why per-path bounce needs a (session_id, entry_path) PAIR, not a plain id
-    # set). INITIAL_PAGE and everything else (cohort/session filters,
-    # non-allowlisted teams) keep the join: persons-per-entry-path and
+    # table). Filtered PAGE keys with events-evaluable filters use the pruned-join
+    # shape (see `_PRUNED_JOIN_PER_WINDOW_AGG_SQL`): the join's exact per-path bounce
+    # attribution, but with the sessions side pruned to the id-set instead of read
+    # in full per shard. INITIAL_PAGE and everything else (cohort/session filters,
+    # non-allowlisted teams) keep the plain join: persons-per-entry-path and
     # non-events-evaluable filters both need the events↔sessions association.
     is_page = runner.query.breakdownBy == WebStatsBreakdown.PAGE
     use_no_join = is_page and all(is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter"))
-    use_pair_set = is_page and not use_no_join and runner._session_id_set_common_eligibility()
-    if use_no_join or use_pair_set:
+    use_pruned_join = is_page and not use_no_join and runner._session_id_set_common_eligibility()
+    if use_no_join or use_pruned_join:
         placeholders["entry_breakdown_value_sessions_expr"] = _entry_breakdown_value_sessions_expr(runner)
 
     # Cap to the displayable top-K for descending sorts; store the full set otherwise.
@@ -569,12 +617,12 @@ def ensure_web_stats_paths_precomputed(
     modifiers: Optional[HogQLQueryModifiers] = None
     if use_no_join:
         insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED if capped else NO_JOIN_INSERT_QUERY_TEMPLATE
-    elif use_pair_set:
-        # AST input: placeholders are substituted here (windows stay as Placeholder
-        # nodes for the framework) so the tuple IN can be upgraded to GLOBAL IN.
-        template = (
-            SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE_CAPPED if capped else SESSION_ID_PAIR_SET_INSERT_QUERY_TEMPLATE
-        )
+    elif use_pruned_join:
+        # AST input: the explicit sessions join + person access does not resolve
+        # through `parse_select` with inline placeholders, so substitute here and
+        # leave the window placeholders for the framework. sessionIdPushdown then
+        # prunes the sessions build side to the id-set at print time.
+        template = PRUNED_JOIN_INSERT_QUERY_TEMPLATE_CAPPED if capped else PRUNED_JOIN_INSERT_QUERY_TEMPLATE
         insert_query = build_insert_select_ast(template, placeholders)
         placeholders = {}
         modifiers = create_default_modifiers_for_team(runner.team)
