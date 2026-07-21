@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventeeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventee import (
+    EventeeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deplo
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DenoDeploySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.denodeploy import (
+    DenoDeploySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

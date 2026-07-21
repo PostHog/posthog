@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EasypostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypost import (
+    EasypostSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

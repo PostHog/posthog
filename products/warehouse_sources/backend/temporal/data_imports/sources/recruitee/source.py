@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RecruiteeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recruitee import (
+    RecruiteeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee import (
     RecruiteeResumeConfig,
     recruitee_source,

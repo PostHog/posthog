@@ -9,7 +9,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OrcaSecuritySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orcasecurity import (
+    OrcaSecuritySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.orca_security import (
     OrcaResumeConfig,
 )

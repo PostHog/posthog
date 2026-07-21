@@ -49,7 +49,7 @@ export interface ChatViewProps {
     /** Recipient description shown in the draft-mode send confirmation */
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
-    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
+    sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null

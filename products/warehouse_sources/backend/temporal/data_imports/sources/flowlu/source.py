@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.set
     FLOWLU_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlowluSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Flowlu account subdomains are alphanumeric with optional internal hyphens (a valid DNS label:

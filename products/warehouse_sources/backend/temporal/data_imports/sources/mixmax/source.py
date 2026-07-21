@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MixMaxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import (
     MixmaxResumeConfig,
     mixmax_source,

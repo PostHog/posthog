@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LemlistSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemlist import (
+    LemlistSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.lemlist import (
     LemlistResumeConfig,
     lemlist_source,
