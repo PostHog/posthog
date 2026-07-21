@@ -508,6 +508,8 @@ export function getResponseBytes(apiResponse: Response): number {
 
 export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.TRENDS]: urls.insightNew({ type: InsightType.TRENDS }),
+    [InsightType.TABLE]: urls.insightNew({ type: InsightType.TABLE }),
+    [InsightType.WORLD_MAP]: urls.insightNew({ type: InsightType.WORLD_MAP }),
     [InsightType.STICKINESS]: urls.insightNew({ type: InsightType.STICKINESS }),
     [InsightType.LIFECYCLE]: urls.insightNew({ type: InsightType.LIFECYCLE }),
     [InsightType.FUNNELS]: urls.insightNew({ type: InsightType.FUNNELS }),

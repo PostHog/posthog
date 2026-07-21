@@ -11,6 +11,7 @@ import {
     IconCursor,
     IconFlask,
     IconFunnels,
+    IconGlobe,
     IconGraph,
     IconHogQL,
     IconLifecycle,
@@ -42,7 +43,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -74,8 +75,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { displayToSplitTrendsInsightType } from '~/queries/nodes/InsightQuery/splitTrendsInsights'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
+import { isNodeWithSource, isTrendsQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -96,6 +98,8 @@ export interface InsightTypeMetadata {
     icon: React.ComponentType<any>
     inMenu: boolean
     tooltipDocLink?: string
+    /** Only offer this type in creation surfaces when the given feature flag is enabled. */
+    flag?: FeatureFlagKey
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
@@ -691,6 +695,20 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
     [InsightType.TRENDS]: QUERY_TYPES_METADATA[NodeKind.TrendsQuery],
+    [InsightType.TABLE]: {
+        name: 'Table',
+        description: 'See total values for your events and actions in a sortable table.',
+        icon: IconTableChart,
+        inMenu: true,
+        flag: FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_CREATION,
+    },
+    [InsightType.WORLD_MAP]: {
+        name: 'World map',
+        description: 'Compare event totals across countries on a map.',
+        icon: IconGlobe,
+        inMenu: true,
+        flag: FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_CREATION,
+    },
     [InsightType.FUNNELS]: QUERY_TYPES_METADATA[NodeKind.FunnelsQuery],
     [InsightType.RETENTION]: QUERY_TYPES_METADATA[NodeKind.RetentionQuery],
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
@@ -726,7 +744,8 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     { value: 'All types', label: 'All types' },
     ...Object.entries(INSIGHT_TYPES_METADATA)
-        .filter(([, meta]) => meta.inMenu !== false)
+        // Flagged types are trends queries under the hood, so they can't be filtered by on the backend
+        .filter(([, meta]) => meta.inMenu !== false && !meta.flag)
         .map(([value, meta]) => ({
             value,
             label: meta.name,
@@ -747,11 +766,21 @@ export function InsightIcon({
     insight: QueryBasedInsightModel
     className?: string
 }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
-        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
-        const insightMetadata = QUERY_TYPES_METADATA[insightType]
+        const source = isNodeWithSource(insight.query) ? insight.query.source : insight.query
+        const splitTrendsInsightsEnabled =
+            featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_CREATION] ||
+            featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_TABS]
+        const splitTrendsType =
+            splitTrendsInsightsEnabled && isTrendsQuery(source)
+                ? displayToSplitTrendsInsightType(source.trendsFilter?.display)
+                : null
+        const insightMetadata = splitTrendsType
+            ? INSIGHT_TYPES_METADATA[splitTrendsType]
+            : QUERY_TYPES_METADATA[source.kind]
         Icon = insightMetadata && insightMetadata.icon
     }
 
@@ -762,8 +791,10 @@ export function NewInsightButton(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
-        ([insightType]) =>
-            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
+        ([insightType, metadata]) =>
+            insightType !== InsightType.JSON &&
+            (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG) &&
+            (!metadata.flag || featureFlags[metadata.flag])
     )
     const menuItems: LemonMenuItems = [
         {

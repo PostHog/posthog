@@ -12,6 +12,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -25,6 +26,7 @@ import {
 } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
+import { SPLIT_TRENDS_INSIGHTS } from '../InsightQuery/splitTrendsInsights'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
@@ -152,6 +154,20 @@ export const getDefaultQuery = (
         } else if (insightType === InsightType.HOG) {
             return examples.Hoggonacci as HogQuery
         }
+    }
+
+    // Split trends insights are trends queries with a fixed display type (and possibly a preset breakdown)
+    const splitTrendsInsight = SPLIT_TRENDS_INSIGHTS[insightType]
+    if (splitTrendsInsight) {
+        const query = queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+        const source: TrendsQuery = {
+            ...(query.source as TrendsQuery),
+            trendsFilter: { display: splitTrendsInsight.display },
+            ...(splitTrendsInsight.defaultBreakdownFilter
+                ? { breakdownFilter: splitTrendsInsight.defaultBreakdownFilter }
+                : {}),
+        }
+        return { ...query, source }
     }
 
     if (insightType === InsightType.TRENDS) {

@@ -8,6 +8,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -28,6 +29,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const handleClose = (): void => {
         posthog.capture('insight dashboard modal - closed')
@@ -46,6 +48,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
             meta.inMenu &&
             type !== InsightType.JSON &&
             type !== InsightType.HOG &&
+            (!meta.flag || featureFlags[meta.flag]) &&
             !QUICK_CREATE_TYPES.some((qt) => qt.type === type)
     )
 

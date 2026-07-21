@@ -23,6 +23,7 @@ import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelD
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 
+import { SPLIT_TRENDS_DISPLAY_TYPES } from '~/queries/nodes/InsightQuery/splitTrendsInsights'
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -73,6 +74,12 @@ export function InsightDisplayConfig(): JSX.Element {
     const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
     const { featureFlags } = useValues(featureFlagLogic)
     const useQuillDateFilter = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER] === 'test'
+    // With split tabs enabled, the display type is embodied by the selected tab, so hide the chart type picker
+    const isSplitTrendsView =
+        !!featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_TABS] &&
+        isTrends &&
+        !!display &&
+        SPLIT_TRENDS_DISPLAY_TYPES.includes(display)
 
     return (
         <div
@@ -154,7 +161,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         </LemonMenu>
                     </>
                 )}
-                {supportsDisplay && (
+                {supportsDisplay && !isSplitTrendsView && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>

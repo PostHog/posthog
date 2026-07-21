@@ -225,6 +225,8 @@ export const FEATURE_FLAGS = {
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SLACK_APP_OAUTH: 'slack-app-oauth', // owner: @VojtechBartos #team-platform-features
     SLOPE_GRAPH_INSIGHT: 'slope-graph-insight', // owner: @pauldambra #team-product-analytics
+    SPLIT_TRENDS_INSIGHTS_CREATION: 'split-trends-insights-creation', // owner: #team-product-analytics, prototype: surfaces the trends table & world map displays as standalone entries in insight creation menus
+    SPLIT_TRENDS_INSIGHTS_TABS: 'split-trends-insights-tabs', // owner: #team-product-analytics, prototype: makes the trends table & world map displays first-class tabs in the insight editor (instead of chart type options)
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
@@ -555,6 +557,8 @@ export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
 
 export const INSIGHT_VISUAL_ORDER = {
     trends: 10,
+    table: 12,
+    worldMap: 14,
     funnel: 20,
     retention: 30,
     paths: 40,

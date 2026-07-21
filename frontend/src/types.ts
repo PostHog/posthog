@@ -2994,6 +2994,10 @@ export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
 
 export enum InsightType {
     TRENDS = 'TRENDS',
+    /** Trends table display split out as its own insight type. See SPLIT_TRENDS_INSIGHTS. */
+    TABLE = 'TABLE',
+    /** Trends world map display split out as its own insight type. See SPLIT_TRENDS_INSIGHTS. */
+    WORLD_MAP = 'WORLD_MAP',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
     FUNNELS = 'FUNNELS',

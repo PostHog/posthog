@@ -33,6 +33,47 @@ export function ChartFilter(): JSX.Element {
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
 
+    // With split tabs enabled, table and world map are their own insight tabs instead of trends chart types.
+    // Stickiness keeps the table option, as it has no split tab.
+    const hideSplitTrendsDisplays = !!featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_TABS] && isTrends
+
+    const visualizationsOptions = [
+        ...(!hideSplitTrendsDisplays
+            ? [
+                  {
+                      value: ChartDisplayType.WorldMap,
+                      icon: <IconGlobe />,
+                      label: 'World map',
+                      tooltip: 'Visualize data by country.',
+                      disabledReason:
+                          trendsOnlyDisabledReason ||
+                          (formula
+                              ? "This type isn't available, because it doesn't support formulas."
+                              : !!breakdownFilter?.breakdown &&
+                                  breakdownFilter.breakdown !== '$geoip_country_code' &&
+                                  breakdownFilter.breakdown !== '$geoip_country_name'
+                                ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                                : undefined),
+                      labelInMenu: (
+                          <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
+                      ),
+                  },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+            ? [
+                  {
+                      value: ChartDisplayType.CalendarHeatmap,
+                      icon: <IconRetentionHeatmap />,
+                      label: 'Calendar heatmap',
+                      labelInMenu: (
+                          <ChartFilterOptionLabel label="Calendar heatmap" description="Values per day and hour." />
+                      ),
+                  },
+              ]
+            : []),
+    ]
+
     const options: LemonSelectOptions<ChartDisplayType> = [
         {
             title: 'Time series',
@@ -178,52 +219,21 @@ export function ChartFilter(): JSX.Element {
                         <ChartFilterOptionLabel label="Bar chart" description="Total values as horizontal bars." />
                     ),
                 },
-                {
-                    value: ChartDisplayType.ActionsTable,
-                    icon: <IconTableChart />,
-                    label: 'Table',
-                    labelInMenu: <ChartFilterOptionLabel label="Table" description="Total values in a table view." />,
-                },
-            ],
-        },
-        {
-            title: 'Visualizations',
-            options: [
-                {
-                    value: ChartDisplayType.WorldMap,
-                    icon: <IconGlobe />,
-                    label: 'World map',
-                    tooltip: 'Visualize data by country.',
-                    disabledReason:
-                        trendsOnlyDisabledReason ||
-                        (formula
-                            ? "This type isn't available, because it doesn't support formulas."
-                            : !!breakdownFilter?.breakdown &&
-                                breakdownFilter.breakdown !== '$geoip_country_code' &&
-                                breakdownFilter.breakdown !== '$geoip_country_name'
-                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
-                              : undefined),
-                    labelInMenu: (
-                        <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
-                    ),
-                },
-                ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+                ...(!hideSplitTrendsDisplays
                     ? [
                           {
-                              value: ChartDisplayType.CalendarHeatmap,
-                              icon: <IconRetentionHeatmap />,
-                              label: 'Calendar heatmap',
+                              value: ChartDisplayType.ActionsTable,
+                              icon: <IconTableChart />,
+                              label: 'Table',
                               labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Calendar heatmap"
-                                      description="Values per day and hour."
-                                  />
+                                  <ChartFilterOptionLabel label="Table" description="Total values in a table view." />
                               ),
                           },
                       ]
                     : []),
             ],
         },
+        ...(visualizationsOptions.length > 0 ? [{ title: 'Visualizations', options: visualizationsOptions }] : []),
     ]
 
     return (

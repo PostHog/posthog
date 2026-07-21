@@ -9,6 +9,11 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    SPLIT_TRENDS_DISPLAY_TYPES,
+    SPLIT_TRENDS_INSIGHTS,
+    displayToSplitTrendsInsightType,
+} from '~/queries/nodes/InsightQuery/splitTrendsInsights'
 import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -428,7 +433,7 @@ export interface insightNavLogicActions {
 export interface insightNavLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        activeView: (query: Node<Record<string, any>> | null) => InsightType
+        activeView: (query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => InsightType
         tabs: (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => Tab[]
     }
 }
@@ -472,8 +477,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     selectors({
         activeView: [
-            (s) => [s.query],
-            (query: null | import('~/queries/schema/schema-general').Node) => {
+            (s) => [s.query, s.featureFlags],
+            (
+                query: null | import('~/queries/schema/schema-general').Node,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ) => {
                 if (isDataTableNode(query)) {
                     return InsightType.JSON
                 } else if (containsHogQLQuery(query)) {
@@ -484,6 +492,13 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     // Check for Web Analytics queries first before using the mapping
                     if (isWebAnalyticsInsightQuery(query.source)) {
                         return InsightType.WEB_ANALYTICS
+                    }
+                    // With split tabs enabled, trends queries with a split-out display map to their own tab
+                    if (featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_TABS] && isTrendsQuery(query.source)) {
+                        const splitTrendsType = displayToSplitTrendsInsightType(query.source.trendsFilter?.display)
+                        if (splitTrendsType) {
+                            return splitTrendsType
+                        }
                     }
                     return nodeKindToInsightType[query.source.kind] || InsightType.TRENDS
                 }
@@ -529,6 +544,24 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-lifecycle-tab',
                     },
                 ]
+
+                if (featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_TABS]) {
+                    // The split trends views slot in right after Trends, as they are trends queries under the hood
+                    tabs.splice(
+                        1,
+                        0,
+                        {
+                            label: 'Table',
+                            type: InsightType.TABLE,
+                            dataAttr: 'insight-table-tab',
+                        },
+                        {
+                            label: 'World map',
+                            type: InsightType.WORLD_MAP,
+                            dataAttr: 'insight-world-map-tab',
+                        }
+                    )
+                }
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
                     tabs.push({
@@ -576,9 +609,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isDataVisualizationNode(query)) {
                 router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
-                const source = values.queryPropertyCache
+                const merged = values.queryPropertyCache
                     ? mergeCachedProperties(query.source, values.queryPropertyCache)
                     : query.source
+                const source = applySplitTrendsView(view, merged, values.featureFlags)
                 actions.setQuery({
                     ...query,
                     source: { ...source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
@@ -731,6 +765,61 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...buildCachedFields(query, cache),
         ...buildInsightFilter(query, cache),
     } as InsightQueryNode
+}
+
+/**
+ * The split trends views (Table, World map) are defined by their trends display type, so after merging
+ * cached properties the query must carry the display (and, for the world map, a country breakdown)
+ * matching the selected view — and the plain Trends view must not carry one of the split-out displays.
+ */
+const applySplitTrendsView = (
+    view: InsightType,
+    source: InsightQueryNode,
+    featureFlags: FeatureFlagsSet
+): InsightQueryNode => {
+    if (!isTrendsQuery(source)) {
+        return source
+    }
+
+    const splitTrendsInsight = SPLIT_TRENDS_INSIGHTS[view]
+    if (splitTrendsInsight) {
+        let breakdownFilter = source.breakdownFilter
+        let trendsFilter: TrendsFilter = { ...source.trendsFilter, display: splitTrendsInsight.display }
+        if (view === InsightType.WORLD_MAP) {
+            // The world map supports neither formulas nor non-country breakdowns
+            const {
+                formula: _formula,
+                formulas: _formulas,
+                formulaNodes: _formulaNodes,
+                ...trendsFilterWithoutFormulas
+            } = trendsFilter
+            trendsFilter = trendsFilterWithoutFormulas
+            if (
+                breakdownFilter?.breakdown !== '$geoip_country_code' &&
+                breakdownFilter?.breakdown !== '$geoip_country_name'
+            ) {
+                const math = source.series?.[0]?.math
+                breakdownFilter = {
+                    ...splitTrendsInsight.defaultBreakdownFilter,
+                    breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '')
+                        ? 'person'
+                        : 'event',
+                }
+            }
+        }
+        return { ...source, trendsFilter, ...(breakdownFilter ? { breakdownFilter } : {}) }
+    }
+
+    if (
+        view === InsightType.TRENDS &&
+        featureFlags[FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_TABS] &&
+        source.trendsFilter?.display &&
+        SPLIT_TRENDS_DISPLAY_TYPES.includes(source.trendsFilter.display)
+    ) {
+        return { ...source, trendsFilter: { ...source.trendsFilter, display: undefined } }
+    }
+
+    return source
 }
 
 const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): Partial<QueryPropertyCache> => {

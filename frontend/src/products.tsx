@@ -1607,6 +1607,16 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/Table`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.TABLE }),
+        iconType: 'insight/trends',
+        iconColor: ['var(--color-insight-trends-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.table,
+        sceneKeys: ['Insight'],
+        flag: FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_CREATION,
+    },
+    {
         path: `Insight/Trends`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.TRENDS }),
@@ -1623,6 +1633,16 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'] as FileSystemIconColor,
         visualOrder: INSIGHT_VISUAL_ORDER.paths,
         sceneKeys: ['Insight'],
+    },
+    {
+        path: `Insight/World map`,
+        type: 'insight',
+        href: urls.insightNew({ type: InsightType.WORLD_MAP }),
+        iconType: 'insight/trends',
+        iconColor: ['var(--color-insight-trends-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.worldMap,
+        sceneKeys: ['Insight'],
+        flag: FEATURE_FLAGS.SPLIT_TRENDS_INSIGHTS_CREATION,
     },
     {
         path: `Link`,
