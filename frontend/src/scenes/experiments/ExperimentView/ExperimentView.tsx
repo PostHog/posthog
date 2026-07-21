@@ -130,8 +130,16 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        isExperimentDraft,
+        isExperimentLaunched,
+        orderedPrimaryMetricsWithResults,
+        exposureCriteria,
+        showDebugPanel,
+    } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         setExperiment,
@@ -193,16 +201,21 @@ export function ExperimentView(): JSX.Element {
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
-                            {
-                                key: 'ai_analysis',
-                                label: (
-                                    <div className="flex items-center gap-1">
-                                        <IconSparkles />
-                                        <span>AI analysis</span>
-                                    </div>
-                                ),
-                                content: <AiAnalysisTab />,
-                            },
+                            // Both AI analysis actions require a launched experiment with primary metrics
+                            ...(isExperimentLaunched && orderedPrimaryMetricsWithResults.length > 0
+                                ? [
+                                      {
+                                          key: 'ai_analysis',
+                                          label: (
+                                              <div className="flex items-center gap-1">
+                                                  <IconSparkles />
+                                                  <span>AI analysis</span>
+                                              </div>
+                                          ),
+                                          content: <AiAnalysisTab />,
+                                      },
+                                  ]
+                                : []),
                             ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
                                 ? [
                                       {
