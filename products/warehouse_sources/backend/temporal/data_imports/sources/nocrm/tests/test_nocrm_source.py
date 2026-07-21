@@ -113,6 +113,8 @@ class TestNoCRMSource:
         assert captured["api_key"] == "key"
         assert captured["subdomain"] == "acme"
         assert captured["endpoint"] == "leads"
+        assert captured["team_id"] is inputs.team_id
+        assert captured["job_id"] is inputs.job_id
         assert captured["resumable_source_manager"] is manager
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"

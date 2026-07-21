@@ -26,8 +26,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CheckoutComSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -53,10 +59,9 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://access.checkout.com": "Checkout.com authentication failed. Please check your access key ID and secret.",
-            "401 Client Error: Unauthorized for url: https://access.sandbox.checkout.com": "Checkout.com authentication failed. Please check your access key ID and secret (and that they match the selected environment).",
-            "400 Client Error: Bad Request for url: https://access.checkout.com": "Checkout.com authentication failed. Please check your access key ID and secret.",
-            "400 Client Error: Bad Request for url: https://access.sandbox.checkout.com": "Checkout.com authentication failed. Please check your access key ID and secret.",
+            # Permanent token-exchange failures (invalid_client, bad request, …) all carry
+            # the framework's stable marker; transient 429/5xx token errors don't.
+            OAUTH2_PERMANENT_ERROR_MARKER: "Checkout.com authentication failed. Please check your access key ID and secret (and that they match the selected environment).",
             "403 Client Error: Forbidden for url: https://api.checkout.com": "Checkout.com denied access. Please check that your access key has the disputes scope.",
             "403 Client Error: Forbidden for url: https://api.sandbox.checkout.com": "Checkout.com denied access. Please check that your access key has the disputes scope.",
         }
@@ -122,21 +127,7 @@ Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Disputes support a server-side `from` filter on last_update.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=True,
-                supports_append=True,
-                incremental_fields=list(_DISPUTES_INCREMENTAL_FIELDS),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, {"disputes": _DISPUTES_INCREMENTAL_FIELDS}, names)
 
     def validate_credentials(
         self, config: CheckoutComSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -160,7 +151,8 @@ Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.
             client_id=config.client_id,
             client_secret=config.client_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

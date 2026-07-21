@@ -648,6 +648,20 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         ),
     )
 
+    reason = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=500,
+        help_text=(
+            "One sentence of evidence for WHY this person: what ties them to the affected surface "
+            "(e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human "
+            "correction routed the prior tracing report to them'). Persisted on the report so the "
+            "routing is auditable — always set it when you can name the evidence; 'precedent' alone "
+            "is weak, prefer code-derived ownership."
+        ),
+    )
+
     def validate(self, attrs: dict) -> dict:
         if not attrs.get("github_login") and not attrs.get("user_uuid"):
             raise serializers.ValidationError("Each reviewer must include `github_login` or `user_uuid` (or both).")

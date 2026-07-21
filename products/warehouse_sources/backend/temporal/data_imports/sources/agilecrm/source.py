@@ -25,7 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AgileCRMSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -118,19 +121,7 @@ Your domain is the subdomain of your Agile CRM URL — for `https://acme.agilecr
     ) -> list[SourceSchema]:
         # Agile CRM documents no server-side updated-since/created-after filter on any list endpoint,
         # so every table is full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: AgileCRMSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -154,6 +145,8 @@ Your domain is the subdomain of your Agile CRM URL — for `https://acme.agilecr
             email=config.email,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Agile CRM endpoint is full refresh
         )

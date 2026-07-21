@@ -33,9 +33,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.sharing_publish_gate import blocked_access_in_notebook_edit, is_publicly_shared
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
+from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -291,6 +293,27 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         raise Conflict("Someone else edited the Notebook")
 
                     validated_data["version"] = locked_instance.version + 1
+
+                    # A publicly shared notebook's link would expose any query this save adds or
+                    # changes, so the editor must be able to run them. Only changed queries are
+                    # checked, and only when a share exists - normal autosave on unshared
+                    # notebooks does no access work at all.
+                    if (
+                        locked_instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+                        # org admins have full access, so skip the gate for a faster save
+                        and not (self.user_access_control and self.user_access_control.is_organization_admin)
+                        and is_publicly_shared(locked_instance)
+                    ):
+                        blocked = blocked_access_in_notebook_edit(
+                            self.context["request"].user, locked_instance, validated_data.get("content")
+                        )
+                        if blocked:
+                            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                            raise serializers.ValidationError(
+                                f"Can't save: you don't have access to {blocked_list}, "
+                                "and this notebook is publicly shared."
+                            )
+
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
@@ -584,12 +607,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _has_query_access(self) -> bool:
+        return bool(self.user_access_control.check_access_level_for_resource("query", "viewer"))
+
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
         # enough — a notebook editor whose query access is denied must not read data through it.
         # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
         # (which carry no scopes) and enforces real RBAC for tokens too.
-        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
 
     def _current_user(self) -> User | None:
@@ -822,6 +848,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "kernel_id": runtime.kernel_id if runtime else None,
                 "kernel_pid": runtime.kernel_pid if runtime else None,
                 "sandbox_id": runtime.sandbox_id if runtime else None,
+                # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
+                # live-checked status, not runtime.status — the row above is the latest by
+                # last_used_at regardless of state, and a dead kernel's frames are not
+                # SELECT-able. And on query access, because these are column names and types
+                # derived from the user's data: notebook access alone gates liveness (which is
+                # all this endpoint used to return), but not schema. The rest of SQLV2 draws
+                # that line already; this keeps the endpoint's existing surface ungated.
+                "frames": (
+                    (runtime.frames or [])
+                    if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
+                    else []
+                ),
                 "cpu_cores": cpu_cores,
                 "memory_gb": sandbox_config.memory_gb,
                 "disk_size_gb": sandbox_config.disk_size_gb,
@@ -1038,6 +1076,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         run = NotebookNodeRun.objects.create(
             team_id=self.team_id,
             notebook=notebook,
+            # The same user the run's kernel is resolved for, so the callback can scope the
+            # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
+            user=user if isinstance(user, User) else None,
             node_id=serializer.validated_data["node_id"],
             code=run_code,
             node_type=node_type,
@@ -1266,6 +1307,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = cast(User, request.user)
         user_name = _collab_user_name(user)
 
+        # Same guard as NotebookSerializer.update - collab saves write content directly, so
+        # without it the collab path would bypass the shared-notebook access block entirely.
+        # Must run before submit_steps: once steps are accepted, peers have already applied them.
+        if (
+            notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster save
+            and not self.user_access_control.is_organization_admin
+            and is_publicly_shared(notebook)
+        ):
+            blocked = blocked_access_in_notebook_edit(user, notebook, data.get("content"))
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                )
+
         result = submit_steps(
             team_id=notebook.team_id,
             notebook_id=str(notebook.short_id),
@@ -1352,6 +1409,21 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
         user = cast(User, request.user)
         submitted_content = data["content"]
+
+        # Same guard as NotebookSerializer.update and collab_save - markdown saves also write
+        # content directly, so without it this path would bypass the shared-notebook access block.
+        if (
+            notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster save
+            and not self.user_access_control.is_organization_admin
+            and is_publicly_shared(notebook)
+        ):
+            blocked = blocked_access_in_notebook_edit(user, notebook, submitted_content)
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                raise serializers.ValidationError(
+                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                )
 
         notebook_before: Notebook | None = None
         with transaction.atomic():
