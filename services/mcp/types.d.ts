@@ -14,3 +14,10 @@ declare namespace Cloudflare {
         MCP_HONO_URL: string | undefined
     }
 }
+
+// Vite `?raw` imports resolve to the file's raw text (bundled via the esbuild
+// raw-text-loader plugin; vitest resolves them natively).
+declare module '*.yaml?raw' {
+    const content: string
+    export default content
+}
