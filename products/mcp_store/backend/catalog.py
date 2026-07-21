@@ -37,14 +37,6 @@ class CatalogEntry:
 
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
-        name="AirOps",
-        url="https://app.airops.com/mcp",
-        description="Manage AirOps AEO visibility data, content opportunities, competitor analysis, and brand knowledge bases.",
-        auth_type="oauth",
-        category="design",
-        icon_domain="airops.com",
-    ),
-    CatalogEntry(
         name="Atlassian",
         url="https://mcp.atlassian.com/v1/mcp",
         description="Integrate with Atlassian products like Jira and Confluence.",
@@ -67,14 +59,6 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="api_key",
         category="dev",
         icon_domain="browserbase.com",
-    ),
-    CatalogEntry(
-        name="Cisco ThousandEyes",
-        url="https://api.thousandeyes.com/mcp",
-        description="Query ThousandEyes network intelligence and internet performance data.",
-        auth_type="oauth",
-        category="data",
-        icon_domain="thousandeyes.com",
     ),
     CatalogEntry(
         name="Circle",
@@ -259,14 +243,6 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="infra",
         icon_domain="planetscale.com",
-    ),
-    CatalogEntry(
-        name="Postman",
-        url="https://mcp.postman.com/mcp",
-        description="Manage Postman collections, tests, mocks, and API lifecycle workflows.",
-        auth_type="oauth",
-        category="dev",
-        icon_domain="postman.com",
     ),
     CatalogEntry(
         name="Prisma",
