@@ -1,44 +1,26 @@
-import { Group } from 'kea-forms'
+import { LemonBanner } from '@posthog/lemon-ui'
 
-import { IconInfo } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    Tooltip,
-} from '@posthog/lemon-ui'
-
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-
-import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
 import {
-    fractionToPercentInput,
-    inputToStoredBound,
-    thresholdForConditionChange,
-} from 'products/alerts/frontend/logic/thresholdPercent'
-import {
     AlertSimulationResult,
-    isAnyRowHogQLConfig,
     isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from 'products/alerts/frontend/types'
 import { DetectorSelector } from 'products/alerts/frontend/views/DetectorSelector'
-import { SimulationSummary } from 'products/alerts/frontend/views/SimulationSummary'
 
 import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
-import { getSimulationRangeOptions } from './editAlertModalUtils'
+import { AlertSimulationSection } from './AlertSimulationSection'
+import { InvestigationAgentSettings } from './InvestigationAgentSettings'
+import { ThresholdDefinitionRow } from './ThresholdDefinitionRow'
+import type { ThresholdRowRenderProps } from './ThresholdDefinitionRow'
+
+export type { ThresholdRowRenderProps } from './ThresholdDefinitionRow'
 
 export interface TrendsDefinitionProps {
     /** Series in the alerted insight, for the series picker. */
@@ -92,147 +74,6 @@ export interface AlertDefinitionSectionProps {
     onSetSimulationDateFrom: (value: string) => void
     onClearSimulation: () => void
     onClearSimulationOverlay: () => void
-}
-
-/** Props a custom threshold row renderer needs — mirrors the inputs the legacy inline row reads. */
-export interface ThresholdRowRenderProps {
-    alertForm: AlertFormType
-    thresholdBoundsFormError?: string
-    isNonTimeSeriesDisplay: boolean
-    supportsRelativeConditions: boolean
-    onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
-}
-
-/** Whether the form's SQL alert config is in any-row mode (every row checked, not just the last). */
-function isHogQLAnyRow(alertForm: AlertFormType): boolean {
-    return isAnyRowHogQLConfig(alertForm.config)
-}
-
-function ThresholdDefinitionRow({
-    alertForm,
-    thresholdBoundsFormError,
-    isNonTimeSeriesDisplay,
-    supportsRelativeConditions,
-    onSetAlertFormValue,
-}: ThresholdRowRenderProps): JSX.Element {
-    const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
-    const relativeConditionDisabledReason =
-        (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
-        (isHogQLAnyRow(alertForm) &&
-            "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
-
-    return (
-        <div className="space-y-2">
-            {thresholdBoundsFormError ? <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner> : null}
-            <AlertDefinitionRow>
-                {supportsRelativeConditions && (
-                    <Group name={['condition']}>
-                        <LemonField name="type">
-                            {({ value, onChange }) => (
-                                <LemonSelect
-                                    fullWidth
-                                    className="w-40"
-                                    data-attr="alertForm-condition"
-                                    value={value}
-                                    onChange={(newType) => {
-                                        onChange(newType)
-                                        const configuration = alertForm.threshold.configuration
-                                        const nextConfiguration = thresholdForConditionChange(
-                                            configuration,
-                                            newType,
-                                            isFunnelAlert
-                                        )
-                                        if (nextConfiguration === configuration) {
-                                            return
-                                        }
-                                        onSetAlertFormValue('threshold', { configuration: nextConfiguration })
-                                    }}
-                                    options={[
-                                        { label: 'has value', value: AlertConditionType.ABSOLUTE_VALUE },
-                                        {
-                                            label: 'increases by',
-                                            value: AlertConditionType.RELATIVE_INCREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                        {
-                                            label: 'decreases by',
-                                            value: AlertConditionType.RELATIVE_DECREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                    ]}
-                                />
-                            )}
-                        </LemonField>
-                    </Group>
-                )}
-                <div>less than</div>
-                <LemonField name="lower">
-                    <LemonInput
-                        type="number"
-                        min={alertForm.condition.type === AlertConditionType.ABSOLUTE_VALUE ? undefined : 0}
-                        className="w-30"
-                        data-attr="alertForm-lower-threshold"
-                        suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
-                        value={
-                            alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
-                                ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.lower)
-                                : alertForm.threshold.configuration.bounds?.lower
-                        }
-                        onChange={(value) =>
-                            onSetAlertFormValue('threshold', {
-                                configuration: {
-                                    type: alertForm.threshold.configuration.type,
-                                    bounds: {
-                                        ...alertForm.threshold.configuration.bounds,
-                                        lower: inputToStoredBound(value, alertForm.threshold.configuration.type),
-                                    },
-                                },
-                            })
-                        }
-                    />
-                </LemonField>
-                <div>or more than</div>
-                <LemonField name="upper">
-                    <LemonInput
-                        type="number"
-                        min={alertForm.condition.type === AlertConditionType.ABSOLUTE_VALUE ? undefined : 0}
-                        className="w-30"
-                        data-attr="alertForm-upper-threshold"
-                        suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
-                        value={
-                            alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE
-                                ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.upper)
-                                : alertForm.threshold.configuration.bounds?.upper
-                        }
-                        onChange={(value) =>
-                            onSetAlertFormValue('threshold', {
-                                configuration: {
-                                    type: alertForm.threshold.configuration.type,
-                                    bounds: {
-                                        ...alertForm.threshold.configuration.bounds,
-                                        upper: inputToStoredBound(value, alertForm.threshold.configuration.type),
-                                    },
-                                },
-                            })
-                        }
-                    />
-                </LemonField>
-                {/* Funnels always compare as a percentage of the prior period, so their unit is fixed. */}
-                {!isFunnelAlert && alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
-                    <Group name={['threshold', 'configuration']}>
-                        <LemonField name="type">
-                            <LemonSegmentedButton
-                                options={[
-                                    { value: InsightThresholdType.PERCENTAGE, label: '%', tooltip: 'Percent' },
-                                    { value: InsightThresholdType.ABSOLUTE, label: '#', tooltip: 'Absolute number' },
-                                ]}
-                            />
-                        </LemonField>
-                    </Group>
-                )}
-            </AlertDefinitionRow>
-        </div>
-    )
 }
 
 export function AlertDefinitionSection({
@@ -376,118 +217,18 @@ export function AlertDefinitionSection({
                     )}
 
                     {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
-                        <div className="deprecated-space-y-2">
-                            <div className="flex items-center gap-1">
-                                <h4 className="m-0">Investigation agent</h4>
-                                <Tooltip
-                                    title="An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
-                                    placement="right"
-                                    delayMs={0}
-                                >
-                                    <IconInfo />
-                                </Tooltip>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                                <LemonCheckbox
-                                    data-attr="alertForm-investigation-agent-enabled"
-                                    checked={!!alertForm.investigation_agent_enabled}
-                                    onChange={(checked) => onSetAlertFormValue('investigation_agent_enabled', checked)}
-                                    label={
-                                        <span className="flex items-center gap-1">
-                                            Run investigation agent when this alert fires
-                                            <Tooltip
-                                                title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
-                                                placement="right"
-                                                delayMs={0}
-                                            >
-                                                <IconInfo />
-                                            </Tooltip>
-                                        </span>
-                                    }
-                                />
-                                <LemonCheckbox
-                                    data-attr="alertForm-investigation-gates-notifications"
-                                    checked={!!alertForm.investigation_gates_notifications}
-                                    onChange={(checked) =>
-                                        onSetAlertFormValue('investigation_gates_notifications', checked)
-                                    }
-                                    disabledReason={
-                                        !alertForm.investigation_agent_enabled
-                                            ? 'Enable the investigation agent first'
-                                            : undefined
-                                    }
-                                    label={
-                                        <span className="flex items-center gap-1">
-                                            Wait for the verdict before notifying
-                                            <Tooltip
-                                                title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
-                                                placement="right"
-                                                delayMs={0}
-                                            >
-                                                <IconInfo />
-                                            </Tooltip>
-                                        </span>
-                                    }
-                                />
-                            </div>
-                            {alertForm.investigation_agent_enabled && alertForm.investigation_gates_notifications && (
-                                <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
-                                    <span>On inconclusive verdict</span>
-                                    <LemonSegmentedButton
-                                        size="xsmall"
-                                        value={alertForm.investigation_inconclusive_action ?? 'notify'}
-                                        onChange={(value) =>
-                                            onSetAlertFormValue('investigation_inconclusive_action', value)
-                                        }
-                                        options={[
-                                            {
-                                                value: 'notify',
-                                                label: 'Notify',
-                                                tooltip: 'Safe default — an unsure agent is itself signal.',
-                                            },
-                                            {
-                                                value: 'suppress',
-                                                label: 'Suppress',
-                                                tooltip: 'Only notify on true positives.',
-                                            },
-                                        ]}
-                                    />
-                                </div>
-                            )}
-                        </div>
+                        <InvestigationAgentSettings alertForm={alertForm} onSetAlertFormValue={onSetAlertFormValue} />
                     )}
 
                     {alertMode === 'detector' && alertForm.detector_config && (
-                        <div className="deprecated-space-y-2">
-                            <div className="flex gap-2 items-center">
-                                <h4 className="m-0">Simulation</h4>
-                                <LemonSelect
-                                    size="small"
-                                    data-attr="alertForm-simulate-range"
-                                    value={
-                                        simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
-                                    }
-                                    onChange={(value) => onSetSimulationDateFrom(value)}
-                                    options={getSimulationRangeOptions(alertForm.calculation_interval)}
-                                />
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    data-attr="alertForm-simulate"
-                                    onClick={onSimulateAlert}
-                                    loading={simulationResultLoading}
-                                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
-                                >
-                                    Simulate
-                                </LemonButton>
-                            </div>
-                            {simulationResult && (
-                                <SimulationSummary
-                                    result={simulationResult}
-                                    detectorConfig={alertForm.detector_config}
-                                />
-                            )}
-                        </div>
+                        <AlertSimulationSection
+                            alertForm={alertForm}
+                            simulationResult={simulationResult}
+                            simulationResultLoading={simulationResultLoading}
+                            simulationDateFrom={simulationDateFrom}
+                            onSimulateAlert={onSimulateAlert}
+                            onSetSimulationDateFrom={onSetSimulationDateFrom}
+                        />
                     )}
                 </div>
             </div>
