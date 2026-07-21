@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -26,6 +27,13 @@ _KEY_ERROR_HEADER = "X-DataWebAPI-KeyError"
 AUTH_ERROR_MESSAGE = "US Census API key is missing or invalid"
 REQUEST_ERROR_PREFIX = "US Census API rejected the request"
 RESPONSE_SHAPE_ERROR_PREFIX = "Unexpected response from the US Census API"
+RESPONSE_TOO_LARGE_PREFIX = "US Census API response is too large"
+
+# Cap on the decoded response body. The API has no pagination, so a high-cardinality
+# custom query (e.g. every census block nationwide) would otherwise buffer an unbounded
+# body plus parsed copies in memory.
+_MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+_STREAM_CHUNK_BYTES = 1024 * 1024
 
 _DATASET_PATH_REGEX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9/_.-]*$")
 
@@ -67,7 +75,7 @@ def rows_from_payload(payload: Any) -> list[dict[str, Any]]:
     """Zip the Census 2D array-of-arrays payload (first row = column headers) into row dicts."""
     if not isinstance(payload, list) or not payload or not isinstance(payload[0], list):
         raise ValueError(f"{RESPONSE_SHAPE_ERROR_PREFIX}: expected a JSON array of arrays")
-    header = payload[0]
+    header = [str(column) for column in payload[0]]
     return [dict(zip(header, row)) for row in payload[1:]]
 
 
@@ -107,11 +115,23 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     url = build_query_url(dataset, variables, geography, geography_filter, predicates, api_key)
-    response = session.get(url, timeout=_REQUEST_TIMEOUT)
+    # Stream so an oversized body is rejected at the byte cap instead of buffered whole;
+    # the request timeout applies per read between chunks, bounding the transfer.
+    response = session.get(url, timeout=_REQUEST_TIMEOUT, stream=True)
     _raise_for_error(response)
 
+    body = bytearray()
+    for chunk in response.iter_content(chunk_size=_STREAM_CHUNK_BYTES):
+        body.extend(chunk)
+        if len(body) > _MAX_RESPONSE_BYTES:
+            response.close()
+            raise ValueError(
+                f"{RESPONSE_TOO_LARGE_PREFIX} (over {_MAX_RESPONSE_BYTES // (1024 * 1024)} MiB). "
+                "Narrow the query with fewer variables or a smaller geography (e.g. an in= filter)."
+            )
+
     try:
-        payload = response.json()
+        payload = json.loads(bytes(body))
     except ValueError as e:
         raise ValueError(f"{RESPONSE_SHAPE_ERROR_PREFIX}: body is not valid JSON") from e
 

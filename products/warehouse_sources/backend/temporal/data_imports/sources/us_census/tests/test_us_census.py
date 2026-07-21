@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 
 import pytest
@@ -30,10 +31,8 @@ def _mock_response(
     response.ok = status_code < 400
     response.headers = headers or {}
     response.text = text
-    if json_data is not None:
-        response.json.return_value = json_data
-    else:
-        response.json.side_effect = ValueError("not json")
+    body = json.dumps(json_data).encode() if json_data is not None else text.encode()
+    response.iter_content.return_value = iter([body])
     return response
 
 
@@ -116,6 +115,13 @@ class TestUSCensus:
         patcher, _ = _patched_session(_mock_response(text="<html>...</html>"))
 
         with patcher, pytest.raises(ValueError, match="not valid JSON"):
+            list(get_rows("key", "2024/acs/acs5", ("NAME",), "state:*", None, ()))
+
+    def test_get_rows_rejects_oversized_response(self):
+        payload = [["NAME", "state"], ["California", "06"]]
+        patcher, _ = _patched_session(_mock_response(json_data=payload))
+
+        with patcher, patch(f"{_MODULE}._MAX_RESPONSE_BYTES", 8), pytest.raises(ValueError, match="too large"):
             list(get_rows("key", "2024/acs/acs5", ("NAME",), "state:*", None, ()))
 
     @pytest.mark.parametrize(

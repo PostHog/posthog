@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.us_census import (
     AUTH_ERROR_MESSAGE,
+    RESPONSE_TOO_LARGE_PREFIX,
     parse_custom_variables,
     us_census_source,
     validate_credentials as validate_us_census_credentials,
@@ -66,6 +67,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
             "unknown variable": "One of the requested variables does not exist in the selected dataset. Check the dataset's variable list at https://api.census.gov/data.html.",
             "unsupported geography": "The requested geography is not supported by the selected dataset. Check the dataset's geography list at https://api.census.gov/data.html.",
             "US Census custom query": "The custom query on this source is incomplete or invalid. Update the custom query fields on the source and retry.",
+            RESPONSE_TOO_LARGE_PREFIX: "The query returned more data than a single sync can hold. Narrow the custom query with fewer variables or a smaller geography (e.g. an in= filter).",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

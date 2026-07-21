@@ -130,6 +130,7 @@ class TestUSCensusSource:
             "US Census API rejected the request (400): error: unknown variable 'B99999_999E'",
             "US Census API rejected the request (400): error: unsupported geography hierarchy",
             "US Census custom query is incomplete: set the dataset path, variables, and geography together",
+            "US Census API response is too large (over 256 MiB). Narrow the query with fewer variables or a smaller geography (e.g. an in= filter).",
         ],
     )
     def test_known_permanent_failures_are_non_retryable(self, error_message):
