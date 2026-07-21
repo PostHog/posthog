@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OutbrainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
+    OutbrainSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
     OutbrainResumeConfig,
     outbrain_source,

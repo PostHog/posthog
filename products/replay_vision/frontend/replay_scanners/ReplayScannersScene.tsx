@@ -27,6 +27,7 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { formatCredits } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
@@ -129,6 +130,14 @@ export function ReplayScannersScene(): JSX.Element {
                 <span className="text-sm tabular-nums">
                     {(scanner.sampling_rate * 100).toFixed(scanner.sampling_rate < 0.1 ? 2 : 1)}%
                 </span>
+            ),
+            sorter: true,
+        },
+        {
+            title: 'Spend this month',
+            key: 'credits_this_month',
+            render: (_, scanner) => (
+                <span className="text-sm tabular-nums">{formatCredits(scanner.credits_this_month)}</span>
             ),
             sorter: true,
         },

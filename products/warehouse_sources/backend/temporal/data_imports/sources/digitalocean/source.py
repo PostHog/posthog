@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.digitaloce
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DigitalOceanSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
+    DigitalOceanSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

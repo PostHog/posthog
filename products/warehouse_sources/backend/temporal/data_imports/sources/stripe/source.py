@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
@@ -86,6 +86,7 @@ PERMISSIONS = [
     "rak_credit_note_read",
     "rak_invoice_read",
     "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
+    "rak_coupon_read",  # Coupons is an importable table and needs its own scope; refunds ride on charge_read
     "rak_subscription_read",
     "rak_application_fee_read",
     "rak_transfer_read",
@@ -191,10 +192,11 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
-                        label="Account id",
+                        label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="stripe_account_id",
+                        placeholder="acct_...",
+                        caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
                     ),
                 ],

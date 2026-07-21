@@ -185,6 +185,14 @@ export const ToolConfigSchema = z
                  * returns the full `include` set. Requires `include`; incompatible with `exclude`.
                  */
                 selectable: z.boolean().optional(),
+                /** Wrap user-authored response data in an explicit informational-only tag boundary. */
+                informational_wrapper: z
+                    .object({
+                        tag: z.string().regex(/^[a-z][a-z0-9-]*$/),
+                        purpose: z.string().min(1).optional(),
+                    })
+                    .strict()
+                    .optional(),
             })
             .strict()
             .refine((data) => !(data.include?.length && data.exclude?.length), {
@@ -242,6 +250,11 @@ export const ToolConfigSchema = z
                 'input_schema replaces the entire schema, so include_params, exclude_params, and param_overrides have no effect and should be removed',
         }
     )
+    .refine((data) => !(data.confirmed_action && data.input_schema), {
+        message:
+            '`confirmed_action` cannot be combined with `input_schema` yet because custom input schemas bypass the confirmed-action prepare/execute codegen path. Remove `input_schema` or extend custom-schema codegen to support confirmed actions.',
+        path: ['confirmed_action'],
+    })
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
     })

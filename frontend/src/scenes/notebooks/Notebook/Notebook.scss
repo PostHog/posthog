@@ -554,7 +554,9 @@
         }
 
         .Notebook__markdown-v2 .MarkdownNotebook__canvas {
-            padding-bottom: 6rem;
+            // Generous trailing space so the last cell can scroll up off the bottom edge —
+            // room to breathe while editing a cell near the end of the notebook.
+            padding-bottom: max(18rem, 40vh);
         }
 
         .NotebookColumn--left.NotebookColumn--showing {

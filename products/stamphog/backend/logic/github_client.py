@@ -1,7 +1,8 @@
 """Dedicated GitHub App client for Stamphog.
 
 Stamphog runs as its own GitHub App (separate identity from PostHog's product-integration App), so it
-mints its own installation tokens from ``STAMPHOG_GITHUB_APP_ID`` / ``STAMPHOG_GITHUB_APP_PRIVATE_KEY``.
+mints its own installation tokens from ``STAMPHOG_GITHUB_APP_CLIENT_ID`` (or ``STAMPHOG_GITHUB_APP_ID``
+as a fallback) / ``STAMPHOG_GITHUB_APP_PRIVATE_KEY``.
 Every outbound call goes through the shared egress transport (:func:`posthog.egress.github.transport.github_request`),
 which gates on the installation's shared budget and records telemetry by construction. That transport is
 token-agnostic and stateless, so a second App identity needs no change to the egress layer — this client
@@ -36,38 +37,125 @@ _SOURCE = "stamphog"
 STICKY_COMMENT_MARKER = "<!-- stamphog:review-status -->"
 
 
-def _expected_sticky_comment_login() -> str | None:
-    """The GitHub login the App posts sticky comments under (``<slug>[bot]``), or None if unconfigured.
+def expected_app_bot_login() -> str | None:
+    """The GitHub login this App acts under (``<slug>[bot]``), or None if the slug is unconfigured.
 
-    GitHub App comments are authored by ``<app-slug>[bot]`` with ``user.type == "Bot"``. When we know
-    the slug we can require that exact identity; when it isn't configured we fall back to "any Bot".
+    GitHub App reviews and comments are authored by ``<app-slug>[bot]`` with ``user.type == "Bot"``.
+    When we know the slug we can require that exact identity; when it isn't configured, callers decide
+    whether "any Bot" is an acceptable floor (see ``_is_own_bot_actor``'s ``allow_any_bot``). Public
+    (not underscore-prefixed) because the in-flight reviewer-bot wait in ``temporal/activities.py``
+    needs it too, to exclude stamphog's own 👀 reaction from the trusted-bot reactor set it reads.
     """
     slug = settings.STAMPHOG_GITHUB_APP_SLUG
     return f"{slug}[bot]" if slug else None
+
+
+def _is_own_bot_actor(user: dict, expected_login: str | None, *, allow_any_bot: bool) -> bool:
+    """Whether ``user`` (a review's or comment's author object) is this App's own bot identity.
+
+    The identity floor: a Bot author, and — when the App slug is configured — the exact ``<slug>[bot]``
+    login. ``allow_any_bot`` decides the unconfigured-slug case. Sticky-comment upserts tolerate the
+    "any Bot" fallback (a mis-targeted PATCH is cosmetic). Write-adjacent approval decisions
+    (adopt-before-post, the GitHub-side orphan sweep) must NOT: dismissing or adopting another bot's
+    review off a fuzzy match is worse than doing nothing, so they pass ``allow_any_bot=False`` and get
+    nothing without a slug. Reviews and comments carry the same ``user`` shape, so this serves both.
+    """
+    if user.get("type") != "Bot":
+        return False
+    if expected_login is not None:
+        # Case-insensitive like every GitHub login comparison (and the reactor-bot exclusion): a raw
+        # == would silently no-op the sweeps and adopt if GitHub ever cases the login differently.
+        return (user.get("login") or "").lower() == expected_login.lower()
+    return allow_any_bot
 
 
 def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
     """Whether ``comment`` was posted by this App, not just any account carrying the marker.
 
     The marker is visible in the rendered comment source, so a user could plant it to trick a naive
-    upsert into PATCHing (hijacking) their comment. Require a Bot author, and — when we know our slug —
-    the exact ``<slug>[bot]`` login. Without a configured slug, "type == Bot" is the minimum floor.
+    upsert into PATCHing (hijacking) their comment. The "any Bot" fallback is acceptable here — a
+    mis-targeted sticky PATCH is cosmetic, never a standing approval (contrast the approval paths).
     """
-    user = comment.get("user") or {}
-    if user.get("type") != "Bot":
-        return False
-    if expected_login is not None:
-        return (user.get("login") or "") == expected_login
-    return True
+    return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=True)
 
 
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
 
+# Trim each inline review-thread comment body to bound the payload that rides in run.output. The
+# reviewer only needs the gist of a maintainer's "do not merge", not a novel.
+_REVIEW_THREAD_BODY_MAX = 4000
+
+# reviewThreads(first: 100) × comments(first: 50) is 5,000 worst-case nodes — far under GitHub's
+# 500,000 pre-execution node cap. Only the fields the hosted reviewer needs: resolution state,
+# path/line, and per comment the author identity triple (login, association, Bot-ness) the engine's
+# author-trust gate requires plus the body. The comments pageInfo detects per-thread overflow —
+# a >50-comment thread pages its tail via _THREAD_COMMENTS_QUERY (comment 51 could be a
+# maintainer's hold, and failing the whole review would make one chatty thread block the PR
+# forever), failing closed only past the per-thread page cap.
+_REVIEW_THREADS_QUERY = """
+query($owner: String!, $name: String!, $pr: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          comments(first: 50) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              author { login __typename }
+              authorAssociation
+              body
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Tail pages for a single thread whose comments overflow the window above.
+_THREAD_COMMENTS_QUERY = """
+query($id: ID!, $cursor: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 50, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          author { login __typename }
+          authorAssociation
+          body
+        }
+      }
+    }
+  }
+}
+"""
+
 # Refresh the installation token this many seconds before GitHub's stated expiry, to cover clock skew
 # and in-flight requests. GitHub installation tokens live one hour, so a 5-minute margin is ample.
 _TOKEN_EXPIRY_MARGIN_SECONDS = 300
+
+
+def _parse_review_thread_comments(comment_nodes: list) -> list[dict]:
+    """Normalize GraphQL review-thread comment nodes to the engine's shape (both queries share it)."""
+    return [
+        {
+            "author": (comment.get("author") or {}).get("login") or "",
+            "author_association": comment.get("authorAssociation") or "",
+            "author_is_bot": (comment.get("author") or {}).get("__typename") == "Bot",
+            "body": (comment.get("body") or "")[:_REVIEW_THREAD_BODY_MAX],
+        }
+        for comment in comment_nodes
+        if isinstance(comment, dict)
+    ]
 
 
 class StamphogGitHubError(Exception):
@@ -91,15 +179,19 @@ def _build_app_jwt() -> str:
     """Build a short-lived App JWT (RS256) for minting installation tokens.
 
     ``iat`` is backdated 60s to tolerate clock skew against GitHub; ``exp`` stays inside GitHub's
-    10-minute maximum. The App id is the issuer.
+    10-minute maximum. The client id is the issuer — the same form the core GitHub integration
+    signs with (see ``posthog.models.github_integration_base``).
     """
-    app_id = settings.STAMPHOG_GITHUB_APP_ID
-    if not app_id:
-        raise StamphogGitHubError("STAMPHOG_GITHUB_APP_ID is not configured")
+    # Client id is the preferred issuer (matches the core GitHub integration); the app id fallback
+    # covers workers whose chart predates the client id env. Drop the fallback once every worker
+    # deploy ships STAMPHOG_GITHUB_APP_CLIENT_ID.
+    issuer = settings.STAMPHOG_GITHUB_APP_CLIENT_ID or settings.STAMPHOG_GITHUB_APP_ID
+    if not issuer:
+        raise StamphogGitHubError("Neither STAMPHOG_GITHUB_APP_CLIENT_ID nor STAMPHOG_GITHUB_APP_ID is configured")
     now = int(time.time())
     try:
         return jwt.encode(
-            {"iat": now - 60, "exp": now + 540, "iss": str(app_id)},
+            {"iat": now - 60, "exp": now + 540, "iss": str(issuer)},
             _app_private_key(),
             algorithm="RS256",
         )
@@ -150,15 +242,17 @@ def exchange_oauth_code_for_user_token(code: str) -> str | None:
     return str(access_token)
 
 
-def user_can_access_installation(installation_id: str, user_access_token: str) -> bool:
-    """Whether the OAuth'd user can reach the given App installation.
+def list_user_installations(user_access_token: str) -> list[dict[str, str]]:
+    """This App's installations the OAuth'd user can reach, as ``[{"id", "account_login"}, ...]``.
 
-    Lists the installations visible to the *user's* token (``GET /user/installations``) and checks the
-    submitted id is among them. Authenticated with the user token, so it is identity-blind on the egress
-    budget (no ``installation_id`` passed to the gate) — GitHub meters it against the user, not the
-    installation. Raises :class:`StamphogGitHubError` on an unexpected status so the caller fails closed
-    rather than silently treating an API hiccup as "no access".
+    Pages ``GET /user/installations`` with the *user's* token, which GitHub scopes to installations of
+    THIS App the user can access — the discovery primitive for the authorize-first connect flow, where
+    no installation_id rides in the callback. Authenticated with the user token, so it is identity-blind
+    on the egress budget (no ``installation_id`` passed to the gate) — GitHub meters it against the user,
+    not the installation. Raises :class:`StamphogGitHubError` on an unexpected status so the caller fails
+    closed rather than silently treating an API hiccup as "no installations".
     """
+    installations: list[dict[str, str]] = []
     for page in range(1, _MAX_PAGES + 1):
         response = github_request(
             "GET",
@@ -178,15 +272,33 @@ def user_can_access_installation(installation_id: str, user_access_token: str) -
             data = response.json()
         except ValueError as exc:
             raise StamphogGitHubError("Non-JSON response listing user installations") from exc
-        installations = data.get("installations") if isinstance(data, dict) else None
-        if not isinstance(installations, list):
+        page_installations = data.get("installations") if isinstance(data, dict) else None
+        if not isinstance(page_installations, list):
             raise StamphogGitHubError("Unexpected user installations payload")
-        for installation in installations:
-            if isinstance(installation, dict) and str(installation.get("id")) == str(installation_id):
-                return True
-        if len(installations) < _PER_PAGE:
+        for installation in page_installations:
+            if not isinstance(installation, dict) or installation.get("id") is None:
+                continue
+            installations.append(
+                {
+                    "id": str(installation.get("id")),
+                    "account_login": ((installation.get("account") or {}).get("login") or ""),
+                }
+            )
+        if len(page_installations) < _PER_PAGE:
             break
-    return False
+    return installations
+
+
+def user_can_access_installation(installation_id: str, user_access_token: str) -> bool:
+    """Whether the OAuth'd user can reach the given App installation.
+
+    Built on :func:`list_user_installations`: the submitted id must be among the installations visible to
+    the user's token. Raises :class:`StamphogGitHubError` on an unexpected status (via the underlying
+    call) so the caller fails closed rather than silently treating an API hiccup as "no access".
+    """
+    return any(
+        installation["id"] == str(installation_id) for installation in list_user_installations(user_access_token)
+    )
 
 
 def list_user_accessible_repositories(installation_id: str, user_access_token: str) -> list[str]:
@@ -399,6 +511,73 @@ class StamphogGitHubClient:
             f"Reactions on {repo}#{number} exceed {_MAX_PAGES * _PER_PAGE}; refusing to evaluate a truncated list"
         )
 
+    def add_pr_reaction(self, repo: str, number: int, content: str = "eyes") -> int | None:
+        """Add a reaction to the PR itself (``POST .../issues/{number}/reactions``), returning its id.
+
+        Fail-open, UNLIKE every other method on this client: an 👀 reaction is the same cosmetic
+        "review in flight" signal ``get_pr_reactions``/``STAMPHOG_TRUSTED_REACTOR_BOTS`` reads off
+        other bots, never a gate on anything. A failed reaction post must never fail or retry the
+        calling review activity, so every exception and non-2xx response is caught and logged here
+        instead of raised — callers get ``None`` and carry on. GitHub itself returns 200 with the
+        EXISTING reaction if this identity already reacted with ``content`` on this target (natural
+        idempotency: a retried activity, or adopting a crashed predecessor's leftover reaction), or
+        201 with a freshly created one — either way the id is what callers persist to remove later.
+        """
+        path = f"/repos/{repo}/issues/{number}/reactions"
+        try:
+            response = self._request(
+                "POST",
+                path,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+                json_body={"content": content},
+            )
+        except Exception:
+            logger.warning("stamphog github: failed to add PR reaction", repo=repo, pr_number=number, exc_info=True)
+            return None
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "stamphog github: unexpected status adding PR reaction",
+                repo=repo,
+                pr_number=number,
+                status_code=response.status_code,
+            )
+            return None
+        try:
+            data = self._json(response, path)
+        except StamphogGitHubError:
+            logger.warning("stamphog github: non-JSON response adding PR reaction", repo=repo, pr_number=number)
+            return None
+        reaction_id = data.get("id") if isinstance(data, dict) else None
+        return reaction_id if isinstance(reaction_id, int) else None
+
+    def remove_pr_reaction(self, repo: str, number: int, reaction_id: int) -> None:
+        """Remove a reaction from the PR itself (``DELETE .../issues/{number}/reactions/{reaction_id}``).
+
+        Fail-open like ``add_pr_reaction``, for the same reason: this only cleans up the cosmetic
+        "review in flight" 👀, so a failure here must never fail or retry the calling activity — a
+        leftover reaction is harmless (the next run's ``add_pr_reaction`` adopts it via GitHub's own
+        idempotency). Every exception and non-2xx response is caught and logged instead of raised.
+        A 404 means the reaction is already gone (a prior attempt succeeded before crashing, or
+        someone removed it by hand) and is treated the same as success.
+        """
+        path = f"/repos/{repo}/issues/{number}/reactions/{reaction_id}"
+        try:
+            response = self._request(
+                "DELETE",
+                path,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions/{reaction_id}",
+            )
+        except Exception:
+            logger.warning("stamphog github: failed to remove PR reaction", repo=repo, pr_number=number, exc_info=True)
+            return
+        if response.status_code not in (200, 204, 404):
+            logger.warning(
+                "stamphog github: unexpected status removing PR reaction",
+                repo=repo,
+                pr_number=number,
+                status_code=response.status_code,
+            )
+
     def get_collaborator_permission(self, repo: str, username: str) -> str:
         """The user's effective permission on the repo: ``admin``, ``write``, ``read``, or ``none``.
 
@@ -450,7 +629,7 @@ class StamphogGitHubClient:
         Returns the raw GitHub review objects (``user``, ``state``, ``commit_id``, ``body``,
         ``author_association``, ...). The reviewer engine needs these to honor an active
         ``CHANGES_REQUESTED`` review — without them the hosted path would run review-blind and could
-        approve over a maintainer's block. Stops at ``_MAX_PAGES`` for the same bound as the other lists.
+        approve over a maintainer's block. Fails closed past ``_MAX_PAGES`` — the orphan sweeps ride this list, and a silently truncated tail could hide an approval they must dismiss.
         """
         reviews: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
@@ -470,8 +649,46 @@ class StamphogGitHubClient:
                 raise StamphogGitHubError(f"Unexpected PR reviews payload for {repo}#{number}")
             reviews.extend(review for review in page_reviews if isinstance(review, dict))
             if len(page_reviews) < _PER_PAGE:
-                break
-        return reviews
+                return reviews
+        # Past the cap the tail is invisible — and list_own_active_approvals rides this list for the
+        # orphan sweeps, where a silently missing approval defeats the guarantee. Fail closed like
+        # the thread fetch rather than pretending the truncated list is complete.
+        raise StamphogGitHubError(
+            f"PR reviews on {repo}#{number} exceed {_MAX_PAGES} pages; refusing to act on a truncated list"
+        )
+
+    def list_own_active_approvals(self, repo: str, number: int) -> list[dict]:
+        """Active APPROVE reviews on the PR authored by THIS App, as raw GitHub review dicts.
+
+        Built on ``get_pr_reviews``' pagination. "Active APPROVED" means ``state == "APPROVED"`` — GitHub
+        reports a dismissed review as state ``DISMISSED``, so those drop out on their own. Identity uses
+        the same floor as the sticky-comment path but WITHOUT the "any Bot" fallback: this feeds
+        write-adjacent decisions (adopt-before-post in ``post_verdict``, the GitHub-side orphan sweep in
+        ``dismiss_stale_approvals``), where acting on another bot's review off a fuzzy match is worse than
+        doing nothing — so an unconfigured ``STAMPHOG_GITHUB_APP_SLUG`` yields an empty list, never a guess.
+        Callers filter further (e.g. adopt only at an exact ``commit_id``); the raw dicts carry ``id`` and
+        ``commit_id`` for that.
+        """
+        expected_login = expected_app_bot_login()
+        if expected_login is None:
+            # Loud on purpose: with App credentials configured but no slug, approvals still POST fine
+            # while every GitHub-side sweep and adopt silently no-ops — quietly disabling the
+            # orphan-catching half of the stale-approval invariant. The misconfiguration would
+            # otherwise be invisible until an orphan approval stands over unreviewed commits.
+            if settings.STAMPHOG_GITHUB_APP_PRIVATE_KEY:
+                logger.warning(
+                    "stamphog github: STAMPHOG_GITHUB_APP_SLUG unset with App credentials configured — "
+                    "own-approval sweeps and adopt-before-post are disabled",
+                    repo=repo,
+                    pr_number=number,
+                )
+            return []
+        return [
+            review
+            for review in self.get_pr_reviews(repo, number)
+            if review.get("state") == "APPROVED"
+            and _is_own_bot_actor(review.get("user") or {}, expected_login, allow_any_bot=False)
+        ]
 
     def get_pr_discussion(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level discussion (issue) comments, paginating through GitHub's endpoint.
@@ -479,7 +696,7 @@ class StamphogGitHubClient:
         Returns raw GitHub issue-comment objects (``user``, ``body``, ``author_association``, ...). The
         reviewer uses these as blocker context — a maintainer's top-level "please hold" comment should
         reach the agent, matching the Action path. Inline review-thread comments are a separate,
-        GraphQL-only surface (thread resolution state) and are not fetched here. Past the page cap the
+        GraphQL-only surface (thread resolution state) fetched by ``get_pr_review_threads``. Past the page cap the
         fetch fails closed (raises) like the reactions fetch: anyone can comment on a public PR, so an
         author could bury a maintainer's hold past the cap and a silently truncated list would read as
         "no blockers" to the reviewer.
@@ -506,6 +723,125 @@ class StamphogGitHubClient:
         raise StamphogGitHubError(
             f"PR discussion on {repo}#{number} exceeds {_MAX_PAGES * _PER_PAGE} comments; "
             "refusing to review with a truncated discussion"
+        )
+
+    def get_pr_review_threads(self, repo: str, number: int) -> list[dict]:
+        """Fetch the PR's inline review threads via GraphQL, as
+        ``[{is_resolved, is_outdated, path, line,
+        comments: [{author, author_association, author_is_bot, body}]}]``.
+
+        Each comment carries the author identity triple (login, association, Bot-ness) because the
+        engine gates inline comments through the same author-trust check as reviews and discussion —
+        without it, an untrusted external commenter could plant a fake maintainer hold in the prompt.
+
+        Inline review-thread comments are a GraphQL-only surface — REST exposes no thread-resolution
+        state — so the hosted reviewer would otherwise be blind to a maintainer's unresolved inline
+        "this is wrong, do not merge". Follows ``get_user_team_slugs``' ``/graphql`` request shape but NOT
+        its best-effort error handling: FAILS CLOSED like ``get_pr_discussion`` — raises past the page cap
+        or on any GraphQL/HTTP/parse failure — because a silently truncated thread list reads as "no
+        blockers" to the reviewer, the one wrong answer here. Comment bodies are trimmed to bound the
+        payload that rides in ``run.output``.
+        """
+        if "/" not in repo:
+            raise StamphogGitHubError(f"Expected an owner/name repo, got {repo!r}")
+        owner, name = repo.split("/", 1)
+        threads: list[dict] = []
+        cursor: str | None = None
+        for _page in range(_MAX_PAGES):
+            response = self._request(
+                "POST",
+                "/graphql",
+                endpoint="/graphql",
+                json_body={
+                    "query": _REVIEW_THREADS_QUERY,
+                    "variables": {"owner": owner, "name": name, "pr": number, "cursor": cursor},
+                },
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch review threads for {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            data = self._json(response, "/graphql")
+            if not isinstance(data, dict) or data.get("errors"):
+                raise StamphogGitHubError(f"GraphQL errors fetching review threads for {repo}#{number}")
+            pull_request = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+            if not isinstance(pull_request, dict):
+                raise StamphogGitHubError(f"Unexpected review-threads payload for {repo}#{number}")
+            review_threads = pull_request.get("reviewThreads") or {}
+            for node in review_threads.get("nodes") or []:
+                if not isinstance(node, dict):
+                    continue
+                comment_page = node.get("comments") or {}
+                comments = _parse_review_thread_comments(comment_page.get("nodes") or [])
+                comment_page_info = comment_page.get("pageInfo") or {}
+                # A thread past the comments fetch window pages its tail — silently dropping
+                # comment 51 could hide a maintainer's hold, and failing the run outright would
+                # make one chatty thread block the PR from ever being reviewed.
+                if comment_page_info.get("hasNextPage"):
+                    comments.extend(
+                        self._fetch_remaining_thread_comments(
+                            repo, number, node.get("id"), comment_page_info.get("endCursor")
+                        )
+                    )
+                threads.append(
+                    {
+                        "is_resolved": bool(node.get("isResolved")),
+                        "is_outdated": bool(node.get("isOutdated")),
+                        "path": node.get("path") or "",
+                        "line": node.get("line"),
+                        "comments": comments,
+                    }
+                )
+            page_info = review_threads.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                return threads
+            cursor = page_info.get("endCursor")
+        raise StamphogGitHubError(
+            f"Review threads on {repo}#{number} exceed {_MAX_PAGES} pages; refusing to review a truncated list"
+        )
+
+    def _fetch_remaining_thread_comments(
+        self, repo: str, number: int, thread_id: str | None, cursor: str | None
+    ) -> list[dict]:
+        """Page the tail of one review thread whose comments overflow the main query's window.
+
+        Same fail-closed posture as the caller: any HTTP/GraphQL/parse failure raises, and a thread
+        that still overflows ``_MAX_PAGES`` tail pages (thousands of comments — pathological) raises
+        rather than returning a truncated thread the reviewer would read as complete.
+        """
+        if not thread_id:
+            raise StamphogGitHubError(
+                f"A review thread on {repo}#{number} overflows its comment window but carries no node id"
+            )
+        collected: list[dict] = []
+        for _page in range(_MAX_PAGES):
+            response = self._request(
+                "POST",
+                "/graphql",
+                endpoint="/graphql",
+                json_body={"query": _THREAD_COMMENTS_QUERY, "variables": {"id": thread_id, "cursor": cursor}},
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch thread comments for {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            data = self._json(response, "/graphql")
+            if not isinstance(data, dict) or data.get("errors"):
+                raise StamphogGitHubError(f"GraphQL errors fetching thread comments for {repo}#{number}")
+            thread_node = (data.get("data") or {}).get("node")
+            if not isinstance(thread_node, dict):
+                raise StamphogGitHubError(f"Unexpected thread-comments payload for {repo}#{number}")
+            comment_page = thread_node.get("comments") or {}
+            collected.extend(_parse_review_thread_comments(comment_page.get("nodes") or []))
+            page_info = comment_page.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                return collected
+            cursor = page_info.get("endCursor")
+        raise StamphogGitHubError(
+            f"A review thread on {repo}#{number} exceeds {_MAX_PAGES} comment pages; "
+            "refusing to review a truncated thread"
         )
 
     def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
@@ -818,7 +1154,7 @@ class StamphogGitHubClient:
         PATCH their comment; candidates are filtered to this App's bot identity (see
         _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
         """
-        expected_login = _expected_sticky_comment_login()
+        expected_login = expected_app_bot_login()
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
