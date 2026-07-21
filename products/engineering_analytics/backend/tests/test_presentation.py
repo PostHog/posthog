@@ -9,7 +9,7 @@ from rest_framework import status
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
 
-_VIEWS = "products.engineering_analytics.backend.presentation.views.api"
+_VIEWS = "products.engineering_analytics.backend.facade.api"
 
 
 def _pr_lifecycle() -> contracts.PRLifecycle:
