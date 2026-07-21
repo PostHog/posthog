@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub im
     DubCursorPaginator,
     DubResumeConfig,
     _make_session,
+    _scrub_link_password,
     check_endpoint_access,
     dub_source,
     get_resource,
@@ -132,6 +133,34 @@ class TestGetResource:
         resource = get_resource("sale_events", True, None)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_every_resource_scrubs_link_passwords(self, endpoint: str) -> None:
+        # Link passwords are a credential to the short link's destination, not analytics data;
+        # without this map they'd land in a warehouse column any viewer could read.
+        assert get_resource(endpoint, False, None)["data_map"] is _scrub_link_password
+
+
+class TestScrubLinkPassword:
+    def test_strips_top_level_and_nested_link_password(self) -> None:
+        row = {
+            "id": "l1",
+            "password": "top-secret",
+            "url": "https://example.com",
+            "link": {"id": "l2", "password": "nested-secret", "domain": "dub.sh"},
+        }
+
+        scrubbed = _scrub_link_password(row)
+
+        assert "password" not in scrubbed
+        assert "password" not in scrubbed["link"]
+        assert scrubbed["url"] == "https://example.com"
+        assert scrubbed["link"]["domain"] == "dub.sh"
+
+    def test_leaves_rows_without_passwords_untouched(self) -> None:
+        row = {"id": "l1", "url": "https://example.com", "link": {"id": "l2"}}
+
+        assert _scrub_link_password(row) == row
 
 
 class TestDubSourceResumeBehavior:

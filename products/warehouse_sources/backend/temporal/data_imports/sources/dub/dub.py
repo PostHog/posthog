@@ -113,6 +113,18 @@ def _make_session(api_key: str) -> requests.Session:
     )
 
 
+def _scrub_link_password(item: dict[str, Any]) -> dict[str, Any]:
+    # Dub returns the plaintext `password` of protected links — at the top level on /links records
+    # and nested under each event's `link` object on /events. It's a credential to the short link's
+    # destination, not analytics data, so drop it before it lands in a warehouse column readable by
+    # anyone with table access.
+    item.pop("password", None)
+    link = item.get("link")
+    if isinstance(link, dict):
+        link.pop("password", None)
+    return item
+
+
 def get_resource(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -150,6 +162,7 @@ def get_resource(
         else "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
+        "data_map": _scrub_link_password,
     }
 
 
