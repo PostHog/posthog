@@ -16,7 +16,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
