@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.http import HttpRequest
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -15,6 +16,9 @@ from posthog.helpers.two_factor_session import (
     clear_code_based_verification_global_disable,
     get_code_based_verification_global_disable,
     is_code_based_verification_globally_disabled,
+    is_two_factor_enforcement_in_effect,
+    is_two_factor_session_expired,
+    is_two_factor_verified_in_session,
     set_code_based_verification_global_disable,
 )
 
@@ -286,3 +290,20 @@ class TestCodeBasedVerificationGlobalDisable(SimpleTestCase):
         # Reads must not raise, and must default to "not disabled" so email MFA stays enforced.
         self.assertFalse(is_code_based_verification_globally_disabled())
         self.assertIsNone(get_code_based_verification_global_disable())
+
+
+class TestSessionlessRequestGuards(SimpleTestCase):
+    # drf-spectacular walks viewsets during on-the-fly schema generation with a synthetic request that
+    # never passed through SessionMiddleware, so it has no `.session`. The session-reading 2FA helpers
+    # must fall back to their safe default instead of raising AttributeError.
+    @parameterized.expand(
+        [
+            (is_two_factor_verified_in_session, False),
+            (is_two_factor_session_expired, True),
+            (is_two_factor_enforcement_in_effect, False),
+        ]
+    )
+    def test_helper_returns_safe_default_without_session(self, helper, expected):
+        request = HttpRequest()
+        self.assertFalse(hasattr(request, "session"))
+        self.assertEqual(helper(request), expected)
