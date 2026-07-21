@@ -258,6 +258,7 @@ tools:
     organization-enforce-2fa:
         operation: partial_update
         enabled: true
+        feature_entitlement: 2fa_enforcement
         scopes:
             - organization:write
         annotations:
