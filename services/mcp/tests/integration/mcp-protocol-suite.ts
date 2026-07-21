@@ -1024,19 +1024,18 @@ export function defineToolBehaviorTests(
             expect(text.toLowerCase()).toContain('invalid')
         })
 
-        it('switch-project does a soft switch: a non-existent project id still resolves', async () => {
-            // switch-project writes the requested id to the cache before
-            // calling PostHog to fetch project metadata. When the project
-            // doesn't exist the metadata fetch fails, but the cache write
-            // has already landed — so the tool returns success and the
-            // content references the requested id. This is the documented
-            // soft-switch contract: agents pinning to an id they don't
-            // strictly own won't get a hard error.
+        it('switch-project validates the project: a non-existent project id returns an error', async () => {
+            // switch-project fetches the project from PostHog before committing
+            // the id to the session cache. When the project doesn't exist (or the
+            // session can't reach it), the fetch fails with a 404 and the tool
+            // returns an isError payload instead of silently "succeeding". This is
+            // the validating contract: agents can't pin to a project they don't
+            // actually have access to.
             const result = await client.callTool({
                 name: 'switch-project',
                 arguments: { projectId: 999_999_999 },
             })
-            expect(result.isError).toBeFalsy()
+            expect(result.isError).toBe(true)
             const text = decodeText(result.content)
             expect(text).toContain('999999999')
         })
