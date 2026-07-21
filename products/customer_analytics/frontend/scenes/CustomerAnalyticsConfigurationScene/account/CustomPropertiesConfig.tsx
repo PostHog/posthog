@@ -153,7 +153,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                     <h3 className="mb-0">Custom properties</h3>
                     <p className="text-secondary mb-0">Define typed properties to store on your accounts.</p>
                 </div>
-                <LemonButton type="primary" onClick={openCreateModal} disabledReason={restrictionReason}>
+                <LemonButton type="primary" onClick={() => openCreateModal()} disabledReason={restrictionReason}>
                     New custom property
                 </LemonButton>
             </div>
