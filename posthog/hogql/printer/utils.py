@@ -45,7 +45,7 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_redundant_type_operations,
 )
 from posthog.hogql.visitor import clone_expr
-from posthog.hogql.workload import WorkloadCollector
+from posthog.hogql.workload import MaterializedViewOnlyCollector, WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -310,6 +310,21 @@ def prepare_ast_for_printing(
     if dialect == "clickhouse":
         with context.timings.measure("simplify_argmax_over_non_nullable"):
             node = simplify_argmax_over_non_nullable(node, context)
+
+    # Route reads that touch only materialized-view S3 tables to the dedicated endpoints cluster — the
+    # same isolated S3-delta read path materialized endpoints use. Runs after lazy-table resolution so
+    # a lazy join to persons/events (which lives on another cluster) disqualifies the query. Only fires
+    # when no earlier table already pinned a workload (e.g. logs), for the ClickHouse dialect.
+    if (
+        dialect == "clickhouse"
+        and context.workload in (None, Workload.DEFAULT)
+        and context.modifiers.useEndpointsClusterForMaterializedViewOnlyQueries
+    ):
+        with context.timings.measure("materialized_view_workload_detection"):
+            mv_collector = MaterializedViewOnlyCollector()
+            mv_collector.visit(node)
+            if mv_collector.is_materialized_view_only:
+                context.workload = Workload.ENDPOINTS
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
