@@ -1,3 +1,4 @@
+import threading
 import dataclasses
 from collections import Counter
 from typing import Any, Optional
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.se
     MAX_PAGES_PER_SYNC,
     MAX_RESPONSE_BYTES,
     PAGE_SIZE,
+    READ_DEADLINE_SECONDS,
     READ_TIMEOUT_SECONDS,
     REQUEST_TIMEOUT_SECONDS,
     RESPONSE_READ_CHUNK_BYTES,
@@ -99,6 +101,34 @@ class _BoundedSession(_NoRedirectSession):
 
 
 def _read_capped(response: Response) -> bytes:
+    """Buffer the body under both a size cap and a hard wall-clock deadline.
+
+    READ_TIMEOUT_SECONDS is only a socket-inactivity timeout, so a host that drips a byte
+    before each idle window keeps the read blocked indefinitely while staying under the byte
+    cap. Read on a daemon thread and abandon it past READ_DEADLINE_SECONDS, closing the
+    response to unblock the socket, so a slow-drip host can't monopolize a worker.
+    """
+    result: dict[str, Any] = {}
+
+    def drain() -> None:
+        try:
+            result["body"] = _stream_under_cap(response)
+        except BaseException as exc:  # noqa: BLE001 — surfaced to the caller after the join below
+            result["error"] = exc
+
+    thread = threading.Thread(target=drain, daemon=True)
+    thread.start()
+    thread.join(READ_DEADLINE_SECONDS)
+    if thread.is_alive():
+        # Closing the response unblocks the raw read so the abandoned daemon thread can exit.
+        response.close()
+        raise ValueError(f"Baserow response body was not fully delivered within {READ_DEADLINE_SECONDS}s")
+    if "error" in result:
+        raise result["error"]
+    return result.get("body", b"")
+
+
+def _stream_under_cap(response: Response) -> bytes:
     # Stream *decoded* chunks and abort the instant the running total crosses the cap. A
     # single read(decode_content=True) would inflate the whole compressed body at once — a
     # gzipped page decompresses fully before any size check — so a bomb is bounded only by

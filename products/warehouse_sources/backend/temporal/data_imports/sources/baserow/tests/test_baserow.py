@@ -1,4 +1,5 @@
 import json
+import threading
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -202,6 +203,29 @@ class TestBoundedSession:
         ):
             with pytest.raises(ValueError, match="exceeded"):
                 _read_capped(_streamed_response([b"ab", b"cd"]))
+
+    def test_read_capped_aborts_on_slow_drip(self) -> None:
+        # READ_TIMEOUT_SECONDS is only socket-inactivity, so a host that trickles bytes stays
+        # under it forever; the wall-clock deadline abandons the stalled read and closes the
+        # response to unblock the socket.
+        stalled = threading.Event()
+
+        def stalled_stream(*_a: Any, **_k: Any) -> Iterable[bytes]:
+            stalled.wait()  # never delivers until the test releases it
+            yield b"x"
+
+        response = MagicMock()
+        response.raw.stream.side_effect = stalled_stream
+        try:
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow.READ_DEADLINE_SECONDS",
+                0.1,
+            ):
+                with pytest.raises(ValueError, match="not fully delivered"):
+                    _read_capped(response)
+            response.close.assert_called_once()
+        finally:
+            stalled.set()
 
     def test_send_defaults_timeout_and_streams_on_row_sync_path(self) -> None:
         # RESTClient.send() passes no timeout — the session must supply one so a stalled

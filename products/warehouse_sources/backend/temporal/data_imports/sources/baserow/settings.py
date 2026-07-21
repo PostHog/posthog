@@ -16,6 +16,14 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 CONNECT_TIMEOUT_SECONDS = 10.0
 READ_TIMEOUT_SECONDS = 30.0
 
+# Hard wall-clock ceiling on delivering a single response body. READ_TIMEOUT_SECONDS is only
+# a socket-inactivity timeout: a host that drips a byte before each idle window keeps the read
+# blocked indefinitely while staying under the byte cap. The body is read on a daemon thread
+# that is abandoned past this deadline (closing the response to unblock the socket), so a
+# slow-drip host can't monopolize an import worker. Generous for a legitimate page on a slow
+# link while still bounding a stalled transfer.
+READ_DEADLINE_SECONDS = 120.0
+
 # Hard per-response cap on decoded body bytes. `requests` buffers and decodes the whole
 # body before returning, so a hostile host could return an arbitrarily large — or highly
 # compressed — page and exhaust a worker's memory. The body is streamed and decoded
