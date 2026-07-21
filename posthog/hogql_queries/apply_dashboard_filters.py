@@ -14,6 +14,18 @@ _DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "
 # when set. Property filters are handled separately (stacked unless they contradict).
 _SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
 
+# Tile-only flag, not a filter value: it must never reach DashboardFilter(**effective_filters)
+# (extra="forbid"), so every merged output strips it.
+_IGNORE_DASHBOARD_FILTERS = "ignoreDashboardFilters"
+
+
+def _ignores_dashboard_filters(filters: dict | None) -> bool:
+    return bool(filters and filters.get(_IGNORE_DASHBOARD_FILTERS))
+
+
+def _without_ignore_flag(filters: dict) -> dict:
+    return {key: value for key, value in filters.items() if key != _IGNORE_DASHBOARD_FILTERS}
+
 
 class FilterLayerResolution(TypedDict):
     dashboard: dict
@@ -26,6 +38,17 @@ def resolve_filter_layers_by_priority(
 ) -> FilterLayerResolution:
     base = base_filters or {}
     override = override_filters or {}
+
+    if _ignores_dashboard_filters(override):
+        overridden_base = {key: value for key, value in base.items() if value is not None}
+        if overridden_base.get("properties") is not None:
+            overridden_base["properties"] = flatten_property_leaves(overridden_base["properties"])
+        return {
+            "dashboard": {},
+            "tile": override,
+            "overridden_dashboard": overridden_base,
+        }
+
     effective_base = {**base}
     overridden_base: dict = {}
 
@@ -87,11 +110,22 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
 
     Overriding the insight's own base filters (not just the lower-priority layer's) is handled separately
     by `remove_query_properties_overridden_by`, which the override-aware call sites apply to the query.
+
+    An override with `ignoreDashboardFilters` drops the base layer entirely: only the override's own
+    values apply. The flag itself is stripped from every merged result, since the output feeds
+    `DashboardFilter(**...)` which forbids extra keys.
     """
+    if override_filters:
+        if override_filters.get(_IGNORE_DASHBOARD_FILTERS):
+            effective = _without_ignore_flag(override_filters)
+            if effective.get("properties") is not None:
+                effective["properties"] = flatten_property_leaves(effective["properties"])
+            return effective
+        override_filters = _without_ignore_flag(override_filters)
     if not override_filters:
         return base_filters or {}
     if not base_filters:
-        return override_filters or {}
+        return override_filters
 
     resolved_layers = resolve_filter_layers_by_priority(base_filters, override_filters)
     merged = {**resolved_layers["dashboard"]}

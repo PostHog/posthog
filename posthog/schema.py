@@ -23969,6 +23969,12 @@ class TileFilters(BaseModel):
     date_to: str | None = None
     explicitDate: bool | None = None
     filterTestAccounts: bool | None = None
+    ignoreDashboardFilters: bool | None = Field(
+        default=None,
+        description=(
+            "When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply."
+        ),
+    )
     interval: IntervalType | None = None
     properties: (
         list[

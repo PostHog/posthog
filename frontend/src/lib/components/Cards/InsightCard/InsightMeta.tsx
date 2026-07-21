@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -81,6 +81,8 @@ interface InsightMetaProps extends Pick<
     | 'loadingQueued'
     | 'rename'
     | 'setOverride'
+    | 'toggleIgnoreDashboardFilters'
+    | 'ignoreDashboardFiltersSaving'
     | 'duplicate'
     | 'dashboardId'
     | 'moveToDashboard'
@@ -111,7 +113,13 @@ export function getEffectiveDateOverride(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
     const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
     const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
     const source = tileHasDate ? tileFilters : dashboardFilters
@@ -135,6 +143,8 @@ export function InsightMeta({
     rename,
     duplicate,
     setOverride,
+    toggleIgnoreDashboardFilters,
+    ignoreDashboardFiltersSaving,
     moveToDashboard,
     copyToDashboard,
     areDetailsShown,
@@ -198,12 +208,15 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
-    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
+    const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
+    // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
+    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides,
+        ignoresDashboardFilters,
         resolvedDateRange: insightData?.resolved_date_range,
         ...dateOverride,
     }
@@ -465,6 +478,19 @@ export function InsightMeta({
                                 {tile && (
                                     <LemonButton onClick={setOverride} fullWidth>
                                         Set override
+                                    </LemonButton>
+                                )}
+                                {tile && toggleIgnoreDashboardFilters && (
+                                    <LemonButton
+                                        onClick={toggleIgnoreDashboardFilters}
+                                        fullWidth
+                                        loading={ignoreDashboardFiltersSaving}
+                                        active={ignoresDashboardFilters}
+                                        sideIcon={ignoresDashboardFilters ? <IconCheck /> : null}
+                                        tooltip="When on, none of the dashboard's filters apply to this insight. Tile overrides still do."
+                                        data-attr="toggle-tile-ignore-dashboard-filters"
+                                    >
+                                        Ignore dashboard filters
                                     </LemonButton>
                                 )}
                             </>

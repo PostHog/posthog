@@ -84,6 +84,7 @@ import {
     HogQLVariable,
     NodeKind,
     RefreshType,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -333,6 +334,7 @@ export interface dashboardLogicValues {
     terraformModalOpen: boolean
     textTileId: number | 'new' | null
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+    tileIgnoreDashboardFiltersSavingIds: number[]
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
@@ -787,6 +789,13 @@ export interface dashboardLogicActions {
     setTextTileId: (textTileId: number | 'new' | null) => {
         textTileId: number | 'new' | null
     }
+    setTileIgnoreDashboardFiltersSaving: (
+        tileId: number,
+        saving: boolean
+    ) => {
+        saving: boolean
+        tileId: number
+    }
     setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => {
         tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
     }
@@ -832,6 +841,9 @@ export interface dashboardLogicActions {
     }
     toggleTileDescription: (tileId: number) => {
         tileId: number
+    }
+    toggleTileIgnoreDashboardFilters: (tile: DashboardTile<QueryBasedInsightModel>) => {
+        tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
     }
     triggerDashboardRefresh: () => {
         value: true
@@ -1293,6 +1305,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
+        toggleTileIgnoreDashboardFilters: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
+        setTileIgnoreDashboardFiltersSaving: (tileId: number, saving: boolean) => ({ tileId, saving }),
 
         /**
          * Usage tracking.
@@ -2100,6 +2114,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setButtonTileId: (_, { buttonTileId }) => buttonTileId,
+            },
+        ],
+
+        tileIgnoreDashboardFiltersSavingIds: [
+            [] as number[],
+            {
+                setTileIgnoreDashboardFiltersSaving: (state, { tileId, saving }) =>
+                    saving ? [...state, tileId] : state.filter((id) => id !== tileId),
             },
         ],
 
@@ -4112,6 +4134,41 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
+        },
+        toggleTileIgnoreDashboardFilters: async ({ tile }) => {
+            if (values.tileIgnoreDashboardFiltersSavingIds.includes(tile.id)) {
+                return
+            }
+            const nextIgnored = !tile.filters_overrides?.ignoreDashboardFilters
+            const nextOverrides: TileFilters = { ...tile.filters_overrides }
+            if (nextIgnored) {
+                nextOverrides.ignoreDashboardFilters = true
+            } else {
+                delete nextOverrides.ignoreDashboardFilters
+            }
+
+            actions.setTileIgnoreDashboardFiltersSaving(tile.id, true)
+            try {
+                await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                    tiles: [{ id: tile.id, filters_overrides: nextOverrides }],
+                })
+                tile.filters_overrides = nextOverrides
+                eventUsageLogic.actions.reportDashboardTileIgnoreDashboardFiltersToggled(
+                    props.id,
+                    tile.insight?.id ?? null,
+                    nextIgnored
+                )
+                actions.refreshDashboardItem({ tile })
+                lemonToast.success(
+                    nextIgnored
+                        ? 'This insight now ignores dashboard filters'
+                        : 'This insight follows dashboard filters again'
+                )
+            } catch {
+                lemonToast.error('Could not update the tile. Please try again.')
+            } finally {
+                actions.setTileIgnoreDashboardFiltersSaving(tile.id, false)
+            }
         },
     })),
 
