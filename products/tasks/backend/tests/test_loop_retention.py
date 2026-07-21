@@ -99,11 +99,11 @@ class TestSweepLoopTaskRetention(LoopRetentionTestCase):
         real_soft_delete = Task.soft_delete
         calls = {"n": 0}
 
-        def flaky_soft_delete(task_self):
+        def flaky_soft_delete(task_self, capture_fn=None):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("boom")
-            return real_soft_delete(task_self)
+            return real_soft_delete(task_self, capture_fn=capture_fn)
 
         with (
             patch.object(Task, "soft_delete", flaky_soft_delete),

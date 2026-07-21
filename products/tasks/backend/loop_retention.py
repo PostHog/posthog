@@ -16,6 +16,7 @@ from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.tasks.backend.models import LoopFire, Task, TaskRun
@@ -50,19 +51,22 @@ def sweep_loop_task_retention(retention_limit: int = LOOP_TASK_RETENTION_LIMIT) 
         return 0
 
     deleted_count = 0
-    for task in Task.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-        id__in=deletable_task_ids, deleted=False
-    ):
-        try:
-            task.soft_delete()
-            deleted_count += 1
-        except SoftTimeLimitExceeded:
-            raise
-        except Exception as exc:
-            # One bad row must not abort the whole sweep (and block pruning for every later day);
-            # capture and move on, mirroring kill_stale_queued_task_runs.
-            capture_exception(exc)
-            logger.exception("loop_retention.task_soft_delete_failed", task_id=str(task.id))
+    # ph_scoped_capture: soft_delete emits task_deleted, and the global analytics client
+    # silently drops events in Celery workers.
+    with ph_scoped_capture() as capture:
+        for task in Task.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            id__in=deletable_task_ids, deleted=False
+        ):
+            try:
+                task.soft_delete(capture_fn=capture)
+                deleted_count += 1
+            except SoftTimeLimitExceeded:
+                raise
+            except Exception as exc:
+                # One bad row must not abort the whole sweep (and block pruning for every later day);
+                # capture and move on, mirroring kill_stale_queued_task_runs.
+                capture_exception(exc)
+                logger.exception("loop_retention.task_soft_delete_failed", task_id=str(task.id))
     return deleted_count
 
 

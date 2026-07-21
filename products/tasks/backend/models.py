@@ -315,7 +315,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             surface=DESKTOP_SURFACE,
         )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(
+        self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
+    ) -> None:
+        # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
+        # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
             distinct_id = (
                 str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
@@ -330,7 +334,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
+            (capture_fn or posthoganalytics.capture)(
                 distinct_id=distinct_id,
                 event=event,
                 properties=all_properties,
@@ -461,13 +465,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task.save(update_fields=["state", "updated_at"])
         self.state = state
 
-    def soft_delete(self):
+    def soft_delete(self, capture_fn: Callable[..., None] | None = None):
         self.deleted = True
         self.deleted_at = django_timezone.now()
         self.save()
         self.capture_event(
             "task_deleted",
             {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
+            capture_fn=capture_fn,
         )
 
     def delete(self, *args, **kwargs):
