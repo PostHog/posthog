@@ -3,7 +3,7 @@ import { createHash } from 'crypto'
 import { decodeCanonicalBase64, isCanonicalBase64 } from './base64'
 import { encodeBlobPointer, isBlobPointer } from './pointer'
 
-export type BlobDetector = 'data_uri' | 'anthropic_source' | 'gemini_inline_data' | 'openai_input_audio'
+export type BlobDetector = 'data_uri' | 'anthropic_source' | 'gemini_inline_data' | 'openai_input_audio' | 'raw_base64'
 
 export interface DetectedBlob {
     bytes: Buffer
@@ -25,6 +25,8 @@ const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/
 // Length-capped (RFC 4288 gives each of type/subtype 127 chars): the mime flows into the
 // S3 Content-Type header and the pointer URI, so an unbounded value is a poison pill.
 const MIME = /^(?=.{1,255}$)[\w.+-]+\/[\w.+-]+$/
+
+const RAW_BASE64_MIME = 'application/octet-stream'
 
 interface Extraction {
     blobsByHash: Map<string, DetectedBlob>
@@ -63,11 +65,22 @@ function extractFromString(state: Extraction, value: string): string {
     if (isBlobPointer(value)) {
         return value
     }
-    const match = DATA_URI.exec(value)
-    if (!match || !MIME.test(match[1])) {
+    if (value.startsWith('data:')) {
+        const match = DATA_URI.exec(value)
+        if (!match || !MIME.test(match[1])) {
+            return value
+        }
+        const pointer = pointerFor(state, match[2].replace(/\s+/g, ''), match[1], 'data_uri', true)
+        if (pointer) {
+            state.savedChars += value.length - pointer.length
+            return pointer
+        }
         return value
     }
-    const pointer = pointerFor(state, match[2].replace(/\s+/g, ''), match[1], 'data_uri', true)
+    // Blind path: byte-strict (no whitespace compaction) so the stored bytes
+    // reconstruct the exact original string; sub-floor strings are not counted
+    // below-floor (every short ID would pollute the metric).
+    const pointer = pointerFor(state, value, RAW_BASE64_MIME, 'raw_base64', false)
     if (pointer) {
         state.savedChars += value.length - pointer.length
         return pointer

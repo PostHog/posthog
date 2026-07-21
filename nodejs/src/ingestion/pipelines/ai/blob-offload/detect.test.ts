@@ -11,6 +11,8 @@ const PNG_HASH = createHash('sha256').update(PNG_BYTES).digest('hex')
 const JPEG_BYTES = Buffer.alloc(20000, 9)
 const JPEG_B64 = JPEG_BYTES.toString('base64')
 const JPEG_HASH = createHash('sha256').update(JPEG_BYTES).digest('hex')
+const AUDIO_BYTES = Buffer.alloc(98304, 3)
+const AUDIO_B64 = AUDIO_BYTES.toString('base64')
 const OPTS = { minBase64Length: 8192 }
 
 describe('extractBlobs', () => {
@@ -72,11 +74,18 @@ describe('extractBlobs', () => {
         expect(result.blobs[0].detector).toBe('openai_input_audio')
     })
 
-    it('does not detect {data, format} objects outside an input_audio key', () => {
+    it('offloads {data, format} outside input_audio via blind path, not the audio detector', () => {
         const input = { report: { data: PNG_B64, format: 'summary' } }
         const result = extractBlobs(input, OPTS)
-        expect(result.blobs).toHaveLength(0)
-        expect(result.value).toEqual(input)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.blobs[0]).toMatchObject({ detector: 'raw_base64', mime: 'application/octet-stream' })
+    })
+
+    it('offloads a provider shape with an oversized mime via blind path with a safe mime', () => {
+        const input = { source: { type: 'base64', media_type: `image/${'x'.repeat(300)}`, data: PNG_B64 } }
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.blobs[0]).toMatchObject({ detector: 'raw_base64', mime: 'application/octet-stream' })
     })
 
     it('dedupes the same content arriving via different shapes to one blob', () => {
@@ -114,10 +123,6 @@ describe('extractBlobs', () => {
             'padding-misaligned base64 charset string',
             { inline_data: { mime_type: 'text/plain', data: 'A'.repeat(8193) } },
         ],
-        [
-            'oversized mime in a provider shape',
-            { source: { type: 'base64', media_type: `image/${'x'.repeat(300)}`, data: PNG_B64 } },
-        ],
         ['oversized mime in a data URI', { image_url: { url: `data:image/${'x'.repeat(300)};base64,${PNG_B64}` } }],
     ])('passes through untouched: %s', (_name, input) => {
         const result = extractBlobs(input, OPTS)
@@ -129,11 +134,11 @@ describe('extractBlobs', () => {
         ['crlf header injection', 'mp3\r\nX-Injected: 1'],
         ['non-latin1 characters', 'mp3🎵'],
         ['spaces', 'mp3 audio'],
-    ])('leaves input_audio inline when format is not a valid mime subtype (%s)', (_name, format) => {
+    ])('offloads input_audio with a hostile format via blind path, ignoring the format (%s)', (_name, format) => {
         const input = { type: 'input_audio', input_audio: { data: PNG_B64, format } }
         const result = extractBlobs(input, OPTS)
-        expect(result.blobs).toHaveLength(0)
-        expect(result.value).toEqual(input)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.blobs[0]).toMatchObject({ detector: 'raw_base64', mime: 'application/octet-stream' })
     })
 
     it.each([
@@ -173,5 +178,44 @@ describe('extractBlobs', () => {
         expect(result.blobs).toHaveLength(1)
         expect(result.blobs[0].mime).toBe('image/png')
         expect(result.blobs[0].bytes.equals(PNG_BYTES)).toBe(true)
+    })
+
+    it('offloads shapeless raw base64 (openai audio output part) via the blind path', () => {
+        const input = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'audio',
+                        id: 'audio_6a5f3b1f',
+                        expires_at: 1784629551,
+                        transcript: 'The capital of France is Paris.',
+                        data: AUDIO_B64,
+                    },
+                ],
+            },
+        ]
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.blobs[0]).toMatchObject({ detector: 'raw_base64', mime: 'application/octet-stream' })
+        expect(result.blobs[0].bytes.equals(AUDIO_BYTES)).toBe(true)
+        const part = (result.value as typeof input)[0].content[0]
+        expect(parseBlobPointer(part.data)?.mime).toBe('application/octet-stream')
+        expect(part.transcript).toBe('The capital of France is Paris.')
+    })
+
+    it('leaves whitespace-wrapped bare base64 inline (blind path is byte-strict)', () => {
+        const wrapped = `${AUDIO_B64.slice(0, 60000)}\n${AUDIO_B64.slice(60001)}`
+        const result = extractBlobs({ content: wrapped }, OPTS)
+        expect(result.blobs).toHaveLength(0)
+        expect((result.value as { content: string }).content).toBe(wrapped)
+    })
+
+    it('leaves sub-floor raw base64 inline without below-floor counting', () => {
+        const embedding = Buffer.alloc(6144, 1).toString('base64')
+        const result = extractBlobs({ content: embedding }, { minBase64Length: 20480 })
+        expect(result.blobs).toHaveLength(0)
+        expect(result.belowFloorCount).toBe(0)
+        expect(result.value).toEqual({ content: embedding })
     })
 })
