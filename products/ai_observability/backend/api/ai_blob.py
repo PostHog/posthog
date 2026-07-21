@@ -13,7 +13,10 @@ INLINE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
 class AIBlobViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+    # llm_analytics (not INTERNAL) so resource-level access controls apply to blob reads.
+    # Deliberately no scope_object_read_actions: the custom action then rejects API keys,
+    # keeping this endpoint session-only for v1.
+    scope_object = "llm_analytics"
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["GET"], url_path=r"v1/sha256/(?P<hash>[0-9a-f]{64})")
@@ -29,8 +32,7 @@ class AIBlobViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             response = HttpResponse(body, content_type="application/octet-stream")
             # Bare attachment: a filename here would override the frontend's `download` attribute.
             response["Content-Disposition"] = "attachment"
-        # Content-addressed: the hash IS the content, so the asset is immutable forever.
-        response["Cache-Control"] = "private, max-age=31536000, immutable"
+        response["Cache-Control"] = "private, max-age=86400, immutable"
         response["ETag"] = f'"{hash}"'
         response["X-Content-Type-Options"] = "nosniff"
         return response

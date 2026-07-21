@@ -34,7 +34,7 @@ export function resolveAiBlobUrl(value: string, teamId: number | string | null):
     if (!pointer || teamId === null || teamId === undefined || teamId === '') {
         return value
     }
-    return `/api/environments/${teamId}/ai_blob/${pointer.version}/${pointer.algo}/${pointer.hash}`
+    return `/api/projects/${teamId}/ai_blob/${pointer.version}/${pointer.algo}/${pointer.hash}`
 }
 
 /**

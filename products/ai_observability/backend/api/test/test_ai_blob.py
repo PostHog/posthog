@@ -8,7 +8,7 @@ HASH = "a" * 64
 
 class TestAIBlobEndpoint(APIBaseTest):
     def _url(self, team_id: int | None = None, hash: str = HASH) -> str:
-        return f"/api/environments/{team_id or self.team.pk}/ai_blob/v1/sha256/{hash}"
+        return f"/api/projects/{team_id or self.team.pk}/ai_blob/v1/sha256/{hash}"
 
     @patch("products.ai_observability.backend.api.ai_blob.object_storage.read_object")
     def test_serves_inline_image_with_immutable_caching(self, mock_read) -> None:
@@ -17,7 +17,7 @@ class TestAIBlobEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.content == b"png-bytes"
         assert response["Content-Type"] == "image/png"
-        assert response["Cache-Control"] == "private, max-age=31536000, immutable"
+        assert response["Cache-Control"] == "private, max-age=86400, immutable"
         assert response["ETag"] == f'"{HASH}"'
         assert response["X-Content-Type-Options"] == "nosniff"
         assert mock_read.call_args.args[0] == f"aio/{self.team.pk}/sha256/{HASH}"
