@@ -9,6 +9,7 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.settings import (
     CONTACTS,
+    MAX_REQUEST_IDS,
     MESSAGE_STATUS,
     PHONE_NUMBERS,
     PHONE_REGISTRATIONS,
@@ -41,8 +42,14 @@ def _drive(endpoint: str, responses: list[Response], request_ids: str | None = N
     sent: list[dict] = []
     response_iter = iter(responses)
 
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent.append({"url": request.url, "params": dict(request.params or {})})
+    def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+        sent.append(
+            {
+                "url": request.url,
+                "params": dict(request.params or {}),
+                "allow_redirects": kwargs.get("allow_redirects"),
+            }
+        )
         return next(response_iter)
 
     with patch(
@@ -85,6 +92,17 @@ class TestParseRequestIds:
     def test_parses_and_dedupes(self, raw: str | None, expected: list[str]) -> None:
         assert parse_request_ids(raw) == expected
 
+    def test_caps_list_to_bound_worker_time(self) -> None:
+        # Each id is one serial HTTP request per sync; an unbounded list would let a single
+        # source occupy an import worker indefinitely.
+        raw = ",".join(f"id-{i}" for i in range(MAX_REQUEST_IDS + 5))
+
+        parsed = parse_request_ids(raw)
+
+        assert len(parsed) == MAX_REQUEST_IDS
+        assert parsed[0] == "id-0"
+        assert parsed[-1] == f"id-{MAX_REQUEST_IDS - 1}"
+
 
 class TestMessageStatus:
     def test_fetches_one_status_per_request_id(self) -> None:
@@ -99,6 +117,8 @@ class TestMessageStatus:
             "https://api.tyntec.com/messaging/v1/messages/id-1",
             "https://api.tyntec.com/messaging/v1/messages/id-2",
         ]
+        # Redirects must not be followed: the apikey header would replay to the redirect target.
+        assert all(req["allow_redirects"] is False for req in sent)
 
     def test_request_id_is_url_quoted(self) -> None:
         responses = [_make_http_response({"requestId": "a/b"})]
@@ -164,6 +184,8 @@ class TestListEndpoints:
         assert rows == expected_rows
         assert len(sent) == 1
         assert sent[0]["url"] == path
+        # Redirects must not be followed: the apikey header would replay to the redirect target.
+        assert sent[0]["allow_redirects"] is False
 
     def test_phone_numbers_requests_full_documented_cap(self) -> None:
         _, sent = _drive(PHONE_NUMBERS, [_make_http_response({"provisioningRequests": [], "size": 0})])
@@ -200,3 +222,4 @@ class TestValidateCredentials:
 
             _, kwargs = mock_session.get.call_args
             assert kwargs["headers"] == {"apikey": "test-key"}
+            assert kwargs["allow_redirects"] is False

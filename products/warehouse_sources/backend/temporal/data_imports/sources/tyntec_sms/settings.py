@@ -44,6 +44,10 @@ PRIMARY_KEYS: dict[str, list[str]] = {
 # same rows forever.
 PHONEBOOK_MAX_SIZE = 3000
 
+# Each configured request id costs one serial HTTP request per sync, so cap the list to keep
+# a single source from occupying an import worker with unbounded work.
+MAX_REQUEST_IDS = 1000
+
 ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     MESSAGE_STATUS: "Delivery status of sent SMS messages, fetched per request ID configured on the source.",
     CONTACTS: "Contacts registered with tyntec's BYON (bring-your-own-number) contact service.",
