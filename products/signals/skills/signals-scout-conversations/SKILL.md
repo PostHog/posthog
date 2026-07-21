@@ -61,14 +61,14 @@ Re-running with the same key idempotently refreshes the timestamp.
 
 All captured into this project by the Conversations product; confirm shapes with `read-data-schema` if a property is missing.
 
-| Event                                | Key properties                                                                            | Powers                                       |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `$conversation_ticket_created`       | `ticket_id`, `ticket_number`, `channel_source`, `channel_detail`, `status`, `priority`    | Inflow, channel mix                          |
-| `$conversation_message_sent`         | team reply; `sla_active`, `sla_breached`, `sla_delta_seconds`, `assignee_type`, `ticket_id` | SLA attainment, first-response, assignment |
-| `$conversation_message_received`     | customer message; `ticket_id`                                                             | Inbound activity, back-and-forth            |
-| `$conversation_ticket_status_changed`| `old_status`, `new_status`                                                                | Resolution rate, reopens                     |
-| `$conversation_ticket_assigned`      | `assignee_type`, `assignee_id`, `assignee_role_name`                                      | Routing                                      |
-| `$conversation_ticket_priority_changed` | `old_priority`, `new_priority`                                                         | Priority-mix shifts                          |
+| Event                                   | Key properties                                                                              | Powers                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `$conversation_ticket_created`          | `ticket_id`, `ticket_number`, `channel_source`, `channel_detail`, `status`, `priority`      | Inflow, channel mix                        |
+| `$conversation_message_sent`            | team reply; `sla_active`, `sla_breached`, `sla_delta_seconds`, `assignee_type`, `ticket_id` | SLA attainment, first-response, assignment |
+| `$conversation_message_received`        | customer message; `ticket_id`                                                               | Inbound activity, back-and-forth           |
+| `$conversation_ticket_status_changed`   | `old_status`, `new_status`                                                                  | Resolution rate, reopens                   |
+| `$conversation_ticket_assigned`         | `assignee_type`, `assignee_id`, `assignee_role_name`                                        | Routing                                    |
+| `$conversation_ticket_priority_changed` | `old_priority`, `new_priority`                                                              | Priority-mix shifts                        |
 
 `sla_delta_seconds` is positive when past due, negative when time remains. `assignee_type` is `user`, `role`, or null (unassigned).
 
@@ -85,15 +85,15 @@ Cycle between these moves; skip what's not useful.
 
 ### Profile shape
 
-| Pattern                                                            | What it usually means                                                |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Breach share up, reply volume flat                                 | Real SLA regression — investigate first                              |
-| First-response p90 blows out, inflow flat                          | Coverage gap / understaffed window                                   |
-| Created ≫ resolved for several days running                        | Backlog building — support falling behind                            |
-| One `channel_source` surges while others hold                      | Channel-specific incident or campaign inflow                         |
-| Unassigned share of new tickets rising                             | Routing/triage breakdown                                             |
-| Breach share up **and** reply volume up together                   | Load-driven, not a process break — weaker signal, weight by severity |
-| Any rate spike on a tiny denominator (< ~15 in the window)         | Noise — fails the minimum-volume guard                               |
+| Pattern                                                    | What it usually means                                                |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| Breach share up, reply volume flat                         | Real SLA regression — investigate first                              |
+| First-response p90 blows out, inflow flat                  | Coverage gap / understaffed window                                   |
+| Created ≫ resolved for several days running                | Backlog building — support falling behind                            |
+| One `channel_source` surges while others hold              | Channel-specific incident or campaign inflow                         |
+| Unassigned share of new tickets rising                     | Routing/triage breakdown                                             |
+| Breach share up **and** reply volume up together           | Load-driven, not a process break — weaker signal, weight by severity |
+| Any rate spike on a tiny denominator (< ~15 in the window) | Noise — fails the minimum-volume guard                               |
 
 ### Explore
 
