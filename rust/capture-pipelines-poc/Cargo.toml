@@ -1,0 +1,20 @@
+[package]
+name = "capture-pipelines-poc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# POC crate: demonstrate the capture pipelines framework with static dispatch only.
+# No runtime dependencies — the whole framework is generics + macro_rules! over std.
+[dependencies]
+
+[dev-dependencies]
+# tokio only to drive the async chunk-step demos in tests; the library itself is
+# runtime-agnostic (async-fn-in-trait desugars without a runtime).
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints.rust]
+# The async chunk-step trait is intentionally public with `async fn`. In a single-
+# threaded demo we don't need the `Send` bound the lint guards against; the real
+# framework would spell the bound out explicitly.
+async_fn_in_trait = "allow"
