@@ -1418,13 +1418,20 @@ class ExperimentSessionMetricHitSerializer(serializers.Serializer):
         help_text="UUID of the experiment metric (inline primary/secondary or saved) whose events fired."
     )
     metric_name = serializers.CharField(
-        help_text="Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed."
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
     )
     event_count = serializers.IntegerField(
-        help_text="Number of events in the session matching any of the metric's event/action sources."
+        help_text="Total number of events in the session matching any of the metric's event/action sources."
     )
     first_timestamp = serializers.DateTimeField(
         help_text="Timestamp of the first event in the session matching the metric."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of the metric's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
     )
 
 

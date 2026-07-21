@@ -2118,12 +2118,14 @@ export interface CreateFromPromptInputApi {
 export interface ExperimentSessionMetricHitApi {
     /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
     metric_uuid: string
-    /** Display name of the metric, or a stable fallback derived from its UUID when the metric is unnamed. */
+    /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
     metric_name: string
-    /** Number of events in the session matching any of the metric's event/action sources. */
+    /** Total number of events in the session matching any of the metric's event/action sources. */
     event_count: number
     /** Timestamp of the first event in the session matching the metric. */
     first_timestamp: string
+    /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
 }
 
 /**

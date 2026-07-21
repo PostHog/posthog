@@ -33,6 +33,12 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
                     event_count: 3,
                     // Inside the recording_meta mock's bounds — renders as a seekable jump link.
                     first_timestamp: '2023-05-01T14:46:26.000000Z',
+                    // Three in-bounds occurrences — renders per-event seek chips.
+                    timestamps: [
+                        '2023-05-01T14:46:26.000000Z',
+                        '2023-05-01T14:46:31.000000Z',
+                        '2023-05-01T14:46:44.000000Z',
+                    ],
                 },
                 {
                     metric_uuid: 'metric-2',
@@ -40,6 +46,7 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
                     event_count: 1,
                     // Outside the recording bounds (backend ±1h slack) — renders without a jump link.
                     first_timestamp: '2023-05-01T15:20:00.000000Z',
+                    timestamps: ['2023-05-01T15:20:00.000000Z'],
                 },
             ],
         }),

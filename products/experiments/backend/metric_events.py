@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 # applies an implicit LIMIT 100 per union branch, which would silently truncate legitimate rows.
 MAX_METRIC_HIT_ROWS = 10_000
 
+# Per hit we return the first N event timestamps as seek points; event_count carries the true
+# total, so a busier metric shows the real count and the UI notes the seek points are capped.
+MAX_METRIC_EVENT_TIMESTAMPS = 50
+
 MetricSourceNode = EventsNode | ActionsNode
 
 
@@ -76,6 +80,9 @@ class MetricHit:
     metric_name: str
     event_count: int
     first_timestamp: datetime
+    # The first MAX_METRIC_EVENT_TIMESTAMPS event timestamps, ascending — seek points for the
+    # player. event_count is the true total, so this can be shorter than event_count.
+    timestamps: tuple[datetime, ...]
 
 
 def _metric_source_nodes(metric: ExperimentMetric) -> list[MetricSourceNode | ExperimentDataWarehouseNode]:
@@ -209,7 +216,8 @@ def scan_sessions_for_metric_events(
             SELECT {metric_uuid} AS metric_uuid,
                    $session_id AS session_id,
                    count() AS event_count,
-                   min(timestamp) AS first_timestamp
+                   min(timestamp) AS first_timestamp,
+                   arraySlice(arraySort(groupArray(timestamp)), 1, {max_timestamps}) AS timestamps
             FROM events
             WHERE {metric_conditions}
               AND $session_id IN {session_ids}
@@ -223,6 +231,7 @@ def scan_sessions_for_metric_events(
                 "session_ids": ast.Constant(value=session_ids),
                 "window_start": ast.Constant(value=window_start),
                 "window_end": ast.Constant(value=window_end),
+                "max_timestamps": ast.Constant(value=MAX_METRIC_EVENT_TIMESTAMPS),
             },
         )
         assert isinstance(branch, ast.SelectQuery)
@@ -243,7 +252,7 @@ def scan_sessions_for_metric_events(
     response = execute_hogql_query(query, team=team, user=user)
 
     hits: dict[str, list[MetricHit]] = {}
-    for metric_uuid, session_id, event_count, first_timestamp in response.results or []:
+    for metric_uuid, session_id, event_count, first_timestamp, timestamps in response.results or []:
         if not event_count:
             continue
         hits.setdefault(str(session_id), []).append(
@@ -252,6 +261,7 @@ def scan_sessions_for_metric_events(
                 metric_name=names_by_uuid[str(metric_uuid)],
                 event_count=int(event_count),
                 first_timestamp=first_timestamp,
+                timestamps=tuple(timestamps),
             )
         )
     for session_hits in hits.values():

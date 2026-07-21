@@ -256,6 +256,11 @@ class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin
         assert hit.metric_name == "Purchases"
         assert hit.event_count == 2
         assert hit.first_timestamp == datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC)
+        # Every in-window event is returned as an ascending seek point, not just the first.
+        assert hit.timestamps == (
+            datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC),
+            datetime(2026, 1, 1, 10, 10, 0, tzinfo=UTC),
+        )
 
     def test_honors_source_node_property_filters(self) -> None:
         filtered = _metric(

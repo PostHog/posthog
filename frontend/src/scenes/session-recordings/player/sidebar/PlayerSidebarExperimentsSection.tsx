@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconWarning } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconExternal, IconWarning } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,7 +8,9 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -46,33 +48,72 @@ function VariantTag({ item }: { item: ExperimentSessionContextItemApi }): JSX.El
     )
 }
 
+// Above this many in-bounds occurrences the per-event seek chips collapse behind a toggle so a
+// busy metric doesn't flood the sidebar.
+const INLINE_METRIC_EVENT_LIMIT = 6
+
+function MetricEventChips({
+    seekPoints,
+    onSeek,
+}: {
+    seekPoints: { ms: number; offsetSeconds: number }[]
+    onSeek: (timestampMs: number) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-row flex-wrap gap-1 pl-3">
+            {seekPoints.map(({ ms, offsetSeconds }) => (
+                <Link
+                    key={ms}
+                    className="font-mono tabular-nums"
+                    title="Jump to this event"
+                    onClick={() => onSeek(ms)}
+                    data-attr="replay-experiment-context-jump-to-metric-event"
+                >
+                    {colonDelimitedDuration(offsetSeconds, 2)}
+                </Link>
+            ))}
+        </div>
+    )
+}
+
 function MetricHitRow({
     hit,
-    canSeek,
+    recordingStartMs,
+    isWithinRecording,
     onSeek,
 }: {
     hit: ExperimentSessionMetricHitApi
-    canSeek: boolean
-    onSeek: () => void
+    recordingStartMs: number | null
+    isWithinRecording: (timestampMs: number | null) => timestampMs is number
+    onSeek: (timestampMs: number) => void
 }): JSX.Element {
-    const label = `Jump to first ${hit.metric_name} event`
+    // Only in-bounds occurrences are seekable — the backend's ±1h slack can place some outside the
+    // playable recording. Each becomes a chip labelled with its offset from the recording start.
+    const seekPoints = hit.timestamps
+        .map((timestamp) => dayjs(timestamp).valueOf())
+        .filter((ms): ms is number => isWithinRecording(ms))
+        .map((ms) => ({ ms, offsetSeconds: recordingStartMs != null ? Math.floor((ms - recordingStartMs) / 1000) : 0 }))
+
     return (
-        <div className="flex flex-row items-center gap-x-2 min-w-0 pl-3 text-xs">
-            {canSeek ? (
-                <Link
-                    className="truncate flex-1 min-w-0"
-                    title={`Jump to the first ${hit.metric_name} event in this session`}
-                    onClick={onSeek}
-                    data-attr="replay-experiment-context-jump-to-first-metric-event"
-                >
-                    {label}
-                </Link>
+        <div className="flex flex-col gap-y-0.5 min-w-0 pl-3 text-xs">
+            <span className="truncate">{hit.metric_name}</span>
+            {seekPoints.length === 0 ? (
+                <span className="pl-3 text-muted">Fired outside the recording</span>
+            ) : seekPoints.length > INLINE_METRIC_EVENT_LIMIT ? (
+                <LemonCollapse
+                    embedded
+                    size="small"
+                    panels={[
+                        {
+                            key: 'events',
+                            header: `${seekPoints.length} events`,
+                            content: <MetricEventChips seekPoints={seekPoints} onSeek={onSeek} />,
+                        },
+                    ]}
+                />
             ) : (
-                <span className="truncate flex-1 min-w-0 text-secondary">{hit.metric_name}</span>
+                <MetricEventChips seekPoints={seekPoints} onSeek={onSeek} />
             )}
-            <span className="shrink-0 text-secondary">
-                {hit.event_count} {hit.event_count === 1 ? 'event' : 'events'}
-            </span>
         </div>
     )
 }
@@ -104,9 +145,11 @@ function OpenExperimentButton({ item }: { item: ExperimentSessionContextItemApi 
 export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { seekToTimestamp } = useActions(sessionRecordingPlayerLogic)
-    const { seenItems, enrolledItems, hasExperimentContext } = useValues(
-        sessionRecordingExperimentContextLogic({ sessionRecordingId: logicProps.sessionRecordingId })
-    )
+    const experimentContextLogic = sessionRecordingExperimentContextLogic({
+        sessionRecordingId: logicProps.sessionRecordingId,
+    })
+    const { seenItems, enrolledItems, hasExperimentContext, expandedExperimentIds } = useValues(experimentContextLogic)
+    const { setExperimentExpanded } = useActions(experimentContextLogic)
 
     if (!hasExperimentContext) {
         return null
@@ -139,9 +182,18 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                     ? dayjs(item.first_exposure_timestamp).valueOf()
                     : null
                 const canSeek = isWithinRecording(exposedAtMs)
+                const hasMetrics = item.metrics_in_session.length > 0
+                const isExpanded = expandedExperimentIds.includes(item.experiment_id)
                 return (
                     <div key={item.experiment_id} className="flex flex-col gap-y-0.5 min-w-0">
-                        <div className="flex flex-row items-center gap-x-2 min-w-0">
+                        <div className="flex flex-row items-center gap-x-1 min-w-0">
+                            {exposedAtMs != null && recordingStartMs != null ? (
+                                <ItemTimeDisplay
+                                    timestamp={dayjs(exposedAtMs)}
+                                    timeInRecording={exposedAtMs - recordingStartMs}
+                                    className="shrink-0 px-0 py-0 min-w-0 text-secondary"
+                                />
+                            ) : null}
                             {canSeek ? (
                                 <Link
                                     className="truncate flex-1 min-w-0"
@@ -154,20 +206,38 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                             ) : (
                                 <span className="truncate flex-1 min-w-0">{item.experiment_name}</span>
                             )}
-                            <VariantTag item={item} />
-                            <OpenExperimentButton item={item} />
+                            <div className="flex flex-row items-center gap-x-1 shrink-0 ml-auto">
+                                <VariantTag item={item} />
+                                <OpenExperimentButton item={item} />
+                                {hasMetrics ? (
+                                    <LemonButton
+                                        size="xsmall"
+                                        noPadding
+                                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                        onClick={() => setExperimentExpanded(item.experiment_id, !isExpanded)}
+                                        tooltip={
+                                            isExpanded
+                                                ? 'Hide metric events'
+                                                : `Show metric events (${item.metrics_in_session.length})`
+                                        }
+                                        data-attr="replay-experiment-context-expand-metrics"
+                                    />
+                                ) : null}
+                            </div>
                         </div>
-                        {item.metrics_in_session.map((hit) => {
-                            const hitAtMs = dayjs(hit.first_timestamp).valueOf()
-                            return (
-                                <MetricHitRow
-                                    key={hit.metric_uuid}
-                                    hit={hit}
-                                    canSeek={isWithinRecording(hitAtMs)}
-                                    onSeek={() => seekToTimestamp(hitAtMs)}
-                                />
-                            )
-                        })}
+                        {isExpanded && hasMetrics ? (
+                            <div className="flex flex-col gap-y-0.5">
+                                {item.metrics_in_session.map((hit) => (
+                                    <MetricHitRow
+                                        key={hit.metric_uuid}
+                                        hit={hit}
+                                        recordingStartMs={recordingStartMs}
+                                        isWithinRecording={isWithinRecording}
+                                        onSeek={seekToTimestamp}
+                                    />
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                 )
             })}
