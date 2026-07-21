@@ -32,22 +32,42 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             },
         )
 
+    def _make_group(self, *, template_id: str, alert_id: str) -> list[HogFunction]:
+        return [
+            self._make_hog_function(template_id=template_id, alert_id=alert_id, event_id=event_id)
+            for event_id in ALLOWED_EVENT_IDS
+        ]
+
     def test_deletes_alert_destination_with_matching_alert_id(self) -> None:
-        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
         soft_delete_alert_destinations(
             team_id=self.team.id,
             alert_id="alert-1",
             allowed_event_ids=ALLOWED_EVENT_IDS,
-            hog_function_ids=[destination.id],
+            hog_function_ids=[destination.id for destination in destinations],
         )
 
-        destination.refresh_from_db()
-        assert destination.deleted is True
-        assert destination.enabled is False
+        for destination in destinations:
+            destination.refresh_from_db()
+            assert destination.deleted is True
+            assert destination.enabled is False
+
+    def test_rejects_partial_destination_group(self) -> None:
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
+
+        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destinations[0].id],
+            )
+
+        assert not HogFunction.objects.filter(id__in=[destination.id for destination in destinations], deleted=True)
 
     def test_reports_invalid_ids_and_does_not_delete_any_destinations(self) -> None:
-        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
         other = self._make_hog_function(template_id="template-webhook", alert_id="alert-1", event_id="$unrelated_event")
 
         with self.assertRaises(ValidationError) as error:
@@ -55,7 +75,7 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
                 team_id=self.team.id,
                 alert_id="alert-1",
                 allowed_event_ids=ALLOWED_EVENT_IDS,
-                hog_function_ids=[destination.id, other.id],
+                hog_function_ids=[destinations[0].id, other.id],
             )
 
         assert isinstance(error.exception.detail, dict)
@@ -64,7 +84,7 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
         assert str(hog_function_id_errors[0]) == (
             f"These HogFunctions do not belong to this alert: {other.id}. Refresh the alert and try again."
         )
-        for hog_function in (destination, other):
+        for hog_function in (*destinations, other):
             hog_function.refresh_from_db()
             assert hog_function.deleted is False
             assert hog_function.enabled is True
@@ -94,47 +114,49 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             assert destination.enabled is True
 
     def test_rejects_empty_allowed_event_ids_without_deleting_destinations(self) -> None:
-        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
         with self.assertRaisesRegex(ValueError, "allowed_event_ids must not be empty"):
             soft_delete_all_alert_destinations(team_id=self.team.id, alert_id="alert-1", allowed_event_ids=())
 
-        destination.refresh_from_db()
-        assert destination.deleted is False
-        assert destination.enabled is True
+        for destination in destinations:
+            destination.refresh_from_db()
+            assert destination.deleted is False
+            assert destination.enabled is True
 
     @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
     def test_reload_happens_after_destination_delete_commits(self, reload_hog_functions_on_workers) -> None:
-        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
         with self.captureOnCommitCallbacks(execute=True):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
                 allowed_event_ids=ALLOWED_EVENT_IDS,
-                hog_function_ids=[destination.id],
+                hog_function_ids=[destination.id for destination in destinations],
             )
             reload_hog_functions_on_workers.assert_not_called()
 
         reload_hog_functions_on_workers.assert_called_once_with(
-            team_id=self.team.id, hog_function_ids=[str(destination.id)]
+            team_id=self.team.id, hog_function_ids=sorted(str(destination.id) for destination in destinations)
         )
 
     @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers", side_effect=RuntimeError("boom"))
     def test_reload_failure_does_not_fail_committed_delete(self, _reload_hog_functions_on_workers) -> None:
-        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
         with self.captureOnCommitCallbacks(execute=True):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
                 allowed_event_ids=ALLOWED_EVENT_IDS,
-                hog_function_ids=[destination.id],
+                hog_function_ids=[destination.id for destination in destinations],
             )
 
-        destination.refresh_from_db()
-        assert destination.deleted is True
-        assert destination.enabled is False
+        for destination in destinations:
+            destination.refresh_from_db()
+            assert destination.deleted is True
+            assert destination.enabled is False
 
 
 class TestAlertInternalEventDelivery(APIBaseTest):

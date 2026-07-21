@@ -442,7 +442,10 @@ layer = "modules"
 [[modules]]
 path = "products.billing_alerts"
 depends_on = [
+    "ee",
     "posthog",
+    "products.alerts",
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -810,6 +813,18 @@ expose = [
 ]
 from = [
     "products.experiments",
+]
+
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface

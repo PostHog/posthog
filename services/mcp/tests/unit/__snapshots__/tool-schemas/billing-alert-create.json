@@ -1,0 +1,136 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "baseline_window_days": {
+            "description": "Number of preceding UTC billing dates averaged for relative and absolute increase baselines.",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "number"
+        },
+        "cooldown_hours": {
+            "description": "Minimum hours between repeated firing notifications.",
+            "maximum": 720,
+            "minimum": 0,
+            "type": "number"
+        },
+        "description": {
+            "description": "Optional internal description.",
+            "type": "string"
+        },
+        "destination_changes": {
+            "description": "Destination groups to create or delete in the same transaction as this configuration write.",
+            "properties": {
+                "create": {
+                    "items": {
+                        "properties": {
+                            "slack_channel_id": {
+                                "description": "Slack channel ID for alert delivery.",
+                                "type": "string"
+                            },
+                            "slack_channel_name": {
+                                "description": "Optional Slack channel name shown in the UI.",
+                                "type": "string"
+                            },
+                            "slack_workspace_id": {
+                                "description": "Slack integration ID in the alert execution project.",
+                                "type": "number"
+                            },
+                            "type": {
+                                "description": "Destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams",
+                                "enum": ["slack", "webhook", "teams"],
+                                "type": "string"
+                            },
+                            "webhook_url": {
+                                "description": "HTTPS webhook URL for webhook or Microsoft Teams delivery.",
+                                "format": "uri",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "delete": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "maxItems": 4,
+                        "minItems": 4,
+                        "type": "array"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "enabled": {
+            "description": "Whether scheduled checks should evaluate this alert.",
+            "type": "boolean"
+        },
+        "evaluation_delay_hours": {
+            "description": "Hours after a UTC billing date ends before it becomes eligible for evaluation.",
+            "maximum": 72,
+            "minimum": 0,
+            "type": "number"
+        },
+        "minimum_value": {
+            "description": "Minimum current value before the alert can fire.",
+            "format": "decimal",
+            "pattern": "^-?\\d{0,14}(?:\\.\\d{0,6})?$",
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name for this billing alert.",
+            "maxLength": 160,
+            "type": "string"
+        },
+        "snoozed_until": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume."
+        },
+        "threshold_percentage": {
+            "anyOf": [
+                {
+                    "format": "decimal",
+                    "pattern": "^-?\\d{0,6}(?:\\.\\d{0,2})?$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Percentage increase that triggers relative increase alerts."
+        },
+        "threshold_type": {
+            "description": "Threshold rule type.\n\n* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase",
+            "enum": ["relative_increase", "absolute_value", "absolute_increase"],
+            "type": "string"
+        },
+        "threshold_value": {
+            "anyOf": [
+                {
+                    "format": "decimal",
+                    "pattern": "^-?\\d{0,14}(?:\\.\\d{0,6})?$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Absolute value or absolute increase that triggers absolute threshold alerts."
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

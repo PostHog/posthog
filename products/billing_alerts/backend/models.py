@@ -144,8 +144,6 @@ class BillingAlertConfiguration(UUIDModel):
 
         if self.baseline_window_days < 1:
             raise ValidationError({"baseline_window_days": "Must be at least 1."})
-        if self.minimum_value < 0:
-            raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
         if self.team_id:
             team_organization_id = (
                 Team.objects.filter(id=self.team_id).values_list("organization_id", flat=True).first()
@@ -153,16 +151,41 @@ class BillingAlertConfiguration(UUIDModel):
             if team_organization_id is not None and team_organization_id != self.organization_id:
                 raise ValidationError({"team": "Execution team must belong to the billing alert organization."})
 
-        if self.threshold_type == self.ThresholdType.RELATIVE_INCREASE:
-            if self.threshold_percentage is None:
-                raise ValidationError({"threshold_percentage": "Required for relative increase alerts."})
-            if self.threshold_percentage <= 0:
-                raise ValidationError({"threshold_percentage": "Must be greater than 0."})
-        elif self.threshold_type in (self.ThresholdType.ABSOLUTE_VALUE, self.ThresholdType.ABSOLUTE_INCREASE):
-            if self.threshold_value is None:
-                raise ValidationError({"threshold_value": "Required for absolute threshold alerts."})
-            if self.threshold_value < 0:
-                raise ValidationError({"threshold_value": "Must be greater than or equal to 0."})
+        errors = validate_threshold_configuration(
+            threshold_type=self.threshold_type,
+            threshold_percentage=self.threshold_percentage,
+            threshold_value=self.threshold_value,
+            minimum_value=self.minimum_value,
+        )
+        if errors:
+            raise ValidationError(errors)
+
+
+def validate_threshold_configuration(
+    *,
+    threshold_type: str,
+    threshold_percentage: Decimal | None,
+    threshold_value: Decimal | None,
+    minimum_value: Decimal,
+) -> dict[str, str]:
+    """Threshold policy shared by model validation and the DRF serializer."""
+    errors: dict[str, str] = {}
+    if minimum_value < 0:
+        errors["minimum_value"] = "Must be greater than or equal to 0."
+    if threshold_type == BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE:
+        if threshold_percentage is None:
+            errors["threshold_percentage"] = "Required for relative increase alerts."
+        elif threshold_percentage <= 0:
+            errors["threshold_percentage"] = "Must be greater than 0."
+    elif threshold_type in (
+        BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+        BillingAlertConfiguration.ThresholdType.ABSOLUTE_INCREASE,
+    ):
+        if threshold_value is None:
+            errors["threshold_value"] = "Required for absolute threshold alerts."
+        elif threshold_value < 0:
+            errors["threshold_value"] = "Must be greater than or equal to 0."
+    return errors
 
 
 class BillingAlertEvaluationClaim(UUIDModel):

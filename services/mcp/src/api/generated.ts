@@ -12599,6 +12599,385 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `check` - Check
+     * * `firing` - Firing
+     * * `resolved` - Resolved
+     * * `errored` - Errored
+     * * `broken_config` - Broken config
+     */
+    export type BillingAlertEventKindEnum = typeof BillingAlertEventKindEnum[keyof typeof BillingAlertEventKindEnum];
+
+
+    export const BillingAlertEventKindEnum = {
+      Check: 'check',
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      BrokenConfig: 'broken_config',
+    } as const;
+
+    /**
+     * * `scheduled` - Scheduled
+     * * `manual` - Manual
+     */
+    export type BillingAlertEventSourceEnum = typeof BillingAlertEventSourceEnum[keyof typeof BillingAlertEventSourceEnum];
+
+
+    export const BillingAlertEventSourceEnum = {
+      Scheduled: 'scheduled',
+      Manual: 'manual',
+    } as const;
+
+    /**
+     * * `spend` - Spend
+     */
+    export type BillingAlertMetricEnum = typeof BillingAlertMetricEnum[keyof typeof BillingAlertMetricEnum];
+
+
+    export const BillingAlertMetricEnum = {
+      Spend: 'spend',
+    } as const;
+
+    /**
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken
+     */
+    export type BillingAlertStateEnum = typeof BillingAlertStateEnum[keyof typeof BillingAlertStateEnum];
+
+
+    export const BillingAlertStateEnum = {
+      NotFiring: 'not_firing',
+      Firing: 'firing',
+      Errored: 'errored',
+      Snoozed: 'snoozed',
+      Broken: 'broken',
+    } as const;
+
+    export interface BillingAlertEvent {
+      /** Unique identifier for this billing alert event. */
+      readonly id: string;
+      /** Event kind for a check, state transition, or delivery-worthy alert event.
+       *
+       * * `check` - Check
+       * * `firing` - Firing
+       * * `resolved` - Resolved
+       * * `errored` - Errored
+       * * `broken_config` - Broken config */
+      readonly kind: BillingAlertEventKindEnum;
+      /** Whether this evaluation was scheduled or manually requested.
+       *
+       * * `scheduled` - Scheduled
+       * * `manual` - Manual */
+      readonly source: BillingAlertEventSourceEnum;
+      /** Attempt number for this billing date and configuration revision. */
+      readonly attempt_number: number;
+      /** When this event was recorded. */
+      readonly created_at: string;
+      /**
+         * Billing data date evaluated by this event.
+         * @nullable
+         */
+      readonly evaluation_date: string | null;
+      /** Configuration revision used for this evaluation. */
+      readonly configuration_revision: number;
+      /**
+         * Start of the evaluated billing period.
+         * @nullable
+         */
+      readonly period_start: string | null;
+      /**
+         * End of the evaluated billing period.
+         * @nullable
+         */
+      readonly period_end: string | null;
+      /** Billing metric evaluated by this event.
+       *
+       * * `spend` - Spend */
+      readonly metric: BillingAlertMetricEnum;
+      /**
+         * Metric value for the evaluated billing date.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      readonly current_value: string | null;
+      /**
+         * Average metric value across the baseline window.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      readonly baseline_value: string | null;
+      /**
+         * Current value minus the baseline value.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      readonly absolute_delta: string | null;
+      /**
+         * Percentage change against the baseline value.
+         * @nullable
+         * @pattern ^-?\d{0,22}(?:\.\d{0,6})?$
+         */
+      readonly relative_delta_percentage: string | null;
+      /** Whether the evaluated value breached the configured threshold. */
+      readonly threshold_breached: boolean;
+      /** Alert state before this event was applied.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state_before: BillingAlertStateEnum | null;
+      /** Alert state after this event was applied.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state_after: BillingAlertStateEnum | null;
+      /**
+         * When notifications for this event were delivered.
+         * @nullable
+         */
+      readonly notification_sent_at: string | null;
+      /** Notification targets recorded for this event. */
+      readonly targets_notified: unknown;
+      /**
+         * Milliseconds spent fetching billing data for this evaluation.
+         * @nullable
+         */
+      readonly query_duration_ms: number | null;
+      /**
+         * Exception class name recorded when the evaluation failed.
+         * @nullable
+         */
+      readonly error_code: string | null;
+      /**
+         * Failure description recorded when the evaluation failed.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /** Human-readable explanation of the evaluation outcome. */
+      readonly reason: string;
+    }
+
+    export interface BillingAlertCheckNowResponse {
+      /** Evaluation event recorded by the manual check. */
+      event: BillingAlertEvent;
+      /** Number of destination HogFunctions queued. */
+      dispatched_destinations: number;
+    }
+
+    /**
+     * * `USD` - USD
+     */
+    export type CurrencyEnum = typeof CurrencyEnum[keyof typeof CurrencyEnum];
+
+
+    export const CurrencyEnum = {
+      Usd: 'USD',
+    } as const;
+
+    /**
+     * * `relative_increase` - Relative increase
+     * * `absolute_value` - Absolute value
+     * * `absolute_increase` - Absolute increase
+     */
+    export type ThresholdTypeEnum = typeof ThresholdTypeEnum[keyof typeof ThresholdTypeEnum];
+
+
+    export const ThresholdTypeEnum = {
+      RelativeIncrease: 'relative_increase',
+      AbsoluteValue: 'absolute_value',
+      AbsoluteIncrease: 'absolute_increase',
+    } as const;
+
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     */
+    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
+
+
+    export const NotificationDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+    } as const;
+
+    export interface BillingAlertDestinationSummary {
+      type: NotificationDestinationTypeEnum;
+      hog_function_ids: string[];
+    }
+
+    export interface BillingAlertDestinationCreateData {
+      /** Destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
+      /** Slack integration ID in the alert execution project. */
+      slack_workspace_id?: number;
+      /** Slack channel ID for alert delivery. */
+      slack_channel_id?: string;
+      /** Optional Slack channel name shown in the UI. */
+      slack_channel_name?: string;
+      /** HTTPS webhook URL for webhook or Microsoft Teams delivery. */
+      webhook_url?: string;
+    }
+
+    export interface BillingAlertDestinationChanges {
+      /**
+         * @items.minItems 4
+         * @items.maxItems 4
+         */
+      delete?: string[][];
+      create?: BillingAlertDestinationCreateData[];
+    }
+
+    export interface BillingAlertConfiguration {
+      /** Unique identifier for this billing alert. */
+      readonly id: string;
+      /** Organization this billing alert belongs to. */
+      readonly organization_id: string;
+      /**
+         * Team used as the execution context for internal notification destinations.
+         * @nullable
+         */
+      readonly execution_team_id: number | null;
+      /**
+         * User ID that created this alert.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /**
+         * User ID that last updated this alert.
+         * @nullable
+         */
+      readonly updated_by_id: number | null;
+      /**
+         * Display name for this billing alert.
+         * @maxLength 160
+         */
+      name: string;
+      /** Optional internal description. */
+      description?: string;
+      /** Whether scheduled checks should evaluate this alert. */
+      enabled?: boolean;
+      /** Billing metric evaluated by this alert. The first version supports spend only.
+       *
+       * * `spend` - Spend */
+      readonly metric: BillingAlertMetricEnum;
+      /** Server-controlled currency for spend values.
+       *
+       * * `USD` - USD */
+      readonly currency: CurrencyEnum;
+      /** Revision incremented whenever evaluation behavior changes. */
+      readonly configuration_revision: number;
+      /** Threshold rule type.
+       *
+       * * `relative_increase` - Relative increase
+       * * `absolute_value` - Absolute value
+       * * `absolute_increase` - Absolute increase */
+      threshold_type?: ThresholdTypeEnum;
+      /**
+         * Percentage increase that triggers relative increase alerts.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
+         */
+      threshold_percentage?: string | null;
+      /**
+         * Absolute value or absolute increase that triggers absolute threshold alerts.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      threshold_value?: string | null;
+      /**
+         * Minimum current value before the alert can fire.
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      minimum_value?: string;
+      /**
+         * Number of preceding UTC billing dates averaged for relative and absolute increase baselines.
+         * @minimum 1
+         * @maximum 90
+         */
+      baseline_window_days?: number;
+      /**
+         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
+         * @minimum 0
+         * @maximum 72
+         */
+      evaluation_delay_hours?: number;
+      /** Current lifecycle state of this alert.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: BillingAlertStateEnum;
+      /**
+         * Minimum hours between repeated firing notifications.
+         * @minimum 0
+         * @maximum 720
+         */
+      cooldown_hours?: number;
+      /**
+         * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /**
+         * When the next scheduled evaluation is due.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When this alert was last evaluated.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * When notifications were last delivered for this alert.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /** Number of consecutive failed evaluations. */
+      readonly consecutive_failures: number;
+      /** Notification destination groups configured for this alert, including their shared HogFunctions. */
+      readonly destinations: readonly BillingAlertDestinationSummary[];
+      /** Destination groups to create or delete in the same transaction as this configuration write. */
+      destination_changes?: BillingAlertDestinationChanges;
+      /** When this alert was created. */
+      readonly created_at: string;
+      /**
+         * When this alert was last updated.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
+    export interface BillingAlertDeleteDestination {
+      /**
+         * HogFunction IDs to delete as one atomic destination group.
+         * @minItems 4
+         * @maxItems 4
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface BillingAlertDestinationResponse {
+      hog_function_ids: string[];
+    }
+
+    /**
      * * `posthog_health_check` - PostHog health check
      * * `posthog_onboarding` - PostHog onboarding
      * * `posthog_system` - PostHog system
@@ -34187,20 +34566,6 @@ export namespace Schemas {
       enabled: boolean;
     }
 
-    /**
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams
-     */
-    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
-
-
-    export const NotificationDestinationTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-      Teams: 'teams',
-    } as const;
-
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -37309,6 +37674,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: BatchImportSupportList[];
+    }
+
+    export interface PaginatedBillingAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BillingAlertConfiguration[];
+    }
+
+    export interface PaginatedBillingAlertEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BillingAlertEvent[];
     }
 
     export interface PaginatedBriefConfigList {
@@ -43041,6 +43424,129 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       readonly import_config?: unknown;
+    }
+
+    export interface PatchedBillingAlertConfiguration {
+      /** Unique identifier for this billing alert. */
+      readonly id?: string;
+      /** Organization this billing alert belongs to. */
+      readonly organization_id?: string;
+      /**
+         * Team used as the execution context for internal notification destinations.
+         * @nullable
+         */
+      readonly execution_team_id?: number | null;
+      /**
+         * User ID that created this alert.
+         * @nullable
+         */
+      readonly created_by_id?: number | null;
+      /**
+         * User ID that last updated this alert.
+         * @nullable
+         */
+      readonly updated_by_id?: number | null;
+      /**
+         * Display name for this billing alert.
+         * @maxLength 160
+         */
+      name?: string;
+      /** Optional internal description. */
+      description?: string;
+      /** Whether scheduled checks should evaluate this alert. */
+      enabled?: boolean;
+      /** Billing metric evaluated by this alert. The first version supports spend only.
+       *
+       * * `spend` - Spend */
+      readonly metric?: BillingAlertMetricEnum;
+      /** Server-controlled currency for spend values.
+       *
+       * * `USD` - USD */
+      readonly currency?: CurrencyEnum;
+      /** Revision incremented whenever evaluation behavior changes. */
+      readonly configuration_revision?: number;
+      /** Threshold rule type.
+       *
+       * * `relative_increase` - Relative increase
+       * * `absolute_value` - Absolute value
+       * * `absolute_increase` - Absolute increase */
+      threshold_type?: ThresholdTypeEnum;
+      /**
+         * Percentage increase that triggers relative increase alerts.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
+         */
+      threshold_percentage?: string | null;
+      /**
+         * Absolute value or absolute increase that triggers absolute threshold alerts.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      threshold_value?: string | null;
+      /**
+         * Minimum current value before the alert can fire.
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      minimum_value?: string;
+      /**
+         * Number of preceding UTC billing dates averaged for relative and absolute increase baselines.
+         * @minimum 1
+         * @maximum 90
+         */
+      baseline_window_days?: number;
+      /**
+         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
+         * @minimum 0
+         * @maximum 72
+         */
+      evaluation_delay_hours?: number;
+      /** Current lifecycle state of this alert.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state?: BillingAlertStateEnum;
+      /**
+         * Minimum hours between repeated firing notifications.
+         * @minimum 0
+         * @maximum 720
+         */
+      cooldown_hours?: number;
+      /**
+         * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /**
+         * When the next scheduled evaluation is due.
+         * @nullable
+         */
+      readonly next_check_at?: string | null;
+      /**
+         * When this alert was last evaluated.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
+      /**
+         * When notifications were last delivered for this alert.
+         * @nullable
+         */
+      readonly last_notified_at?: string | null;
+      /** Number of consecutive failed evaluations. */
+      readonly consecutive_failures?: number;
+      /** Notification destination groups configured for this alert, including their shared HogFunctions. */
+      readonly destinations?: readonly BillingAlertDestinationSummary[];
+      /** Destination groups to create or delete in the same transaction as this configuration write. */
+      destination_changes?: BillingAlertDestinationChanges;
+      /** When this alert was created. */
+      readonly created_at?: string;
+      /**
+         * When this alert was last updated.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedBriefConfig {
@@ -70795,6 +71301,28 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type BillingAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type BillingAlertsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type CimdVerificationTokensListParams = {

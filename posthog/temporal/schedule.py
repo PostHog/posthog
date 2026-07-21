@@ -81,6 +81,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.engineering_analytics.backend.facade.temporal import create_github_job_logs_coordinator_schedule
@@ -788,6 +789,7 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 schedules = [
     cleanup_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
+    create_schedule_due_billing_alert_checks_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,

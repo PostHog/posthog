@@ -40,7 +40,12 @@ def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig]
             team = config.team
             serializer = HogFunctionSerializer(
                 data=config.payload,
-                context={"request": request, "get_team": lambda team=team: team, "is_create": True},
+                context={
+                    "request": request,
+                    "get_team": lambda team=team: team,
+                    "is_create": True,
+                    "allow_managed_alert_destination": True,
+                },
             )
             serializer.is_valid(raise_exception=True)
             hog_function = serializer.save(team=team)
@@ -61,17 +66,18 @@ def soft_delete_alert_destinations(
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         event_filter = _allowed_event_filter(allowed_event_ids)
-        owned_ids = set(
+        owned_rows = list(
             HogFunction.objects.select_for_update()
             .filter(
                 event_filter,
                 team_id=team_id,
-                id__in=unique_ids,
+                deleted=False,
                 template_id__in=DESTINATION_TEMPLATE_IDS.values(),
                 filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
             )
-            .values_list("id", flat=True)
+            .values_list("id", "template_id", "filters")
         )
+        owned_ids = {hog_function_id for hog_function_id, _, _ in owned_rows}
         invalid_ids = unique_ids - owned_ids
         if invalid_ids:
             formatted_ids = ", ".join(str(hog_function_id) for hog_function_id in sorted(invalid_ids, key=str))
@@ -82,8 +88,31 @@ def soft_delete_alert_destinations(
                     ]
                 }
             )
-        HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(deleted=True, enabled=False)
-        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
+
+        allowed_events = set(allowed_event_ids)
+        rows_by_template: dict[str | None, list[tuple[UUID, str | None]]] = {}
+        for hog_function_id, template_id, filters in owned_rows:
+            event_id = next(
+                (
+                    event_filter.get("id")
+                    for event_filter in (filters or {}).get("events", [])
+                    if isinstance(event_filter, dict) and event_filter.get("type") == "events"
+                ),
+                None,
+            )
+            rows_by_template.setdefault(template_id, []).append((hog_function_id, event_id))
+
+        for group in rows_by_template.values():
+            group_ids = {hog_function_id for hog_function_id, _ in group}
+            if not unique_ids.intersection(group_ids):
+                continue
+            if group_ids != unique_ids.intersection(group_ids) or {event_id for _, event_id in group} != allowed_events:
+                raise ValidationError(
+                    {"hog_function_ids": ["Delete every HogFunction in the destination group together."]}
+                )
+
+        HogFunction.objects.filter(team_id=team_id, id__in=unique_ids).update(deleted=True, enabled=False)
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=unique_ids)
 
 
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
@@ -103,6 +132,36 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_e
             deleted=True, enabled=False
         )
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
+        return deleted_count
+
+
+def soft_delete_alert_destinations_for_alerts(
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+) -> int:
+    """Soft-delete alert-owned destinations in bulk when their execution team is removed."""
+    event_filter = _allowed_event_filter(allowed_event_ids)
+    if not alert_ids:
+        return 0
+    destination_ids: set[UUID] = set()
+    with transaction.atomic():
+        alert_id_filter = Q(pk__in=[])
+        for alert_id in alert_ids:
+            alert_id_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
+        destination_ids = set(
+            HogFunction.objects.select_for_update()
+            .filter(
+                alert_id_filter,
+                event_filter,
+                team_id=team_id,
+                deleted=False,
+                template_id__in=DESTINATION_TEMPLATE_IDS.values(),
+            )
+            .values_list("id", flat=True)
+        )
+        deleted_count = HogFunction.objects.filter(team_id=team_id, id__in=destination_ids).update(
+            deleted=True, enabled=False
+        )
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=destination_ids)
         return deleted_count
 
 
