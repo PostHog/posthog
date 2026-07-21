@@ -1,19 +1,24 @@
 """Read-only internal (service-to-service) API for the modeling-ops admin app.
 
-Routes are wired manually in posthog/urls.py under
-``api/projects/<team_id>/internal/data_modeling_ops/`` — Contour 403s the ``internal``
-prefix at the edge, so these are unreachable from the internet and authenticated with
-OIDC ID tokens (see internal_auth.py).
+Routes are wired manually in posthog/urls.py under ``api/internal/data_modeling_ops/`` —
+Contour 403s that whole prefix at the edge, so these are unreachable from the internet,
+and they are authenticated with OIDC ID tokens (see internal_auth.py).
+
+The app reads across every team, so team is a ``?team_id=`` filter on lists rather than a
+URL segment, and entities are fetched by their own globally unique id. A team-nested path
+would read as a tenancy boundary, which this API deliberately does not have: any verified
+operator may read any team.
 """
 
 import uuid
-from typing import cast
+from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -61,6 +66,26 @@ def _is_v2_backend_enabled(team_id: int, organization_id: str) -> bool:
     )
 
 
+def team_id_filter(request: Request) -> int | None:
+    """``?team_id=`` narrows a list to one team; absent means every team.
+
+    The filter is deliberately not a URL segment: any verified operator may read any
+    team here, so a team-nested path would imply a scoping guarantee this API does not
+    make. Entities are found by their own (globally unique) id instead.
+    """
+    raw = request.query_params.get("team_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValidationError({"team_id": "Must be an integer."})
+
+
+def scoped_to_team(queryset: QuerySet, team_id: int | None) -> QuerySet:
+    return queryset if team_id is None else queryset.filter(team_id=team_id)
+
+
 class InternalDataModelingOpsPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 500
@@ -87,9 +112,9 @@ class InternalDataModelingOpsViewSet(
         return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(exclude=True)
-    def internal_overview(self, request: Request, team_id: str) -> Response:
+    def internal_team_detail(self, request: Request, team_id: str, **kwargs: Any) -> Response:
         # Manual (non-router) paths don't populate the mixin's parents_query_dict. The
-        # authenticator already resolved the URL's team, so reuse it instead of re-querying.
+        # authenticator resolves this route's team_id kwarg, so reuse it here.
         user = cast(InternalAPIUser, request.user)
         team_pk = int(team_id)
         saved_queries = DataWarehouseSavedQuery.objects.filter(team_id=team_pk).exclude(deleted=True)
@@ -116,10 +141,10 @@ class InternalDataModelingOpsViewSet(
         return Response(serializer.data)
 
     @extend_schema(exclude=True)
-    def internal_saved_queries(self, request: Request, team_id: str) -> Response:
-        queryset = (
-            DataWarehouseSavedQuery.objects.filter(team_id=int(team_id)).exclude(deleted=True).order_by("-created_at")
-        )
+    def internal_saved_queries(self, request: Request, **kwargs: Any) -> Response:
+        queryset = scoped_to_team(
+            DataWarehouseSavedQuery.objects.exclude(deleted=True), team_id_filter(request)
+        ).order_by("-created_at")
         status_filter = request.query_params.get("status")
         if status_filter:
             valid_statuses = set(DataWarehouseSavedQuery.Status.values)
@@ -131,27 +156,28 @@ class InternalDataModelingOpsViewSet(
         return self._paginate(request, queryset, InternalSavedQuerySummarySerializer)
 
     @extend_schema(exclude=True)
-    def internal_saved_query_detail(self, request: Request, team_id: str, saved_query_id: str) -> Response:
+    def internal_saved_query_detail(self, request: Request, saved_query_id: str, **kwargs: Any) -> Response:
         try:
             saved_query = (
                 DataWarehouseSavedQuery.objects.select_related("table", "created_by")
                 .exclude(deleted=True)
-                .get(team_id=int(team_id), id=saved_query_id)
+                .get(id=saved_query_id)
             )
         except (DataWarehouseSavedQuery.DoesNotExist, DjangoValidationError, ValueError):
             return Response({"error": "Saved query not found"}, status=404)
 
-        saved_query_nodes = list(
-            Node.objects.filter(team_id=int(team_id), saved_query=saved_query).select_related("dag")
-        )
+        # The saved query's own team scopes everything below it; the caller does not
+        # supply one, since the id already identifies the row across every team.
+        team_pk = saved_query.team_id
+        saved_query_nodes = list(Node.objects.filter(team_id=team_pk, saved_query=saved_query).select_related("dag"))
         node_ids = [node.id for node in saved_query_nodes]
         upstream_by_node: dict[uuid.UUID, list[str]] = {}
-        for target_id, source_name in Edge.objects.filter(team_id=int(team_id), target_id__in=node_ids).values_list(
+        for target_id, source_name in Edge.objects.filter(team_id=team_pk, target_id__in=node_ids).values_list(
             "target_id", "source__name"
         ):
             upstream_by_node.setdefault(target_id, []).append(source_name)
         downstream_by_node: dict[uuid.UUID, list[str]] = {}
-        for source_id, target_name in Edge.objects.filter(team_id=int(team_id), source_id__in=node_ids).values_list(
+        for source_id, target_name in Edge.objects.filter(team_id=team_pk, source_id__in=node_ids).values_list(
             "source_id", "target__name"
         ):
             downstream_by_node.setdefault(source_id, []).append(target_name)
@@ -169,11 +195,11 @@ class InternalDataModelingOpsViewSet(
         ]
 
         backing_tables = list(
-            DataWarehouseTable.objects.filter(team_id=int(team_id), name=saved_query.name).exclude(deleted=True)
+            DataWarehouseTable.objects.filter(team_id=team_pk, name=saved_query.name).exclude(deleted=True)
         )
         last_successful_job_at = (
             DataModelingJob.objects.filter(
-                team_id=int(team_id), saved_query=saved_query, status=DataModelingJobStatus.COMPLETED
+                team_id=team_pk, saved_query=saved_query, status=DataModelingJobStatus.COMPLETED
             )
             .order_by("-updated_at")
             .values_list("updated_at", flat=True)
@@ -192,37 +218,40 @@ class InternalDataModelingOpsViewSet(
         return Response(serializer.data)
 
     @extend_schema(exclude=True)
-    def internal_saved_query_jobs(self, request: Request, team_id: str, saved_query_id: str) -> Response:
+    def internal_saved_query_jobs(self, request: Request, saved_query_id: str, **kwargs: Any) -> Response:
         try:
-            parent_exists = (
-                DataWarehouseSavedQuery.objects.filter(team_id=int(team_id), id=saved_query_id)
+            parent = (
+                DataWarehouseSavedQuery.objects.filter(id=saved_query_id)
                 .exclude(deleted=True)
-                .exists()
+                .values_list("team_id", flat=True)
+                .first()
             )
         except (DjangoValidationError, ValueError):
             return Response({"error": "Saved query not found"}, status=404)
-        if not parent_exists:
+        if parent is None:
             return Response({"error": "Saved query not found"}, status=404)
 
-        queryset = DataModelingJob.objects.filter(team_id=int(team_id), saved_query_id=saved_query_id).order_by(
-            "-created_at"
-        )
+        queryset = DataModelingJob.objects.filter(team_id=parent, saved_query_id=saved_query_id).order_by("-created_at")
         return self._paginate(request, queryset, InternalDataModelingJobSerializer)
 
     @extend_schema(exclude=True)
-    def internal_dags(self, request: Request, team_id: str) -> Response:
-        queryset = DAG.objects.filter(team_id=int(team_id)).annotate(node_count=Count("node")).order_by("name")
+    def internal_dags(self, request: Request, **kwargs: Any) -> Response:
+        queryset = (
+            scoped_to_team(DAG.objects.all(), team_id_filter(request))
+            .annotate(node_count=Count("node"))
+            .order_by("name")
+        )
         return self._paginate(request, queryset, InternalDAGSummarySerializer)
 
     @extend_schema(exclude=True)
-    def internal_dag_detail(self, request: Request, team_id: str, dag_id: str) -> Response:
+    def internal_dag_detail(self, request: Request, dag_id: str, **kwargs: Any) -> Response:
         try:
-            dag = DAG.objects.annotate(node_count=Count("node")).get(team_id=int(team_id), id=dag_id)
+            dag = DAG.objects.annotate(node_count=Count("node")).get(id=dag_id)
         except (DAG.DoesNotExist, DjangoValidationError, ValueError):
             return Response({"error": "DAG not found"}, status=404)
 
-        nodes = Node.objects.filter(team_id=int(team_id), dag=dag).order_by("name")
-        edges = Edge.objects.filter(team_id=int(team_id), dag=dag)
+        nodes = Node.objects.filter(team_id=dag.team_id, dag=dag).order_by("name")
+        edges = Edge.objects.filter(team_id=dag.team_id, dag=dag)
         return Response(
             {
                 "dag": InternalDAGSummarySerializer(dag).data,

@@ -9,7 +9,7 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 class TestInternalEndpointsOpsAPI(OidcAuthTestMixin, APIBaseTest):
     def _get(self, path: str, token: str | None = None):
-        base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"
+        base = "/api/internal/data_modeling_ops"
         if token is not None:
             return self.client.get(f"{base}{path}", HTTP_AUTHORIZATION=f"Bearer {token}")
         return self.client.get(f"{base}{path}")
@@ -43,7 +43,7 @@ class TestInternalEndpointsOpsAPI(OidcAuthTestMixin, APIBaseTest):
             status=DataModelingJob.Status.COMPLETED,
         )
 
-        response = self._get("/endpoints/my_endpoint", self._token())
+        response = self._get(f"/endpoints/{endpoint.id}", self._token())
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()

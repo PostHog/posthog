@@ -503,38 +503,41 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
-    # Internal read-only endpoints for the modeling-ops admin app (authenticated with
-    # OIDC ID tokens verified against the issuer JWKS; not exposed to Contour ingress)
+    # Read-only API for the modeling-ops admin app, which reads across every team.
+    # `?team_id=` narrows a list; entity routes take the entity's own id, since a team
+    # segment here would imply a scoping guarantee this API does not make (any verified
+    # operator may read any team). Authenticated with OIDC ID tokens verified against the
+    # issuer JWKS; Contour 403s the whole api/internal prefix at the edge.
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/overview",
-        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_overview"})),
+        "api/internal/data_modeling_ops/teams/<str:team_id>",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_team_detail"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/saved_queries",
+        "api/internal/data_modeling_ops/saved_queries",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_queries"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/saved_queries/<str:saved_query_id>",
+        "api/internal/data_modeling_ops/saved_queries/<str:saved_query_id>",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_query_detail"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/saved_queries/<str:saved_query_id>/jobs",
+        "api/internal/data_modeling_ops/saved_queries/<str:saved_query_id>/jobs",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_query_jobs"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/dags",
+        "api/internal/data_modeling_ops/dags",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_dags"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/dags/<str:dag_id>",
+        "api/internal/data_modeling_ops/dags/<str:dag_id>",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_dag_detail"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/endpoints",
+        "api/internal/data_modeling_ops/endpoints",
         csrf_exempt(InternalEndpointsOpsViewSet.as_view({"get": "internal_endpoints"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/endpoints/<str:name>",
+        "api/internal/data_modeling_ops/endpoints/<str:endpoint_id>",
         csrf_exempt(InternalEndpointsOpsViewSet.as_view({"get": "internal_endpoint_detail"})),
     ),
     # Test setup endpoint (only available in TEST mode)

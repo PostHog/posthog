@@ -10,10 +10,16 @@ from products.data_modeling.backend.presentation.internal_auth import (
     DataModelingOpsAuthenticationMixin,
     DataModelingOpsOIDCAuthentication,
 )
-from products.data_modeling.backend.presentation.internal_views import InternalDataModelingOpsViewSet
+from products.data_modeling.backend.presentation.internal_views import (
+    InternalDataModelingOpsViewSet,
+    scoped_to_team,
+    team_id_filter,
+)
 
 __all__ = [
     "DataModelingOpsAuthenticationMixin",
     "DataModelingOpsOIDCAuthentication",
     "InternalDataModelingOpsViewSet",
+    "scoped_to_team",
+    "team_id_filter",
 ]

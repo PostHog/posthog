@@ -7,6 +7,8 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Team
+
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_modeling.backend.tests.api.oidc import OidcAuthTestMixin, mint_oidc_token
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -14,7 +16,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
     def _get(self, path: str, token: str | None = None):
-        base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"
+        base = "/api/internal/data_modeling_ops"
         if token is not None:
             return self.client.get(f"{base}{path}", HTTP_AUTHORIZATION=f"Bearer {token}")
         return self.client.get(f"{base}{path}")
@@ -39,13 +41,13 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
         ]
     )
     def test_rejects_invalid_tokens(self, _name, token_factory):
-        response = self._get("/overview", token_factory())
+        response = self._get(f"/teams/{self.team.id}", token_factory())
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS=["ops-bot@proj.iam.gserviceaccount.com"])
     def test_allow_listed_service_account_bypasses_domain_check(self):
         token = mint_oidc_token(email="ops-bot@proj.iam.gserviceaccount.com", email_verified=False, hosted_domain=None)
-        response = self._get("/overview", token)
+        response = self._get(f"/teams/{self.team.id}", token)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_overview_counts(self):
@@ -65,7 +67,7 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
         )
         Node.objects.create(team=self.team, dag=dag, saved_query=materialized, type=NodeType.MAT_VIEW)
 
-        response = self._get("/overview", self._token())
+        response = self._get(f"/teams/{self.team.id}", self._token())
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -113,6 +115,23 @@ class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
     def test_saved_queries_rejects_unknown_status_filter(self):
         response = self._get("/saved_queries?status=Failing", self._token())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_non_integer_team_id_filter(self):
+        response = self._get("/saved_queries?team_id=abc", self._token())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand([("saved_queries", "saved_queries", "view"), ("dags", "dags", "dag")])
+    def test_team_id_filter_narrows_otherwise_fleet_wide_list(self, _name, resource, prefix):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        for team in (self.team, other_team):
+            DataWarehouseSavedQuery.objects.create(team=team, name=f"view_{team.id}", query={"query": "select 1"})
+            DAG.objects.create(team=team, name=f"dag_{team.id}")
+
+        unfiltered = self._get(f"/{resource}", self._token()).json()["results"]
+        filtered = self._get(f"/{resource}?team_id={self.team.id}", self._token()).json()["results"]
+
+        self.assertEqual(len(unfiltered), 2)
+        self.assertEqual([row["name"] for row in filtered], [f"{prefix}_{self.team.id}"])
 
     def test_jobs_expose_engine_and_storage_including_duckgres(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
