@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -19,6 +19,7 @@ from posthog.hogql_queries.property_values_query_runner import (
     PropertyValuesQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.test.persons import create_person
 
 
 class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -192,6 +193,23 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.PERSON, property_key="distinct_id"))
         assert {r.name for r in results} == {"alice", "alice-alias", "bob", "carol"}
+
+    def test_person_property_values_high_cardinality_ordered_by_recency(self):
+        # High-cardinality property: every value occurs once, so the count is always 1 and can't rank
+        # the list. Ties break by recency, so the most recently created person's value comes first —
+        # otherwise the tie was broken arbitrarily and the value a user wanted was rarely in the top 20.
+        base = datetime(2024, 1, 1, tzinfo=UTC)
+        create_person(team=self.team, distinct_ids=["u_old"], properties={"uid": "id_old"}, created_at=base)
+        create_person(
+            team=self.team, distinct_ids=["u_mid"], properties={"uid": "id_mid"}, created_at=base + timedelta(days=1)
+        )
+        create_person(
+            team=self.team, distinct_ids=["u_new"], properties={"uid": "id_new"}, created_at=base + timedelta(days=2)
+        )
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.PERSON, property_key="uid"))
+        assert [r.name for r in results] == ["id_new", "id_mid", "id_old"]
+        assert all(r.count == 1 for r in results)
 
     @parameterized.expand(
         [
