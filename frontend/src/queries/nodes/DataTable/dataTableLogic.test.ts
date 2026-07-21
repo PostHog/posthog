@@ -526,9 +526,9 @@ describe('dataTableLogic', () => {
 
             const { getExpandedRowKey } = logic.values
             const keyA = getExpandedRowKey({ result: event(uuidA, '2022-12-24T17:00:41.165000Z') }, 0)
-            expect(keyA).toBe(uuidA)
+            expect(keyA).toBe(`id:${uuidA}`)
             logic.actions.toggleRowExpanded(keyA)
-            expect(logic.values.expandedRowKeys).toEqual([uuidA])
+            expect(logic.values.expandedRowKeys).toEqual([keyA])
 
             // A new event arrives before A in the result set.
             const uuidB = '01853a90-ba94-0000-8776-e8df5617c3eb'
@@ -539,7 +539,7 @@ describe('dataTableLogic', () => {
             await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
 
             // A stays expanded; B (now at index 0, where A used to be) does not inherit.
-            expect(logic.values.expandedRowKeys).toEqual([uuidA])
+            expect(logic.values.expandedRowKeys).toEqual([keyA])
             const keyB = logic.values.getExpandedRowKey({ result: event(uuidB, '2022-12-24T18:00:41.165000Z') }, 0)
             expect(logic.values.expandedRowKeys).not.toContain(keyB)
         })
@@ -555,15 +555,17 @@ describe('dataTableLogic', () => {
             ])
             await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
 
-            logic.actions.toggleRowExpanded(uuidA)
-            logic.actions.toggleRowExpanded(uuidB)
-            expect(logic.values.expandedRowKeys).toEqual([uuidA, uuidB])
+            const keyA = logic.values.getExpandedRowKey({ result: event(uuidA, '2022-12-24T17:00:41.165000Z') }, 0)
+            const keyB = logic.values.getExpandedRowKey({ result: event(uuidB, '2022-12-24T16:00:41.165000Z') }, 1)
+            logic.actions.toggleRowExpanded(keyA)
+            logic.actions.toggleRowExpanded(keyB)
+            expect(logic.values.expandedRowKeys).toEqual([keyA, keyB])
 
             // Refresh returns only B — A has fallen out of the window.
             reload(dataTableQuery, [event(uuidB, '2022-12-24T16:00:41.165000Z')])
             await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
 
-            expect(logic.values.expandedRowKeys).toEqual([uuidB])
+            expect(logic.values.expandedRowKeys).toEqual([keyB])
         })
 
         it('toggles and supports multiple expanded events by uuid', async () => {
@@ -572,13 +574,15 @@ describe('dataTableLogic', () => {
             mountWith([event(uuidA, '2022-12-24T17:00:41.165000Z'), event(uuidB, '2022-12-24T16:00:41.165000Z')])
             await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
 
-            logic.actions.toggleRowExpanded(uuidA)
-            logic.actions.toggleRowExpanded(uuidB)
-            expect(logic.values.expandedRowKeys).toEqual([uuidA, uuidB])
+            const keyA = logic.values.getExpandedRowKey({ result: event(uuidA, '2022-12-24T17:00:41.165000Z') }, 0)
+            const keyB = logic.values.getExpandedRowKey({ result: event(uuidB, '2022-12-24T16:00:41.165000Z') }, 1)
+            logic.actions.toggleRowExpanded(keyA)
+            logic.actions.toggleRowExpanded(keyB)
+            expect(logic.values.expandedRowKeys).toEqual([keyA, keyB])
 
             // Collapsing one leaves the other intact.
-            logic.actions.toggleRowExpanded(uuidA)
-            expect(logic.values.expandedRowKeys).toEqual([uuidB])
+            logic.actions.toggleRowExpanded(keyA)
+            expect(logic.values.expandedRowKeys).toEqual([keyB])
         })
 
         it('falls back to positional index for rows without an event uuid', async () => {
@@ -602,9 +606,9 @@ describe('dataTableLogic', () => {
             await expectLogic(logic).delay(0).toMatchValues({ responseLoading: false })
 
             // No `*` column, so the key is the row index.
-            expect(logic.values.getExpandedRowKey({ result: ['pageview', ts] }, 1)).toBe(1)
-            logic.actions.toggleRowExpanded(1)
-            expect(logic.values.expandedRowKeys).toEqual([1])
+            expect(logic.values.getExpandedRowKey({ result: ['pageview', ts] }, 1)).toBe('ix:1')
+            logic.actions.toggleRowExpanded('ix:1')
+            expect(logic.values.expandedRowKeys).toEqual(['ix:1'])
         })
     })
 })
