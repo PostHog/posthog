@@ -1016,7 +1016,7 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )

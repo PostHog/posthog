@@ -381,9 +381,9 @@ class EnterpriseExperimentsViewSet(
     def _check_cleanup_pr_access(self, request: Request) -> None:
         """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
         scope only gates token auth (see dangerously_get_required_scopes); session auth
-        has no scopes, so gate every caller on PostHog Code product access instead."""
+        has no scopes, so gate every caller on PostHog Desktop product access instead."""
         if not has_tasks_access(cast(User, request.user)):
-            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.

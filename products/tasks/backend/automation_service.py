@@ -68,7 +68,7 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
         task = automation.task
 
         if task.created_by is not None and not has_tasks_access(task.created_by):
-            raise PermissionDenied("PostHog Code access is required to run task automations")
+            raise PermissionDenied("PostHog Desktop access is required to run task automations")
 
         if trigger_workflow_id:
             existing_task_run_query = TaskRun.objects.select_related("task").filter(

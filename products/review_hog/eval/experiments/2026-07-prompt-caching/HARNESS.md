@@ -1,7 +1,7 @@
-# Harness (PostHog Code repo) — local patch, build, and verify loop (recon 2026-07-06)
+# Harness (PostHog Desktop repo) — local patch, build, and verify loop (recon 2026-07-06)
 
 > Companion to `CANDIDATES.md` #8 (warm-up+fork flagship) and `PLAN.md`. The user approved local two-repo
-> experimentation 2026-07-06: T2/T3-class harness changes are patched in the local PostHog Code checkout at
+> experimentation 2026-07-06: T2/T3-class harness changes are patched in the local PostHog Desktop checkout at
 > `/Users/woutut/Documents/Code/code` for experiments; upstreaming is a later, separate decision.
 > All file:line anchors below are as of 2026-07-06 and will drift; function names are the stable anchors.
 

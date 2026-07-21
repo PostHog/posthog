@@ -53,11 +53,11 @@ Instrument: `eval/scripts/dump_result.py` (cache-aware split, validated Δ +0.0%
 
 - **Shipped:** the cache-aware metrology (`dump_result.py`), validated live; the probe-era "+28% gateway-vs-list discrepancy" resolved as a measurement artifact.
 - **Dropped/demoted:** the pre-build overlap gate (Spike 3) and the standalone gateway probe (Spike 1) — the fork build's own mechanics gate (follower turn-1 cache reads ≈ warm-up transcript size) subsumes the substrate check. The T1 rewrite-bug ticket is pending re-quantification on fresh runs (expected: demote; crude post-flip probe found ~$0.005/run).
-- **Next experiment:** the warm-up+fork build — T2+T3 patched locally in the PostHog Code checkout (approved working mode, `HARNESS.md`), Spike 2 (stripped-form fork fidelity) as first milestone, then the ReviewHog warm-up stage behind an on/off constant, then 2 arm vs 2 control runs on frozen PR #62096. Harness fixes ship upstream only after the experiment proves value.
+- **Next experiment:** the warm-up+fork build — T2+T3 patched locally in the PostHog Desktop checkout (approved working mode, `HARNESS.md`), Spike 2 (stripped-form fork fidelity) as first milestone, then the ReviewHog warm-up stage behind an on/off constant, then 2 arm vs 2 control runs on frozen PR #62096. Harness fixes ship upstream only after the experiment proves value.
 
 ## Key files
 
 - this repo: `products/review_hog/backend/temporal/workflow.py` (fan-out; where the warm-up slots in), `backend/reviewer/sandbox/executor.py` (prompt→description; `MultiTurnSession`), `backend/reviewer/constants.py` (`REVIEW_MODEL`, on/off knobs), `products/tasks/backend/temporal/process_task/activities/provision_sandbox.py` (sandbox env injection, incl. `ENABLE_PROMPT_CACHING_1H`), `get_sandbox_for_repository.py` (branch-ref checkout to SHA-pin), `eval/scripts/dump_result.py` (validated cost instrument)
-- code repo (PostHog Code): `packages/agent/src/server/agent-server.ts` (`buildCloudSystemPrompt`, Task-Id append), `packages/agent/src/adapters/claude/session/options.ts` (systemPrompt build; Bedrock header), `packages/agent/src/adapters/claude/session/jsonl-hydration.ts` (raw JSONL path; lossy hydration to avoid)
+- code repo (PostHog Desktop): `packages/agent/src/server/agent-server.ts` (`buildCloudSystemPrompt`, Task-Id append), `packages/agent/src/adapters/claude/session/options.ts` (systemPrompt build; Bedrock header), `packages/agent/src/adapters/claude/session/jsonl-hydration.ts` (raw JSONL path; lossy hydration to avoid)
 
 Line references drift; function names are the stable anchors. Exact patch surfaces with line numbers: `HARNESS.md`.

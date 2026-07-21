@@ -94,9 +94,9 @@ not a Redis Stream** — we deliver one terminal result, so we don't need replay
   streams.
 - **Unsubscribe/cleanup** on every exit path (result, error, timeout, disconnect).
 
-### Why not a Redis Stream (like PostHog Code)
+### Why not a Redis Stream (like PostHog Desktop)
 
-PostHog Code streams many incremental agent events and needs replay on reconnect
+PostHog Desktop streams many incremental agent events and needs replay on reconnect
 (`Last-Event-ID` cursor over a trimmed stream). SQLV2 delivers one terminal
 result, so pub/sub + a durable row is sufficient and much simpler. Revisit the
 Stream approach only if SQLV2 starts streaming incremental output (stdout,
@@ -193,7 +193,7 @@ fresh `result_id`. Durable storage is what removes this later.
 ## Related model notes
 
 - **`KernelRuntime.server_url` / `server_connect_token`** are stored **plaintext**
-  (`TextField`). This matches PostHog Code, which keeps `sandbox_url` /
+  (`TextField`). This matches PostHog Desktop, which keeps `sandbox_url` /
   `sandbox_connect_token` plaintext in `TaskRun.state` (a plain JSONField). The
   connect token is an ephemeral Modal tunnel token, not a durable account secret
   (those, e.g. env vars, tasks _does_ encrypt via `EncryptedJSONStringField`). If

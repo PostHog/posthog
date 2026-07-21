@@ -76,7 +76,7 @@ export function CodeSeatsSection(): JSX.Element {
                 </div>
             </div>
             <LemonBanner type="info" className="mb-4">
-                PostHog Code with usage-based billing launched on July 16, 2026, and existing seats expire on the same
+                PostHog Desktop with usage-based billing launched on July 16, 2026, and existing seats expire on the same
                 date. New seats, upgrades, and reactivations are no longer available. You can still cancel active seats
                 below.
             </LemonBanner>

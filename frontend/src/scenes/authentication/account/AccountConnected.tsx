@@ -92,7 +92,7 @@ export const scene: SceneExport<AccountConnectedProps> = {
 }
 
 /**
- * Unified return page for PostHog Code / web: social SSO link (`github-login`), personal GitHub
+ * Unified return page for PostHog Desktop / web: social SSO link (`github-login`), personal GitHub
  * integration (`github-integration`), or team Slack integration (`slack-integration`). Navigates
  * to the matching `posthog-code://…` deep link so the desktop app refreshes its integrations —
  * except when started from Slack (`connect_from=slack`), where it shows a terminal success state
@@ -109,7 +109,7 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     const errorCode = getGithubSetupErrorCode(searchParams)
     const isError = errorCode.length > 0
     // The Slack flow has no deep link back — the user just returns to Slack themselves, so we only
-    // show the success state. PostHog Code refreshes its integrations via a desktop deep link.
+    // show the success state. PostHog Desktop refreshes its integrations via a desktop deep link.
     const startedFromSlack = searchParams.connect_from === 'slack'
     // Allowlist-style check — `paramsToProps` is expected to map unknown kinds to `'invalid'`,
     // but guarding directly against the valid set means a route mismatch (e.g. project-prefix
@@ -154,9 +154,9 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
                     </p>
                 ) : (
                     <p className="text-muted mb-0">
-                        <strong>Returning to PostHog Code…</strong>
+                        <strong>Returning to PostHog Desktop…</strong>
                         <br />
-                        <em>If this hasn't happened automatically, get back to the PostHog Code app manually.</em>
+                        <em>If this hasn't happened automatically, get back to the PostHog Desktop app manually.</em>
                     </p>
                 )}
             </div>

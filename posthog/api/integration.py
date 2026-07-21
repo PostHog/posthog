@@ -842,7 +842,7 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     next = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
+        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop).",
     )
     installation_id = serializers.CharField(
         required=False,

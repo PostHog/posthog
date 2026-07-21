@@ -11,7 +11,7 @@ All findings below reference `master` as of this doc's creation.
 1. Do people **re-visit** their notebooks?
 2. Do people **share** their notebooks?
 3. Do people visit **others'** notebooks?
-4. How often do **PostHog Code / Max** create notebooks?
+4. How often do **PostHog Desktop / Max** create notebooks?
 5. How often do people create notebooks via **their own clients (MCP)**?
 6. What kinds of **problems/questions** start in AI/MCP/Code and end up in notebooks?
 
@@ -22,7 +22,7 @@ All findings below reference `master` as of this doc's creation.
 | 1   | Re-visit own notebooks         | ❌              | No open/view event exists anywhere                                                                                                                                                                                                |
 | 2   | Share notebooks                | ❌              | No analytics event on actual share/enable/grant (only an interest CTA + activity-log rows)                                                                                                                                        |
 | 3   | Visit others' notebooks        | ❌              | No view event; no owner-vs-viewer property on any event                                                                                                                                                                           |
-| 4   | Max / PostHog Code create rate | ❌              | `notebook created` is origin-agnostic; Max backend path emits no event. PostHog Code creates via the MCP `notebooks-create` tool, so it shares the MCP path with Q5 — `creation_source: mcp` alone won't separate them (see note) |
+| 4   | Max / PostHog Desktop create rate | ❌              | `notebook created` is origin-agnostic; Max backend path emits no event. PostHog Desktop creates via the MCP `notebooks-create` tool, so it shares the MCP path with Q5 — `creation_source: mcp` alone won't separate them (see note) |
 | 5   | MCP create rate                | ❌              | MCP `notebooks-create` → DRF create → activity-log row only, no analytics event, no source marker                                                                                                                                 |
 | 6   | Problems → notebook            | ⚠️ DB-join only | Link exists via `short_id`→`AgentArtifact.conversation`→`Conversation.topic`, but not in event stream; fragile; absent for MCP                                                                                                    |
 
@@ -83,19 +83,19 @@ indistinguishable from hand-created ones.
 → `Conversation.topic` (classified from first question, `assistant.py:57-88`).
 Breaks if the artifact/conversation is deleted. MCP path has no conversation at all.
 
-### ⚠️ Note on "PostHog Code" vs generic MCP clients (Q4 vs Q5)
+### ⚠️ Note on "PostHog Desktop" vs generic MCP clients (Q4 vs Q5)
 
-PostHog Code creates notebooks **via the MCP `notebooks-create` tool** — it is itself an MCP
+PostHog Desktop creates notebooks **via the MCP `notebooks-create` tool** — it is itself an MCP
 client. So it flows through the same path as Q5 (a customer's own MCP client), and a plain
 `creation_source: mcp` property cannot tell the two apart. To split Q4 from Q5 we need a
 **client identifier** on the create event, e.g.:
 
 - the auth principal (personal API key vs project secret key vs OAuth app) used for the call, and/or
-- the MCP client name / user-agent (PostHog Code should send an identifiable client id).
+- the MCP client name / user-agent (PostHog Desktop should send an identifiable client id).
 
 Action: when emitting the server-side `notebook created` event, capture `mcp_client` /
-`api_key_type` (or an `agent`-tagged sub-source like `mcp_posthog_code`) so PostHog Code is
-distinguishable from third-party MCP usage. Confirm PostHog Code sends a stable client id;
+`api_key_type` (or an `agent`-tagged sub-source like `mcp_posthog_code`) so PostHog Desktop is
+distinguishable from third-party MCP usage. Confirm PostHog Desktop sends a stable client id;
 if not, that's a prerequisite fix.
 
 ## Root cause
@@ -122,7 +122,7 @@ Properties:
   - `max_ai` / `max_account_notebook` / `temporal_agent` / `group_auto`: pass an explicit
     source arg into the facade helper from each caller.
 - `mcp_client` / `api_key_type` (when `creation_source = mcp`): identify the calling client so
-  **PostHog Code** (Q4) is separable from a customer's own MCP client (Q5). See the PostHog
+  **PostHog Desktop** (Q4) is separable from a customer's own MCP client (Q5). See the PostHog
   Code note above — plain `creation_source: mcp` is not enough to split Q4 from Q5.
 - `conversation_id`, `topic`: set when `creation_source` is AI-originated (from the
   `AgentArtifact.conversation` on the Max path). Closes Q6 in the event stream.
@@ -384,7 +384,7 @@ is even meaningful or just noise. Scope it as its own investigation.
 | Q1 re-visit own                                        | PR 1 (`is_creator = true` on `notebook opened`)                                                                                                                       |
 | Q2 share                                               | PR 3                                                                                                                                                                  |
 | Q3 visit others'                                       | PR 1 (`is_creator = false`)                                                                                                                                           |
-| Q4 Max / PostHog Code create                           | PR 2 (`creation_source` + `mcp_client`/`api_key_type`)                                                                                                                |
+| Q4 Max / PostHog Desktop create                           | PR 2 (`creation_source` + `mcp_client`/`api_key_type`)                                                                                                                |
 | Q5 MCP create                                          | PR 2 (`creation_source = mcp`)                                                                                                                                        |
 | Q6 problems → notebook                                 | PR 2 (`conversation_id` + `topic` on AI paths)                                                                                                                        |
 | Q7 agents read notebooks (+ AI-created consumed later) | PR 2e (`notebook read`, `read_source`) — REST/MCP reads, a lower bound; SQL `SELECT FROM notebooks` reads deferred to optional PR 5 (needs SQL-access analysis first) |

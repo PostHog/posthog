@@ -1043,7 +1043,7 @@ utilities:
         prompt: true
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
-        description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
+        description: Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
         description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown

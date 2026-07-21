@@ -163,7 +163,7 @@ projects_router.register(
 
 # Tasks endpoints
 
-# PostHog Code invites (not project-scoped)
+# PostHog Desktop invites (not project-scoped)
 
 # Seats (proxied to billing service)
 

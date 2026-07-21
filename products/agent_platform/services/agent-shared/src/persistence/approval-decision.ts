@@ -2,7 +2,7 @@
  * Shared "decide a queued approval + wake its session" logic, so every decision
  * surface drives the same transition without one depending on another:
  *   - the ingress principal-decision API (a Slack button / client tool / the
- *     PostHog Code card — the session principal clears their own gate),
+ *     PostHog Desktop card — the session principal clears their own gate),
  *   - the janitor's `/approvals/:id/decide` RPC (Django forwards `agent`/owner
  *     decisions here),
  *   - the janitor expiry sweep (a timed-out queue, via `markRejected`/expire).

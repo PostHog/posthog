@@ -145,7 +145,7 @@ def test_includes_team_with_mix_of_code_and_non_code_runs(activity_environment):
     TaskRun.objects.create(task=code_task, team=team, status=TaskRun.Status.COMPLETED)
     TaskRun.objects.create(task=other_task, team=team, status=TaskRun.Status.COMPLETED)
 
-    # A single PostHog Code run qualifies the team even amid other-product runs.
+    # A single PostHog Desktop run qualifies the team even amid other-product runs.
     with patch(FLAG_PATH, return_value=True):
         result = activity_environment.run(list_active_code_teams, None)
 

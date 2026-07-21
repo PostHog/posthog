@@ -263,7 +263,7 @@ class TestFreeTierModelGateErrorBody:
     ) -> None:
         """Pins the gate 403's wire shape end-to-end (raise site + exception-handler
         unwrap): a top-level error envelope, never FastAPI's {"detail": ...} nesting.
-        Pre-cutover PostHog Code clients route this 403 by the "(rate_limit)"
+        Pre-cutover PostHog Desktop clients route this 403 by the "(rate_limit)"
         substring in the message and newer clients read the code — a regression in
         either strands installed builds in fatal-session teardown."""
         from llm_gateway.auth.models import AuthenticatedUser

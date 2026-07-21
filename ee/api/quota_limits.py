@@ -64,7 +64,7 @@ class QuotaLimitsResponseSerializer(serializers.Serializer):
     )
     code_usage_billing_active = serializers.BooleanField(
         help_text=(
-            "Whether the team's organization pays for PostHog Code usage: billing grants the "
+            "Whether the team's organization pays for PostHog Desktop usage: billing grants the "
             "`posthog_code_usage` product feature only on the Code usage product's paid plan, "
             "synced into the organization's available features. Consumers gate paid-tier Code "
             "behavior on this; an org unknown to billing reads as not paying."

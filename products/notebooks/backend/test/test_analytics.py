@@ -56,8 +56,8 @@ class TestNotebookAnalytics(BaseTest):
         self.assertEqual(extra, {})
 
     def test_classify_request_source_api_key_captures_mcp_client_identity(self):
-        # The MCP server forwards mcp_consumer (posthog-code -> PostHog Code) and mcp_oauth_client
-        # (the OAuth app, e.g. Claude), which is how Q4 (PostHog Code) is split from Q5.
+        # The MCP server forwards mcp_consumer (posthog-code -> PostHog Desktop) and mcp_oauth_client
+        # (the OAuth app, e.g. Claude), which is how Q4 (PostHog Desktop) is split from Q5.
         source, extra = classify_request_source(
             _fake_request(_FakeKeyAuth(), mcp_consumer="posthog-code", mcp_oauth_client="Claude")
         )

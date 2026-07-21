@@ -2036,7 +2036,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if approval_type != "agent":
             raise NotFound("Approval not found")
         # A human acting interactively only: SessionAuthentication, or a bearer
-        # from a first-party PostHog OAuth app (e.g. PostHog Code, where a human
+        # from a first-party PostHog OAuth app (e.g. PostHog Desktop, where a human
         # approves in-app) — `is_first_party` is staff-set on the app, so a
         # third-party OAuth app or a personal API key can't decide an owner
         # approval.

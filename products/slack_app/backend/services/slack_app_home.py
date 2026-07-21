@@ -430,7 +430,7 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Inheriting PostHog Code's default — pick personal or workspace settings to override.",
+                    "text": "Inheriting PostHog Desktop's default — pick personal or workspace settings to override.",
                 },
             },
             source_blurb,

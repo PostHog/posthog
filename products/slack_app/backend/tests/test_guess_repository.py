@@ -595,7 +595,7 @@ class TestHandleRulesCommandActivity:
         assert result.status == "handled"
         msg = mock_slack.client.chat_postMessage.call_args
         assert "@PostHog <task description>" in msg.kwargs["text"]
-        assert "@PostHog Code" not in msg.kwargs["text"]
+        assert "@PostHog Desktop" not in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):

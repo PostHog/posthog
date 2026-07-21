@@ -6,7 +6,7 @@
  *
  * This is the SOURCE of truth (long-lived, revocable). At tool-call time the
  * runner resolves the current asker's link from here via `ctx.identity.resolve`
- * (see `createToolIdentity`); a trigger-edge bearer (e.g. PostHog Code passing a
+ * (see `createToolIdentity`); a trigger-edge bearer (e.g. PostHog Desktop passing a
  * posthog token) is the alternative source, held in the per-session
  * `CredentialBroker` and consulted first by the resolver. Tokens never leave
  * the runner process beyond the outbound API call.

@@ -81,7 +81,7 @@ describe('buildIdentityRegistry', () => {
 })
 
 describe('createToolIdentity.resolve', () => {
-    it('returns the trigger-edge seed without touching the store or initiating a link (PostHog Code passthrough)', async () => {
+    it('returns the trigger-edge seed without touching the store or initiating a link (PostHog Desktop passthrough)', async () => {
         const provider = fakeProvider()
         const seed = { resolve: vi.fn(async (t: string) => (t === 'posthog_api' ? OK_CRED : null)) }
         const { toolIdentity } = deps({ provider, seed })

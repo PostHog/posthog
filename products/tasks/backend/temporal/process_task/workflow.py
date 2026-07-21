@@ -1038,7 +1038,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # those changes, opens the PR, and keeps it green (it never implements PostHog itself).
         await self._run_wizard_if_configured(sandbox_output)
 
-        # Start agent-server for direct connection from PostHog Code
+        # Start agent-server for direct connection from PostHog Desktop
         if sandbox_output.agent_server_launched:
             agent_server_output = await self._await_agent_server_ready(sandbox_output)
         else:

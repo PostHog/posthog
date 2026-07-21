@@ -110,7 +110,7 @@ const AGENTS: AgentDef[] = [
     },
     {
         key: 'posthog-code',
-        name: 'PostHog Code',
+        name: 'PostHog Desktop',
         logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
         open: openDeepLink((p) => `posthog-code://new?prompt=${encodeURIComponent(p)}`),

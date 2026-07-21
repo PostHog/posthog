@@ -39,7 +39,7 @@ class ProductConfig:
     credit_bucket: CreditBucket | None = None
     # When True, OAuth callers must present a server-minted credential (a token carrying
     # the internal `internal_run:read` scope). Set on the internal products that share the
-    # PostHog Code OAuth app but are only ever driven by sandbox runs — a user's own Code
+    # PostHog Desktop OAuth app but are only ever driven by sandbox runs — a user's own Code
     # OAuth token can't carry an internal scope, so this stops it routing around the
     # posthog_code free-tier model gate through these products. Personal API keys are
     # unaffected (they reach the gateway only with an explicit, feature-gated
@@ -401,7 +401,7 @@ def check_product_access(
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
-    # Internal products that share the PostHog Code OAuth app are only ever driven by
+    # Internal products that share the PostHog Desktop OAuth app are only ever driven by
     # server-minted sandbox tokens; a user's own Code OAuth token would otherwise reach them
     # and route around the posthog_code free-tier model gate. Require the internal marker that
     # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
