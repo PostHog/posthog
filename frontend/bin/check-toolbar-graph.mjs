@@ -23,11 +23,10 @@ const baselinePath = path.join(__dirname, 'toolbar-graph-baseline.json')
 // 2. Packages on the toolbar denylist (toolbar-config.mjs) must stay absent entirely —
 //    their presence means the deny plugin regressed.
 //
-// This check enforces the module BOUNDARY only; it does not gate on size. Shipped size is
-// owned by check-toolbar-size.mjs, measured from the esbuild OUTPUT (post-tree-shake) — the
-// right place to fail. Input-graph source bytes count code that tree-shakes away, so they are
-// not useful to fail a PR on when the output is acceptable; the total input is printed here as
-// context only, never as a gate, and is surfaced in the shared CI comment for trend visibility.
+// This check enforces the module BOUNDARY only; it does not measure or gate on size. Shipped
+// size is owned by check-toolbar-size.mjs, measured from the esbuild OUTPUT (post-tree-shake)
+// and surfaced in the shared CI comment — the right place to look at toolbar size. Input-graph
+// source bytes count code that tree-shakes away, so this check deliberately reports no byte size.
 const ENTRY = 'src/toolbar/index.tsx'
 
 const APP_ZONE = [/^src\/products/, /^src\/scenes\//, /^src\/layout\//, /^src\/models\//, /^\.\.\/products\//]
@@ -44,10 +43,6 @@ const FORBIDDEN_PACKAGES = [
 function fail(message) {
     console.error(`\n❌ ${message}`)
     process.exitCode = 1
-}
-
-function formatMiB(bytes) {
-    return `${(bytes / 1024 / 1024).toFixed(2)} MiB`
 }
 
 if (!fs.existsSync(metaPath)) {
@@ -118,22 +113,11 @@ for (const pkg of forbiddenHits) {
     )
 }
 
-let totalBytes = 0
-let survivorBytes = 0
-for (const [file, info] of Object.entries(inputs)) {
-    totalBytes += info.bytes
-    if (survivors.has(file)) {
-        survivorBytes += info.bytes
-    }
-}
-
 const status = process.exitCode ? '🟡' : '🟢'
 console.info(
-    `${status} toolbar graph: ${Object.keys(inputs).length} files, ${formatMiB(totalBytes)} source input ` +
-        `(context only — shipped size is enforced by check-toolbar-size)`
+    `${status} toolbar graph boundary: ${crossingEdges.size} toolbar -> app crossing edge(s) ` +
+        `(baseline ${baselineEdges.size}), ${survivors.size} survivor files reachable from the entry`
 )
-console.info(`   survivors (toolbar-owned closure): ${survivors.size} files, ${formatMiB(survivorBytes)}`)
-console.info(`   toolbar -> app crossing edges: ${crossingEdges.size} (baseline ${baselineEdges.size})`)
 
 if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(
@@ -141,10 +125,10 @@ if (process.env.GITHUB_STEP_SUMMARY) {
         [
             '## Toolbar graph check',
             '',
-            '| Metric | Value | Limit |',
-            '| --- | --- | --- |',
-            `| ${status} total source input | ${formatMiB(totalBytes)} | context only (size: check-toolbar-size) |`,
-            `| toolbar -> app edges | ${crossingEdges.size} | baseline ${baselineEdges.size} |`,
+            '| Metric | Value |',
+            '| --- | --- |',
+            `| ${status} toolbar -> app crossing edges | ${crossingEdges.size} (baseline ${baselineEdges.size}) |`,
+            `| survivor files (toolbar-owned closure) | ${survivors.size} |`,
         ].join('\n') + '\n'
     )
 }
