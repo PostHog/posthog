@@ -13,6 +13,8 @@ import structlog
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
+    from posthog.models.user import User
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -269,7 +271,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.columns = columns
         self.column_order = list(columns.keys())
 
-    def get_columns(self) -> dict[str, dict[str, Any]]:
+    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
         from posthog.clickhouse.query_tagging import Feature, Product, tags_context
         from posthog.hogql_queries.query_runner import ExecutionMode
@@ -283,8 +285,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if "kind" not in query and "query" in query:
             query = {"kind": "HogQLQuery", **query}
 
+        # Resolve as the acting user so warehouse access control is enforced against them - a userless
+        # build fails closed and denies every warehouse table, breaking column inference for all users.
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = process_query_dict(
+                self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=user
+            )
         result = getattr(response, "types", [])
 
         if result is None or isinstance(result, int):

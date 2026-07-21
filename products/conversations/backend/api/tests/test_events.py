@@ -23,7 +23,9 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, TicketAssignment
+
+from ee.models.rbac.role import Role
 
 
 class TestConversationEvents(BaseTest):
@@ -112,6 +114,47 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_email"] == self.user.email
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_ticket_assigned_stamps_role_name(self, mock_capture):
+        role = Role.objects.create(name="Data Warehouse", organization=self.organization)
+        capture_ticket_assigned(self.ticket, "role", str(role.id), actor=self.user, actor_type="user")
+
+        properties = mock_capture.call_args.kwargs["properties"]
+        assert properties["assignee_type"] == "role"
+        assert properties["assignee_id"] == str(role.id)
+        assert properties["assignee_role_name"] == "Data Warehouse"
+
+    @parameterized.expand(
+        [
+            ("unassigned", None, None, None),
+            ("user", "user", None, None),
+            ("role", "role", "Support Escalations", "Support Escalations"),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_message_events_stamp_current_assignment(
+        self, _name, assignment_kind, role_name, expected_role_name, mock_capture
+    ):
+        if assignment_kind == "user":
+            TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+            expected_type, expected_id = "user", str(self.user.id)
+        elif assignment_kind == "role":
+            role = Role.objects.create(name=role_name, organization=self.organization)
+            TicketAssignment.objects.create(ticket=self.ticket, role=role)
+            expected_type, expected_id = "role", str(role.id)
+        else:
+            expected_type, expected_id = None, None
+
+        capture_message_received(self.ticket, "msg-1", "hi")
+        received = mock_capture.call_args.kwargs["properties"]
+        capture_message_sent(self.ticket, "msg-2", "hello", author=self.user)
+        sent = mock_capture.call_args.kwargs["properties"]
+
+        for properties in (received, sent):
+            assert properties["assignee_type"] == expected_type
+            assert properties["assignee_id"] == expected_id
+            assert properties["assignee_role_name"] == expected_role_name
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_sent_uses_team_token(self, mock_capture):

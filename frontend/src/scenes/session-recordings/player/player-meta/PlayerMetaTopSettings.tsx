@@ -10,6 +10,7 @@ import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import {
     ModesWithInteractions,
@@ -153,6 +154,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
         hoverModeIsEnabled,
         showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
+    const { modalContext } = useValues(sessionPlayerModalLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
     const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
@@ -184,16 +186,18 @@ export function PlayerMetaTopSettings(): JSX.Element {
                     </div>
 
                     <div className="flex flex-row gap-0.5">
-                        <SettingsButton
-                            size="xsmall"
-                            icon={<IconHeatmap />}
-                            onClick={() => {
-                                setPause()
-                                openHeatmap()
-                            }}
-                            label="View heatmap"
-                            tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
-                        />
+                        {modalContext?.type !== 'heatmap-background-selection' ? (
+                            <SettingsButton
+                                size="xsmall"
+                                icon={<IconHeatmap />}
+                                onClick={() => {
+                                    setPause()
+                                    openHeatmap()
+                                }}
+                                label="View heatmap"
+                                tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
+                            />
+                        ) : null}
                         {withSidebar && <InspectDOM />}
                         {withSidebar && <PlayerInspectorButton />}
                     </div>
