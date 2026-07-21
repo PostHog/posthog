@@ -13,6 +13,7 @@ import temporalio.exceptions
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.messaging.backfill_precalculated_events_workflow import BackfillPrecalculatedEventsInputs
+from posthog.temporal.messaging.clickhouse_concurrency import messaging_clickhouse_query_slot
 from posthog.temporal.messaging.constants import BACKFILL_EVENT_SOURCE_PREFIX
 
 
@@ -68,7 +69,7 @@ async def check_day_already_backfilled_activity(inputs: EventDateCheckInputs) ->
         product=Product.MESSAGING,
         query_type="event_backfill_day_check",
     ):
-        async with get_client(team_id=inputs.team_id) as client:
+        async with messaging_clickhouse_query_slot, get_client(team_id=inputs.team_id) as client:
             result = await client.read_query(query, query_params)
             condition_count = int(result.strip()) if result.strip() else 0
 

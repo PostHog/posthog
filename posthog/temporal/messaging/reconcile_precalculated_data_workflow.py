@@ -351,7 +351,7 @@ async def reconcile_team_precalculated_person_properties_activity(
         ):
             # Hold a messaging-wide query slot for the whole streaming context (several batched
             # queries with Kafka produce / eval between them). Coarse, but only team_concurrency
-            # (<=5) of these run at once, and waiting on the slot is backpressure, not a 202.
+            # (default 5) of these run at once, and waiting on the slot is backpressure, not a 202.
             async with messaging_clickhouse_query_slot, get_client(team_id=inputs.team_id) as client:
                 kafka_producer = get_producer(topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES)
                 kafka_results: list = []
