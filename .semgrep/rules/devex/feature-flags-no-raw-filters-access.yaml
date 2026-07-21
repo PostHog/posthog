@@ -39,7 +39,6 @@ rules:
               - '/products/early_access_features/backend/apps.py'
               - '/products/experiments/backend/experiment_service.py'
               - '/products/experiments/backend/experiment_summary_data_service.py'
-              - '/products/product_tours/backend/api/product_tour.py'
       patterns:
           - pattern-either:
                 - pattern: $FLAG.filters[$KEY]
