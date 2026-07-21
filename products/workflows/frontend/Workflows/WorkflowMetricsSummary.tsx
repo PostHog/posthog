@@ -7,8 +7,9 @@ import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverl
 import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import { WorkflowMetricCard } from './WorkflowMetricCard'
 
 import {
     type EmailMetric,
@@ -203,7 +204,7 @@ export function WorkflowMetricsSummary({
                     const sentSeries = (previous?: boolean): AppMetricsTimeSeriesResponse | null => {
                         if (hasEmail && hasPush) {
                             // Split the combined "Messages sent" tile into Emails + Push lines. The headline
-                            // number stays their sum (AppMetricSummary totals across series); the sparkline
+                            // number stays their sum (the metric card totals across series); the sparkline
                             // and its tooltip break the total down by channel.
                             const emailSeries = getSingleTrendSeries('email_sent', previous)
                             const pushSeries = getSingleTrendSeries('push_sent', previous)
@@ -235,7 +236,7 @@ export function WorkflowMetricsSummary({
                           : withDisplayName(getSingleTrendSeries(metricName, true), name)
 
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={summaryMetric}
                             name={name}
                             description={description}
@@ -243,7 +244,6 @@ export function WorkflowMetricsSummary({
                             timeSeries={timeSeries}
                             previousPeriodTimeSeries={previousPeriodTimeSeries}
                             color={METRIC_COLORS[name] ?? metric.color}
-                            seriesColors={METRIC_COLORS}
                             colorIfZero={getColorVar('muted')}
                             footer={
                                 summaryMetric === 'converted' &&
