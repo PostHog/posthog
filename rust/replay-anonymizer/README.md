@@ -13,9 +13,6 @@ Offline consumers (JSONL of individual events rather than Kafka messages) get a 
 
 ## Releasing
 
-Publishing to crates.io is automated by `.github/workflows/publish-replay-anonymizer-crate.yml`:
+Publishing to crates.io is automated by `.github/workflows/publish-replay-anonymizer-crate.yml`: bump `version` in `Cargo.toml` in your PR, and on merge to master the workflow publishes any version not yet on crates.io via trusted publishing (GitHub OIDC, no long-lived token). No tags involved.
 
-1. Bump `version` in `Cargo.toml` and merge to master.
-2. Tag the merged commit `posthog-replay-anonymizer/v<version>` and push the tag.
-
-The workflow verifies the tag matches the crate version and publishes via crates.io trusted publishing (GitHub OIDC, no long-lived token).
+If crate code changes in a PR without a version bump, CI posts a reminder comment on the PR.
