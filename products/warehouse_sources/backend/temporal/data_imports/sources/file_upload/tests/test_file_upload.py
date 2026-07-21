@@ -10,7 +10,11 @@ import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.file_uploads import build_file_upload_s3_path
+from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload import (
+    file_upload as file_upload_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.file_upload import (
+    FILE_TOO_LARGE_ERROR,
     FileUploadSourceManager,
     _read_uploaded_table,
     _rows_from_json,
@@ -60,6 +64,13 @@ class TestReadUploadedTable:
     def test_rejects_unknown_format(self) -> None:
         with pytest.raises(ValueError, match="Unsupported file upload format"):
             _read_uploaded_table(CSV_BYTES, "xlsx")
+
+    def test_rejects_parquet_that_decodes_past_the_size_cap(self) -> None:
+        # A small (even compressed) upload can decode to far more than its stored size; the guard must
+        # reject it up front rather than materialise it and exhaust the import worker.
+        with patch.object(file_upload_module, "MAX_DECODED_BYTES", 1):
+            with pytest.raises(ValueError, match=FILE_TOO_LARGE_ERROR):
+                _read_uploaded_table(_parquet_bytes(), "parquet")
 
 
 class TestFileUploadSourceManager:

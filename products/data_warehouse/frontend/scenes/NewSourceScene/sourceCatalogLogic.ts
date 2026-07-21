@@ -1114,6 +1114,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 allowedSources:
                     | (
+                          | 'FileUpload'
                           | 'ActiveCampaign'
                           | 'AcuityScheduling'
                           | 'Adapty'

@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.file_upload import file_upload_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.file_upload import (
+    FILE_TOO_LARGE_ERROR,
+    file_upload_source,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.settings import (
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
@@ -89,6 +92,15 @@ class FileUploadSource(SimpleSource[FileUploadSourceConfig]):
                 ],
             ),
         )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # A file that decodes past the size cap will never succeed on retry — fail the sync instead.
+        return {
+            FILE_TOO_LARGE_ERROR: (
+                "The uploaded file is too large to import once decompressed. Upload a smaller file, or "
+                "connect the bucket it lives in as a self-managed source instead."
+            ),
+        }
 
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
