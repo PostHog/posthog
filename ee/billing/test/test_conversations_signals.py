@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Organization, Team, User
 from posthog.models.comment import Comment
 
@@ -183,6 +184,28 @@ class TestConversationsSlackSignals(SimpleTestCase):
             ("T123", "C1"): dt.datetime(2026, 7, 5, 9, 0, tzinfo=dt.UTC),
             ("T999", "C2"): dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
         }
+
+        # Pin the ClickHouse contract with the emitter (_track_bot_joined_channel) as
+        # literal values: if the event name, internal analytics team, or tracking-since
+        # bound drifts, this fails instead of Salesforce silently going empty.
+        query, params = mock_query.call_args.args
+        assert params == {
+            "team_id": 2,
+            "event": "support slack bot joined channel",
+            "since": dt.datetime(2026, 7, 1, tzinfo=dt.UTC),
+            "channel_ids": ["C1", "C2"],
+        }
+        assert mock_query.call_args.kwargs == {"workload": Workload.OFFLINE}
+        for fragment in (
+            "team_id = %(team_id)s",
+            "event = %(event)s",
+            "timestamp >= %(since)s",
+            "min(timestamp) AS bot_joined_at",
+            "JSONExtractString(properties, 'slack_team_id')",
+            "JSONExtractString(properties, 'slack_channel_id') IN %(channel_ids)s",
+            "GROUP BY slack_team_id, slack_channel_id",
+        ):
+            assert fragment in query
 
     @patch("ee.billing.salesforce_enrichment.conversations_signals.query_with_columns")
     def test_fetch_slack_bot_joined_at_skips_query_without_channels(self, mock_query):
