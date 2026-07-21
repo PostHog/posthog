@@ -447,14 +447,17 @@ def get_sandbox_api_url() -> str:
 def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     """The connector allowlist a loop run snapshotted at fire time, read back from ``TaskRun.state``.
 
-    Returns ``None`` when there is no snapshot (every non-loop task, or pre-snapshot state) so the
-    caller keeps its current unfiltered behavior; an empty list means the loop selected no
-    connectors, so nothing should mount."""
-    connectors = ((state or {}).get("config_snapshot") or {}).get("connectors")
-    if not isinstance(connectors, dict):
+    Returns ``None`` only when there is no snapshot at all (every non-loop task, or pre-snapshot
+    state) so the caller keeps its current unfiltered behavior. Once a loop snapshot exists, a
+    missing or malformed id list fails closed to an empty allowlist (mount nothing) — a loop that
+    selected no connectors, or whose config omitted the key, must not fall back to mounting every
+    connector the owner has."""
+    config_snapshot = (state or {}).get("config_snapshot")
+    if not isinstance(config_snapshot, dict):
         return None
-    ids = connectors.get("mcp_installation_ids")
-    return [str(i) for i in ids] if isinstance(ids, list) else None
+    connectors = config_snapshot.get("connectors")
+    ids = connectors.get("mcp_installation_ids") if isinstance(connectors, dict) else None
+    return [str(i) for i in ids] if isinstance(ids, list) else []
 
 
 def get_user_mcp_server_configs(
@@ -933,6 +936,46 @@ def is_caller_token_run(run_id: str, state: dict[str, Any] | None) -> bool:
 
 
 def get_sandbox_github_token(
+    github_integration_id: int | None,
+    *,
+    run_id: str,
+    state: dict[str, Any] | None = None,
+    created_by: User | None = None,
+    actor_user: User | None = None,
+    task: Task | None = None,
+    github_user_integration_id: str | None = None,
+    repository: str | None = None,
+) -> str | None:
+    """Resolve a loop run's GitHub token, then re-check owner eligibility before handing it back.
+
+    Resolving the token can make an external round-trip (user-integration refresh, installation
+    token), so the eligibility lock in `_resolve_sandbox_github_token` can't be held across it. This
+    outer gate re-verifies eligibility once resolution is done — the tightest safe boundary — so a
+    deactivation or team-access revocation that commits during the round-trip still stops the token
+    reaching the sandbox. Non-loop runs are unaffected."""
+    token = _resolve_sandbox_github_token(
+        github_integration_id,
+        run_id=run_id,
+        state=state,
+        created_by=created_by,
+        actor_user=actor_user,
+        task=task,
+        github_user_integration_id=github_user_integration_id,
+        repository=repository,
+    )
+    loop_id = (state or {}).get("loop_id")
+    if token is not None and loop_id is not None and task is not None:
+        with transaction.atomic():
+            if not loop_owner_eligible_for_credentials(task.created_by_id, task.team):
+                logger.warning(
+                    "loop_github_token_owner_ineligible_post_resolution",
+                    extra={"run_id": run_id, "task_id": str(task.id)},
+                )
+                return None
+    return token
+
+
+def _resolve_sandbox_github_token(
     github_integration_id: int | None,
     *,
     run_id: str,

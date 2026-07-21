@@ -392,8 +392,9 @@ class TestFetchUserMcpServerConfigs(TestCase):
         [
             ("no_state", None, None),
             ("no_snapshot", {}, None),
-            ("no_connectors_key", {"config_snapshot": {}}, None),
-            ("connectors_without_ids", {"config_snapshot": {"connectors": {}}}, None),
+            # A loop snapshot with no/empty connectors fails closed to an empty allowlist, not None.
+            ("no_connectors_key", {"config_snapshot": {}}, []),
+            ("connectors_without_ids", {"config_snapshot": {"connectors": {}}}, []),
             ("empty_ids", {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}, []),
             ("with_ids", {"config_snapshot": {"connectors": {"mcp_installation_ids": ["a", "b"]}}}, ["a", "b"]),
         ]
