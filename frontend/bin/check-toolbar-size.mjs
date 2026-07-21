@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import fs from 'fs'
-import path from 'path'
 
 import { eagerOutputs, findEntryOutput, jsOutputs, readToolbarMetafile } from './toolbar-metafile.mjs'
 
