@@ -41549,6 +41549,8 @@ export namespace Schemas {
       deleted?: boolean | null;
       /** @maxLength 128 */
       name: string;
+      /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+      readonly hogql_name: string;
       format: TableFormatEnum;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -49513,6 +49515,8 @@ export namespace Schemas {
       deleted?: boolean | null;
       /** @maxLength 128 */
       name?: string;
+      /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+      readonly hogql_name?: string;
       format?: TableFormatEnum;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
