@@ -914,15 +914,19 @@ class LoopTriggerPayloadCapAPITest(LoopsAPITestCase):
 
     @parameterized.expand(
         [
-            ("header_reports_true_size", False),
-            ("header_absent_chunked_transport", True),
+            # Declared oversize length is rejected as 413 before the body is parsed.
+            ("header_reports_true_size", False, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE),
+            # A missing length (chunked/ASGI) can't be bounded pre-parse, so it's refused as 411
+            # rather than allowed to stream up to the global upload limit.
+            ("header_absent_requires_length", True, status.HTTP_411_LENGTH_REQUIRED),
         ]
     )
-    def test_oversized_trigger_payload_is_rejected_without_creating_a_task(self, _name, simulate_missing_header):
+    def test_oversized_trigger_payload_is_rejected_without_creating_a_task(
+        self, _name, simulate_missing_header, expected_status
+    ):
         loop_id = self._create_loop(self.owner_client, triggers=[{"type": "api", "config": {}}])["id"]
         oversized = {"context": "x" * MAX_LOOP_TRIGGER_PAYLOAD_BYTES}
-        # The WSGI test client always sends an accurate Content-Length and its stream is
-        # bounded by it, so the chunked/ASGI condition (header absent, body parses in full)
+        # The WSGI test client always sends an accurate Content-Length; the header-absent condition
         # is simulated by zeroing the header read.
         header_ctx = (
             patch("products.tasks.backend.presentation.views.loops._content_length", return_value=0)
@@ -933,7 +937,7 @@ class LoopTriggerPayloadCapAPITest(LoopsAPITestCase):
         with header_ctx:
             response = self._psak_trigger(loop_id, oversized)
 
-        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(response.status_code, expected_status)
         self.assertEqual(Task.objects.count(), 0)
 
 

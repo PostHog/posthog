@@ -314,14 +314,23 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="trigger", required_scopes=["loop:write"])
     def trigger(self, request, pk=None, **kwargs):
-        # Content-Length, not `request.body`: permission checks upstream (`view.team` via
-        # `AccessControlPermission`) already consume the request stream through `request.POST`,
-        # so `request.body` raises `RawPostDataException` by the time this handler runs.
-        if _content_length(request) > MAX_LOOP_TRIGGER_PAYLOAD_BYTES:
+        # Bound parse work BEFORE touching `request.data`: Django reads at most `Content-Length`
+        # bytes for the body, so requiring a declared length within the cap means the JSON parse can
+        # never see more than 64 KB. A missing length (chunked transfer) would otherwise let the body
+        # stream up to the global upload limit before the size check, so it's rejected here.
+        # (`Content-Length`, not `request.body`: permission checks upstream consume the raw stream via
+        # `request.POST`, so `request.body` already raises `RawPostDataException` by now.)
+        content_length = _content_length(request)
+        if content_length <= 0:
+            return Response(
+                {"detail": "A Content-Length header within 64 KB is required."},
+                status=status.HTTP_411_LENGTH_REQUIRED,
+            )
+        if content_length > MAX_LOOP_TRIGGER_PAYLOAD_BYTES:
             return Response({"detail": "Request body exceeds 64 KB."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         payload = request.data if isinstance(request.data, dict) else {}
-        # Content-Length can be absent (chunked transfer, ASGI), so the parsed payload is the
-        # authoritative cap; parse pressure stays bounded by DATA_UPLOAD_MAX_MEMORY_SIZE.
+        # Backstop for an understated Content-Length: the parsed body (already bounded to the declared
+        # length by Django) must still fit the cap.
         payload_size = len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode())
         if payload_size > MAX_LOOP_TRIGGER_PAYLOAD_BYTES:
             return Response({"detail": "Request body exceeds 64 KB."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
