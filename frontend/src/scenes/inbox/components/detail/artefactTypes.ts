@@ -1,5 +1,5 @@
 // Pure (no-React) artefact helpers shared by the detail logic and the activity-log renderers.
-// Mirrors the PostHog Code inbox's artefact-log domain helpers. Content shapes stay loose
+// Mirrors the PostHog Desktop inbox's artefact-log domain helpers. Content shapes stay loose
 // (`Record<string, any>` on the artefact) and are read through these typed accessors so legacy
 // rows with extra/missing keys never crash a render.
 

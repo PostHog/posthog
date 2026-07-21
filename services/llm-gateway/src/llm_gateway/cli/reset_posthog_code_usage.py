@@ -1,4 +1,4 @@
-"""Reset PostHog Code usage counters in Redis. Resets all users by default, or a single user with --user-id."""
+"""Reset PostHog Desktop usage counters in Redis. Resets all users by default, or a single user with --user-id."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def _non_empty_user_id(value: str) -> str:
 async def _amain(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="reset-posthog-code-usage",
-        description="Reset PostHog Code usage counters in the LLM gateway Redis. Resets every user unless --user-id is given.",
+        description="Reset PostHog Desktop usage counters in the LLM gateway Redis. Resets every user unless --user-id is given.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Count keys without deleting.")
     parser.add_argument(

@@ -113,7 +113,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .string()
         .default(isDev() ? 'posthog-code-dev' : 'posthog-code')
         .describe(
-            'Custom-protocol scheme that PostHog Code registers for deep links (the agent console now lives in the PostHog Code app). Used to build clickable approval links (`<scheme>://approval/<id>`) surfaced to the model on a gated tool call so non-PostHog-Code clients (Slack, MCP) can open the approval in the desktop app. Dev → `posthog-code-dev`, prod → `posthog-code`.'
+            'Custom-protocol scheme that PostHog Desktop registers for deep links (the agent console now lives in the PostHog Desktop app). Used to build clickable approval links (`<scheme>://approval/<id>`) surfaced to the model on a gated tool call so non-PostHog-Desktop clients (Slack, MCP) can open the approval in the desktop app. Dev → `posthog-code-dev`, prod → `posthog-code`.'
         ),
     memoryS3Endpoint: requiredInProd(DEV_S3_ENDPOINT, 'AGENT_MEMORY_S3_ENDPOINT', { url: true }).describe(
         'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it (fail closed at config-load in prod). Dev defaults to local SeaweedFS.'

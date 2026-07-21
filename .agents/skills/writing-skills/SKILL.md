@@ -21,7 +21,7 @@ hogli lint:skills
 # 4. Build to verify
 hogli build:skills
 
-# 5. Test locally with PostHog Code or a coding agent
+# 5. Test locally with PostHog Desktop or a coding agent
 hogli sync:skill -- --name <skill-name>
 
 # 6. Delete the test skill (optional)

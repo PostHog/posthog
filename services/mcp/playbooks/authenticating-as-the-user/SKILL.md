@@ -13,7 +13,7 @@ Identity has two independent questions. Confusing them is the #1 mistake.
 
 1. **Principal — _who is asking?_** Set by the trigger:
    - `posthog` (chat / MCP): an authenticated PostHog user — the bearer
-     arrives at the trigger edge (the PostHog Code / IDE passthrough).
+     arrives at the trigger edge (the PostHog Desktop / IDE passthrough).
    - `slack`: a Slack user (identified by their Slack user id).
    - `jwt`: an embedding app's end-user.
      The principal is _who_, not _what they can do_.
@@ -89,7 +89,7 @@ Every identity-gated call resolves to one of three outcomes:
 
 Where the bearer comes from depends on the surface:
 
-- **chat / MCP (PostHog Code, IDE):** passthrough from the trigger edge —
+- **chat / MCP (PostHog Desktop, IDE):** passthrough from the trigger edge —
   already authenticated, no link step.
 - **slack:** the user links once via the OAuth flow. After linking it's
   persisted per-user and reused.

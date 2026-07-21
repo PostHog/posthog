@@ -55,7 +55,7 @@ _SLACK_HEADER_MAX_LEN = 150
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
 
-# Deep link opened by the PostHog Code desktop app. Override via env for dev (`posthog-code-dev`).
+# Deep link opened by the PostHog Desktop app. Override via env for dev (`posthog-code-dev`).
 POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code")
 
 # Priority ranking — lower index is higher priority. Index used for threshold comparison.
@@ -419,7 +419,7 @@ _MAX_THREAD_SIGNALS = 30
 _SIGNAL_CONTENT_MAX_LEN = 2900
 
 # Explicit "Product · Signal type" labels, mirroring `signalCardSourceLine` in the canonical Inbox UI
-# (PostHog Code's apps/code/.../detail/SignalCard.tsx). Keep in sync with it.
+# (PostHog Desktop's apps/code/.../detail/SignalCard.tsx). Keep in sync with it.
 _SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
     ("error_tracking", "issue_created"): "Error tracking · New issue",
     ("error_tracking", "issue_reopened"): "Error tracking · Issue reopened",

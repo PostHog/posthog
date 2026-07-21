@@ -46,7 +46,7 @@ NOT this:
 - ❌ Create an empty draft and rebuild. You'll drift from live.
 - ❌ Branch from an archived revision. You'd be regressing.
 
-In PostHog Code, `focus_revision` to the new draft so the user
+In PostHog Desktop, `focus_revision` to the new draft so the user
 sees it.
 
 ## Step 3 — edit
@@ -94,7 +94,7 @@ For each edit, surface to the user:
 - The before/after diff if it's small (< 20 lines), else just the
   summary
 
-In PostHog Code, `focus_file` to each file as you touch it.
+In PostHog Desktop, `focus_file` to each file as you touch it.
 
 ## Step 4 — validate
 
@@ -170,7 +170,7 @@ Then call `posthog__agent-applications-revisions-promote-create`.
 ## Step 8 — observe
 
 After promoting, **watch the first real session(s)**. In
-PostHog Code, `focus_session` for `posthog__agent-applications-sessions-list`
+PostHog Desktop, `focus_session` for `posthog__agent-applications-sessions-list`
 and tell the user you're watching for the next fire. If something
 looks wrong in the first 1-3 sessions, you have a quick rollback:
 

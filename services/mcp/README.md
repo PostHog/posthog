@@ -302,7 +302,7 @@ https://mcp.posthog.com/mcp?consumer=plugin
 x-posthog-mcp-consumer: plugin
 ```
 
-The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Desktop Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 
@@ -397,7 +397,7 @@ npx
 
 ### Developing against Claude Desktop
 
-Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
+Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Desktop doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
 
 ```json
 {

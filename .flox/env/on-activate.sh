@@ -204,7 +204,7 @@ warn_step() {
 }
 
 # ── Interactive mode detection ────────────────────────────────────
-# Skip all interactive prompts in non-interactive terminals or when running under PostHog Code (automated agent).
+# Skip all interactive prompts in non-interactive terminals or when running under PostHog Desktop (automated agent).
 _interactive=false
 if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
   _interactive=true

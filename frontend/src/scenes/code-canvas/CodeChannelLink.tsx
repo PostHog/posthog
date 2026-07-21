@@ -50,10 +50,10 @@ export function CodeChannelLink({ channelId, taskId }: CodeChannelLinkProps): JS
         <BridgePage view="code-channel-link">
             <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
                 <IconLaptop className="text-5xl shrink-0" />
-                <h2 className="text-xl font-semibold m-0">Opening in PostHog Code…</h2>
+                <h2 className="text-xl font-semibold m-0">Opening in PostHog Desktop…</h2>
                 <p className="text-muted mb-0">
-                    This {target} lives in the PostHog Code desktop app. If it's installed, it should open
-                    automatically. If it didn't, use the button below, or download the app.
+                    This {target} lives in the PostHog Desktop app. If it's installed, it should open automatically. If
+                    it didn't, use the button below, or download the app.
                 </p>
                 <div className="flex flex-col items-center gap-2">
                     {deepLink && (
@@ -63,11 +63,11 @@ export function CodeChannelLink({ channelId, taskId }: CodeChannelLinkProps): JS
                                 window.location.href = deepLink
                             }}
                         >
-                            Open in PostHog Code
+                            Open in PostHog Desktop
                         </LemonButton>
                     )}
                     <LemonButton type="secondary" to="https://posthog.com/code" targetBlank>
-                        Download PostHog Code
+                        Download PostHog Desktop
                     </LemonButton>
                 </div>
             </div>

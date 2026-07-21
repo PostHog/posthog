@@ -243,7 +243,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_select_repository_activity_does_not_raise_with_only_user_integration(monkeypatch, ateam):
-    # PostHog Code installs land in `UserIntegration`, never on `Integration`. Before the cascade
+    # PostHog Desktop installs land in `UserIntegration`, never on `Integration`. Before the cascade
     # was wired up, this combination raised `RuntimeError("No GitHub integration found ...")` and
     # killed the activity. Now it must resolve a user_id and reach `select_repository_for_report`.
     user = await sync_to_async(User.objects.create)(email=f"posthog-code-{random.randint(1, 99999)}@example.com")

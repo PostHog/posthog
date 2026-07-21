@@ -9,7 +9,6 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { withInformationalResponse } from '@/tools/tool-utils'
 import {
     createExecTool,
     describeValidationError,
@@ -18,6 +17,7 @@ import {
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -331,7 +331,7 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Code (via consumer) plus Claude Code and
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
         // Cowork (via the client-profile flag). All three surface structuredContent to
         // the model, so it must be dropped and the UI data re-homed onto _meta.
         it.each([

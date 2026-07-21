@@ -518,7 +518,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
-            generated_by=("PostHog Code",),
+            generated_by=("PostHog Desktop",),
             task_ids=("task-1", "task-2"),
         )
 
@@ -534,7 +534,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_agent_authored"] is True
         assert props["stamphog_agent_commit_count"] == 2
         assert props["stamphog_commit_count"] == 3
-        assert props["stamphog_generated_by"] == ["PostHog Code"]
+        assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
     else:
         assert props["stamphog_owner_teams"] == []

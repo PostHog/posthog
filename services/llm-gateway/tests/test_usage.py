@@ -425,7 +425,7 @@ class TestUsageEndpoint:
         assert resolver_mock.call_args.args[0] == "ai_credits"
 
     def test_ai_credits_carries_org_spend_numbers(self, authenticated_usage_client: TestClient) -> None:
-        """PostHog Code renders "used $X of $Y" (titlebar, plans page) off these
+        """PostHog Desktop renders "used $X of $Y" (titlebar, plans page) off these
         numbers; None must stay None so clients read unknown, not $0."""
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 

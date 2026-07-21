@@ -54,7 +54,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})
-        # Org holds no billing-granted Code usage feature -> reads as not paying
+        # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
     def test_reports_code_usage_billing_state(self) -> None:
@@ -62,7 +62,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # on this field - dropping it (or resolving the wrong org) silently
         # re-caps paying users.
         self.organization.available_product_features = [
-            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage billing"}
+            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
         ]
         self.organization.save()
 
@@ -72,7 +72,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertIs(response.json()["code_usage_billing_active"], True)
 
     def test_reports_org_usage_and_limit_for_synced_resources(self) -> None:
-        # The LLM gateway forwards these to clients (PostHog Code renders
+        # The LLM gateway forwards these to clients (PostHog Desktop renders
         # "used $X of $Y"); usage mirrors the limiter's usage + todays_usage sum.
         self.organization.usage = {
             "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],

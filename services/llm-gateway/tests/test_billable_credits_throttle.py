@@ -59,7 +59,7 @@ class TestBillableCreditThrottle:
 
         assert result.allowed is False
         assert result.status_code == 429
-        assert "PostHog Code usage limit" in result.detail
+        assert "PostHog Desktop usage limit" in result.detail
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

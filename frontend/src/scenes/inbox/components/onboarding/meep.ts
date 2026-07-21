@@ -6,7 +6,7 @@ let audio: HTMLAudioElement | null = null
 
 /**
  * Cheeky easter egg for the onboarding previews: clicking the (otherwise inert) sample cards plays
- * a "meep" and pops a matching toast – a nod to PostHog Code. Pure flair; nothing else depends on it.
+ * a "meep" and pops a matching toast – a nod to PostHog Desktop. Pure flair; nothing else depends on it.
  */
 export function playMeep(): void {
     lemonToast.info('Meep')

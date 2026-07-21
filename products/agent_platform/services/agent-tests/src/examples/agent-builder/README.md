@@ -1,7 +1,7 @@
 # Agent Builder — the meta-agent for the platform
 
 The "explain, debug, edit" assistant for every agent on the
-PostHog agent platform. One deployment, two surfaces (PostHog Code
+PostHog agent platform. One deployment, two surfaces (PostHog Desktop
 chat dock, MCP from Claude Code / Cursor),
 all acting under the user's PostHog OAuth principal.
 
@@ -84,7 +84,7 @@ agent-builder/
 | MCP (authoring)  | `agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)                                    | The bulk of its work — read + write agent state as the connected user, via the one `spec.mcps` entry (PostHog MCP, `posthog` identity provider). Curated `tools[]` allow-list; `promote` / `archive` / `destroy` are approval-gated. |
 | MCP (telemetry)  | `execute-sql`, `insight-query`, `get-llm-total-costs-for-project`                                                                       | HogQL / insights over the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence.                                               |
 | Native (runtime) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/web-search`                                        | The agent's own runtime tools — durable memory (persist a fleet-audit report) and web search.                                                                                                                                        |
-| Client           | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret`, `connect_mcp` | Drive PostHog Code's read panel + read the user's current view. No-op outside PostHog Code.                                                                                                                                          |
+| Client           | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret`, `connect_mcp` | Drive PostHog Desktop's read panel + read the user's current view. No-op outside PostHog Desktop.                                                                                                                                    |
 
 ## Auth model
 
@@ -92,7 +92,7 @@ Auth is configured **per trigger** — there is no top-level
 `spec.auth`. Both Agent Builder entrypoints require the user-scoped
 `posthog` mode:
 
-1. **PostHog Code** — user signs into the PostHog Code app via
+1. **PostHog Desktop** — user signs into the PostHog Desktop app via
    PostHog OAuth. The app sends that OAuth access token to the chat
    trigger. Every tool call runs as the user without a separate MCP
    sign-in.
@@ -103,7 +103,7 @@ Auth is configured **per trigger** — there is no top-level
 The Agent Builder holds no fallback credential.
 
 The Agent Builder accepts only `posthog` auth on both chat and MCP entrypoints.
-For chat, PostHog Code sends the signed-in user's OAuth bearer on `/run` and
+For chat, PostHog Desktop sends the signed-in user's OAuth bearer on `/run` and
 `/send`; ingress validates it and stores it as the session's `posthog_api`
 credential. The runner forwards that same bearer to the first-party MCP, so
 there is no second interactive OAuth flow. A browser session cookie cannot be
@@ -119,7 +119,7 @@ platform's seed-only PostHog provider, so there is no account-linking path and n
 second OAuth flow.
 
 The Agent Builder chat therefore does not use the ingress OAuth callback route.
-PostHog Code supplies the signed-in user's OAuth access token at the trigger
+PostHog Desktop supplies the signed-in user's OAuth access token at the trigger
 edge, and the runner passes that credential to the first-party MCP. The
 `/link/<provider>/callback` flow exists for agents that intentionally support
 connecting an additional identity.
@@ -182,7 +182,7 @@ agent-applications-revisions-promote-create revision_id=<rid>
 The Agent Builder lives in **PostHog's primary org** so it's
 available to every team via the standard MCP / chat ingress. Each
 trigger's `auth.modes: [posthog]` means every request must carry a
-verified user credential. PostHog Code supplies the user's OAuth
+verified user credential. PostHog Desktop supplies the user's OAuth
 access token to chat; standalone MCP clients supply a user PAT.
 
 ## Regression test

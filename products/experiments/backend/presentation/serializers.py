@@ -374,7 +374,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was "
             "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
             "flag_cleanup_task action."
         ),
@@ -1016,14 +1016,14 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
 
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
     run_status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         help_text="Status of the task's latest run.",

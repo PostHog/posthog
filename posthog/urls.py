@@ -661,7 +661,7 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
-    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Desktop.
     r"code/canvas/[^/]+/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",

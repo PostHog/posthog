@@ -1451,7 +1451,7 @@ export interface ExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
@@ -1564,7 +1564,7 @@ export interface ExperimentApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
@@ -1673,7 +1673,7 @@ export interface PatchedExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
@@ -1724,7 +1724,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
 }
 
@@ -1748,7 +1748,7 @@ export const RunStatusEnumApi = {
 } as const
 
 export interface ExperimentFlagCleanupTaskApi {
-    /** ID of the flag-cleanup Code task. */
+    /** ID of the flag-cleanup Desktop task. */
     task_id: string
     /** Status of the task's latest run.
      *
@@ -1976,7 +1976,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string

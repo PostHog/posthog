@@ -9,7 +9,7 @@
  *      resolves the PostHog user behind a Slack principal from that subject.
  *   3. `credentialTarget = 'posthog_api'` — the broker key the native
  *      `@posthog/*` tools resolve under, and the key `createToolIdentity`
- *      consults for the trigger-edge seed (PostHog Code passthrough). The
+ *      consults for the trigger-edge seed (PostHog Desktop passthrough). The
  *      linked-credential store stays keyed by the provider `id` (default
  *      `posthog`); both axes resolve to the same logical PostHog bearer.
  *
@@ -59,7 +59,7 @@ export class PostHogAuthProvider extends Oauth2AuthProvider {
     // (read by the inherited `fetchSubject`) as the credential subject.
     override readonly establishesIdentity = true
 
-    // The edge seed (PostHog Code's posthog bearer) and the native `@posthog/*`
+    // The edge seed (PostHog Desktop's posthog bearer) and the native `@posthog/*`
     // tools both key off `posthog_api`; the linked store stays keyed by `id`.
     override get credentialTarget(): string {
         return 'posthog_api'
@@ -71,7 +71,7 @@ export class PostHogAuthProvider extends Oauth2AuthProvider {
 }
 
 /**
- * Surfaces the trigger-edge PostHog bearer (PostHog Code passthrough) but can't
+ * Surfaces the trigger-edge PostHog bearer (PostHog Desktop passthrough) but can't
  * link. Registered implicitly when no `{kind:posthog}` provider is declared, so a
  * posthog-principal session resolves `posthog` without provisioning an
  * OAuthApplication. With no seed and no link, `resolve()` is null and `initiate()`

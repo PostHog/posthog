@@ -373,7 +373,7 @@ class TestFreeTierModelGateWiring:
             error = exc_info.value.detail["error"]
             assert "claude-fable-5" in error["message"]
             assert error["code"] == "model_gate"
-            # Legacy PostHog Code clients route errors by substring; the
+            # Legacy PostHog Desktop clients route errors by substring; the
             # "(rate_limit)" suffix sends this 403 to their usage-limit modal
             # instead of their fatal-session teardown path.
             assert error["message"].endswith("(rate_limit)")

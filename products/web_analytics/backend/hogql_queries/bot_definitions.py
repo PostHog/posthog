@@ -155,31 +155,31 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "NotebookLM", "ai_assistant", "AI Agent", "Google", documentation_url="https://notebooklm.google.com/"
     ),
     "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap"),
-    # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
+    # PostHog Desktop clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
     # Dots are escaped because keys are evaluated as re2 regex by the REGEXP_TREE dictionary.
     r"desktop\.hog\.dev": BotDefinition(
-        "PostHog Code Desktop",
+        "PostHog Desktop",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
     r"mobile\.hog\.dev": BotDefinition(
-        "PostHog Code Mobile",
+        "PostHog Desktop Mobile",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
     r"agent\.hog\.dev": BotDefinition(
-        "PostHog Code Agent",
+        "PostHog Desktop Agent",
         "ai_assistant",
         "AI Agent",
         "PostHog",
         documentation_url="https://posthog.com/code",
     ),
     r"cloud\.hog\.dev": BotDefinition(
-        "PostHog Code Cloud",
+        "PostHog Desktop Cloud",
         "ai_assistant",
         "AI Agent",
         "PostHog",

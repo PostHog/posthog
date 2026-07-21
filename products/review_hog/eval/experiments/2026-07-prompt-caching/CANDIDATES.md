@@ -74,7 +74,7 @@
 | hedges (unsequenced)     | #5 Arm B (blind-spot as warm continuation turn, C5-guarded); #9 Arm A (prompt turn budget — tension with constraint 1, last if at all)               | ~$2.9 and ~$3/run respectively (same re-anchor caveat)                                                                                                     |
 
 **Harness path (resolved 2026-07-06):** the fork's harness changes (T2 cache-stable system prompt, T3 raw-JSONL
-fork-seed) are patched directly in the local PostHog Code checkout (`/Users/woutut/Documents/Code/code`); the proven
+fork-seed) are patched directly in the local PostHog Desktop checkout (`/Users/woutut/Documents/Code/code`); the proven
 build/overlay/verify loop and exact patch surfaces are in `HARNESS.md`. How the fixes ship upstream is decided after
 the experiment proves value.
 
@@ -309,7 +309,7 @@ off-touched-file findings not collapsed to ~0 while control > 0 (a rate comparis
   so every arm is also judged where it matters most (judge-based scoring; no old-reviewer yardstick exists for it).
 - All cost gates are cache-aware and RELATIVE to the measured sonnet-era control (Gate 0 = #1); opus-era absolutes
   ($0.10/turn, $19.6 review stage, $5.3 blind-spot slice) are sizing inputs only.
-- Harness work (V1/V2/V3 fixes, T1-T3 in INVESTIGATION.md) lives in the PostHog Code repo. 2026-07-06: the user opened
+- Harness work (V1/V2/V3 fixes, T1-T3 in INVESTIGATION.md) lives in the PostHog Desktop repo. 2026-07-06: the user opened
   local two-repo experimentation — experiments may run on a locally patched `packages/agent`; shipping the fixes upstream
   is a separate, later decision.
 - Validators keep fresh sessions; nothing here seeds a validator from review/warm-up transcripts.

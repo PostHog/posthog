@@ -41,7 +41,7 @@ Three deliverables, in priority order:
    chunk-local rescheduling; can the blind-spot be a 5th forker). Compute on the largest available multi-chunk runs as well as
    frozen #62096 — large PRs are the program's priority (locked 2026-07-06).
 
-Non-goals: NO pipeline changes, NO eval runs, NO harness (PostHog Code repo) changes, NO builds of #4/#8/#10. Zero prod risk by construction.
+Non-goals: NO pipeline changes, NO eval runs, NO harness (PostHog Desktop repo) changes, NO builds of #4/#8/#10. Zero prod risk by construction.
 
 ## Working mode (locked with the user 2026-07-06)
 
@@ -167,7 +167,7 @@ table with rates, recommendations, cost totals) plus:
 4. CANDIDATES.md re-anchored (its $ figures and the measured-facts section updated with sonnet-era cache-aware numbers)
 5. recommendation for the next rounds, for the user to greenlight: Round 1 default per CANDIDATES.md = #4 skill-body splice +
    #10 pre-pack (after its pre-gate); flagship verdict = fork ladder GO/STOP from s + substrate. Harness path is resolved
-   (2026-07-06): experiments run on a locally patched PostHog Code checkout (`/Users/woutut/Documents/Code/code`);
+   (2026-07-06): experiments run on a locally patched PostHog Desktop checkout (`/Users/woutut/Documents/Code/code`);
    upstreaming is decided after the experiment proves value
 
 ## Run log
