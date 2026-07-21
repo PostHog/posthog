@@ -483,6 +483,7 @@ the row lists both.
 | shopwired                        | HTTP                        | requests                                                        | ✅                          |
 | shortcut                         | HTTP                        | requests                                                        | ✅                          |
 | shortio                          | HTTP                        | requests                                                        | ✅                          |
+| shutterstock                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | signoz                           | HTTP                        | requests                                                        | ✅                          |
 | simfin                           | HTTP                        | requests                                                        | ✅                          |
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
@@ -926,7 +927,6 @@ doesn't conflict with concurrent PRs.
 - shopware
 - shopwired
 - shortio
-- shutterstock
 - sigma_computing
 - signnow
 - sim
