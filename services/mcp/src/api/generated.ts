@@ -32883,6 +32883,13 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface HubspotTicketSignalExtra {
+      hs_ticket_priority: string | null;
+      hs_pipeline_stage: string | null;
+      hs_ticket_category: string | null;
+      createdate: string | null;
+    }
+
     export interface IdentityMatchingError {
       /** Human-readable explanation of why the request could not be served. */
       detail: string;
@@ -33671,6 +33678,13 @@ export namespace Schemas {
       Recording: 'recording',
     } as const;
 
+    export interface IntercomTicketSignalExtra {
+      state: string | null;
+      priority: string | null;
+      admin_assignee_id: string | null;
+      created_at: string | null;
+    }
+
     export interface InterestingNote {
       text: string;
       line_refs: string;
@@ -33770,20 +33784,6 @@ export namespace Schemas {
       product_title: string | null;
       verified: string | null;
       created_at: string | null;
-    }
-
-    export interface IntercomTicketSignalExtra {
-      state: string | null;
-      priority: string | null;
-      admin_assignee_id: string | null;
-      created_at: string | null;
-    }
-
-    export interface HubspotTicketSignalExtra {
-      hs_ticket_priority: string | null;
-      hs_pipeline_stage: string | null;
-      hs_ticket_category: string | null;
-      createdate: string | null;
     }
 
     /**
