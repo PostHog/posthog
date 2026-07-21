@@ -77,7 +77,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     render_psycopg_row_filter_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+    ConnectTimeoutAfterRetriesError,
+    XminUnsupportedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
@@ -524,10 +527,24 @@ def _connect_with_dropped_retry(
     Without this, that transient failure escapes the recovery loop and fails the whole sync.
     Retry all transient classes with bounded backoff; permanent errors (auth failures,
     SSL-required) are re-raised immediately because no transient predicate matches them.
+
+    A connect-time `ConnectionTimeout` that survives every retry is re-raised as a
+    `ConnectTimeoutAfterRetriesError` so it stays retryable at the activity layer: its raw
+    "connection timeout expired" message would otherwise match the connect-time non-retryable rule
+    in `get_non_retryable_errors` (aimed at the schema-discovery fail-fast path) and permanently stop
+    a sync that was reading fine moments earlier. Temporal then retries the whole activity from
+    offset 0.
     """
-    return _retry_on_connection_dropped(
-        connect, logger, max_attempts=max_attempts, is_retryable=_is_dropped_or_connect_timeout
-    )
+    try:
+        return _retry_on_connection_dropped(
+            connect, logger, max_attempts=max_attempts, is_retryable=_is_dropped_or_connect_timeout
+        )
+    except psycopg.errors.ConnectionTimeout as e:
+        raise ConnectTimeoutAfterRetriesError(
+            f"Timed out establishing a connection to your database while syncing, and the reconnect "
+            f"kept timing out after {max_attempts} in-process attempts. The database was reachable "
+            f"earlier in this sync, so this is usually a momentary network blip; PostHog will retry."
+        ) from e
 
 
 def _next_recovery_conflict_chunk_size(chunk_size: int, successive_errors: int) -> int:
