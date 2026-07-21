@@ -69,3 +69,10 @@ export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPane
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
 export { composerSeedLogic } from '../logics/composerSeedLogic'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'
+
+// --- Task kickoff hand-off (headless) ---
+// A one-shot store for kicking off a task from another scene with the optimistic-open thread: store
+// the message + a create-and-run thunk, navigate to `/tasks/new`, and the tasks scene shows the
+// message immediately while it provisions the task/run in the background.
+export { setPendingTaskKickoff } from '../logics/pendingTaskKickoff'
+export type { PendingTaskKickoff } from '../logics/pendingTaskKickoff'

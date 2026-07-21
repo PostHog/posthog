@@ -8,8 +8,9 @@ import { initKeaTests } from '~/test/init'
 
 import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextLogic } from '../../api/logics'
+import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
+import { setPendingTaskKickoff, takePendingTaskKickoff } from '../../logics/pendingTaskKickoff'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -43,6 +44,7 @@ describe('taskTrackerSceneLogic', () => {
     beforeEach(() => {
         createBody = null
         runBody = null
+        takePendingTaskKickoff() // drain any kickoff a failed test left behind (module-level store)
         useMocks({
             get: {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
@@ -340,4 +342,51 @@ describe('taskTrackerSceneLogic', () => {
             }
         }
     )
+
+    // A producer (e.g. the inbox's "Discuss report") queues a kickoff and navigates to /tasks/new; the
+    // scene must open the thread on the queued message immediately (before the creation resolves — the
+    // whole point of the hand-off), run the producer's thunk exactly once, then attach the created ids
+    // and land on the detail page. Guards the /tasks/new pickup, the optimistic seed, and the attach.
+    it('consumes a pending kickoff on /tasks/new: seeds the thread immediately, then attaches the created run', async () => {
+        logic.mount()
+        const createAndRun = jest.fn().mockResolvedValue({ taskId: 'new-task', runId: 'run-1' })
+        setPendingTaskKickoff({ message: 'why did signups drop?', createAndRun })
+
+        router.actions.push('/tasks/new')
+
+        // Before the creation resolves: the pending thread is already open on the seeded message.
+        const streamKey = logic.values.activeCreation?.streamKey
+        expect(streamKey).toBeTruthy()
+        expect(runStreamLogic.findMounted({ streamKey: streamKey! })?.values.threadItems).toContainEqual(
+            expect.objectContaining({ type: 'human_message', text: 'why did signups drop?' })
+        )
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createAndRun).toHaveBeenCalledTimes(1)
+        expect(logic.values.activeCreation).toMatchObject({ streamKey, taskId: 'new-task', runId: 'run-1' })
+        expect(router.values.location.pathname).toContain('/tasks/new-task')
+
+        // Consumed kickoff is inert: revisiting /tasks/new must not replay it.
+        router.actions.push('/tasks/new')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createAndRun).toHaveBeenCalledTimes(1)
+    })
+
+    // A failed kickoff creation must not strand the user on a dead pending thread or lose their typed
+    // text: the creation clears and the message lands in the composer for a retry.
+    it('returns to the composer with the message prefilled when the kickoff creation fails', async () => {
+        logic.mount()
+        setPendingTaskKickoff({
+            message: 'why did signups drop?',
+            createAndRun: jest.fn().mockRejectedValue(new Error('boom')),
+        })
+
+        router.actions.push('/tasks/new')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeCreation).toBeNull()
+        expect(logic.values.newTaskData.description).toBe('why did signups drop?')
+        expect(router.values.location.pathname).toContain('/tasks/new')
+    })
 })
