@@ -57,8 +57,24 @@ export function CustomPropertiesConfig(): JSX.Element {
             render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
         },
         {
+            title: 'Attach to',
+            render: (_, definition) =>
+                definition.target_type === 'person' ? (
+                    <LemonTag type="completion">Person</LemonTag>
+                ) : (
+                    <LemonTag type="default">Account</LemonTag>
+                ),
+        },
+        {
             title: 'Type',
-            render: (_, definition) => labelForDisplayType(definition.display_type),
+            // display_type only shapes how an account property renders; a person property is a raw
+            // $set value, so there's nothing meaningful to show for it.
+            render: (_, definition) =>
+                definition.target_type === 'person' ? (
+                    <span className="text-secondary">—</span>
+                ) : (
+                    labelForDisplayType(definition.display_type)
+                ),
         },
         {
             title: 'Description',

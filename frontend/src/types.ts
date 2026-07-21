@@ -6011,6 +6011,10 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `stripe.charges`), as opposed to `name` (the storage identifier). */
+    hogql_name?: string
+    /** Serialized columns; omitted when the table was listed with `include_columns=false`. */
+    columns?: DatabaseSchemaField[]
     format: DataWarehouseTableTypes
     url_pattern: string
     /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
