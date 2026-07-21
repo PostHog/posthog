@@ -129,6 +129,15 @@
     }
 }
 
+// Third-party brand marks (Cursor, OpenAI) are near-black with transparent backgrounds,
+// so on the default dark surface plate they disappear. In dark mode give the plate a light
+// backing — the tooltip surface resolves light-on-dark — so the logos stay legible. Light
+// mode is already a light plate, so it's left as-is.
+[theme='dark'] .MCPPreview__logo {
+    background: var(--color-bg-surface-tooltip);
+    border-color: color-mix(in oklab, var(--color-black) 12%, transparent);
+}
+
 // The radios stay keyboard-focusable even while visually hidden, so the chip they
 // label needs a visible focus indicator (WCAG 2.4.7).
 #mcp-preview-all:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--all,
