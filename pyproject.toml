@@ -485,7 +485,7 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
-    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py",
+    "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
 ]
 
 # ---------------------------------------------------------------------------
@@ -566,6 +566,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.metric_rules_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
@@ -588,6 +589,7 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_direct",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",

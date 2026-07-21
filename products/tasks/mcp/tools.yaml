@@ -33,6 +33,9 @@ tools:
     sandbox-custom-images-list:
         operation: sandbox_custom_images_list
         enabled: false
+    sandbox-custom-images-partial-update:
+        operation: sandbox_custom_images_partial_update
+        enabled: false
     sandbox-custom-images-retrieve:
         operation: sandbox_custom_images_retrieve
         enabled: false
@@ -92,7 +95,45 @@ tools:
         enabled: false
     tasks-create:
         operation: tasks_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create task
+        description: >
+            Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as
+            investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt
+            handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for
+            code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task
+            record only — it does not start the agent. Returns the created task including its URL; open that URL to
+            start the run. Requires the calling token's organization to have Tasks access enabled.
+        include_params:
+            - title
+            - description
+            - repository
+        param_overrides:
+            description:
+                description: >
+                    The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in
+                    $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as
+                    its instructions, so be specific.
+                required: true
+        feature_flag: tasks
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - origin_product
+                - repository
+                - internal
+                - created_at
+                - updated_at
     tasks-destroy:
         operation: tasks_destroy
         enabled: false

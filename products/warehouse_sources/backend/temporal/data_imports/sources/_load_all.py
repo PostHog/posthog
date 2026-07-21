@@ -68,6 +68,7 @@ from .aviationstack.source import AviationstackSource
 from .aviator.source import AviatorSource
 from .awin.source import AwinSource
 from .aws_cloudtrail.source import AwsCloudTrailSource
+from .axiom.source import AxiomSource
 from .azure_blob.source import AzureBlobSource
 from .azure_devops.source import AzureDevOpsSource
 from .azure_table_storage.source import AzureTableStorageSource
@@ -177,6 +178,7 @@ from .couchbase.source import CouchbaseSource
 from .coupa.source import CoupaSource
 from .coveralls.source import CoverallsSource
 from .crates_io.source import CratesIOSource
+from .crisp.source import CrispSource
 from .criteo.source import CriteoSource
 from .cronitor.source import CronitorSource
 from .crunchbase.source import CrunchbaseSource
@@ -189,6 +191,7 @@ from .customerly.source import CustomerlySource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
+from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
 from .datorama.source import DatoramaSource
@@ -198,7 +201,6 @@ from .decagon.source import DecagonSource
 from .deel.source import DeelSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
-from .delighted.source import DelightedSource
 from .deno_deploy.source import DenoDeploySource
 from .deputy.source import DeputySource
 from .devin_ai.source import DevinAISource
@@ -282,6 +284,7 @@ from .frill.source import FrillSource
 from .front.source import FrontSource
 from .fulcrum.source import FulcrumSource
 from .fullstory.source import FullStorySource
+from .fusionauth.source import FusionAuthSource
 from .gainsight_px.source import GainsightPxSource
 from .gerrit.source import GerritSource
 from .getstream.source import GetStreamSource
@@ -402,6 +405,7 @@ from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
 from .knock.source import KnockSource
+from .kommo.source import KommoSource
 from .kong_konnect.source import KongKonnectSource
 from .koyeb.source import KoyebSource
 from .kubecost.source import KubecostSource
@@ -503,6 +507,7 @@ from .northflank.source import NorthflankSource
 from .northpass_lms.source import NorthpassLMSSource
 from .notion.source import NotionSource
 from .nuget.source import NugetSource
+from .nuntly.source import NuntlySource
 from .nutshell.source import NutshellSource
 from .nylas.source import NylasSource
 from .octolens.source import OctolensSource
@@ -579,6 +584,7 @@ from .planetscale.source import PlanetScaleSource
 from .planhat.source import PlanhatSource
 from .platform_sh.source import PlatformShSource
 from .plausible.source import PlausibleSource
+from .plivo.source import PlivoSource
 from .plunk.source import PlunkSource
 from .pocket.source import PocketSource
 from .podium.source import PodiumSource
@@ -700,6 +706,7 @@ from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
+from .sleekplan.source import SleekplanSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
 from .smartreach.source import SmartreachSource
@@ -748,6 +755,7 @@ from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
 from .tailscale.source import TailscaleSource
 from .talkwalker.source import TalkwalkerSource
+from .tally.source import TallySource
 from .tavus.source import TavusSource
 from .tawk_to.source import TawkToSource
 from .teachable.source import TeachableSource

@@ -37,11 +37,14 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
+from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
@@ -106,6 +109,7 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
 # Synthesize a few jobs per run so the expandable job breakdown and cost cards are demoable in local
 # dev. Tiers vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
 _JOB_NAMES = ("build", "test", "lint", "e2e")
+_FAILING_CONCLUSIONS = ("failure", "timed_out")
 _RUNNER_LABELS = (
     '["depot-ubuntu-22.04-16"]',
     '["depot-ubuntu-22.04-8"]',
@@ -139,7 +143,7 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for idx in range(count):
             is_last = idx == count - 1
             # Healthy jobs pass; a failing run's failure surfaces on its last job.
-            conclusion = run_conclusion if (is_last and run_conclusion in ("failure", "timed_out")) else None
+            conclusion = run_conclusion if (is_last and run_conclusion in _FAILING_CONCLUSIONS) else None
             if completed and conclusion is None:
                 conclusion = "success"
 
@@ -663,6 +667,11 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _selector(module_dir: str, test_class: str, test_name: str) -> str:
+    """The pytest selector for a roster test: one recipe shared by the span and failure-log seeds."""
+    return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
+
+
 def _seed_trace_spans(team: Team) -> int:
     anchor = timezone.now().replace(microsecond=0)
     rows: list[str] = []
@@ -671,7 +680,7 @@ def _seed_trace_spans(team: Team) -> int:
         for test_index, (test_class, test_name, prior_daily, current_daily) in enumerate(tests):
             module = test_name
             nodeid = f"{module_dir}/{module}/{test_class}::{test_name}"
-            selector = f"{module_dir}/{module}.py::{test_class}::{test_name}"
+            selector = _selector(module_dir, test_class, test_name)
             for day in range(_SPAN_DAYS):
                 is_current = day >= _SPAN_DAYS // 2
                 daily = current_daily if is_current else prior_daily
@@ -722,6 +731,101 @@ def _seed_trace_spans(team: Team) -> int:
         "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
         "resource_attributes) VALUES " + ",".join(rows)
     )
+    return len(rows)
+
+
+# Synthetic thinned CI failure logs for the broken-tests panel and the per-run failure-log
+# drilldowns (they read the Logs product, fed in production by the Temporal job-logs pipeline;
+# see logic/job_logs/). One small failure region per seeded failing job, reusing the _SPAN_TEAMS
+# roster so test health and broken tests describe the same tests. Deterministic; uuids are
+# prefixed 'engseed-log-' so re-seeding deletes exactly its own rows.
+_LOG_UUID_PREFIX = "engseed-log"
+# Volatile bits (hex ids, digit runs) on purpose: the ci_failures fingerprint recipe normalizes
+# them, so two seeded runs of the same failure demonstrably share a fingerprint.
+# OTLP severity numbers for the two levels the seed emits.
+_LOG_SEVERITY = {"INFO": 9, "ERROR": 17}
+_LOG_FAILURE_DETAILS = (
+    "AssertionError: expected 200, got 500",
+    "TimeoutError: ClickHouse query 8f3aa21b4c9d timed out after 30000 ms",
+    "psycopg.OperationalError: connection to server at 127.0.0.1 port 5432 failed",
+    "AssertionError: rows mismatch: 1042 != 1041",
+)
+
+
+def _sql_escape(value: object) -> str:
+    # For single-quoted ClickHouse literals; job fields originate from the GitHub API via the fixture.
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
+    roster = [
+        _selector(module_dir, test_class, test_name)
+        for _owner, module_dir, tests in _SPAN_TEAMS
+        for test_class, test_name, _prior, _current in tests
+    ]
+    expiry = (timezone.now() + timedelta(days=30)).strftime(_TS_FMT)
+    rows: list[str] = []
+    for job in jobs:
+        if job.get("conclusion") not in _FAILING_CONCLUSIONS:
+            continue
+        ts = job.get("completed_at") or job.get("started_at")
+        if not ts:
+            continue
+        job_id, run_id = job["id"], job["run_id"]
+        selector = roster[job_id % len(roster)]
+        detail = _LOG_FAILURE_DETAILS[job_id % len(_LOG_FAILURE_DETAILS)]
+        orig_total = 1800 + job_id % 900
+        base_line = 1200 + job_id % 300
+        # The thinned shape the real pipeline emits: context, the FAILED line, an omission marker
+        # (no orig_line), and the job's closing ##[error]. (body, severity_text, orig_line).
+        lines: list[tuple[str, str, int | None]] = [
+            ("=========================== short test summary info ============================", "INFO", base_line),
+            (f"FAILED {selector} - {detail}", "ERROR", base_line + 1),
+            (f"... {orig_total - base_line - 3} lines omitted ...", "INFO", None),
+            ("##[error]Process completed with exit code 1.", "ERROR", orig_total),
+        ]
+        # Mirrors the attribute contract in job_logs/activity.py; the read paths filter on these.
+        # Keys carry the stored ``__str`` type suffix; the logs table's ``attributes`` alias strips
+        # it, so ``attributes['repo']`` reads require ``repo__str`` in ``attributes_map_str``.
+        base_attrs = (
+            f"'job_id__str', '{job_id}', 'run_id__str', '{run_id}', 'repo__str', '{SEED_REPOSITORY}', "
+            f"'branch__str', '{_sql_escape(job.get('head_branch') or '')}', "
+            f"'conclusion__str', '{_sql_escape(job.get('conclusion'))}', "
+            f"'job_name__str', '{_sql_escape(job.get('name'))}', "
+            f"'workflow_name__str', '{_sql_escape(job.get('workflow_name') or '')}', "
+            f"'run_attempt__str', '{job.get('run_attempt') or 1}', "
+            f"'head_sha__str', '{_sql_escape(job.get('head_sha') or '')}', "
+            f"'orig_total__str', '{orig_total}'"
+        )
+        for seq, (body, severity_text, orig_line) in enumerate(lines):
+            attrs = f"{base_attrs}, 'seq__str', '{seq}'"
+            if orig_line is not None:
+                attrs += f", 'orig_line__str', '{orig_line}'"
+            rows.append(
+                f"('{_LOG_UUID_PREFIX}-{job_id}-{seq}', {team.pk}, '{run_id}', '{job_id}', 0, "
+                f"'{_sql_escape(ts)}', '{_sql_escape(ts)}', '{expiry}', '{_sql_escape(body)}', "
+                f"'{severity_text}', {_LOG_SEVERITY[severity_text]}, "
+                f"'{CI_LOGS_SERVICE_NAME}', map('service.name', '{CI_LOGS_SERVICE_NAME}'), 'engseed@1', '', "
+                f"map({attrs}))"
+            )
+
+    # Replace only this seed's lines; anything a real pipeline emitted on the same dev stack is
+    # untouched. HogQL's `logs` reads `logs_distributed` (over logs34, not the legacy `logs`
+    # Distributed over logs32), so write there; the mutation targets the local table because a
+    # Distributed engine rejects ALTER.
+    sync_execute(
+        f"ALTER TABLE {LOGS_LOCAL_TABLE} DELETE WHERE team_id = %(team_id)s AND uuid LIKE '{_LOG_UUID_PREFIX}-%%' "
+        "SETTINGS mutations_sync = 1",
+        {"team_id": team.pk},
+        workload=Workload.LOGS,
+    )
+    if rows:
+        sync_execute(
+            "INSERT INTO logs_distributed (uuid, team_id, trace_id, span_id, trace_flags, timestamp, "
+            "observed_timestamp, original_expiry_timestamp, body, severity_text, severity_number, service_name, "
+            "resource_attributes, instrumentation_scope, event_name, attributes_map_str) VALUES " + ",".join(rows),
+            workload=Workload.LOGS,
+        )
     return len(rows)
 
 
@@ -825,6 +929,14 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stdout.write(self.style.WARNING(f"Skipped trace_spans seed (traces table unavailable?): {exc}"))
 
+        # Thinned failure lines back the broken-tests panel and per-run failure-log drilldowns.
+        # Best-effort: a dev stack without the logs table still gets the warehouse seed.
+        try:
+            log_count = _seed_ci_failure_logs(team, jobs)
+            self.stdout.write(f"Seeded {log_count} CI failure log lines into logs (broken tests/failure logs).")
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f"Skipped CI failure logs seed (logs table unavailable?): {exc}"))
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {len(prs)} pull requests, {len(runs)} workflow runs, and {len(jobs)} jobs into "
@@ -832,7 +944,7 @@ class Command(BaseCommand):
             )
         )
         self.stdout.write(
-            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/PostHog/posthog/pull/{_DEMO_PR_NUMBER}"
+            f"Multi-push demo PR: /project/{team.pk}/engineering-analytics/repos/{SEED_REPOSITORY}/pull-requests/{_DEMO_PR_NUMBER}"
         )
 
     def _load_fixture(self, fixture_dir: Path, filename: str) -> list[dict[str, Any]]:

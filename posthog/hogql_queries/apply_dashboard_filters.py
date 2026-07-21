@@ -45,8 +45,8 @@ def resolve_filter_layers_by_priority(
         effective_base.pop("date_to", None)
         effective_base.pop("explicitDate", None)
 
-    override_props = override.get("properties") or []
-    base_props = base.get("properties") or []
+    override_props = flatten_property_leaves(override.get("properties"))
+    base_props = flatten_property_leaves(base.get("properties"))
     contradicted_base = []
     surviving_base = []
     for base_property in base_props:
@@ -56,7 +56,9 @@ def resolve_filter_layers_by_priority(
             surviving_base.append(base_property)
     if contradicted_base:
         overridden_base["properties"] = contradicted_base
-    if base_props:
+    if base.get("properties"):
+        # Always replace (or drop) the base properties — `effective_base` still holds the original
+        # value, which may be a property-group dict that later stages expect to be a flat list.
         if surviving_base:
             effective_base["properties"] = surviving_base
         else:
@@ -106,12 +108,47 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
         if override_filters.get("explicitDate") is not None:
             merged["explicitDate"] = override_filters["explicitDate"]
 
-    override_props = override_filters.get("properties") or []
+    override_props = flatten_property_leaves(override_filters.get("properties"))
     combined_properties = (resolved_layers["dashboard"].get("properties") or []) + override_props
     if combined_properties:
         merged["properties"] = combined_properties
 
     return merged
+
+
+def flatten_property_leaves(properties: Any) -> list[dict]:
+    """Flatten AND property groups to the leaf-list shape expected by dashboard filters."""
+    if properties is None:
+        return []
+    if isinstance(properties, dict):
+        if properties.get("type") not in (None, "AND"):
+            raise ValueError("Only AND property groups are supported")
+        if not isinstance(properties.get("values"), list):
+            raise ValueError("Property group values must be a list")
+        properties = properties["values"]
+    if not isinstance(properties, list):
+        raise ValueError("Properties must be a list or an AND property group")
+    leaves: list[dict] = []
+    for item in properties:
+        if isinstance(item, dict) and "values" in item:
+            leaves.extend(flatten_property_leaves(item))
+        elif isinstance(item, dict):
+            leaves.append(item)
+        else:
+            raise ValueError(f"Invalid property filter item: expected dict, got {type(item).__name__}")
+    return leaves
+
+
+def normalize_dashboard_filters_properties(filters: dict) -> dict:
+    """Return filters with grouped properties normalized to the dashboard leaf-list contract."""
+    properties = filters.get("properties")
+    if properties is None:
+        return filters
+    flattened = flatten_property_leaves(properties)
+    if not flattened:
+        result = {k: v for k, v in filters.items() if k != "properties"}
+        return result
+    return {**filters, "properties": flattened}
 
 
 def _without_contradicted(properties: Any, overriding_props: list[dict]) -> Any:
@@ -172,7 +209,7 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     contradiction into an empty result. Compatible filters on the same key are left in place to stack.
     Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
     filter."""
-    overriding_props = (overriding_filters or {}).get("properties") or []
+    overriding_props = flatten_property_leaves((overriding_filters or {}).get("properties"))
     if not overriding_props:
         return query
     return _strip_query_properties(query, overriding_props)
@@ -194,9 +231,19 @@ def resolve_effective_dashboard_filters(
     effective_filters = (
         merge_filters_by_priority(base_filters, tile_filters_override) if tile_filters_override else base_filters or {}
     )
+    # `merge_filters_by_priority` can early-return a raw layer (and a single layer is unmerged), so
+    # `properties` may still be a group dict here — normalize before it reaches `DashboardFilter`.
+    effective_filters = normalize_dashboard_filters_properties(effective_filters)
     if effective_filters and not _has_data_warehouse_series(query):
         query = remove_query_properties_overridden_by(query, effective_filters)
     return query, effective_filters
+
+
+def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
+    """Build a dashboard filter while tolerating legacy grouped properties."""
+    if isinstance(filters.get("properties"), dict):
+        filters = {**filters, "properties": flatten_property_leaves(filters["properties"])}
+    return DashboardFilter(**filters)
 
 
 # Apply the filters from the django-style Dashboard object
@@ -213,7 +260,7 @@ def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> d
     except ValueError:
         capture_exception()
         return query
-    query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+    query_runner.apply_dashboard_filters(dashboard_filter_from_dict(filters))
     return query_runner.query.model_dump()
 
 

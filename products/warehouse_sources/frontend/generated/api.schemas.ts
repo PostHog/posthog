@@ -601,7 +601,6 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dixa` - Dixa
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
- * * `Delighted` - Delighted
  * * `AzureDevOps` - AzureDevOps
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
@@ -1273,6 +1272,15 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dubsado` - Dubsado
  * * `Campfire` - Campfire
  * * `PromptWatch` - PromptWatch
+ * * `Crisp` - Crisp
+ * * `Kommo` - Kommo
+ * * `Axiom` - Axiom
+ * * `Plivo` - Plivo
+ * * `DataForSEO` - DataForSEO
+ * * `Sleekplan` - Sleekplan
+ * * `Tally` - Tally
+ * * `Nuntly` - Nuntly
+ * * `FusionAuth` - FusionAuth
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1464,7 +1472,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Dixa: 'Dixa',
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
-    Delighted: 'Delighted',
     AzureDevOps: 'AzureDevOps',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
@@ -2136,6 +2143,15 @@ export const ExternalDataSourceTypeEnumApi = {
     Dubsado: 'Dubsado',
     Campfire: 'Campfire',
     PromptWatch: 'PromptWatch',
+    Crisp: 'Crisp',
+    Kommo: 'Kommo',
+    Axiom: 'Axiom',
+    Plivo: 'Plivo',
+    DataForSEO: 'DataForSEO',
+    Sleekplan: 'Sleekplan',
+    Tally: 'Tally',
+    Nuntly: 'Nuntly',
+    FusionAuth: 'FusionAuth',
 } as const
 
 /**
@@ -2208,6 +2224,15 @@ export interface ExternalDataSourceSerializersApi {
     readonly access_method: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2455,7 +2480,6 @@ export interface ExternalDataSourceCreateApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -3126,7 +3150,16 @@ export interface ExternalDataSourceCreateApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `FusionAuth` - FusionAuth */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -3199,6 +3232,15 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly access_method?: AccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
+    auto_sync_new_schemas?: boolean
+    /**
+     * Optional fnmatch-style globs (`*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 250
+     */
+    auto_sync_schema_patterns?: string[] | null
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -3287,6 +3329,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
+    /** When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method. */
+    apply_sync_defaults?: boolean
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -3519,7 +3563,6 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -4190,7 +4233,16 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `FusionAuth` - FusionAuth */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -4404,7 +4456,6 @@ export interface DatabaseSchemaRequestApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -5075,7 +5126,16 @@ export interface DatabaseSchemaRequestApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `FusionAuth` - FusionAuth */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -5349,7 +5409,6 @@ export interface SourcePreviewRequestApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -6020,7 +6079,16 @@ export interface SourcePreviewRequestApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `FusionAuth` - FusionAuth */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -6251,7 +6319,6 @@ export interface SourceSetupApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -6922,7 +6989,16 @@ export interface SourceSetupApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `FusionAuth` - FusionAuth */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -7160,7 +7236,6 @@ export interface SourceCredentialCreateApi {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -7831,7 +7906,16 @@ export interface SourceCredentialCreateApi {
      * * `Shopware` - Shopware
      * * `Dubsado` - Dubsado
      * * `Campfire` - Campfire
-     * * `PromptWatch` - PromptWatch */
+     * * `PromptWatch` - PromptWatch
+     * * `Crisp` - Crisp
+     * * `Kommo` - Kommo
+     * * `Axiom` - Axiom
+     * * `Plivo` - Plivo
+     * * `DataForSEO` - DataForSEO
+     * * `Sleekplan` - Sleekplan
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `FusionAuth` - FusionAuth */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -7932,6 +8016,10 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
+}
+
+export type ExternalDataSourcesResumeCdcCreate200 = {
+    success?: boolean
 }
 
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {

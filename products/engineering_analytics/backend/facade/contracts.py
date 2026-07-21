@@ -163,16 +163,21 @@ class QuarantineRequestAction(StrEnum):
 
 @dataclass(frozen=True)
 class GitHubSource:
-    """A connected GitHub warehouse source the team can analyze. ``id`` is what a
-    caller passes back as ``source_id`` to select this source; ``repo`` and
-    ``prefix`` are display labels so a picker can tell two sources apart.
+    """A selectable ``(source, repo)`` the team can analyze — one entry per repository a source is
+    configured to sync, so a source syncing several repositories appears once per repo. A caller
+    passes ``id`` back as ``source_id`` and ``repo`` back as ``repo`` to read that specific repo;
+    ``prefix`` is a display label so a picker can tell two entries of the same source apart.
     """
 
     id: str
-    # Connected repository as 'owner/name' (from the source's job inputs), or '' if unknown.
+    # Configured repository as 'owner/name' (from the source's job inputs), or '' if unknown.
     repo: str
     # User-chosen warehouse table-name prefix for this source, or '' when none was set.
     prefix: str
+    # True when this repo has both pull_requests and workflow_runs synced (what the resolver needs to
+    # read it). The default (unscoped) page should select the first synced entry, so its label matches
+    # the repo the backend actually resolves — a still-backfilling repo listed first must not mislabel it.
+    synced: bool = False
 
 
 @dataclass(frozen=True)
@@ -476,7 +481,7 @@ class CIJobFailureLog:
 class CIFailureLogs:
     """Thinned CI failure logs for one pull request, grouped by failed job.
 
-    Attribution follows the locked rule (SPEC §7): the PR is resolved to its workflow runs via the
+    Attribution follows the locked rule (SPEC §6): the PR is resolved to its workflow runs via the
     ``pull_requests`` association (all pushes, never a head-SHA join that would drop earlier ones),
     then logs are joined by ``run_id``. ``runs_attributed`` is how many runs the PR resolved to;
     ``logs_available`` is False when no failure-log records were found for those runs — CI hasn't
@@ -628,7 +633,7 @@ class TeamMergeTrendPoint:
 class TeamMergeTrend:
     """A team's time-to-merge trend over the window. Attribution is PR author login →
     GitHub org team membership (the ``team_members`` snapshot); only team-level medians
-    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§7).
+    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§6).
     """
 
     owner_team: str
@@ -642,7 +647,7 @@ class TeamMergeTrend:
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
-    completes after newer runs land (SPEC §9) — treat ``pending`` as unsettled.
+    completes after newer runs land (SPEC §7) — treat ``pending`` as unsettled.
     """
 
     runs: int

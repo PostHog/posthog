@@ -69,6 +69,14 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         )
         for o in observations
     ]
+    # The user-edited config under test wins. Otherwise new rows carry the full proposed config, and old
+    # prompt-only rows fall back to a prompt overwrite, same as apply (see api/prompt_suggestions.py).
+    if inputs.config_override is not None:
+        rerun_config = dict(inputs.config_override)
+    elif suggestion.suggested_config is not None:
+        rerun_config = dict(suggestion.suggested_config)
+    else:
+        rerun_config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
     # Signals stay off so a dry run can't pollute the team's feeds.
     snapshot = ScannerSnapshot(
         name=scanner.name,
@@ -77,7 +85,7 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         model=scanner.model,
         provider=scanner.provider,
         emits_signals=False,
-        scanner_config={**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt},
+        scanner_config=rerun_config,
     )
     suggestion.evaluation = build_running_evaluation(
         total=len(sessions), labels_fingerprint=labels_fingerprint(scanner)
@@ -96,7 +104,12 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
         outcome: EvaluationOutcome = "error"
     else:
         after = primary_outcome(inputs.after_output)
-        outcome = classify_outcome(inputs.session.rated_correct, inputs.session.before_outcome, after)
+        # Preview types have no discrete verdict to classify: record before/after and let the reviewer judge.
+        outcome = (
+            "preview"
+            if inputs.preview
+            else classify_outcome(inputs.session.rated_correct, inputs.session.before_outcome, after)
+        )
     result = {
         "session_id": inputs.session.session_id,
         "observation_id": str(inputs.session.observation_id),

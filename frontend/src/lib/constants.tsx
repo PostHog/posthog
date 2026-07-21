@@ -203,11 +203,9 @@ export const FEATURE_FLAGS = {
     CALENDAR_HEATMAP_INSIGHT: 'calendar-heatmap-insight', // owner: @jabahamondes #team-web-analytics
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: #team-web-analytics
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
-    /* The below flag is used to activate unmounting charts outside the viewport, as we're currently investigating frontend performance
-    issues related to this and want to know the impact of having it on vs. off. */
-    EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
+    HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
     HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-modeling
@@ -278,9 +276,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_INLINE_TILE_INSERTION: 'dashboard-inline-tile-insertion', // owner: @MattPua #team-analytics-platform
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DASHBOARD_POSTHOG_AI_BUTTON_LABEL: 'dashboard-posthog-ai-button-label', // owner: @pauldambra #team-product-analytics multivariate=control,control_b,test
-    DASHBOARD_QUICK_FILTERS_EXPERIMENT: 'dashboard-quick-filters-experiment', // owner: @vdekrijger #team-product-analytics multivariate=control,test
     DASHBOARD_SUBSCRIBE_NUDGE: 'dashboard-subscribe-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges repeat dashboard viewers with no subscription toward setting one up
-    DASHBOARD_SUBSCRIBE_PLACEMENT: 'dashboard-subscribe-placement', // owner: @MattPua #team-analytics-platform multivariate=control,button,menu
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DASHBOARDS_LIST_VIEW: 'dashboards-list-view', // owner: @vdekrijger #team-product-analytics multivariate=control,tree
@@ -312,6 +308,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_FLAG_CLEANUP_PR: 'experiment-flag-cleanup-pr', // owner: @jurajmajerik #team-experiments
+    EXPERIMENT_RECORDINGS_TAB: 'experiment-recordings-tab', // owner: @mp-hog #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_END_MODAL_CONCLUSION_FIRST: 'experiments-end-modal-conclusion-first', // owner: @ruby.c #team-experiments
@@ -347,16 +344,18 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-ai-observability
     LLM_ANALYTICS_EVALUATIONS_REPORTS: 'llm-analytics-evaluations-reports', // owner: #team-ai-observability
+    LLM_ANALYTICS_EVALUATIONS_START_WITH_AI: 'llm-analytics-evaluations-start-with-ai', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
-    LLM_ANALYTICS_USER_FEEDBACK: 'llm-analytics-user-feedback', // owner: @adboio #team-surveys
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
+    LLM_PROMPT_LABELS: 'prompt-labels', // owner: @jurajmajerik #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_COLUMN_CONFIGURATION: 'logs-column-configuration', // owner: #team-logs
     LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
+    LOGS_METRIC_RULES: 'logs-metric-rules', // owner: #team-logs
     LOGS_PATTERNS_VIEW: 'logs-patterns-view', // owner: #team-logs
     LOGS_SAVED_VIEWS: 'logs-saved-views', // owner: #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
@@ -447,6 +446,7 @@ export const FEATURE_FLAGS = {
     PROPERTY_ACCESS_CONTROL: 'property-access-control', // owner: @reecejones #team-platform-features
     PULSE: 'pulse', // owner: #team-analytics-platform
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
+    QUICKSTART_HOMEPAGE: 'quickstart-homepage', // owner: @fercgomes #team-growth, multivariate (control/test): 'test' gets the quickstart landing page as the default post-onboarding experience
     QUILL_CHART_STYLE_REFRESH: 'quill-chart-style-refresh', // owner: #team-product-analytics, gates refreshed quill chart styling (monotone curves, axis lines + tick marks, faint dashed grid, crosshair)
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     QUILL_SPARKLINE: 'quill-sparkline', // owner: @sampennington #team-product-analytics, gates rendering the shared lib Sparkline via @posthog/quill-charts (docs/internal/quill-migration-sparkline.md)
@@ -505,6 +505,7 @@ export const FEATURE_FLAGS = {
     TOOLBAR_HEATMAP_AREA_FILTER: 'toolbar-heatmap-area-filter', // owner: @pauldambra #team-replay, gates the target button that filters the toolbar heatmap/clickmap to a chosen page area
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_FACET_RAIL: 'tracing-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in tracing
+    TRACING_LATENCY_HEATMAP: 'tracing-latency-heatmap', // owner: #team-apm — gates the latency-over-time heatmap chart in tracing
     TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing
     TRACING_SAVED_VIEWS: 'tracing-saved-views', // owner: #team-apm — gates saved views (saved filter sets) in tracing
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
@@ -539,6 +540,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
+    WORKFLOWS_SUPPRESSION_LIST: 'workflows-suppression-list', // owner: #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS

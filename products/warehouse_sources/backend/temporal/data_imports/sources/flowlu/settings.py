@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class FlowluEndpointConfig:
@@ -35,4 +37,4 @@ FLOWLU_ENDPOINTS: dict[str, FlowluEndpointConfig] = {
 
 ENDPOINTS = tuple(FLOWLU_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

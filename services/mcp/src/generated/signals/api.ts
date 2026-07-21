@@ -124,8 +124,8 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
  * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
  *
  * Body: {
- *     "state": "suppressed" | "potential",
- *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+ *     "state": "suppressed" | "potential" | "resolved",
+ *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
@@ -147,10 +147,10 @@ export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
 export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential'])
-        .describe('* `suppressed` - suppressed\n* `potential` - potential')
+        .enum(['suppressed', 'potential', 'resolved'])
+        .describe('* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved')
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved"
         ),
     dismissal_reason: zod
         .enum([
@@ -166,7 +166,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for \"fixed by something else / might recur\" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -236,7 +236,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -338,10 +338,10 @@ export const signalsReportsBulkStateCreateBodyIdsMax = 100
 
 export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential'])
-        .describe('* `suppressed` - suppressed\n* `potential` - potential')
+        .enum(['suppressed', 'potential', 'resolved'])
+        .describe('* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved')
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved"
         ),
     dismissal_reason: zod
         .enum([
@@ -357,7 +357,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for \"fixed by something else / might recur\" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -645,6 +645,8 @@ export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
+export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
+
 export const signalsScoutEditReportBodySuggestedReviewersMax = 10
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
@@ -683,6 +685,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEditReportBodySuggestedReviewersItemReasonMax)
+                            .nullish()
+                            .describe(
+                                "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                             ),
                     })
                     .describe(
@@ -744,6 +753,8 @@ export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
+
+export const signalsScoutEmitReportBodySuggestedReviewersItemReasonMax = 500
 
 export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
 
@@ -836,6 +847,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodySuggestedReviewersItemReasonMax)
+                            .nullish()
+                            .describe(
+                                "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                             ),
                     })
                     .describe(
@@ -1140,9 +1158,41 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'endpoints',
             'replay_vision',
             'analytics',
+            'freshdesk',
+            'freshservice',
+            'front',
+            'gorgias',
+            'kustomer',
+            'dixa',
+            'plain',
+            'gitlab',
+            'gitea',
+            'shortcut',
+            'sentry',
+            'rollbar',
+            'bugsnag',
+            'honeybadger',
+            'raygun',
+            'snyk',
+            'sonarqube',
+            'semgrep',
+            'rapid7_insightvm',
+            'featurebase',
+            'frill',
+            'aha',
+            'uservoice',
+            'productboard',
+            'canny',
+            'asknicely',
+            'retently',
+            'appfigures',
+            'appfollow',
+            'judgeme_reviews',
+            'intercom',
+            'hubspot',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot'
         ),
     source_type: zod
         .enum([
@@ -1205,9 +1255,41 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'endpoints',
             'replay_vision',
             'analytics',
+            'freshdesk',
+            'freshservice',
+            'front',
+            'gorgias',
+            'kustomer',
+            'dixa',
+            'plain',
+            'gitlab',
+            'gitea',
+            'shortcut',
+            'sentry',
+            'rollbar',
+            'bugsnag',
+            'honeybadger',
+            'raygun',
+            'snyk',
+            'sonarqube',
+            'semgrep',
+            'rapid7_insightvm',
+            'featurebase',
+            'frill',
+            'aha',
+            'uservoice',
+            'productboard',
+            'canny',
+            'asknicely',
+            'retently',
+            'appfigures',
+            'appfollow',
+            'judgeme_reviews',
+            'intercom',
+            'hubspot',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot'
         ),
     source_type: zod
         .enum([
@@ -1261,10 +1343,42 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'endpoints',
             'replay_vision',
             'analytics',
+            'freshdesk',
+            'freshservice',
+            'front',
+            'gorgias',
+            'kustomer',
+            'dixa',
+            'plain',
+            'gitlab',
+            'gitea',
+            'shortcut',
+            'sentry',
+            'rollbar',
+            'bugsnag',
+            'honeybadger',
+            'raygun',
+            'snyk',
+            'sonarqube',
+            'semgrep',
+            'rapid7_insightvm',
+            'featurebase',
+            'frill',
+            'aha',
+            'uservoice',
+            'productboard',
+            'canny',
+            'asknicely',
+            'retently',
+            'appfigures',
+            'appfollow',
+            'judgeme_reviews',
+            'intercom',
+            'hubspot',
         ])
         .optional()
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics\n* `freshdesk` - Freshdesk\n* `freshservice` - Freshservice\n* `front` - Front\n* `gorgias` - Gorgias\n* `kustomer` - Kustomer\n* `dixa` - Dixa\n* `plain` - Plain\n* `gitlab` - GitLab\n* `gitea` - Gitea\n* `shortcut` - Shortcut\n* `sentry` - Sentry\n* `rollbar` - Rollbar\n* `bugsnag` - Bugsnag\n* `honeybadger` - Honeybadger\n* `raygun` - Raygun\n* `snyk` - Snyk\n* `sonarqube` - SonarQube\n* `semgrep` - Semgrep\n* `rapid7_insightvm` - Rapid7 InsightVM\n* `featurebase` - Featurebase\n* `frill` - Frill\n* `aha` - Aha\n* `uservoice` - UserVoice\n* `productboard` - Productboard\n* `canny` - Canny\n* `asknicely` - AskNicely\n* `retently` - Retently\n* `appfigures` - Appfigures\n* `appfollow` - AppFollow\n* `judgeme_reviews` - Judge.me\n* `intercom` - Intercom\n* `hubspot` - HubSpot'
         ),
     source_type: zod
         .enum([

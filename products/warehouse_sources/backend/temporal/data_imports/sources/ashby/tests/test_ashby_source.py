@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashb
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AshbySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -131,6 +131,8 @@ class TestAshbySource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_ashby_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "candidates"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -139,4 +141,6 @@ class TestAshbySource:
         kwargs = mock_ashby_source.call_args.kwargs
         assert kwargs["api_key"] == "ashby-key"
         assert kwargs["endpoint"] == "candidates"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager

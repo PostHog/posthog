@@ -56,6 +56,11 @@ const OLDER_SPEC_CHOICE_EVENT_NAME = 'gen_ai.choice'
 // `parseJSON` into multi-megabyte input and pressure the ingestion worker.
 const MAX_OLDER_SPEC_EVENTS_LENGTH = 500_000
 
+// Upper bound on the serialized size of a string-valued `$groups` attribute we
+// will parse. A groups map is only a handful of short group-type → key pairs,
+// so this is generous; it keeps a pathological payload out of parseJSON.
+const MAX_GROUPS_LENGTH = 10_000
+
 const REQUEST_TYPE_TO_EVENT: Record<string, string> = {
     chat: '$ai_generation',
     completion: '$ai_generation',
@@ -114,11 +119,17 @@ export function mapOtelAttributes(event: PluginEvent): void {
     }
 }
 
-type GroupsOutcome = 'parsed' | 'non_object' | 'malformed'
+type GroupsOutcome = 'parsed' | 'non_object' | 'malformed' | 'too_large'
 
 function normalizeGroups(event: PluginEvent): void {
     const props = event.properties!
     if (typeof props.$groups !== 'string') {
+        return
+    }
+
+    if (props.$groups.length > MAX_GROUPS_LENGTH) {
+        delete props.$groups
+        aiOtelGroupsCounter.labels({ outcome: 'too_large' }).inc()
         return
     }
 
