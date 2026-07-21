@@ -16,12 +16,20 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
 
+logger = structlog.get_logger(__name__)
+
 UUID_V7_TIMESTAMP_BUFFER = timedelta(days=3)
+
+# Reject embedded times this far out: they can only come from garbage uuids, and values near
+# datetime.max would overflow the buffer arithmetic.
+_MAX_PLAUSIBLE_EMBEDDED = datetime(9000, 1, 1, tzinfo=UTC)
 
 
 def apply_uuid_v7_timestamp_bounds(node: _T_AST) -> _T_AST:
@@ -50,8 +58,14 @@ def _uuid_v7_embedded_datetime(value: object) -> Optional[datetime]:
         return None
     if parsed.version != 7:
         return None
-    # The high 48 bits of a UUIDv7 hold the Unix millisecond timestamp.
-    return datetime.fromtimestamp((parsed.int >> 80) / 1000, tz=UTC)
+    try:
+        # The high 48 bits of a UUIDv7 hold the Unix millisecond timestamp.
+        embedded = datetime.fromtimestamp((parsed.int >> 80) / 1000, tz=UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+    if embedded > _MAX_PLAUSIBLE_EMBEDDED:
+        return None
+    return embedded
 
 
 def _unwrap_aliases(expr: ast.Expr) -> ast.Expr:
@@ -72,7 +86,13 @@ def _constant_embedded_datetime(expr: ast.Expr) -> Optional[datetime]:
 class UuidV7TimestampBoundsTransform(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery):
         super().visit_select_query(node)
+        try:
+            self._apply_bounds(node)
+        except Exception as err:
+            # Pure optimization: any unexpected failure must leave the query untouched, not break it.
+            logger.warning("uuid_v7_timestamp_bounds_unexpected_error", error=str(err), exc_info=True)
 
+    def _apply_bounds(self, node: ast.SelectQuery) -> None:
         scan_ids = self._events_scan_ids(node)
         if not scan_ids:
             return

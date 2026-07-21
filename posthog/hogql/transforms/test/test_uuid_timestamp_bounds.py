@@ -23,16 +23,10 @@ UUID_V4 = "a1b2c3d4-e5f6-4711-8899-aabbccddeeff"
 
 
 class TestUuidTimestampBounds(BaseTest):
-    def _print(
-        self, select: str, modifiers: HogQLQueryModifiers | None = None, dialect: HogQLDialect = "clickhouse"
-    ) -> str:
+    def _print(self, select: str, dialect: HogQLDialect = "clickhouse") -> str:
         query, _ = prepare_and_print_ast(
             parse_select(select),
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
-            ),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers()),
             dialect,
         )
         return query
@@ -87,6 +81,14 @@ class TestUuidTimestampBounds(BaseTest):
         [
             ("uuid_v4", f"SELECT event FROM events WHERE uuid = '{UUID_V4}'"),
             ("nil_uuid", "SELECT event FROM events WHERE uuid = '00000000-0000-0000-0000-000000000000'"),
+            (
+                "v7_beyond_datetime_range",
+                "SELECT event FROM events WHERE uuid = 'ffffffff-ffff-7fff-8fff-ffffffffffff'",
+            ),
+            (
+                "v7_near_datetime_max",
+                "SELECT event FROM events WHERE uuid = 'e677c7d3-2400-7abc-8abc-0123456789ab'",
+            ),
             ("non_constant", "SELECT event FROM events WHERE uuid = toUUID(event)"),
             (
                 "or_with_unbounded_branch",
