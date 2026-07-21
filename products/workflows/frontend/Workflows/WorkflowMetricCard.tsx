@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo } from 'react'
 
-import { MetricCard, type ChangeColor, type MetricChange } from '@posthog/quill-charts'
+import { MetricCard, type ChangeColor, type MetricChange, type Series } from '@posthog/quill-charts'
 
 import { getColorVar } from 'lib/colors'
 import { useChartTheme } from 'lib/charts/hooks'
@@ -26,6 +26,9 @@ export interface WorkflowMetricCardProps {
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     color?: string
+    /** Per-series sparkline colors keyed by series name. When the response has more than one series,
+     *  the tile draws one line per series (colored from here) instead of a single summed line. */
+    seriesColors?: Record<string, string>
     /** Sparkline color used when the tile total is zero (e.g. a muted grey). */
     colorIfZero?: string
     loading?: boolean
@@ -50,6 +53,7 @@ export function WorkflowMetricCard({
     timeSeries,
     previousPeriodTimeSeries,
     color,
+    seriesColors,
     colorIfZero,
     loading,
     onClick,
@@ -60,6 +64,20 @@ export function WorkflowMetricCard({
 
     const { data, total } = useMemo(() => sumSeries(timeSeries), [timeSeries])
     const totalPreviousPeriod = useMemo(() => sumSeries(previousPeriodTimeSeries).total, [previousPeriodTimeSeries])
+
+    // A response with more than one series (e.g. the combined email + push "messages" tile) draws one
+    // line per channel, colored from seriesColors; a single-series tile keeps the one summed line.
+    const sparklineSeries = useMemo<Series[] | undefined>(() => {
+        if (!timeSeries || timeSeries.series.length <= 1) {
+            return undefined
+        }
+        return timeSeries.series.map((s) => ({
+            key: s.name,
+            label: s.name,
+            data: s.values,
+            color: seriesColors?.[s.name],
+        }))
+    }, [timeSeries, seriesColors])
 
     // Only surface a comparison when there's a non-zero baseline — formatPercentageDiff returns null on
     // a zero/absent previous period, so the pill is hidden rather than showing a bogus ∞%.
@@ -77,6 +95,7 @@ export function WorkflowMetricCard({
             titleTooltip={description}
             value={total}
             data={data.length > 0 ? data : undefined}
+            series={sparklineSeries}
             labels={timeSeries?.labels}
             theme={theme}
             color={total === 0 ? colorIfZero : color}

@@ -475,4 +475,25 @@ describe('MetricCard', () => {
             expect(onClick).not.toHaveBeenCalled()
         })
     })
+
+    describe('multi-series sparkline', () => {
+        it('totals the series per index for the headline and renders the sparkline', () => {
+            const { container } = renderHogChart(
+                <MetricCard
+                    title="Messages"
+                    series={[
+                        { key: 'a', label: 'A', data: [10, 20] },
+                        { key: 'b', label: 'B', data: [30, 40] },
+                    ]}
+                    labels={['Jan', 'Feb']}
+                    theme={THEME}
+                    animationMs={0}
+                    formatValue={(v) => `${Math.round(v)}`}
+                />
+            )
+            // Headline is the last-index total across both series: 20 + 40.
+            expect(container.textContent).toContain('60')
+            expect(container.querySelector('canvas')).not.toBeNull()
+        })
+    })
 })
