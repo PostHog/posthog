@@ -585,6 +585,13 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("rand()"), "rand()")
         self.assertEqual(self._expr("RAND()"), "rand()")
 
+    def test_greatest_and_least_are_variadic(self):
+        # greatest/least accept 2 or more arguments in ClickHouse
+        self.assertEqual(self._expr("greatest(1, 2)"), "greatest(1, 2)")
+        self.assertEqual(self._expr("greatest(1, 2, 3)"), "greatest(1, 2, 3)")
+        self.assertEqual(self._expr("least(1, 2)"), "least(1, 2)")
+        self.assertEqual(self._expr("least(1, 2, 3, 4)"), "least(1, 2, 3, 4)")
+
     def test_arrays(self):
         self.assertEqual(self._expr("[]"), "[]")
         self.assertEqual(self._expr("[1,2]"), "[1, 2]")
