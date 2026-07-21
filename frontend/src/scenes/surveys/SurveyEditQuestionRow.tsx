@@ -8,6 +8,7 @@ import { Group } from 'kea-forms'
 import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
@@ -57,7 +58,7 @@ export function SurveyEditQuestionHeader({
     translationErrorsByQuestion,
 }: SurveyQuestionHeaderProps): JSX.Element {
     const { editingLanguage } = useValues(surveyLogic)
-    const { removeQuestion } = useActions(surveyLogic)
+    const { moveQuestionToTop, removeQuestion } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -95,6 +96,19 @@ export function SurveyEditQuestionHeader({
                     >
                         <IconWarning className="text-warning" />
                     </Tooltip>
+                )}
+                {survey.questions.length > 1 && (
+                    <LemonButton
+                        icon={<IconArrowUp />}
+                        size="xsmall"
+                        data-attr={`move-survey-question-top-${index}`}
+                        tooltip="Move question to top"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            moveQuestionToTop(index)
+                        }}
+                        tooltipPlacement="top-end"
+                    />
                 )}
                 {survey.questions.length > 1 && (
                     <LemonButton

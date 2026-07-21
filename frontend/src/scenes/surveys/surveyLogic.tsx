@@ -1544,6 +1544,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
+        moveQuestionToTop: (index: number) => ({ index }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
         resetSurveyAdaptiveSampling: true,
@@ -2234,6 +2235,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 } finally {
                     actions.setGeneratingTranslationDrafts(false)
                 }
+            },
+            moveQuestionToTop: ({ index }) => {
+                const questions = [...values.survey.questions]
+                const [moved] = questions.splice(index, 1)
+                if (!moved) {
+                    return
+                }
+                questions.push(moved)
+                actions.setSurveyValue('questions', questions)
+                actions.setSelectedPageIndex(0)
             },
             resetTargeting: () => {
                 actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
