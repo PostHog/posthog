@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -164,7 +164,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -249,7 +249,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -925,6 +925,38 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Stop a LIVE session's in-flight run.
+ *
+ * Bridges to ingress `POST /agents/<slug>/cancel`, forwarding the caller's
+ * PAT so the ACL principal-match passes. The ingress aborts the current
+ * model call (partial assistant text is persisted) and writes a durable
+ * `cancelled` state; when the cancel interrupts an actively-running turn
+ * the runner reopens the session as `completed`, so it stays sendable —
+ * a cancel landing on an idle session terminalizes it as `cancelled`,
+ * and so does a cancel of a `queued` session no worker has claimed yet
+ * (permanently — there is no runner to reopen it).
+ * Idempotent on already-terminal sessions (ingress returns
+ * `idempotent: true` without changing state), surfaced faithfully here.
+ * The same janitor ownership pre-check as `agent_send` runs first.
+ */
+export const AgentApplicationsCancelParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsCancelBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod
+            .string()
+            .describe('The session to cancel (returned by agent-applications-invoke). Must belong to this agent.'),
+    })
+    .describe("Body for `agent-applications-cancel` — stop a live session's in-flight run.")
 
 /**
  * Start a new session on this agent's LIVE (promoted) revision.

@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    AgentApplicationsCancelBody,
+    AgentApplicationsCancelParams,
     AgentApplicationsCreateBody,
     AgentApplicationsDestroyParams,
     AgentApplicationsInvokeBody,
@@ -64,6 +66,28 @@ import {
     AgentRevisionsEnvKeysListParams,
 } from '@/generated/agent_platform/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const AgentApplicationsCancelSchema = AgentApplicationsCancelParams.omit({ project_id: true }).extend(
+    AgentApplicationsCancelBody.shape
+)
+
+const agentApplicationsCancel = (): ToolBase<typeof AgentApplicationsCancelSchema, Schemas.AgentCancelResponse> => ({
+    name: 'agent-applications-cancel',
+    schema: AgentApplicationsCancelSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsCancelSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_id !== undefined) {
+            body['session_id'] = params.session_id
+        }
+        const result = await context.api.request<Schemas.AgentCancelResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/cancel/`,
+            body,
+        })
+        return result
+    },
+})
 
 const AgentApplicationsCreateSchema = AgentApplicationsCreateBody
 
@@ -997,6 +1021,7 @@ const agentNativeToolsList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'agent-applications-cancel': agentApplicationsCancel,
     'agent-applications-create': agentApplicationsCreate,
     'agent-applications-destroy': agentApplicationsDestroy,
     'agent-applications-env-keys-clear': agentApplicationsEnvKeysClear,
