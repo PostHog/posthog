@@ -12,8 +12,8 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
 
 logger = structlog.get_logger(__name__)
 
-# Digest tasks scheduled, by trigger: "inline" (a sync just failed, from jobs.py)
-# vs "catchup" (the daily sweep below). increase(...{trigger="catchup"}[1d]) is the
+# Digest tasks scheduled, by trigger: "inline" (a sync just failed, from jobs.py),
+# "cdc" (a CDC failure path), or "catchup" (the daily sweep below). increase(...{trigger="catchup"}[1d]) is the
 # catch-up fan-out — how many teams the daily sweep re-notifies. The inline count is
 # the burst denominator: comparing it to delivered emails shows how hard the 15-min
 # countdown + campaign-key dedup are collapsing bursts.
@@ -40,6 +40,18 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
+
+
+def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:
+    """Schedule the per-team failure digest email after the burst-collapse delay.
+
+    Safe to call on every failure: the task dedupes via a per-team lock and a
+    per-digest-day campaign key.
+    """
+    send_external_data_failure_digest_task.apply_async(
+        args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
+    )
+    EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger=trigger).inc()
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_task")

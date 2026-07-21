@@ -58,10 +58,11 @@ function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
     return undefined
 }
 
-const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; label: string }[] = [
-    { value: 'pending', label: 'Send and set pending' },
-    { value: 'on_hold', label: 'Send and set on hold' },
-    { value: 'resolved', label: 'Send and set resolved' },
+// The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
+const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[] = [
+    { value: 'pending', statusLabel: 'pending' },
+    { value: 'on_hold', statusLabel: 'on hold' },
+    { value: 'resolved', statusLabel: 'resolved' },
 ]
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
