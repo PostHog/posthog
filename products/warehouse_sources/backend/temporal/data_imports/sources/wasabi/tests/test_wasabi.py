@@ -20,11 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.was
 TODAY = date(2026, 7, 21)
 
 
-def _fixed_today_paginator(start: date, window_days: int = 30) -> WasabiDateWindowPaginator:
-    paginator = WasabiDateWindowPaginator(start_date=start, window_days=window_days)
+class _FixedTodayPaginator(WasabiDateWindowPaginator):
     # Pin "today" so window math is deterministic in tests.
-    paginator._today = lambda: TODAY  # type: ignore[method-assign]
-    return paginator
+    @staticmethod
+    def _today() -> date:
+        return TODAY
+
+
+def _fixed_today_paginator(start: date, window_days: int = 30) -> WasabiDateWindowPaginator:
+    return _FixedTodayPaginator(start_date=start, window_days=window_days)
 
 
 class _FakeResumableSourceManager:
