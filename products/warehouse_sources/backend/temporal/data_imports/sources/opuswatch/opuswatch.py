@@ -138,6 +138,12 @@ def opuswatch_source(
             "base_url": BASE_URL,
             # The API key rides in a bare `key` header, not an Authorization header.
             "auth": {"type": "api_key", "name": "key", "api_key": api_key, "location": "header"},
+            # Pin every request to the fixed API host and reject cross-host redirects —
+            # `requests` only strips `Authorization` on redirects, so the custom `key`
+            # header would otherwise be replayed off-host. `allowed_hosts=[]` means
+            # "same host as base_url only".
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resources": [
             get_resource(endpoint, should_use_incremental_field, start_date, db_incremental_field_last_value)
@@ -170,6 +176,7 @@ def opuswatch_source(
 
 
 def validate_credentials(api_key: str) -> bool:
-    session = make_tracked_session(redact_values=(api_key,))
+    # `allow_redirects=False` keeps the `key` header from being replayed to a redirect target.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     response = session.get(f"{BASE_URL}master/workers", headers={"key": api_key}, timeout=30)
     return response.status_code == 200
