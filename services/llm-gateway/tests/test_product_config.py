@@ -631,10 +631,9 @@ class TestServerCredentialConfigInvariant:
 
 
 class TestSurveyProductConfig:
-    # The Django callers assume these two facts and cannot observe either one:
-    # billing moved out of caller code into `credit_bucket`, and the model default
-    # lives in the surveys package while the allowlist lives here. Both are
-    # revertible with a green posthog-side suite unless pinned here.
+    # The Django callers depend on both facts and can observe neither: billing is
+    # decided by `credit_bucket` here, and the model default lives in the surveys
+    # package while its allowlist lives here. Both revert green without these.
     @pytest.mark.parametrize("product", ["survey_summary", "survey_translation"])
     def test_survey_products_bill_into_ai_credits(self, product: str):
         assert PRODUCTS[product].credit_bucket == CreditBucket.AI_CREDITS, (
@@ -644,7 +643,7 @@ class TestSurveyProductConfig:
 
     @pytest.mark.parametrize("product", ["survey_summary", "survey_translation"])
     def test_survey_products_allow_the_model_the_django_callers_default_to(self, product: str):
-        # products/surveys/backend/summarization/constants.py and translation.py
-        # both default to this model; a rename on either side 400s every call.
+        # The surveys package defaults to this model; a rename on either side 400s
+        # every call.
         assert PRODUCTS[product].allowed_models is not None
         assert "claude-haiku-4-5" in PRODUCTS[product].allowed_models

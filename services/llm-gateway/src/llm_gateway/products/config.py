@@ -286,8 +286,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
-    # Summarizes freeform survey responses into themes. Customer-facing and previously
-    # tagged $ai_billable=true client-side, so it keeps billing into AI credits.
+    # Summarizes freeform survey responses into themes. Customer-facing, so its
+    # generations bill into AI credits.
     "survey_summary": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),

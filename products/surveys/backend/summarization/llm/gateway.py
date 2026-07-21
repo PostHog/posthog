@@ -81,7 +81,7 @@ def summarize_with_gateway(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=_build_user_prompt(question_text, responses),
         response_schema=SurveySummaryResponse,
-        # `ai_product` and `$ai_billable` now come from the gateway's product config.
+        # `ai_product` and `$ai_billable` come from the gateway's product config.
         posthog_properties={
             "survey_id": survey_id,
             "question_id": question_id,
