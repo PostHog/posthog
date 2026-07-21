@@ -313,31 +313,34 @@ def get_billing_rows(
     headers = _get_headers(access_token)
     session = make_tracked_session()
 
-    # Response order is undocumented, and the pipeline's ascending watermark contract requires rows to
-    # arrive oldest-first. Billing volume at 1-day granularity is small, so buffer the window and sort
-    # it client-side rather than trusting the stream order.
-    records: list[dict[str, Any]] = []
-    response = _open_billing_stream(session, url, headers, logger)
     try:
-        for line in response.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            record = json.loads(line)
-            record["id"] = _focus_charge_id(record)
-            records.append(record)
-    finally:
-        response.close()
+        # Response order is undocumented, and the pipeline's ascending watermark contract requires rows
+        # to arrive oldest-first. Billing volume at 1-day granularity is small, so buffer the window and
+        # sort it client-side rather than trusting the stream order.
+        records: list[dict[str, Any]] = []
+        response = _open_billing_stream(session, url, headers, logger)
+        try:
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                record = json.loads(line)
+                record["id"] = _focus_charge_id(record)
+                records.append(record)
+        finally:
+            response.close()
 
-    records.sort(key=lambda r: r.get("ChargePeriodStart") or "")
+        records.sort(key=lambda r: r.get("ChargePeriodStart") or "")
 
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    for record in records:
-        batcher.batch(record)
-        if batcher.should_yield():
+        batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+        for record in records:
+            batcher.batch(record)
+            if batcher.should_yield():
+                yield batcher.get_table()
+
+        if batcher.should_yield(include_incomplete_chunk=True):
             yield batcher.get_table()
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    finally:
+        session.close()
 
 
 def vercel_source(
