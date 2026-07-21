@@ -43,7 +43,7 @@ export interface MessageInputProps {
     /** Recipient description shown in the draft-mode send confirmation (e.g. "This will send to ...") */
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
-    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
+    sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
 }
@@ -80,6 +80,8 @@ export function MessageInput({
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
+    const sendVerb = isPrivate ? 'Attach' : 'Send'
+
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
         // These guard the Cmd+Enter path, which bypasses the (disabled) button.
         if (replyDisabledReason && !isPrivate) {
@@ -112,10 +114,12 @@ export function MessageInput({
             // Sending with a status saves the whole ticket, so surface any other unsaved edits first.
             if (statusAfterSend && unsavedTicketChanges && unsavedTicketChanges.length > 0) {
                 LemonDialog.open({
-                    title: 'Send and save other changes?',
+                    title: `${sendVerb} and save other changes?`,
                     description: (
                         <>
-                            <p>Sending will also save your other unsaved ticket changes:</p>
+                            <p>
+                                {isPrivate ? 'Attaching' : 'Sending'} will also save your other unsaved ticket changes:
+                            </p>
                             <ul className="list-disc pl-5">
                                 {unsavedTicketChanges.map((change) => (
                                     <li key={change}>{change}</li>
@@ -126,7 +130,7 @@ export function MessageInput({
                             ) : null}
                         </>
                     ),
-                    primaryButton: { children: 'Send and save', type: 'primary', onClick: doSend },
+                    primaryButton: { children: `${sendVerb} and save`, type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
                 })
             } else if (draftMode && !isPrivate && sendConfirmationMessage) {
@@ -219,7 +223,7 @@ export function MessageInput({
                         sideAction={
                             sendAndSetStatusOptions?.length
                                 ? {
-                                      'aria-label': 'Send and set ticket status',
+                                      'aria-label': `${sendVerb} and set ticket status`,
                                       disabled: messageSending,
                                       disabledReason: sendBlockedReason,
                                       dropdown: {
@@ -231,7 +235,7 @@ export function MessageInput({
                                                   size="small"
                                                   onClick={() => handleSubmit(option.value)}
                                               >
-                                                  {option.label}
+                                                  {`${sendVerb} and set ${option.statusLabel}`}
                                               </LemonButton>
                                           )),
                                       },
