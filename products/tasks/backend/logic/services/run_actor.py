@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
@@ -26,13 +27,21 @@ def loop_owner_eligible_for_credentials(user_id: int | None, team: Team) -> bool
     current effective access to the loop's *team* (org membership plus any project access control),
     not merely an org member — a user whose private-project access was revoked must stop too.
 
-    Locks the owner row, so call inside a transaction: deactivation then serializes against the mint
-    rather than slipping between a stale check and credential issuance. Team access is read fresh."""
+    Locks the owner row and the org-membership row, so call inside a transaction that stays open
+    through credential creation: deactivation and org offboarding then serialize against the mint
+    rather than slipping between a stale check and issuance. Team access is otherwise read fresh
+    (project-level access-control rows aren't locked here, so a revocation committed after this read
+    but before an external token round-trip is a residual the async run cancellation still covers)."""
     if user_id is None:
         return False
     owner = User.objects.select_for_update().filter(id=user_id).first()
     if owner is None or not owner.is_active:
         return False
+    # Lock the membership row (if any) so a concurrent org removal can't commit between this check and
+    # the caller's token creation within the same transaction.
+    OrganizationMembership.objects.select_for_update().filter(
+        user_id=user_id, organization_id=team.organization_id
+    ).first()
     return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
 
 
