@@ -78,7 +78,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
         })
 
-        function queryCallsSince(callIndex: number): { query: string; filters: Record<string, any> }[] {
+        function queryCallsSince(callIndex: number): Record<string, any>[] {
             return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
         }
 
@@ -95,14 +95,14 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             const newCalls = queryCallsSince(callsBefore)
             expect(newCalls.length).toBe(3) // tool rows + daily stats + category counts
             // The scope-share headline must track the same window as the rest of the tab.
-            expect(newCalls.map((call) => call.filters.dateRange)).toEqual([
+            expect(newCalls.map((call) => call.dateRange)).toEqual([
                 { date_from: '-30d', date_to: null },
                 { date_from: '-30d', date_to: null },
                 { date_from: '-30d', date_to: null },
             ])
         })
 
-        it('reloads daily stats with the tool as a property filter when a tool is selected', async () => {
+        it('reloads daily stats scoped to the tool when one is selected, passing it as a typed param', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -114,20 +114,25 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             const newCalls = queryCallsSince(callsBefore)
             expect(newCalls.length).toBe(1) // daily stats only
-            expect(newCalls[0].filters.properties).toEqual([
-                expect.objectContaining({
-                    key: '$mcp_tool_name',
-                    value: ["evil'); DROP TABLE events; --"],
-                    operator: 'exact',
-                    type: 'event',
-                }),
-            ])
-            // The tool value must never be interpolated into the HogQL string.
-            expect(newCalls[0].query).not.toContain('DROP TABLE')
+            // The tool rides as a typed toolName param (the runner binds it as a constant), never as raw SQL.
+            expect(newCalls[0].toolName).toBe("evil'); DROP TABLE events; --")
+            expect(newCalls[0].query).toBeUndefined()
         })
 
-        // Tool-quality row tuple as returned by the query (tool, calls, errors, then unused cols)
-        const toolRowResult = (tool: string): unknown[] => [tool, 1, 0, 0, 0, 0, 0, 0, 0, '', '']
+        // Tool-quality row item as returned by the runner.
+        const toolRowResult = (tool: string): Record<string, unknown> => ({
+            tool,
+            total_calls: 1,
+            errors: 0,
+            error_rate_pct: 0,
+            p50_duration_ms: 0,
+            p95_duration_ms: 0,
+            p99_duration_ms: 0,
+            users: 0,
+            sessions: 0,
+            first_seen: '',
+            last_seen: '',
+        })
 
         it('clears the selected tool when a reload no longer includes it', async () => {
             mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a')] })

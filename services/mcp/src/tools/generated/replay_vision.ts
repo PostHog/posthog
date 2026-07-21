@@ -120,6 +120,8 @@ const visionObservationsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -369,6 +371,8 @@ const visionScannersObservationsGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -399,6 +403,8 @@ const visionScannersObservationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 limit: params.limit,
                 offset: params.offset,
@@ -431,6 +437,8 @@ const visionScannersObservationsStats = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/stats/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 recent_days: params.recent_days,
                 recording_subject: params.recording_subject,

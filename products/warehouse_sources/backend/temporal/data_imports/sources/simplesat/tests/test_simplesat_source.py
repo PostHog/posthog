@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SimplesatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplesat import (
+    SimplesatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat import SimplesatResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source import SimplesatSource

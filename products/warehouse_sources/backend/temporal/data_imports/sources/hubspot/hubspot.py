@@ -332,7 +332,14 @@ def get_rows(
         )
 
     @retry(
-        retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        retry=retry_if_exception_type(
+            (
+                HubspotRetryableError,
+                requests.ReadTimeout,
+                requests.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
@@ -425,7 +432,14 @@ def _batch_read_associations(
     by_from: dict[str, list[dict[str, Any]]] = {}
 
     @retry(
-        retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        retry=retry_if_exception_type(
+            (
+                HubspotRetryableError,
+                requests.ReadTimeout,
+                requests.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
@@ -590,7 +604,14 @@ def get_rows_via_search(
     last_cursor_ms = current_lower
 
     @retry(
-        retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        retry=retry_if_exception_type(
+            (
+                HubspotRetryableError,
+                requests.ReadTimeout,
+                requests.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
