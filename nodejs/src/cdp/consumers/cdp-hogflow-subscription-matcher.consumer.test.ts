@@ -1394,6 +1394,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const newState = parseJSON((update!.params[2][0] as Buffer).toString('utf-8')) as any
             // ...and so does the persisted state.personId, so a distinct_id-less re-resolution follows it.
             expect(newState.state.personId).toBe('survivor-uuid')
+            // The repoint also wakes the parked wait (scheduled = NOW()) so it re-checks against the
+            // merged person immediately, rather than depending on the poll tick — closes the race where
+            // the person-property update lands before this re-key. Dropping this hangs the wait.
+            expect(update!.sql).toContain('scheduled = NOW()')
         })
 
         it('re-keys onto the highest-version survivor when a batch chains merges out of order', async () => {

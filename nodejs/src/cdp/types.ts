@@ -359,6 +359,10 @@ export type HogFlowInvocationContext = {
         eventMatchedEventUuid?: string
         // Paired with the UUID to build the event link in the logs view; never displayed.
         eventMatchedEventTimestamp?: string
+        // Set by the subscription matcher when it re-keys a parked wait onto a merge survivor and wakes
+        // it (scheduled=now). The wait handler consumes it to attribute the re-check outcome
+        // (advanced vs re-parked) to the re-key, so the wasted-re-park churn is observable.
+        rekeyWake?: boolean
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will

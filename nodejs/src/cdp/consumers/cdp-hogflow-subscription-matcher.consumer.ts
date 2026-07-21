@@ -803,9 +803,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
 
             if (updates.length > 0) {
+                // scheduled = NOW() wakes the parked wait on the repoint itself, closing the ordering
+                // race where the person-property update lands before this re-key (the matcher would
+                // otherwise miss the still-anon-keyed job and the wait would hang until its poll tick).
+                // Safe now that the worker resolves a re-keyed job by survivor personId (personIdRepointed).
                 const result = await client.query(
                     `UPDATE cyclotron_jobs cj
-                     SET person_id = u.person_id, state = u.state
+                     SET person_id = u.person_id, state = u.state, scheduled = NOW()
                      FROM (
                          SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS person_id, unnest($3::bytea[]) AS state
                      ) u
@@ -1038,6 +1042,11 @@ function rewriteStatePersonId(stateBuffer: Buffer, newPersonId: string, jobId: s
         // Flag the re-key so the worker resolves the person by this survivor personId, not the repointed
         // distinct_id whose ~1min cache still points at the pre-merge person (see personIdRepointed).
         parsed.state = { ...parsed.state, personId: newPersonId, personIdRepointed: true }
+        // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
+        // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
+        if (parsed.state.currentAction) {
+            parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
+        }
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
