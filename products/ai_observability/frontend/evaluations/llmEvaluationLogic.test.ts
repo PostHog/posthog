@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_HOG_SOURCE, DEFAULT_TRACE_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -336,7 +336,7 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
         })
 
-        it('seeds the trace Hog default when switching to hog with a trace target', async () => {
+        it('uses the target-independent Hog default for a trace target', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setEvaluationTarget('trace')
@@ -344,12 +344,12 @@ describe('llmEvaluationLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
-                    evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE },
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
                 }),
             })
         })
 
-        it('swaps the untouched Hog default when the target changes', async () => {
+        it('keeps the untouched Hog default when the target changes', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setEvaluationType('hog')
@@ -359,7 +359,30 @@ describe('llmEvaluationLogic', () => {
 
             logic.actions.setEvaluationTarget('trace')
             await expectLogic(logic).toMatchValues({
-                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE } }),
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_HOG_SOURCE } }),
+            })
+        })
+
+        it('replaces the legacy generation default when switching to trace', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.loadEvaluationSuccess({
+                ...mockEvaluation,
+                evaluation_type: 'hog',
+                evaluation_config: {
+                    source: `// Check that the output is not empty
+let result := length(output) > 0
+if (not result) {
+    print('Output is empty')
+}
+return result`,
+                },
+                model_configuration: null,
+            })
+            logic.actions.setEvaluationTarget('trace')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_HOG_SOURCE } }),
             })
         })
 

@@ -1,4 +1,4 @@
-import { getHogEvalExampleSource } from './hogEvalExamples'
+import { getHogEvalExample } from './hogEvalExamples'
 
 export type EvaluationTemplateIcon =
     | 'target'
@@ -49,10 +49,10 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
     {
         key: 'cost_latency',
         name: 'Cost & latency',
-        description: 'Flag expensive or slow generations using Hog code',
+        description: 'Flag expensive or slow generations and traces using Hog code',
         evaluation_type: 'hog',
         icon: 'code',
-        source: getHogEvalExampleSource('Cost & latency guard'),
+        source: getHogEvalExample('cost_latency').source,
     },
     {
         key: 'contains_keyword',
@@ -60,7 +60,7 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
         description: 'Check the output contains required keywords using Hog code',
         evaluation_type: 'hog',
         icon: 'search',
-        source: getHogEvalExampleSource('Contains keywords'),
+        source: getHogEvalExample('contains_keywords').source,
     },
     {
         key: 'tools_called',
@@ -68,7 +68,7 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
         description: 'Check that specific tools were called using Hog code',
         evaluation_type: 'hog',
         icon: 'wrench',
-        source: getHogEvalExampleSource('Tools called'),
+        source: getHogEvalExample('tools_called').source,
     },
     {
         key: 'relevance',
