@@ -691,18 +691,44 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, expected_model, expected_runtime_adapter",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort",
     [
-        (ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex"), "@cf/zai-org/glm-5.2", "codex"),
-        (ScoutModel(model=None, runtime_adapter=None), None, None),
+        # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
+        # optional effort) travel with the model so the agent server can route it.
+        (
+            ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex", reasoning_effort="high"),
+            AgentRuntime(),
+            "@cf/zai-org/glm-5.2",
+            "codex",
+            "high",
+        ),
+        # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
+        # configured model trial is the production bug this ordering exists to prevent.
+        (
+            ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+            "@cf/zai-org/glm-5.2",
+            "codex",
+            None,
+        ),
+        # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+            "gpt-5.5",
+            "codex",
+            "high",
+        ),
+        # Neither configured: agent-server default.
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None),
     ],
 )
 async def test_run_pins_sandbox_to_resolved_scout_model(
-    ateam, aerrors_skill, resolved, expected_model, expected_runtime_adapter
+    ateam, aerrors_skill, resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort
 ):
-    # The `scouts-model-selection` gate resolves an agent-model override (glm-5.2 on the codex
-    # runtime) or the agent-server default (None/None); the runner must hand both straight to the
-    # sandbox via the context — the runtime travels with the model so the agent server can route it.
+    # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
+    # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
+    # source supplies the whole runtime/model/effort triple.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -718,10 +744,9 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
             return_value=resolved,
         ),
-        # No `signals-pipeline-models` runtime pin: the scouts-glm model gate drives the run.
         patch(
             "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
-            return_value=AgentRuntime(),
+            return_value=pin,
         ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
@@ -736,46 +761,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_codex_runtime_pin_overrides_scout_model(ateam, aerrors_skill):
-    # A runtime pin replaces the scouts-glm gated model wholesale (runtime/model move as a set).
-    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
-    captured: dict = {}
-
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
-        captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
-        return session, result
-
-    with (
-        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_scout_model",
-            return_value="@cf/zai-org/glm-5.2",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
-            return_value=AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
-            return_value="env-id",
-        ),
-        patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
-            return_value=42,
-        ),
-    ):
-        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    ctx = captured["context"]
-    assert ctx.runtime_adapter == "codex"
-    assert ctx.model == "gpt-5.5"
-    assert ctx.reasoning_effort == "high"
+    assert captured["context"].reasoning_effort == expected_reasoning_effort
 
 
 @pytest.mark.asyncio

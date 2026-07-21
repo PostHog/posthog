@@ -224,18 +224,25 @@ async def arun_signals_scout(
         team, skill.name, str(run_id)
     )
 
-    # A runtime pin takes precedence over the scout-model gate and replaces it wholesale —
-    # runtime/model/effort move as a set so a Codex runtime never pairs with a glm model.
-    # Model-only payload entries are deliberately ignored for scout: the gate supplies
+    # The scout-model gate is the per-scout, per-run experiment layer; the `signals-pipeline-models`
+    # runtime pin is the default layer beneath it. When the gate resolves a model for this run it
+    # wins (its unallocated remainder resolves None and falls through to the pin), so a fleet-wide
+    # pin can't silently swallow a configured model trial. Either way the whole
+    # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
+    # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
     agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_SCOUT)
-    if agent_runtime.runtime_adapter:
-        runtime_adapter: str | None = agent_runtime.runtime_adapter
-        model = agent_runtime.model
-        reasoning_effort: str | None = agent_runtime.reasoning_effort
-    else:
-        runtime_adapter = scout_model.runtime_adapter
+    if scout_model.model:
+        runtime_adapter: str | None = scout_model.runtime_adapter
         model = scout_model.model
+        reasoning_effort: str | None = scout_model.reasoning_effort
+    elif agent_runtime.runtime_adapter:
+        runtime_adapter = agent_runtime.runtime_adapter
+        model = agent_runtime.model
+        reasoning_effort = agent_runtime.reasoning_effort
+    else:
+        runtime_adapter = None
+        model = None
         reasoning_effort = None
     try:
         last_message, task_run_id = await _spawn_and_run(
