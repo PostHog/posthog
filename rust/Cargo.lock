@@ -5305,8 +5305,9 @@ dependencies = [
  "common-alloc",
  "dashmap 6.1.0",
  "envconfig",
+ "flate2",
  "futures",
- "k8s-openapi",
+ "k8s-awareness",
  "kube",
  "lifecycle",
  "metrics",
@@ -5320,6 +5321,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -5714,6 +5716,7 @@ dependencies = [
  "http 1.4.0",
  "k8s-openapi",
  "kube",
+ "metrics",
  "rstest",
  "serde",
  "serde_json",
@@ -7638,7 +7641,6 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "k8s-awareness",
- "k8s-openapi",
  "kube",
  "lifecycle",
  "metrics",
@@ -8036,9 +8038,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d78dcf8d0a4bb8a0b59f626d30db0449c4e523c553dd945041802e9bc0ea5fc2"
+checksum = "5dc5d94870b23655fceae57574d6741475b114be5a018b25d22dd2aa076fbe13"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",

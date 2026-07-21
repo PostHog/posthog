@@ -68,6 +68,7 @@ from .aviationstack.source import AviationstackSource
 from .aviator.source import AviatorSource
 from .awin.source import AwinSource
 from .aws_cloudtrail.source import AwsCloudTrailSource
+from .axiom.source import AxiomSource
 from .azure_blob.source import AzureBlobSource
 from .azure_devops.source import AzureDevOpsSource
 from .azure_table_storage.source import AzureTableStorageSource
@@ -190,6 +191,7 @@ from .customerly.source import CustomerlySource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
+from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
 from .datorama.source import DatoramaSource
@@ -581,6 +583,7 @@ from .planetscale.source import PlanetScaleSource
 from .planhat.source import PlanhatSource
 from .platform_sh.source import PlatformShSource
 from .plausible.source import PlausibleSource
+from .plivo.source import PlivoSource
 from .plunk.source import PlunkSource
 from .pocket.source import PocketSource
 from .podium.source import PodiumSource
@@ -702,6 +705,7 @@ from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
+from .sleekplan.source import SleekplanSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
 from .smartreach.source import SmartreachSource

@@ -3959,6 +3959,10 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         mock_run_task_automation.assert_not_called()
 
 
+_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
+_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
+
+
 class TestTaskRunAPI(BaseTaskAPITest):
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -3992,6 +3996,52 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            # Both caller-controlled output writers have to enforce this: the dedicated set_output
+            # action and the generic run PATCH, which merges `output` just the same.
+            (endpoint, case_name, webhook_flag, caller_pr_url, expected)
+            for endpoint in ("set_output/", "")
+            for case_name, webhook_flag, caller_pr_url, expected in [
+                ("caller_cannot_forge", None, _PR_URL, False),
+                ("webhook_flag_survives_caller_write", True, _PR_URL, True),
+                # The attestation is about one PR — repointing the run drops it rather than
+                # transferring GitHub's word about the old PR onto a new one.
+                ("flag_dropped_when_caller_changes_pr", True, _OTHER_PR_URL, False),
+            ]
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_caller_output_writes_never_set_pr_merged(
+        self,
+        endpoint: str,
+        _case_name: str,
+        webhook_flag: bool | None,
+        caller_pr_url: str,
+        expected: bool,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        # pr_merged is GitHub's word that the PR merged, and signals reads it to decide refund
+        # finality — so a task:write caller must not be able to write, clear, or move it.
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        if webhook_flag is not None:
+            run.output = {"pr_url": _PR_URL, "pr_merged": webhook_flag}
+            run.save(update_fields=["output"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{endpoint}",
+            {"output": {"pr_url": caller_pr_url, "pr_merged": True}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual((run.output or {}).get("pr_merged", False), expected)
 
     @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
     @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
@@ -4183,7 +4233,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
+        pending_external_followups = [
+            {
+                "message": "server queued message",
+                "artifact_ids": [],
+                "source": "user",
+                "actor_user_id": self.user.id,
+                "message_id": "server-message",
+                "context": {},
+                "steer": False,
+                "sequence": 0,
+            }
+        ]
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -4203,6 +4266,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_mount_path": "/tmp",
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
+                "pending_external_followups": pending_external_followups,
+                "pending_external_followups_generation": 7,
             },
         )
 
@@ -4232,6 +4297,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_mount_path": "/tmp/workspace",
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
+                    "pending_external_followups": [
+                        {
+                            "message": "attacker message",
+                            "actor_user_id": credential_target.id,
+                            "context": {"interaction_origin": "slack"},
+                        }
+                    ],
+                    "pending_external_followups_generation": 999,
                     "scratch": "ok",
                 }
             },
@@ -4254,6 +4327,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["pending_external_followups"] == pending_external_followups
+        assert run.state["pending_external_followups_generation"] == 7
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -4271,6 +4346,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_mount_path",
                     "workflow_id",
                     "pending_dispatch",
+                    "pending_external_followups",
+                    "pending_external_followups_generation",
                     "scratch",
                 ],
             },
@@ -4287,6 +4364,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["pending_external_followups"] == pending_external_followups
+        assert run.state["pending_external_followups_generation"] == 7
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -4801,6 +4880,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text="Which license should I use?",
             delete_progress=True,
+            message_id=None,
         )
 
     @parameterized.expand(
@@ -4853,6 +4933,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             run_id=str(run.id),
             text=expected_posted_text,
             delete_progress=True,
+            message_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -7829,7 +7910,30 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(data["jsonrpc"], "2.0")
         self.assertTrue(data["result"]["queued"])
 
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None)
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Hello agent", [], None, self.user.id, None, steer=False
+        )
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_signals_steer_intent(self, mock_signal_followup):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "user_message",
+                "params": {"content": "Change direction", "steer": True},
+                "id": "req-steer",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Change direction", [], None, self.user.id, None, steer=True
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_user_message_requires_code_access(self, mock_signal_followup):
@@ -7865,7 +7969,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [], None)
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "Hello agent", [], None, self.user.id, None, steer=False
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
@@ -7897,7 +8003,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["result"]["queued"])
-        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"], None)
+        mock_signal_followup.assert_called_once_with(
+            run.workflow_id, "See attached", ["artifact-123"], None, self.user.id, None, steer=False
+        )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):

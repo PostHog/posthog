@@ -9,9 +9,10 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
 
+import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
-    AssigneeFilterValue,
+    AssigneeFilterEntry,
     SavedTicketView,
     Ticket,
     TicketChannel,
@@ -51,7 +52,8 @@ export interface supportTicketsSceneLogicValues {
     activeView: SavedTicketView | null
     aiEnabled: boolean
     aiTriageResultFilter: AITriageFilterValue[]
-    assigneeFilter: AssigneeFilterValue
+    assigneeFilter: AssigneeFilterEntry[]
+    assigneeFilterEntries: AssigneeFilterEntry[]
     bulkUpdating: boolean
     channelFilter: TicketChannel | 'all'
     currentFilters: TicketViewFilters
@@ -111,8 +113,8 @@ export interface supportTicketsSceneLogicActions {
     setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
         results: AITriageFilterValue[]
     }
-    setAssigneeFilter: (assignee: AssigneeFilterValue) => {
-        assignee: AssigneeFilterValue
+    setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
+        assignees: AssigneeFilterEntry[]
     }
     setBulkUpdating: (updating: boolean) => {
         updating: boolean
@@ -182,13 +184,14 @@ export interface supportTicketsSceneLogicMeta {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         currentFilters: (
             statusFilter: TicketStatus[],
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',
             aiTriageResultFilter: AITriageFilterValue[],
-            assigneeFilter: AssigneeFilterValue,
+            assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsMatch: TicketTagsMatch,
             tagsExcludeFilter: string[],
@@ -217,7 +220,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
         setAiTriageResultFilter: (results: AITriageFilterValue[]) => ({ results }),
-        setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
+        setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => ({ assignees }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setTagsMatch: (match: TicketTagsMatch) => ({ match }),
         setTagsExcludeFilter: (tags: string[]) => ({ tags }),
@@ -308,11 +311,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         assigneeFilter: [
-            'all' as AssigneeFilterValue,
+            [] as AssigneeFilterEntry[],
             { persist: true },
             {
-                setAssigneeFilter: (_, { assignee }) => assignee,
-                applyViewFilters: (state, { filters }) => filters.assignee ?? state,
+                setAssigneeFilter: (_, { assignees }) => assignees,
+                applyViewFilters: (state, { filters }) =>
+                    filters.assignee != null ? normalizeAssigneeFilter(filters.assignee) : state,
             },
         ],
         tagsFilter: [
@@ -423,6 +427,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return tickets.filter((t) => idSet.has(t.id))
             },
         ],
+        assigneeFilterEntries: [
+            (s) => [s.assigneeFilter],
+            (assigneeFilter: AssigneeFilterEntry[]): AssigneeFilterEntry[] => normalizeAssigneeFilter(assigneeFilter),
+        ],
         currentFilters: [
             (s) => [
                 s.statusFilter,
@@ -430,7 +438,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.channelFilter,
                 s.slaFilter,
                 s.aiTriageResultFilter,
-                s.assigneeFilter,
+                s.assigneeFilterEntries,
                 s.tagsFilter,
                 s.tagsMatch,
                 s.tagsExcludeFilter,
@@ -445,7 +453,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 channel: TicketChannel | 'all',
                 sla: TicketSlaState | 'all',
                 aiTriageResult: AITriageFilterValue[],
-                assignee: AssigneeFilterValue,
+                assignee: AssigneeFilterEntry[],
                 tags: string[],
                 tagsMatch: TicketTagsMatch,
                 tagsExclude: string[],
@@ -494,12 +502,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.slaFilter !== 'all') {
                 params.sla = values.slaFilter
             }
-            if (values.assigneeFilter !== 'all') {
-                if (values.assigneeFilter === 'unassigned') {
-                    params.assignee = 'unassigned'
-                } else if (values.assigneeFilter && typeof values.assigneeFilter === 'object') {
-                    params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
-                }
+            if (values.assigneeFilterEntries.length > 0) {
+                params.assignee = values.assigneeFilterEntries
+                    .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
+                    .join(',')
             }
             if (values.tagsFilter.length > 0) {
                 params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
