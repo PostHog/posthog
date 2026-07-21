@@ -5,6 +5,8 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
+    BRAINTREE_VERSION_2019_01_01,
+    BRAINTREE_VERSION_2026_07_14,
     PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
@@ -21,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree"
+_VERSION = BRAINTREE_VERSION_2026_07_14
 
 
 def _make_manager(resume_state: BraintreeResumeConfig | None = None) -> mock.MagicMock:
@@ -92,7 +95,7 @@ class TestValidateCredentials:
         resp.ok = True
         mock_session.return_value.post.return_value = resp
 
-        assert validate_credentials("production", "pub", "priv") is True
+        assert validate_credentials("production", "pub", "priv", _VERSION) is True
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_on_graphql_error(self, mock_session):
@@ -102,12 +105,12 @@ class TestValidateCredentials:
         resp.ok = True
         mock_session.return_value.post.return_value = resp
 
-        assert validate_credentials("production", "pub", "priv") is False
+        assert validate_credentials("production", "pub", "priv", _VERSION) is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_on_exception(self, mock_session):
         mock_session.return_value.post.side_effect = Exception("boom")
-        assert validate_credentials("production", "pub", "priv") is False
+        assert validate_credentials("production", "pub", "priv", _VERSION) is False
 
 
 class TestGetRows:
@@ -119,7 +122,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("production", "pub", "priv", "transactions", mock.MagicMock(), manager))
+        batches = list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
         assert [item["id"] for batch in batches for item in batch] == ["t1", "t2", "t3"]
         manager.save_state.assert_called_once()
@@ -139,6 +142,7 @@ class TestGetRows:
                 "pub",
                 "priv",
                 "transactions",
+                _VERSION,
                 mock.MagicMock(),
                 manager,
                 should_use_incremental_field=True,
@@ -154,7 +158,7 @@ class TestGetRows:
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 
         manager = _make_manager()
-        list(get_rows("production", "pub", "priv", "transactions", mock.MagicMock(), manager))
+        list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
         variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
         assert variables["input"] is None
@@ -164,7 +168,7 @@ class TestGetRows:
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 
         manager = _make_manager(BraintreeResumeConfig(after="cur-resume"))
-        list(get_rows("production", "pub", "priv", "transactions", mock.MagicMock(), manager))
+        list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
         variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
         assert variables["after"] == "cur-resume"
@@ -179,25 +183,26 @@ class TestGetRows:
 
         manager = _make_manager()
         with pytest.raises(BraintreeGraphQLError):
-            list(get_rows("production", "pub", "priv", "transactions", mock.MagicMock(), manager))
+            list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
+    @pytest.mark.parametrize("api_version", [BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2026_07_14])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_uses_basic_auth_and_version_header(self, mock_session):
+    def test_session_uses_basic_auth_and_version_header(self, mock_session, api_version):
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 
         manager = _make_manager()
-        list(get_rows("production", "pub", "priv", "transactions", mock.MagicMock(), manager))
+        list(get_rows("production", "pub", "priv", "transactions", api_version, mock.MagicMock(), manager))
 
         assert mock_session.return_value.auth == ("pub", "priv")
         headers = mock_session.call_args.kwargs["headers"]
-        assert headers["Braintree-Version"]
+        assert headers["Braintree-Version"] == api_version
 
 
 class TestBraintreeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = BRAINTREE_ENDPOINTS[endpoint]
-        response = braintree_source("production", "pub", "priv", endpoint, mock.MagicMock(), _make_manager())
+        response = braintree_source("production", "pub", "priv", endpoint, _VERSION, mock.MagicMock(), _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

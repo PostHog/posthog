@@ -19,6 +19,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
     get_github_token,
     get_pr_authorship_mode,
+    get_readonly_github_token,
     get_sandbox_github_token,
     get_task_run_credential_user,
     is_caller_token_run,
@@ -248,6 +249,21 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
+        # A repo-less read-only run must stay read-only for its whole lifetime: without this
+        # guard the periodic refresh would resolve the full credential path (the team integration
+        # is attached to every task) and silently swap the downscoped token for the write-capable
+        # one mid-run. Re-mint the same read-only grant instead; best-effort like the original.
+        if ctx.github_read_access and ctx.repository is None:
+            token = get_readonly_github_token(ctx.team_id)
+            if token:
+                apply_github_credentials_to_sandbox(sandbox, None, token)
+            return CredentialRefreshOutcome(
+                self.kind,
+                refreshed=bool(token),
+                next_refresh_seconds=github_refresh_interval_seconds(token)
+                if token
+                else DEFAULT_REFRESH_INTERVAL_SECONDS,
+            )
         if not ctx.has_github_credentials:
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS

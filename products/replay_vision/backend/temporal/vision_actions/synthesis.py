@@ -7,7 +7,7 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 
 import re
 from datetime import UTC, datetime, timedelta, tzinfo
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -37,9 +37,6 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.hogai.utils.untrusted import as_untrusted_data
-
-if TYPE_CHECKING:
-    pass
 
 logger = structlog.get_logger(__name__)
 

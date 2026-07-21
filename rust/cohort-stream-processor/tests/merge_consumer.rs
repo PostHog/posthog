@@ -614,6 +614,13 @@ async fn spawn_instance(
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: CascadeConfig::default(),
         partition_count: COHORT_PARTITION_COUNT,
+        seed_tile_sink: Arc::new(cohort_stream_processor::producer::CaptureSeedTileSink::new()),
+        seed_tracker: Arc::new(
+            cohort_stream_processor::partitions::offset_tracker::OffsetTracker::new(),
+        ),
+        live_watermarks: Arc::new(
+            cohort_stream_processor::partitions::watermarks::LiveWatermarks::new(),
+        ),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -680,7 +687,7 @@ async fn spawn_instance(
     tasks.push(tokio::spawn(transfer_follower.process()));
 
     let events_consumer = CohortStreamEventsConsumer::new(
-        events_client,
+        Arc::new(events_client),
         topics.events.clone(),
         dispatcher.clone(),
         events_handle,
