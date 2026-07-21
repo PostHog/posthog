@@ -8,6 +8,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -100,6 +101,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         dismissKnowledgeGap,
         submitAiReplyFeedback,
     } = useActions(logic)
+
+    useFileSystemLogView({ type: 'ticket', ref: ticket?.id })
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)

@@ -3,6 +3,7 @@ from django.test import TestCase
 from posthog.models import FileSystem, Organization, Team, User
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
+from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -99,6 +100,24 @@ class TestFileSystemSyncMixin(TestCase):
         # Should remain in the FileSystem
         fs_entry.refresh_from_db()
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1 Updated")
+
+    def test_ticket_basic_lifecycle(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team, widget_session_id="widget-session-1", distinct_id="distinct-1"
+        )
+        fs_entry = FileSystem.objects.filter(team=self.team, type="ticket", ref=str(ticket.id)).first()
+        assert fs_entry is not None
+        self.assertEqual(fs_entry.path, f"Unfiled/Tickets/Ticket #{ticket.ticket_number}")
+        self.assertEqual(fs_entry.href, f"/support/tickets/{ticket.ticket_number}")
+        self.assertEqual(fs_entry.shortcut, False)
+
+        ticket.status = "open"
+        ticket.save()
+        self.assertEqual(FileSystem.objects.filter(team=self.team, type="ticket", ref=str(ticket.id)).count(), 1)
+
+        ticket_id = ticket.id
+        ticket.delete()
+        assert FileSystem.objects.filter(team=self.team, type="ticket", ref=str(ticket_id)).first() is None
 
     def test_insight_deleted_or_unsaved_removes_entry(self):
         """

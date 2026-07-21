@@ -1478,6 +1478,13 @@ export const fileSystemTypes = {
         filterKey: 'task',
         flag: FEATURE_FLAGS.TASKS,
     },
+    ticket: {
+        name: 'Ticket',
+        iconType: 'conversations',
+        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        href: (ref: string) => urls.supportTicketDetail(ref),
+        filterKey: 'ticket',
+    },
     user_interview: {
         name: 'User research',
         iconType: 'user_interview',

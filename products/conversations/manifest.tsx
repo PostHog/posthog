@@ -40,7 +40,15 @@ export const manifest: ProductManifest = {
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
         supportSettings: (): string => '/support/settings',
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        ticket: {
+            name: 'Ticket',
+            iconType: 'conversations',
+            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+            href: (ref: string) => urls.supportTicketDetail(ref),
+            filterKey: 'ticket',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {

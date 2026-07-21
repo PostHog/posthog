@@ -14,6 +14,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
+from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -37,6 +38,7 @@ MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "cohort": Cohort,
     "hog_function": HogFunction,
     "survey": Survey,
+    "ticket": Ticket,
 }
 
 DESKTOP_MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
