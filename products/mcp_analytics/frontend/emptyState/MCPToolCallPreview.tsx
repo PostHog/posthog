@@ -24,13 +24,15 @@ interface PreviewCall {
     error?: boolean
 }
 
-// Example tool calls — hand-authored, not real data. `harness` tags a row for the filter chips.
+// Example tool calls - hand-authored, not real data. MCP tools are bare snake_case
+// names (no parentheses - these are tool invocations, not function calls).
+// `harness` tags a row for the filter chips.
 const CALLS: PreviewCall[] = [
-    { tool: 'search_docs()', logo: claudeLogo, harness: 'claude', time: '142ms' },
-    { tool: 'create_issue()', logo: cursorLogo, harness: 'cursor', time: 'err', error: true },
-    { tool: 'run_query()', logo: openaiLogo, harness: 'openai', time: '210ms' },
-    { tool: 'list_flags()', logo: claudeLogo, harness: 'claude', time: '53ms' },
-    { tool: 'get_schema()', logo: cursorLogo, harness: 'cursor', time: '190ms' },
+    { tool: 'search_docs', logo: claudeLogo, harness: 'claude', time: '142ms' },
+    { tool: 'create_issue', logo: cursorLogo, harness: 'cursor', time: 'err', error: true },
+    { tool: 'run_query', logo: openaiLogo, harness: 'openai', time: '210ms' },
+    { tool: 'list_feature_flags', logo: claudeLogo, harness: 'claude', time: '53ms' },
+    { tool: 'get_schema', logo: cursorLogo, harness: 'cursor', time: '190ms' },
 ]
 
 const FILTERS: { id: string; label: string; logo?: string }[] = [
@@ -62,9 +64,9 @@ function sparkPaths(): { line: string; area: string } {
 }
 
 /**
- * The MCP analytics signature preview: a simple, filterable table of example tool calls above a
- * mini tool-call sparkline whose bright accent segment traces along the line on its own. Table
- * filtering is pure CSS (hidden radios); the sparkline is the only moving element.
+ * Example-data preview for the MCP analytics empty state. All interaction and motion
+ * are pure CSS (hidden radios drive the filter) - no timers or state, per the
+ * preview rules in the `building-product-empty-states` skill.
  */
 export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()

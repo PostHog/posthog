@@ -1,7 +1,3 @@
-// Low-fidelity, purpose-built preview for the MCP analytics empty state: a simple filterable
-// table of example tool calls above a mini tool-call sparkline whose bright accent segment
-// traces along the line on its own. Table filtering is pure CSS (hidden radios); the sparkline
-// is the one moving element. Accent flows in from the empty-state wash.
 .MCPPreview {
     --mcp-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -131,6 +127,16 @@
     &__row--error &__time {
         color: var(--color-red-500);
     }
+}
+
+// The radios stay keyboard-focusable even while visually hidden, so the chip they
+// label needs a visible focus indicator (WCAG 2.4.7).
+#mcp-preview-all:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--all,
+#mcp-preview-claude:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--claude,
+#mcp-preview-cursor:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--cursor,
+#mcp-preview-openai:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--openai {
+    outline: 2px solid var(--mcp-preview-accent);
+    outline-offset: 1px;
 }
 
 // Active filter chip, driven purely by the hidden radios.
