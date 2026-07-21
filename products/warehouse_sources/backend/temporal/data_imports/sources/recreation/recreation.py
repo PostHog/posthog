@@ -66,6 +66,9 @@ def recreation_source(
                 "location": "header",
             },
             "headers": {"Accept": "application/json"},
+            # The apikey credential rides a custom header, which `requests` would replay to a
+            # cross-origin redirect target (unlike `Authorization`) — refuse redirects instead.
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -114,7 +117,9 @@ def recreation_source(
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     try:
-        res = make_tracked_session(redact_values=(api_key,)).get(
+        # `allow_redirects=False` matches the sync path's credential boundary: never replay
+        # the apikey header to a redirect target.
+        res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
             f"{RIDB_BASE_URL}/activities",
             params={"limit": 1},
             headers={"apikey": api_key, "Accept": "application/json"},
