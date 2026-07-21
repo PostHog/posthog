@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, uuid7
+
+DAILY_CHECK_INTERVAL_HOURS = 24
 
 
 class BillingAlertConfiguration(UUIDModel):
@@ -32,7 +37,7 @@ class BillingAlertConfiguration(UUIDModel):
         related_name="+",
         db_constraint=False,
     )
-    # Team deletion is handled by the billing-alert re-home flow so an organization-scoped alert is preserved.
+    # Team deletion disables and detaches the alert; feature code may re-home it to another execution team.
     team = models.ForeignKey(
         "posthog.Team",
         db_column="execution_team_id",
@@ -65,7 +70,11 @@ class BillingAlertConfiguration(UUIDModel):
     evaluation_delay_hours = models.PositiveSmallIntegerField(default=6)
 
     state = models.CharField(max_length=20, choices=State.choices, default=State.NOT_FIRING)
-    check_interval_hours = models.PositiveSmallIntegerField(default=24)
+    check_interval_hours = models.PositiveSmallIntegerField(
+        choices=((DAILY_CHECK_INTERVAL_HOURS, "Daily (UTC)"),),
+        default=DAILY_CHECK_INTERVAL_HOURS,
+        help_text="Billing alerts evaluate one UTC billing date per day.",
+    )
     cooldown_hours = models.PositiveSmallIntegerField(default=24)
     snooze_until = models.DateTimeField(null=True, blank=True)
     next_check_at = models.DateTimeField(null=True, blank=True)
@@ -82,7 +91,11 @@ class BillingAlertConfiguration(UUIDModel):
         db_table = "billing_alerts_configuration"
         indexes = [
             models.Index(fields=["organization", "-created_at"], name="billing_alert_org_created_idx"),
-            models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
+            models.Index(
+                "enabled",
+                F("next_check_at").asc(nulls_first=True),
+                name="billing_alert_scheduler_idx",
+            ),
             models.Index(fields=["organization", "enabled", "state"], name="billing_alert_org_state_idx"),
         ]
         constraints = [
@@ -91,7 +104,7 @@ class BillingAlertConfiguration(UUIDModel):
                 name="billing_alert_baseline_window_positive",
             ),
             models.CheckConstraint(
-                condition=Q(check_interval_hours__in=(1, 2, 3, 4, 6, 8, 12, 24)),
+                condition=Q(check_interval_hours=DAILY_CHECK_INTERVAL_HOURS),
                 name="billing_alert_supported_interval",
             ),
             models.CheckConstraint(condition=Q(minimum_value__gte=0), name="billing_alert_minimum_nonnegative"),
@@ -126,10 +139,16 @@ class BillingAlertConfiguration(UUIDModel):
 
         if self.baseline_window_days < 1:
             raise ValidationError({"baseline_window_days": "Must be at least 1."})
-        if self.check_interval_hours < 1:
-            raise ValidationError({"check_interval_hours": "Must be at least 1."})
+        if self.check_interval_hours != DAILY_CHECK_INTERVAL_HOURS:
+            raise ValidationError({"check_interval_hours": "Billing alerts currently run daily."})
         if self.minimum_value < 0:
             raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
+        if self.team_id:
+            team_organization_id = (
+                Team.objects.filter(id=self.team_id).values_list("organization_id", flat=True).first()
+            )
+            if team_organization_id is not None and team_organization_id != self.organization_id:
+                raise ValidationError({"team": "Execution team must belong to the billing alert organization."})
 
         if self.threshold_type == self.ThresholdType.RELATIVE_INCREASE:
             if self.threshold_percentage is None:
@@ -152,7 +171,6 @@ class BillingAlertEvaluationClaim(UUIDModel):
         SUPERSEDED = "superseded", "Superseded"
 
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="evaluation_claims")
-    organization_id = models.UUIDField(db_index=True)
     evaluation_date = models.DateField()
     configuration_revision = models.PositiveIntegerField()
     delivery_uuid = models.UUIDField(default=uuid7, unique=True, editable=False)
@@ -172,9 +190,12 @@ class BillingAlertEvaluationClaim(UUIDModel):
             )
         ]
         indexes = [
-            models.Index(fields=["organization_id", "-created_at"], name="billing_claim_org_created_idx"),
             models.Index(fields=["status", "next_retry_at"], name="billing_claim_retry_idx"),
         ]
+
+    @property
+    def organization_id(self) -> UUID:
+        return self.alert.organization_id
 
 
 class BillingAlertEvent(UUIDModel):
@@ -189,9 +210,7 @@ class BillingAlertEvent(UUIDModel):
         ERRORED = "errored", "Errored"
         BROKEN_CONFIG = "broken_config", "Broken config"
 
-    alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
     claim = models.ForeignKey(BillingAlertEvaluationClaim, on_delete=models.CASCADE, related_name="attempts")
-    organization_id = models.UUIDField(db_index=True)
     # Preserve the original execution team ID as audit history after that team is deleted.
     team = models.ForeignKey("posthog.Team", db_constraint=False, on_delete=models.DO_NOTHING, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
@@ -199,7 +218,6 @@ class BillingAlertEvent(UUIDModel):
     attempt_number = models.PositiveIntegerField()
 
     created_at = models.DateTimeField(auto_now_add=True)
-    evaluation_date = models.DateField(null=True, blank=True)
     period_start = models.DateTimeField(null=True, blank=True)
     period_end = models.DateTimeField(null=True, blank=True)
 
@@ -230,8 +248,6 @@ class BillingAlertEvent(UUIDModel):
         db_table = "billing_alerts_event"
         indexes = [
             models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
-            models.Index(fields=["alert", "-created_at"], name="billing_event_alert_ts_idx"),
-            models.Index(fields=["alert", "evaluation_date"], name="billing_event_alert_date_idx"),
             models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
         ]
         constraints = [
@@ -240,3 +256,19 @@ class BillingAlertEvent(UUIDModel):
                 name="unique_billing_alert_evaluation_attempt",
             )
         ]
+
+    @property
+    def alert(self) -> BillingAlertConfiguration:
+        return self.claim.alert
+
+    @property
+    def alert_id(self) -> UUID:
+        return self.claim.alert_id
+
+    @property
+    def organization_id(self) -> UUID:
+        return self.claim.organization_id
+
+    @property
+    def evaluation_date(self) -> date:
+        return self.claim.evaluation_date
