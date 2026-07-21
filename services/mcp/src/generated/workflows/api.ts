@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1010,6 +1010,59 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
+        ),
+})
+
+export const HogFlowsRevisionsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const HogFlowsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
+    created_at: zod.iso.datetime({ offset: true }).optional(),
+    created_by: zod.number().optional(),
+    id: zod.string().optional(),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    status: zod
+        .enum(['active', 'archived', 'draft'])
+        .optional()
+        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+    updated_at: zod.iso.datetime({ offset: true }).optional(),
+})
+
+export const HogFlowsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    version: zod.number().describe('Workflow version to fetch.'),
+})
+
+export const HogFlowsRevisionsRestoreCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    version: zod.number().describe('Workflow version to restore.'),
+})
+
+export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
         ),
 })
 

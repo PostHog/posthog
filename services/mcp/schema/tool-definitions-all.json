@@ -10537,6 +10537,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-get-revision": {
+        "description": "Get one revision of a workflow by version number, including its full content snapshot (actions, edges, trigger, variables). Use to inspect what was live at that version before restoring it with workflows-restore-revision.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow revision",
+        "title": "Get workflow revision",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-global-stats": {
         "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are failing, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
         "category": "Workflows",
@@ -10607,6 +10621,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-list-revisions": {
+        "description": "List a workflow's revision history, newest first. Every live-content change (publish, direct edit) appends a version; each entry shows version, when, and by whom. Fetch a version's content with workflows-get-revision; roll back with workflows-restore-revision.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List workflow revisions",
+        "title": "List workflow revisions",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-logs": {
         "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
         "category": "Workflows",
@@ -10659,6 +10687,20 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-restore-revision": {
+        "description": "Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true), preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their positions.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Restore workflow revision",
+        "title": "Restore workflow revision",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
