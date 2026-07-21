@@ -15,7 +15,8 @@ pub use column_families::{
 };
 pub use handle::{OffloadConfig, OffloadMode, ReadLane, StoreHandle};
 pub use keys::{
-    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, Stage2TransferredRegisterKey,
+    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
+    Stage2DirtyPrefix, Stage2Key, Stage2TransferredRegisterKey,
     Stage2TransferredRegisterPersonPrefix, TombstoneKey,
 };
 pub use keyspace::{
@@ -23,8 +24,8 @@ pub use keyspace::{
     PersonRecords,
 };
 pub use rocks::{
-    BatchBuilder, CfStats, CohortStore, EventSnapshotRaw, StoreConfig, StoreError, StoreStats,
-    STORE_SCHEMA_VERSION,
+    BatchBuilder, CfStats, CohortStore, EventSnapshotRaw, Stage2DirtyTrackingGuard, StoreConfig,
+    StoreError, StoreStats, STORE_SCHEMA_VERSION,
 };
 pub use staged::StagedBatch;
 

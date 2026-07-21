@@ -12,8 +12,8 @@
 
 use super::column_families::{Cf, OpaqueCf};
 use super::keys::{
-    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, Stage2TransferredRegisterKey,
-    TombstoneKey,
+    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2DirtyKey, Stage2Key,
+    Stage2TransferredRegisterKey, TombstoneKey,
 };
 use super::keyspace::Keyspace;
 
@@ -82,6 +82,14 @@ impl StagedBatch {
     }
 
     pub fn delete_stage2(&mut self, key: &Stage2Key) {
+        self.ops.push(StagedOp::Delete {
+            cf: Cf::Stage2,
+            key: key.encode().to_vec(),
+        });
+    }
+
+    /// Clear a reconcile dirty marker without creating another marker.
+    pub fn delete_stage2_dirty(&mut self, key: &Stage2DirtyKey) {
         self.ops.push(StagedOp::Delete {
             cf: Cf::Stage2,
             key: key.encode().to_vec(),
@@ -198,6 +206,7 @@ mod tests {
     use crate::stage1::key::LeafStateKey;
     use crate::store::keyspace::{Behavioral, BehavioralKey};
     use crate::store::rocks::{BatchBuilder, CohortStore, StoreConfig};
+    use crate::store::Stage2DirtyKey;
 
     const PARTITION: u16 = 3;
     const TEAM: u64 = 7;
@@ -345,6 +354,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let via_builder = open_store(&dir, "builder");
         let via_staged = open_store(&dir, "staged");
+        let _builder_tracking = via_builder.track_stage2_dirty(stage2_key(1, 100).cohort_prefix());
+        let _staged_tracking = via_staged.track_stage2_dirty(stage2_key(1, 100).cohort_prefix());
 
         via_builder.write_batch(drive_batch_builder).unwrap();
 
@@ -384,6 +395,13 @@ mod tests {
             via_staged.get_behavioral(&behavioral_key(2, 0xA1)).unwrap(),
             None,
         );
+        assert!(via_staged
+            .get(
+                Cf::Stage2,
+                &Stage2DirtyKey::new(stage2_key(1, 100)).encode()
+            )
+            .unwrap()
+            .is_some());
     }
 
     #[test]

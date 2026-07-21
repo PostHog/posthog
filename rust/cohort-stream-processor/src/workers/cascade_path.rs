@@ -447,6 +447,7 @@ mod tests {
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
+            reconcile: crate::workers::ReconcileDeps::default(),
         };
         // The cascade was dispatched this tenure, so its ceiling is raised — mirrors the dispatcher.
         deps.cascade_tracker
