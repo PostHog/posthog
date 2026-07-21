@@ -210,9 +210,9 @@ one sandbox session → zero or more emitted signals.
   `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
-  When the `scouts-model-selection` gate (or a runtime pin) routes the run,
-  `started` and `finished` also carry `model` / `runtime_adapter` so run outcomes are sliceable by model without joining through `$ai_generation`;
-  absence means the agent-server default served the run.
+  When the `scouts-model-selection` gate (or a runtime pin) routes the run, `started` and
+  `finished` also carry `model` / `runtime_adapter`, so run outcomes are sliceable by model
+  without joining through `$ai_generation`; absence means the agent-server default served it.
   The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
   (plus customer-facing `$scout_report_*` copies), stamped with derived classification
   properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)
