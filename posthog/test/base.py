@@ -1564,7 +1564,8 @@ class BaseTestMigrations(QueryMatchingTest):
         for conn in connections.all():
             if conn.connection is not None and not conn.is_usable():
                 conn.close()
-        super().setUpClass()
+        # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
+        super().setUpClass()  # type: ignore[misc]
 
     def setUp(self):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
