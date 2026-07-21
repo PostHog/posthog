@@ -586,7 +586,11 @@ class PropertySwapper(CloningVisitor):
     def _to_float_if_numeric_constant(expr: ast.Expr) -> ast.Expr:
         # Only widen bare numeric literals (bool is an int subclass, so exclude it). Strings, NULL and
         # non-constants are left untouched so set membership semantics don't change for them.
-        if not isinstance(expr, ast.Constant) or isinstance(expr.value, bool) or not isinstance(expr.value, int | float):
+        if (
+            not isinstance(expr, ast.Constant)
+            or isinstance(expr.value, bool)
+            or not isinstance(expr.value, int | float)
+        ):
             return expr
         return ast.Call(
             name="toFloat",
