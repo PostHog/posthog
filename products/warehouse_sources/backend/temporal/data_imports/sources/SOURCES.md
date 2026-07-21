@@ -482,6 +482,7 @@ the row lists both.
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smaily                           | HTTP                        | requests                                                        | ✅                          |
+| smartengage                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartreach                       | HTTP                        | requests                                                        | ✅                          |
 | smartsheet                       | HTTP                        | requests                                                        | ✅                          |
 | smartwaiver                      | HTTP                        | requests                                                        | ✅                          |
@@ -931,7 +932,6 @@ doesn't conflict with concurrent PRs.
 - slash
 - sleekplan
 - smaily
-- smartengage
 - smartwaiver
 - solarwinds_service_desk
 - sonar_cloud
