@@ -2063,14 +2063,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
-        # Unreleased sources are scaffolds without schema discovery — the UI hides them, but the API
-        # would otherwise persist a row and then 500 when `get_schemas` (below) raises
-        # NotImplementedError, letting a caller accumulate orphaned rows. Reject before persistence.
-        if source.get_source_config.unreleasedSource:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' is not yet available."},
-            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -2117,7 +2109,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             payload.get("cdc_enabled", False) and cdc_adapter is not None and is_cdc_enabled_for_team(self.team)
         )
 
-        source_schemas = source.get_schemas(source_config, self.team_id)
+        try:
+            source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased scaffold the UI hides).
+            # Roll back the row just created so a caller can't accumulate orphaned sources, and return
+            # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
