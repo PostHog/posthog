@@ -91,6 +91,37 @@ class Account:
 
 
 @dataclass(frozen=True)
+class AccountCustomProperty:
+    """A team-defined custom property currently set on an account.
+
+    ``display_type`` mirrors ``CustomPropertyDefinition.display_type`` so the consumer can render
+    the value appropriately (text / number / currency / percent / date / datetime / boolean).
+    ``value`` is the active value coerced to its column type.
+    """
+
+    name: str
+    display_type: str
+    is_big_number: bool
+    value: float | bool | str | datetime | None
+
+
+@dataclass(frozen=True)
+class AccountSummary:
+    """A read-only account summary: identity, role assignments and external-system identifiers
+    (``properties``), plus the account's current custom-property values.
+
+    Backs consumers that render an account's customer-success context alongside another entity
+    (e.g. the support-ticket account panel), resolved from the org group key via ``external_id``.
+    """
+
+    id: UUID
+    name: str
+    external_id: str | None
+    properties: AccountProperties
+    custom_properties: list[AccountCustomProperty] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class AccountRef:
     """Lightweight account reference for search/list result rows.
 

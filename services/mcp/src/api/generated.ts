@@ -34310,6 +34310,30 @@ export namespace Schemas {
     }
 
     /**
+     * A team-defined custom property currently set on the linked account (output-only).
+     */
+    export interface LinkedAccountCustomProperty {
+      /** The custom property's display name. */
+      readonly name: string;
+      /** How to render the value: text, number, currency, percent, date, datetime, or boolean. */
+      readonly display_type: string;
+      /** Whether a numeric value should be abbreviated for display (e.g. 1.2k). */
+      readonly is_big_number: boolean;
+      /** The property value, typed according to display_type. */
+      readonly value: unknown;
+    }
+
+    /**
+     * A team member assigned to a customer-analytics account role (output-only).
+     */
+    export interface LinkedAccountRole {
+      /** PostHog user id of the assigned team member. */
+      readonly id: number;
+      /** Email of the assigned team member. */
+      readonly email: string;
+    }
+
+    /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
      * the full report itself.
@@ -63369,6 +63393,74 @@ export namespace Schemas {
     export interface TicketError {
       detail: string;
       error_type?: string;
+    }
+
+    /**
+     * The customer-analytics account linked to a ticket via its organization_id, with the
+     * customer-success context: role assignments, external-system identifiers, and custom properties.
+     */
+    export interface TicketLinkedAccount {
+      /** The account's UUID in customer analytics. */
+      readonly id: string;
+      /** Account display name. */
+      readonly name: string;
+      /**
+         * The account's external id — the org group key matching the ticket's organization_id.
+         * @nullable
+         */
+      readonly external_id: string | null;
+      /** Customer success manager assigned to the account, if any. */
+      readonly csm: LinkedAccountRole | null;
+      /** Account executive assigned to the account, if any. */
+      readonly account_executive: LinkedAccountRole | null;
+      /** Account owner assigned to the account, if any. */
+      readonly account_owner: LinkedAccountRole | null;
+      /**
+         * Linked Stripe customer id.
+         * @nullable
+         */
+      readonly stripe_customer_id: string | null;
+      /**
+         * Linked HubSpot deal id.
+         * @nullable
+         */
+      readonly hubspot_deal_id: string | null;
+      /**
+         * Linked billing id.
+         * @nullable
+         */
+      readonly billing_id: string | null;
+      /**
+         * Linked Salesforce id.
+         * @nullable
+         */
+      readonly sfdc_id: string | null;
+      /**
+         * Linked Zendesk id.
+         * @nullable
+         */
+      readonly zendesk_id: string | null;
+      /**
+         * Linked Slack channel id.
+         * @nullable
+         */
+      readonly slack_channel_id: string | null;
+      /**
+         * Link to the account's usage dashboard.
+         * @nullable
+         */
+      readonly usage_dashboard_link: string | null;
+      /** Team-defined custom properties currently set on the account. */
+      readonly custom_properties: readonly LinkedAccountCustomProperty[];
+    }
+
+    /**
+     * Wrapper for the linked-account lookup. ``account`` is null when the ticket has no
+     * organization_id, no matching account exists, or the caller lacks read access to it.
+     */
+    export interface TicketLinkedAccountResponse {
+      /** The linked customer-analytics account, or null when none applies. */
+      readonly account: TicketLinkedAccount | null;
     }
 
     /**

@@ -56,6 +56,7 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.customer_analytics.backend.facade import api as customer_analytics
 
 from ee.models.rbac.role import Role
 
@@ -335,6 +336,72 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         return None
 
 
+class LinkedAccountRoleSerializer(serializers.Serializer):
+    """A team member assigned to a customer-analytics account role (output-only)."""
+
+    id = serializers.IntegerField(read_only=True, help_text="PostHog user id of the assigned team member.")
+    email = serializers.EmailField(read_only=True, help_text="Email of the assigned team member.")
+
+
+class LinkedAccountCustomPropertySerializer(serializers.Serializer):
+    """A team-defined custom property currently set on the linked account (output-only)."""
+
+    name = serializers.CharField(read_only=True, help_text="The custom property's display name.")
+    display_type = serializers.CharField(
+        read_only=True,
+        help_text="How to render the value: text, number, currency, percent, date, datetime, or boolean.",
+    )
+    is_big_number = serializers.BooleanField(
+        read_only=True, help_text="Whether a numeric value should be abbreviated for display (e.g. 1.2k)."
+    )
+    value = serializers.JSONField(
+        read_only=True, allow_null=True, help_text="The property value, typed according to display_type."
+    )
+
+
+class TicketLinkedAccountSerializer(serializers.Serializer):
+    """The customer-analytics account linked to a ticket via its organization_id, with the
+    customer-success context: role assignments, external-system identifiers, and custom properties."""
+
+    id = serializers.UUIDField(read_only=True, help_text="The account's UUID in customer analytics.")
+    name = serializers.CharField(read_only=True, help_text="Account display name.")
+    external_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The account's external id — the org group key matching the ticket's organization_id.",
+    )
+    csm = LinkedAccountRoleSerializer(
+        read_only=True, allow_null=True, help_text="Customer success manager assigned to the account, if any."
+    )
+    account_executive = LinkedAccountRoleSerializer(
+        read_only=True, allow_null=True, help_text="Account executive assigned to the account, if any."
+    )
+    account_owner = LinkedAccountRoleSerializer(
+        read_only=True, allow_null=True, help_text="Account owner assigned to the account, if any."
+    )
+    stripe_customer_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked Stripe customer id.")
+    hubspot_deal_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked HubSpot deal id.")
+    billing_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked billing id.")
+    sfdc_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked Salesforce id.")
+    zendesk_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked Zendesk id.")
+    slack_channel_id = serializers.CharField(read_only=True, allow_null=True, help_text="Linked Slack channel id.")
+    usage_dashboard_link = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Link to the account's usage dashboard."
+    )
+    custom_properties = LinkedAccountCustomPropertySerializer(
+        many=True, read_only=True, help_text="Team-defined custom properties currently set on the account."
+    )
+
+
+class TicketLinkedAccountResponseSerializer(serializers.Serializer):
+    """Wrapper for the linked-account lookup. ``account`` is null when the ticket has no
+    organization_id, no matching account exists, or the caller lacks read access to it."""
+
+    account = TicketLinkedAccountSerializer(
+        read_only=True, allow_null=True, help_text="The linked customer-analytics account, or null when none applies."
+    )
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -351,7 +418,7 @@ TICKET_ID_PARAM = OpenApiParameter(
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
-    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages", "linked_account"]
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -1086,6 +1153,49 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if page is not None:
             return self.get_paginated_response(data)
         return Response(data)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        responses={200: OpenApiResponse(response=TicketLinkedAccountResponseSerializer)},
+    )
+    @action(detail=True, methods=["get"], pagination_class=None)
+    def linked_account(self, request, *args, **kwargs):
+        """Return the customer-analytics account linked to this ticket, wrapped as ``{"account": ...}``.
+
+        The link is the ticket's ``organization_id`` (the customer's org group key) matched to an
+        account's ``external_id``. ``account`` is null when the ticket has no ``organization_id``, no
+        matching account exists, or the caller lacks read access to that account.
+        """
+        ticket = self.get_object()
+        summary = (
+            customer_analytics.get_account_summary_by_external_id(
+                self.team_id, ticket.organization_id, user_access_control=self.user_access_control
+            )
+            if ticket.organization_id
+            else None
+        )
+
+        account_payload = None
+        if summary is not None:
+            props = summary.properties
+            account_payload = {
+                "id": summary.id,
+                "name": summary.name,
+                "external_id": summary.external_id,
+                "csm": props.csm,
+                "account_executive": props.account_executive,
+                "account_owner": props.account_owner,
+                "stripe_customer_id": props.stripe_customer_id,
+                "hubspot_deal_id": props.hubspot_deal_id,
+                "billing_id": props.billing_id,
+                "sfdc_id": props.sfdc_id,
+                "zendesk_id": props.zendesk_id,
+                "slack_channel_id": props.slack_channel_id,
+                "usage_dashboard_link": props.usage_dashboard_link,
+                "custom_properties": summary.custom_properties,
+            }
+
+        return Response(TicketLinkedAccountResponseSerializer({"account": account_payload}).data)
 
     def _serialize_message(self, comment: Comment, ticket: Ticket) -> dict:
         item_context = comment.item_context or {}

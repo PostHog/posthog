@@ -33,6 +33,7 @@ import type {
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
+    TicketLinkedAccountResponseApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
@@ -428,6 +429,28 @@ export const conversationsTicketsAiFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
+export const getConversationsTicketsLinkedAccountRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/linked_account/`
+}
+
+/**
+ * Return the customer-analytics account linked to this ticket, wrapped as ``{"account": ...}``.
+ *
+ * The link is the ticket's ``organization_id`` (the customer's org group key) matched to an
+ * account's ``external_id``. ``account`` is null when the ticket has no ``organization_id``, no
+ * matching account exists, or the caller lacks read access to that account.
+ */
+export const conversationsTicketsLinkedAccountRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketLinkedAccountResponseApi> => {
+    return apiMutator<TicketLinkedAccountResponseApi>(getConversationsTicketsLinkedAccountRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -32,6 +32,10 @@ from products.conversations.backend.api.tickets import TicketReplyRequestSeriali
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
+from products.customer_analytics.backend.facade import (
+    api as customer_analytics_facade,
+    contracts as customer_analytics_contracts,
+)
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.role import Role
@@ -59,6 +63,39 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_linked_account_returns_null_without_organization_id(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/linked_account/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["account"])
+
+    def test_linked_account_returns_account_matched_by_organization_id(self, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="org-session",
+            distinct_id="user-999",
+            status=Status.NEW,
+        )
+        Ticket.objects.filter(id=ticket.id).update(organization_id="org-key-42")
+        customer_analytics_facade.create_account_for_view(
+            team_id=self.team.id,
+            team=self.team,
+            input=customer_analytics_contracts.CreateAccountInput(name="Acme Corp", external_id="org-key-42"),
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/linked_account/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        account = response.json()["account"]
+        self.assertIsNotNone(account)
+        self.assertEqual(account["name"], "Acme Corp")
+        self.assertEqual(account["external_id"], "org-key-42")
 
     def _ticket_with_tags(self, *tag_names):
         ticket = Ticket.objects.create_with_number(

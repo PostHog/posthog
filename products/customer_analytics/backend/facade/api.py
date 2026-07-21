@@ -249,6 +249,38 @@ def get_account(
     )
 
 
+def get_account_summary_by_external_id(
+    team_id: int, external_id: str, *, user_access_control: "UserAccessControl"
+) -> contracts.AccountSummary | None:
+    """Fetch the account linked to `external_id` (its org group key) with role assignments,
+    external-system identifiers, and current custom-property values, gated by the caller's access.
+
+    Returns None when no account matches the external id or the caller lacks read access — so a
+    denied account is indistinguishable from a missing one. Backs the support-ticket account panel.
+    """
+    account = _resolve_accessible_account(team_id, user_access_control, external_id=external_id)
+    if account is None:
+        return None
+    custom_properties = [
+        contracts.AccountCustomProperty(
+            name=row.definition.name,
+            display_type=row.definition.display_type,
+            is_big_number=row.definition.is_big_number,
+            value=_custom_property_values_logic.value_of(row),
+        )
+        for row in _custom_property_values_logic.list_active_custom_property_values(
+            team_id=team_id, account_id=account.id
+        )
+    ]
+    return contracts.AccountSummary(
+        id=account.id,
+        name=account.name,
+        external_id=account.external_id,
+        properties=_to_account_properties(account.properties),
+        custom_properties=custom_properties,
+    )
+
+
 # --- External (CDP worker) account API ---
 #
 # The data access, transactional write, org-membership resolution, tag

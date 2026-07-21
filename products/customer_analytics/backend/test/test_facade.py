@@ -27,10 +27,11 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertyValue,
+    DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 
@@ -306,6 +307,42 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.account is None
         assert result.error == contracts.ExternalAccountUpdateError.UPDATE_FAILED
         assert self._active_relationships(account).count() == 0
+
+
+class TestGetAccountSummaryByExternalId(BaseTest):
+    def _uac(self) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=self.team)
+
+    def test_returns_none_when_no_account_matches_external_id(self):
+        assert (
+            facade.get_account_summary_by_external_id(self.team.id, "missing", user_access_control=self._uac()) is None
+        )
+
+    def test_bundles_roles_and_custom_property_values(self):
+        account = create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="org-key-1",
+            _properties=AccountProperties(
+                csm=AccountAssignment(id=self.user.id, email=self.user.email),
+            ).model_dump(mode="json"),
+        )
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="MRR", display_type=DisplayType.NUMBER
+        )
+        facade.set_custom_property_value(self.team.id, account.id, definition.id, 1000)
+
+        summary = facade.get_account_summary_by_external_id(self.team.id, "org-key-1", user_access_control=self._uac())
+
+        assert isinstance(summary, contracts.AccountSummary)
+        assert summary.id == account.id
+        assert summary.external_id == "org-key-1"
+        assert summary.properties.csm == contracts.AccountAssignment(id=self.user.id, email=self.user.email)
+        assert summary.custom_properties == [
+            contracts.AccountCustomProperty(
+                name="MRR", display_type=DisplayType.NUMBER, is_big_number=False, value=1000.0
+            )
+        ]
 
 
 class TestCustomerAnalyticsCRUDFacade(BaseTest):
