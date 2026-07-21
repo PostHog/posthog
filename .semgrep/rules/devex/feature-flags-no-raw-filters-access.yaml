@@ -33,7 +33,6 @@ rules:
               - '**/migrations/**'
               # Baseline: pre-existing offenders being migrated behind the flag
               # facade. Shrink this list — never grow it.
-              - '/posthog/api/web_experiment.py'
               - '/posthog/tasks/update_survey_adaptive_sampling.py'
               - '/posthog/tasks/update_survey_iteration.py'
               - '/products/early_access_features/backend/api.py'

@@ -1,30 +1,54 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from unittest import mock
 
+from requests import HTTPError, Response
+from requests.structures import CaseInsensitiveDict
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted import (
     PAGE_SIZE,
     DelightedResumeConfig,
-    DelightedRetryableError,
-    DelightedUnexpectedRedirectError,
     _build_params,
-    _build_url,
-    _is_delighted_url,
     _next_page_url,
-    _parse_retry_after,
-    _retry_wait,
     _to_epoch,
     delighted_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.delighted.settings import (
     DELIGHTED_ENDPOINTS,
     ENDPOINTS,
 )
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the delighted module.
+DELIGHTED_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
+)
+
+
+def _response(
+    body: Any,
+    *,
+    status_code: int = 200,
+    url: str = "https://api.delighted.com/v1/survey_responses.json",
+    links_next: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.url = url
+    resp.reason = "Unauthorized" if status_code == 401 else ""
+    resp._content = json.dumps(body).encode()
+    hdrs = dict(headers or {})
+    if links_next is not None:
+        hdrs["Link"] = f'<{links_next}>; rel="next"'
+    resp.headers = CaseInsensitiveDict(hdrs)
+    return resp
 
 
 def _make_manager(resume_state: DelightedResumeConfig | None = None) -> mock.MagicMock:
@@ -34,25 +58,43 @@ def _make_manager(resume_state: DelightedResumeConfig | None = None) -> mock.Mag
     return manager
 
 
-def _response(
-    body: Any,
-    status_code: int = 200,
-    links: dict[str, dict[str, str]] | None = None,
-    headers: dict[str, str] | None = None,
-) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.json.return_value = body
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.is_redirect = status_code in (301, 302, 303, 307, 308)
-    response.is_permanent_redirect = status_code in (301, 308)
-    response.links = links or {}
-    response.headers = headers or {}
-    return response
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Wire a mock session; return per-request (sent URL, params snapshot) captured at prepare time.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy each time
+    the request is prepared. ``prepared.url`` is what the allowed-host check and the paginator see,
+    so mirror how ``requests`` merges query params into the URL.
+    """
+    session.headers = {}
+    url_snapshots: list[str] = []
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        url = request.url
+        if request.params:
+            sep = "&" if urlsplit(url).query else "?"
+            url = f"{url}{sep}{urlencode(request.params)}"
+        url_snapshots.append(url)
+        param_snapshots.append(dict(request.params or {}))
+        prepared = mock.MagicMock()
+        prepared.url = url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return url_snapshots, param_snapshots
 
 
 def _query_params(url: str) -> dict[str, str]:
     return {key: values[-1] for key, values in parse_qs(urlsplit(url).query).items()}
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return delighted_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
 
 
 class TestToEpoch:
@@ -125,32 +167,6 @@ class TestBuildParams:
         assert _build_params(DELIGHTED_ENDPOINTS["metrics"], incremental_field=None, since_value=None) == {}
 
 
-class TestBuildUrl:
-    def test_no_params(self):
-        assert _build_url("/metrics.json", {}) == "https://api.delighted.com/v1/metrics.json"
-
-    def test_drops_none_values_and_encodes(self):
-        url = _build_url("/people.json", {"per_page": 100, "since": None})
-        assert url == "https://api.delighted.com/v1/people.json?per_page=100"
-
-
-class TestIsDelightedUrl:
-    @pytest.mark.parametrize(
-        "url, expected",
-        [
-            ("https://api.delighted.com/v1/people.json?page=2", True),
-            ("https://API.DELIGHTED.COM/v1/people.json", True),
-            ("http://api.delighted.com/v1/people.json", False),
-            ("https://evil.example.com/steal", False),
-            ("https://api.delighted.com.evil.example.com/steal", False),
-            ("not a url", False),
-            ("", False),
-        ],
-    )
-    def test_only_https_api_host_is_allowed(self, url, expected):
-        assert _is_delighted_url(url) is expected
-
-
 class TestNextPageUrl:
     @pytest.mark.parametrize(
         "url, expected_page",
@@ -174,50 +190,6 @@ class TestNextPageUrl:
         assert params["since"] == "1700000000"
 
 
-class TestParseRetryAfter:
-    @pytest.mark.parametrize(
-        "header, expected",
-        [
-            (None, None),
-            ("5", 5.0),
-            ("0", 0.0),
-            ("2.5", 2.5),
-            ("-3", 0.0),
-            ("soon", None),
-        ],
-    )
-    def test_parse_retry_after_values(self, header, expected):
-        headers = {} if header is None else {"Retry-After": header}
-        assert _parse_retry_after(_response([], headers=headers)) == expected
-
-
-class TestRetryWait:
-    def _retry_state(self, exception: Exception | None) -> mock.MagicMock:
-        state = mock.MagicMock()
-        state.attempt_number = 1
-        state.outcome.exception.return_value = exception
-        return state
-
-    def test_uses_server_retry_after_when_present(self):
-        state = self._retry_state(DelightedRetryableError("rate limited", retry_after=7.0))
-        assert _retry_wait(state) == 7.0
-
-    def test_caps_server_retry_after(self):
-        state = self._retry_state(DelightedRetryableError("rate limited", retry_after=9999.0))
-        assert _retry_wait(state) == 120.0
-
-    @pytest.mark.parametrize(
-        "exception",
-        [
-            DelightedRetryableError("server error", retry_after=None),
-            ValueError("boom"),
-        ],
-    )
-    def test_falls_back_to_exponential_backoff(self, exception):
-        state = self._retry_state(exception)
-        assert 0 <= _retry_wait(state) <= 60
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
@@ -228,255 +200,236 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
+    @mock.patch(DELIGHTED_SESSION_PATCH)
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = _response({}, status_code=status_code)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
 
         assert validate_credentials("key") is expected
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
+    @mock.patch(DELIGHTED_SESSION_PATCH)
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key") is False
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
+    @mock.patch(DELIGHTED_SESSION_PATCH)
     def test_validate_credentials_uses_basic_auth_with_blank_password(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
         validate_credentials("my-key")
 
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
+        auth = mock_session.return_value.get.call_args.kwargs["auth"]
+        prepared = mock.MagicMock()
+        prepared.headers = {}
+        auth(prepared)
         # base64("my-key:")
-        assert headers["Authorization"] == "Basic bXkta2V5Og=="
+        assert prepared.headers["Authorization"] == "Basic bXkta2V5Og=="
 
 
-class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_page_pagination_advances_until_short_page(self, mock_session):
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_pagination_advances_until_short_page(self, MockSession):
+        session = MockSession.return_value
         full_page = [{"person_id": str(i), "bounced_at": i} for i in range(PAGE_SIZE)]
         short_page = [{"person_id": "x", "bounced_at": 999}]
-        mock_session.return_value.get.side_effect = [_response(full_page), _response(short_page)]
+        urls, _ = _wire(
+            session,
+            [
+                _response(full_page, url="https://api.delighted.com/v1/bounces.json?per_page=100"),
+                _response(short_page, url="https://api.delighted.com/v1/bounces.json?per_page=100&page=2"),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("key", "bounces", mock.MagicMock(), manager))
+        rows = _rows(_source("bounces", manager))
 
-        assert len(batches) == 2
-        assert len(batches[0]) == PAGE_SIZE
-        assert batches[1] == short_page
-
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert _query_params(second_url)["page"] == "2"
+        assert len(rows) == PAGE_SIZE + 1
+        assert rows[-1] == short_page[0]
+        assert _query_params(urls[1])["page"] == "2"
 
         # State is saved only while a next page exists.
         manager.save_state.assert_called_once()
         assert _query_params(manager.save_state.call_args.args[0].next_url)["page"] == "2"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_link_header_pagination_follows_next_url(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_link_header_pagination_follows_next_url(self, MockSession):
+        session = MockSession.return_value
         next_url = "https://api.delighted.com/v1/people.json?page_info=abc123&per_page=100"
-        first = _response([{"id": "1"}], links={"next": {"url": next_url}})
-        second = _response([{"id": "2"}])
-        mock_session.return_value.get.side_effect = [first, second]
+        urls, _ = _wire(
+            session,
+            [_response([{"id": "1"}], links_next=next_url), _response([{"id": "2"}])],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("key", "people", mock.MagicMock(), manager))
+        rows = _rows(_source("people", manager))
 
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2"]
-        assert mock_session.return_value.get.call_args_list[1].args[0] == next_url
+        assert [r["id"] for r in rows] == ["1", "2"]
+        assert urls[1] == next_url
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].next_url == next_url
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_link_header_takes_priority_over_page_counting(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_link_header_takes_priority_over_page_counting(self, MockSession):
+        session = MockSession.return_value
         next_url = "https://api.delighted.com/v1/survey_responses.json?page_info=zzz"
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        first = _response(full_page, links={"next": {"url": next_url}})
-        second = _response([])
-        mock_session.return_value.get.side_effect = [first, second]
+        urls, _ = _wire(
+            session,
+            [_response(full_page, links_next=next_url), _response([])],
+        )
 
         manager = _make_manager()
-        list(get_rows("key", "survey_responses", mock.MagicMock(), manager))
+        _rows(_source("survey_responses", manager))
 
-        assert mock_session.return_value.get.call_args_list[1].args[0] == next_url
+        assert urls[1] == next_url
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_resumes_from_saved_state(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "9"}])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession):
+        session = MockSession.return_value
+        urls, _ = _wire(session, [_response([{"id": "9"}])])
 
         resume_url = "https://api.delighted.com/v1/survey_responses.json?page=5&per_page=100"
         manager = _make_manager(DelightedResumeConfig(next_url=resume_url))
 
-        list(get_rows("key", "survey_responses", mock.MagicMock(), manager))
+        _rows(_source("survey_responses", manager))
 
-        assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
+        assert urls[0] == resume_url
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_fetch_page_disables_redirects(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetch_disables_redirects(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
-        list(get_rows("key", "survey_responses", mock.MagicMock(), _make_manager()))
+        _rows(_source("survey_responses", _make_manager()))
 
-        assert mock_session.return_value.get.call_args.kwargs["allow_redirects"] is False
+        assert session.send.call_args.kwargs["allow_redirects"] is False
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_unexpected_redirect_is_rejected(self, mock_session):
-        mock_session.return_value.get.return_value = _response([], status_code=302)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_redirect_is_rejected(self, MockSession):
+        session = MockSession.return_value
+        _wire(
+            session,
+            [_response([], status_code=302, headers={"Location": "https://internal.example.com/"})],
+        )
 
-        with pytest.raises(DelightedUnexpectedRedirectError):
-            list(get_rows("key", "survey_responses", mock.MagicMock(), _make_manager()))
+        with pytest.raises(ValueError, match="[Rr]edirect"):
+            _rows(_source("survey_responses", _make_manager()))
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_offhost_link_header_is_not_followed(self, mock_session):
-        # A server-controlled Link header pointing off-host must not receive the API credentials.
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_offhost_link_header_is_rejected(self, MockSession):
+        # A server-controlled Link header pointing off-host must not receive the API credentials:
+        # the host pin rejects it before the request leaves the process.
+        session = MockSession.return_value
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        first = _response(full_page, links={"next": {"url": "https://evil.example.com/steal"}})
-        second = _response([])
-        mock_session.return_value.get.side_effect = [first, second]
+        _wire(session, [_response(full_page, links_next="https://evil.example.com/steal"), _response([])])
 
-        list(get_rows("key", "survey_responses", mock.MagicMock(), _make_manager()))
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("survey_responses", _make_manager()))
 
-        # Falls back to page-number increment on the API host rather than the off-host URL.
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert second_url.startswith("https://api.delighted.com/")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_offhost_resume_url_is_ignored(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_offhost_resume_url_is_rejected(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
         manager = _make_manager(DelightedResumeConfig(next_url="https://evil.example.com/steal"))
-        list(get_rows("key", "survey_responses", mock.MagicMock(), manager))
 
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert first_url.startswith("https://api.delighted.com/")
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("survey_responses", manager))
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_incremental_request_params_for_updated_at_cursor(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_request_params_for_updated_at_cursor(self, MockSession):
+        session = MockSession.return_value
+        _, params = _wire(session, [_response([])])
 
-        manager = _make_manager()
-        list(
-            get_rows(
-                "key",
+        _rows(
+            _source(
                 "survey_responses",
-                mock.MagicMock(),
-                manager,
+                _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=1700000000,
                 incremental_field="updated_at",
             )
         )
 
-        params = _query_params(mock_session.return_value.get.call_args.args[0])
-        assert params["updated_since"] == "1700000000"
-        assert params["order"] == "asc:updated_at"
+        assert params[0]["updated_since"] == 1700000000
+        assert params[0]["order"] == "asc:updated_at"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_full_refresh_ignores_incremental_field(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_ignores_incremental_field(self, MockSession):
+        session = MockSession.return_value
+        _, params = _wire(session, [_response([])])
 
-        manager = _make_manager()
-        list(
-            get_rows(
-                "key",
+        _rows(
+            _source(
                 "survey_responses",
-                mock.MagicMock(),
-                manager,
+                _make_manager(),
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=1700000000,
                 incremental_field="updated_at",
             )
         )
 
-        params = _query_params(mock_session.return_value.get.call_args.args[0])
-        assert "updated_since" not in params
-        assert params["order"] == "asc"
+        assert "updated_since" not in params[0]
+        assert params[0]["order"] == "asc"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_empty_response_stops(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_stops(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
         manager = _make_manager()
-        batches = list(get_rows("key", "unsubscribes", mock.MagicMock(), manager))
+        rows = _rows(_source("unsubscribes", manager))
 
-        assert batches == []
+        assert rows == []
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_metrics_yields_single_row_without_pagination(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"nps": 42, "response_count": 10})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metrics_yields_single_row_without_pagination(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"nps": 42, "response_count": 10}, url="https://api.delighted.com/v1/metrics.json")])
 
         manager = _make_manager()
-        batches = list(get_rows("key", "metrics", mock.MagicMock(), manager))
+        rows = _rows(_source("metrics", manager))
 
-        assert batches == [[{"nps": 42, "response_count": 10}]]
-        assert mock_session.return_value.get.call_count == 1
+        assert rows == [{"nps": 42, "response_count": 10}]
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
         manager.can_resume.assert_not_called()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_retries_429_honoring_retry_after_then_succeeds(self, mock_session):
-        rate_limited = _response({}, status_code=429, headers={"Retry-After": "0"})
-        ok = _response([{"id": "1"}])
-        mock_session.return_value.get.side_effect = [rate_limited, ok]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retries_429_honoring_retry_after_then_succeeds(self, MockSession):
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({}, status_code=429, headers={"Retry-After": "0"}),
+                _response([{"id": "1"}]),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("key", "people", mock.MagicMock(), manager))
+        rows = _rows(_source("people", manager))
 
-        assert batches == [[{"id": "1"}]]
-        assert mock_session.return_value.get.call_count == 2
+        assert rows == [{"id": "1"}]
+        assert session.send.call_count == 2
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.delighted.delighted.make_tracked_session"
-    )
-    def test_non_retryable_status_raises_immediately(self, mock_session):
-        unauthorized = _response({}, status_code=401)
-        unauthorized.raise_for_status.side_effect = Exception("401 Client Error")
-        mock_session.return_value.get.return_value = unauthorized
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_retryable_status_raises_immediately(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({}, status_code=401, url="https://api.delighted.com/v1/people.json")])
 
         manager = _make_manager()
-        with pytest.raises(Exception, match="401 Client Error"):
-            list(get_rows("key", "people", mock.MagicMock(), manager))
+        with pytest.raises(HTTPError, match="401"):
+            _rows(_source("people", manager))
 
-        assert mock_session.return_value.get.call_count == 1
+        assert session.send.call_count == 1
 
 
 class TestDelightedSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = DELIGHTED_ENDPOINTS[endpoint]
-        response = delighted_source("key", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.sort_mode == "asc"
@@ -501,7 +454,7 @@ class TestDelightedSourceResponse:
         ],
     )
     def test_primary_key_per_endpoint(self, endpoint, expected_primary_key):
-        response = delighted_source("key", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
         assert response.primary_keys == [expected_primary_key]
 
     @pytest.mark.parametrize("config", list(DELIGHTED_ENDPOINTS.values()))

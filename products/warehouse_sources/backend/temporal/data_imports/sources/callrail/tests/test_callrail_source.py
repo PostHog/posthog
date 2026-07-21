@@ -153,6 +153,8 @@ class TestCallRailSource:
         assert kwargs["api_key"] == "key"
         assert kwargs["account_id"] == "ACC1"
         assert kwargs["endpoint"] == "calls"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
