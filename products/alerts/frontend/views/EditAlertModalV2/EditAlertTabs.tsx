@@ -88,8 +88,8 @@ export function EditAlertTabs({
     ]
 
     let activeSummarySection: AlertSummarySection | undefined
-    if (activeKey === 'monitor' || activeKey === 'schedule' || activeKey === 'notify') {
-        activeSummarySection = activeKey
+    if (['monitor', 'schedule', 'notify'].includes(activeKey)) {
+        activeSummarySection = activeKey as AlertSummarySection
     }
 
     return (
