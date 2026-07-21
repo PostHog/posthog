@@ -1348,7 +1348,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
         it('maps a version>0 repoint to its distinct_id + survivor person', () => {
             const result = (matcher as any)._parsePersonDistinctIdBatch([rawMove()])
-            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
         })
 
         it('drops version-0 inserts, deletions, missing-id and malformed messages', () => {
@@ -1359,7 +1359,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 { value: Buffer.from('not json') }, // malformed
                 rawMove(),
             ])
-            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
         })
     })
 
@@ -1383,7 +1383,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
         it('re-keys a parked wait onto the survivor (person_id column + state.personId)', async () => {
             matcher.moveRows = [parkedWaitRow()]
-            await matcher.processMoveBatch([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
 
             const update = lastUpdate()
             expect(update).toBeDefined()
@@ -1394,10 +1396,25 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.personId).toBe('survivor-uuid')
         })
 
+        it('re-keys onto the highest-version survivor when a batch chains merges out of order', async () => {
+            // anon-did → A (v2) then → B (v3) in the same batch, but the array carries them B-then-A.
+            // Repoints aren't Kafka-keyed, so this ordering is real; the highest version must win or the
+            // wait re-keys onto intermediate A, whose person-stream updates can't wake it once the poll is gone.
+            matcher.moveRows = [parkedWaitRow()]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-B', version: 3 },
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'intermediate-A', version: 2 },
+            ])
+
+            expect(lastUpdate()!.params[1]).toEqual(['survivor-B'])
+        })
+
         it('skips a job not parked on a wait_until_condition step, so a delay is never re-keyed', async () => {
             // action_id points at the trigger (any non-wait step, e.g. a delay) — must be left untouched.
             matcher.moveRows = [parkedWaitRow({ action_id: 'trigger_node' })]
-            await matcher.processMoveBatch([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid' }])
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
 
             expect(lastUpdate()).toBeUndefined()
         })

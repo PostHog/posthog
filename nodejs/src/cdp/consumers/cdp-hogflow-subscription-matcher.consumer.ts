@@ -17,7 +17,14 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 
-import { ClickHousePerson, HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
+import {
+    ClickHousePerson,
+    ClickHousePersonDistinctId2,
+    HealthCheckResult,
+    PluginsServerConfig,
+    RawClickHouseEvent,
+    Team,
+} from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import {
     hasEventOrActionTarget,
@@ -95,10 +102,12 @@ type ParkedCandidate = {
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
+// version orders repoints for the same distinct_id — the highest wins when a batch carries several.
 type PersonDistinctIdMove = {
     teamId: number
     distinctId: string
     newPersonId: string
+    version: number
 }
 
 // A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
@@ -674,13 +683,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const moves: PersonDistinctIdMove[] = []
         for (const message of messages) {
             try {
-                const data = parseJSON(message.value!.toString()) as {
-                    team_id: number
-                    distinct_id: string
-                    person_id: string
-                    version?: number
-                    is_deleted?: number
-                }
+                const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
                 // Only repoints matter. version 0 is a brand-new distinct_id (person creation) that no
                 // parked wait can be keyed on yet — skipping it also keeps this off the insert firehose.
                 if (!data.version || data.version <= 0) {
@@ -695,7 +698,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                     continue
                 }
-                moves.push({ teamId: data.team_id, distinctId: data.distinct_id, newPersonId: data.person_id })
+                moves.push({
+                    teamId: data.team_id,
+                    distinctId: data.distinct_id,
+                    newPersonId: data.person_id,
+                    version: data.version,
+                })
             } catch (e) {
                 logger.error('Error parsing person distinct id message', e)
                 counterParseError.labels({ error: e.message }).inc()
@@ -734,9 +742,26 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        const newPersonByKey = new Map(moves.map((m) => [`${m.teamId}:${m.distinctId}`, m.newPersonId]))
+        // A batch can carry several repoints for the same distinct_id (chained merges anon → A → B).
+        // Repoints aren't Kafka-keyed, so they may arrive out of order within the batch — keep the
+        // highest-version survivor per key rather than the last array entry, or we could re-key onto an
+        // intermediate person the survivor's person-stream updates would never wake.
+        const newPersonByKey = new Map<string, { personId: string; version: number }>()
+        for (const move of moves) {
+            const key = `${move.teamId}:${move.distinctId}`
+            const existing = newPersonByKey.get(key)
+            if (!existing || move.version > existing.version) {
+                newPersonByKey.set(key, { personId: move.newPersonId, version: move.version })
+            }
+        }
         const moveTeamIds = moves.map((m) => m.teamId)
         const moveDistinctIds = moves.map((m) => m.distinctId)
+
+        // Scope the lock + state fetch to the wait_until_condition steps we can actually re-key, so jobs
+        // of the same flow parked on unrelated steps (e.g. a delay) aren't locked or shipped over the wire.
+        const waitActionIds = Object.values(hogflows).flatMap((flow) =>
+            flow.actions.filter((a: HogFlowAction) => a.type === 'wait_until_condition').map((a) => a.id)
+        )
 
         const client = await this.cyclotronPool.connect()
         try {
@@ -748,10 +773,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                  FROM cyclotron_jobs
                  WHERE status = 'available'
                    AND function_id = ANY($3::uuid[])
+                   AND action_id = ANY($4::text[])
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  ORDER BY id
                  FOR UPDATE`,
-                [moveTeamIds, moveDistinctIds, functionIds]
+                [moveTeamIds, moveDistinctIds, functionIds, waitActionIds]
             )
 
             const updates: { id: string; personId: string; state: Buffer }[] = []
@@ -765,15 +791,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 if (action?.type !== 'wait_until_condition') {
                     continue
                 }
-                const newPersonId = newPersonByKey.get(`${row.team_id}:${row.distinct_id}`)
-                if (!newPersonId || !row.state) {
+                const newPerson = newPersonByKey.get(`${row.team_id}:${row.distinct_id}`)
+                if (!newPerson || !row.state) {
                     continue
                 }
-                const newState = rewriteStatePersonId(row.state, newPersonId, row.id)
+                const newState = rewriteStatePersonId(row.state, newPerson.personId, row.id)
                 if (!newState) {
                     continue
                 }
-                updates.push({ id: row.id, personId: newPersonId, state: newState })
+                updates.push({ id: row.id, personId: newPerson.personId, state: newState })
             }
 
             if (updates.length > 0) {

@@ -67,6 +67,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // distinct_id would hit its stale ~1min cache entry (the pre-merge person) and e.g. drop an email.
                 const resolveByRepointedPerson =
                     hogFlowInvocationState.personIdRepointed === true && !!hogFlowInvocationState.personId
+                // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal
+                // distinct_id-first resolution, which self-heals to the latest survivor if the distinct_id is
+                // repointed again (a second merge onto a non-wait step is out of processMoveBatch's scope).
+                if (resolveByRepointedPerson) {
+                    delete hogFlowInvocationState.personIdRepointed
+                }
                 const personIdOrDistinctId = isWarehouseRow
                     ? undefined
                     : resolveByRepointedPerson

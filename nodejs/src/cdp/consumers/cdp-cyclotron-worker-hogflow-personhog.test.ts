@@ -208,6 +208,35 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
         expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
     })
 
+    it('clears personIdRepointed after the wake-resolution so later steps resolve by distinct_id again', async () => {
+        // The flag is a one-shot override for the merge-wake resolution only. If it stuck around, a second
+        // merge onto a non-wait step (out of the matcher's re-key scope) would leave the flow pinned to the
+        // now-stale first survivor forever instead of self-healing via distinct_id. Guards that regression.
+        const survivorUuid = 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1'
+        const mockRepo = createMockPersonReadRepository({
+            fetchPersonsByPersonIds: jest
+                .fn()
+                .mockResolvedValue([makePerson(team.id, survivorUuid, 'survivor_did', { name: 'Survivor' })]),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({ [survivorUuid]: ['survivor_did'] }),
+        })
+
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: mockRepo },
+            createMockJobQueue()
+        )
+
+        const results = (await processor.processInvocations([
+            createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'anon_did', properties: {} } as any,
+                personId: survivorUuid,
+                personIdRepointed: true,
+            }),
+        ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+        expect(results[0].invocation.state.personIdRepointed).toBeUndefined()
+    })
+
     it('propagates error when personhog is unavailable', async () => {
         const mockRepo = createMockPersonReadRepository({
             fetchPersonsByDistinctIds: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
