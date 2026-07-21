@@ -12,6 +12,8 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    BulkObserveRequestApi,
+    BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
@@ -504,6 +506,28 @@ export const visionScannersAffectedCohortCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(affectedCohortRequestApi),
+    })
+}
+
+export const getVisionScannersBulkObserveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/bulk_observe/`
+}
+
+/**
+ * Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight
+ * caps and monthly credit quota, reporting the rest as skipped rather than failing the batch.
+ */
+export const visionScannersBulkObserveCreate = async (
+    projectId: string,
+    id: string,
+    bulkObserveRequestApi: BulkObserveRequestApi,
+    options?: RequestInit
+): Promise<BulkObserveResponseApi> => {
+    return apiMutator<BulkObserveResponseApi>(getVisionScannersBulkObserveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkObserveRequestApi),
     })
 }
 
