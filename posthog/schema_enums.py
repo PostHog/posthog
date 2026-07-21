@@ -1370,7 +1370,6 @@ class ExternalDataSourceType(StrEnum):
     DIXA = "Dixa"
     GLADLY = "Gladly"
     QUALTRICS = "Qualtrics"
-    DELIGHTED = "Delighted"
     AZURE_DEV_OPS = "AzureDevOps"
     ROLLBAR = "Rollbar"
     OPSGENIE = "Opsgenie"
@@ -2048,6 +2047,10 @@ class ExternalDataSourceType(StrEnum):
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
     SLEEKPLAN = "Sleekplan"
+    TALLY = "Tally"
+    NUNTLY = "Nuntly"
+    FUSION_AUTH = "FusionAuth"
+    VTURB = "Vturb"
 
 
 class ExternalQueryErrorCode(StrEnum):
