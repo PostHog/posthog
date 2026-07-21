@@ -2,6 +2,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
@@ -11,6 +14,8 @@ from posthog.schema import (
     MCPToolQualityDailyStatsQuery,
     MCPToolQualityRowsQuery,
 )
+
+from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
@@ -145,3 +150,25 @@ class TestMCPToolCategoriesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         categories = [r.category for r in runner.calculate().results]
 
         assert categories == ["Data", "Insights"]
+
+
+class TestMCPToolQualityGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    # The whole point of the migration: each kind gates on `mcp-analytics`, so the generic /query/
+    # endpoint can't reach it without the flag. Every other test here calls calculate() with the flag
+    # already on, so a runner that lost its validate_query_runner_access override would stay green.
+    @parameterized.expand(
+        [
+            (MCPToolQualityRowsQueryRunner, MCPToolQualityRowsQuery()),
+            (MCPToolQualityDailyStatsQueryRunner, MCPToolQualityDailyStatsQuery()),
+            (MCPToolCategoryCountsQueryRunner, MCPToolCategoryCountsQuery()),
+            (MCPToolCategoriesQueryRunner, MCPToolCategoriesQuery()),
+        ]
+    )
+    def test_runner_gates_on_mcp_analytics_flag(self, runner_cls: Any, query: Any) -> None:
+        runner = runner_cls(query=query, team=self.team, user=self.user)
+
+        assert runner.validate_query_runner_access(self.user) is True
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with self.assertRaises(UserAccessControlError):
+                runner.validate_query_runner_access(self.user)

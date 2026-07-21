@@ -108,8 +108,8 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 {_P99} AS p99_duration_ms,
                 uniq(distinct_id) AS users,
                 countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '') AS sessions,
-                toString(min(timestamp)) AS first_seen,
-                toString(max(timestamp)) AS last_seen
+                min(timestamp) AS first_seen,
+                max(timestamp) AS last_seen
             FROM events
             WHERE {where}
             GROUP BY tool
