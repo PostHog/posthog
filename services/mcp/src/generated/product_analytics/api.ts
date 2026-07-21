@@ -46,6 +46,12 @@ export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
             'Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.'
         ),
     limit: zod.number().optional().describe('Maximum rows per page'),
+    max_element_chain_depth: zod
+        .number()
+        .optional()
+        .describe(
+            'Maximum number of elements returned per chain, keeping the clicked element (order 0) and its nearest ancestors. Bounds the deep DOM ancestor chain up to <body> that inflates responses. Defaults to unbounded (the full chain).'
+        ),
     offset: zod.number().optional().describe('Pagination offset'),
     properties: zod
         .string()

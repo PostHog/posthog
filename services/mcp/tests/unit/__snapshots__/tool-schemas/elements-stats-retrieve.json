@@ -28,6 +28,10 @@
             "description": "Maximum rows per page",
             "type": "number"
         },
+        "max_element_chain_depth": {
+            "description": "Maximum number of elements returned per chain, keeping the clicked element (order 0) and its nearest ancestors. Bounds the deep DOM ancestor chain up to <body> that inflates responses. Defaults to unbounded (the full chain).",
+            "type": "number"
+        },
         "offset": {
             "description": "Pagination offset",
             "type": "number"

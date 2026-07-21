@@ -143,15 +143,23 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     return matches
 
 
-def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] | None = None) -> list[dict]:
+def chain_to_element_dicts(
+    chain: str,
+    attributes_filter: Callable[[str], bool] | None = None,
+    max_depth: int | None = None,
+) -> list[dict]:
     """
     Converts an elements chain string into serialized element dicts, shaped exactly like
     ElementSerializer output but without instantiating Element models, so the elements API
     can serialize large pages cheaply. attributes_filter optionally restricts the attributes
-    map to matching keys (see build_attributes_filter).
+    map to matching keys (see build_attributes_filter). max_depth optionally caps how many
+    elements are returned, keeping the clicked element (order 0) and its nearest ancestors,
+    so callers can drop the deep DOM chain up to <body> that they don't need.
     """
     element_dicts: list[dict] = []
     for idx, el_string in enumerate(split_chain_regex.findall(chain)):
+        if max_depth is not None and idx >= max_depth:
+            break
         el_string_match = split_class_attributes.search(el_string)
         tag_part = el_string_match.group(1) if el_string_match else ""
         attrs_part = el_string_match.group(3) if el_string_match else None
@@ -188,6 +196,15 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
                     element["text"] = value
                 elif key == "attr_id":
                     element["attr_id"] = value
+                elif key == "attr__class":
+                    # the class list already appears in the top-level attr_class array (parsed
+                    # from the tag's .class tokens), so don't echo it again in the attributes
+                    # map; backfill attr_class if the tag part parsed no classes, and keep the
+                    # attr__class key only when a caller explicitly asked for it
+                    if not element["attr_class"] and value:
+                        element["attr_class"] = [cls for cls in value.split(" ") if cls]
+                    if attributes_filter is not None and attributes_filter(key):
+                        element["attributes"][key] = value
                 elif key:
                     if attributes_filter is None or attributes_filter(key):
                         element["attributes"][key] = value
