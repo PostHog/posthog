@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
 
 import { cohortsStaffList, cohortsStaffRecalculateCreate, cohortsStaffStuckRetrieve } from '../generated/api'
 import type {
@@ -245,7 +246,11 @@ export const cohortsStaffToolsLogic = kea<cohortsStaffToolsLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadStuckCohorts()
+        // Scene logic mounts before CohortsStaffToolsScene's is_staff check renders AccessDenied,
+        // so a non-staff user hitting this URL directly would otherwise get a 403 toast on top of it.
+        if (userLogic.values.user?.is_staff) {
+            actions.loadStuckCohorts()
+        }
     }),
     urlToAction(({ actions, values }) => ({
         '/cohorts/staff': (_, searchParams) => {

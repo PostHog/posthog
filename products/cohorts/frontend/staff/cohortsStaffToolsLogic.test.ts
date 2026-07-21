@@ -1,5 +1,9 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -70,6 +74,39 @@ describe('cohortsStaffToolsLogic', () => {
             await expectLogic(logic).toDispatchActions(['seedCohortFromDeepLink'])
 
             expectLogic(logic).toMatchValues({ cohortIdsInput: '456' })
+        })
+    })
+
+    describe('afterMount', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/cohorts_staff/stuck/': { results: [], total_count: 0 },
+                },
+            })
+            initKeaTests()
+            userLogic.mount()
+        })
+
+        it('loads stuck cohorts for a staff user', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
+
+            const logic = cohortsStaffToolsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadStuckCohorts', 'loadStuckCohortsSuccess'])
+        })
+
+        it('does not load stuck cohorts for a non-staff user hitting the URL directly', () => {
+            // The scene component itself blocks non-staff users with an AccessDenied page, but this
+            // logic mounts regardless (it's the scene's kea logic). Fetching anyway would 403 and
+            // surface a misleading error toast on top of AccessDenied.
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: false })
+
+            const logic = cohortsStaffToolsLogic()
+            logic.mount()
+
+            expect(logic.values.stuckResponseLoading).toBe(false)
         })
     })
 })
