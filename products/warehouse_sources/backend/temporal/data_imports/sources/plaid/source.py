@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlaidSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plaid import PlaidSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.plaid import (
     PlaidResumeConfig,
     plaid_source,

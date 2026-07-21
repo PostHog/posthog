@@ -47,7 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GithubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,

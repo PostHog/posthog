@@ -10,6 +10,8 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feature flags (get-definition-by-key is hand-written; get-definition-by-id is codegen)
+import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -64,6 +66,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
+
+    // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
+    'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
+
     'path-cleaning-rules-update': updatePathCleaning,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
