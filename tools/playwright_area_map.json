@@ -77,8 +77,9 @@
         "persons": ["playwright/e2e/persons/persons.spec.ts"],
         "persons-management": ["playwright/e2e/persons/persons.spec.ts"],
         "authentication": ["playwright/e2e/auth.spec.ts", "playwright/e2e/auth-password-reset.spec.ts"],
-        "onboarding": ["playwright/e2e/signup.spec.ts"],
-        "data-management": ["playwright/e2e/event-definitions.spec.ts"]
+        "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
+        "data-management": ["playwright/e2e/event-definitions.spec.ts", "playwright/e2e/annotations.spec.ts"],
+        "annotations": ["playwright/e2e/annotations.spec.ts"]
     },
     "explicit": {
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
@@ -89,7 +90,9 @@
             "playwright/e2e/product-analytics/notebooks.spec.ts",
             "playwright/e2e/shared-notebook-unauthenticated.spec.ts"
         ],
+        "products/early_access_features/frontend/**": ["playwright/e2e/early-access-management.spec.ts"],
         "products/event_definitions/frontend/**": ["playwright/e2e/event-definitions.spec.ts"],
+        "products/annotations/frontend/**": ["playwright/e2e/annotations.spec.ts"],
         "products/data_warehouse/frontend/**": ["playwright/e2e/sql-editor*.spec.ts"],
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
