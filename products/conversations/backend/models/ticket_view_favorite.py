@@ -10,8 +10,6 @@ from .ticket_view import TicketView
 
 
 class TicketViewFavorite(TeamScopedRootMixin, UUIDModel):
-    # Personal favourite: one row per (ticket_view, user). Favourited views sort to the
-    # top of the saved-views list only for the user who favourited them.
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)

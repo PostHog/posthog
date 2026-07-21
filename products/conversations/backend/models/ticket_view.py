@@ -12,8 +12,7 @@ class TicketView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
 
-    # Per-request queryset annotation (whether the requesting user favorited this view).
-    # Not a stored column — set by TicketViewViewSet.safely_get_queryset / the serializer.
+    # Not a column — a per-request annotation set by the viewset/serializer.
     is_favorited: bool
 
     class Meta:

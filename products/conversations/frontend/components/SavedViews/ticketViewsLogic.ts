@@ -223,12 +223,11 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
     }),
 
     selectors({
-        // Personal favorites float to the top, then most recently created first.
         sortedViews: [
             (s) => [s.views],
             (views: SavedTicketView[]): SavedTicketView[] =>
                 [...views].sort((a, b) => {
-                    if (!!a.is_favorited !== !!b.is_favorited) {
+                    if (a.is_favorited !== b.is_favorited) {
                         return a.is_favorited ? -1 : 1
                     }
                     return b.created_at.localeCompare(a.created_at)

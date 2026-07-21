@@ -60,7 +60,6 @@ class TicketViewSerializer(serializers.ModelSerializer):
             TicketViewFavorite.objects.filter(ticket_view=instance, user=user).delete()
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> TicketView:
-        # New views start unfavorited; ignore any is_favorited sent on create.
         validated_data.pop("is_favorited", None)
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
