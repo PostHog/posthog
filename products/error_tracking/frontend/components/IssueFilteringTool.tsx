@@ -6,14 +6,25 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import MaxTool from 'scenes/max/MaxTool'
 
 import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
+
+// Static instruction rendered into the trusted context block — never interpolate user or ingested data.
+const ISSUES_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        'The user has the error tracking issue list open. When you call query-error-tracking-issues-list, the filters ' +
+        'from your query (filter group, status, date range, search, ordering, assignee) are also applied to the open ' +
+        'page, so the user sees matching issues both in this chat and on screen.',
+}
 
 function updateFilterGroup(
     removedFilterIndexes: number[] | undefined,
@@ -68,7 +79,7 @@ function updateFilterGroup(
 export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
     const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(issueFiltersLogic)
-    const { setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
+    const { setAssignee, setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(
         taxonomicFilterLogic({
@@ -77,7 +88,10 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         })
     )
 
-    useAttachedContext([{ type: 'error_tracking_query', value: JSON.stringify(query), label: 'Current filters' }])
+    useAttachedContext([
+        { type: 'error_tracking_query', value: JSON.stringify(query), label: 'Current filters' },
+        ISSUES_QUERY_TOOL_CONTEXT_ITEM,
+    ])
 
     const callback = (update: ErrorTrackingIssueFilteringToolOutput): void => {
         if (update.orderBy) {
@@ -106,16 +120,88 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         }
     }
 
-    // Apply the PostHog AI surface's suggest-error-tracking-filters echo to the open page, reusing the
-    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    // The headless query tool's call input mirrored onto the open page. Unlike the incremental MaxTool
+    // patch above, the input is a complete query: its filterGroup (plus typed shortcuts) replaces the
+    // whole filter set, mirroring the backend's build_issue_filters. The args are raw agent-sent JSON
+    // (never zod-validated), so every field is presence-guarded and filter type/operator are defaulted.
+    const applyIssuesListQuery = (input: Record<string, any>): void => {
+        if (input.orderBy) {
+            setOrderBy(input.orderBy)
+        }
+        if (input.orderDirection) {
+            setOrderDirection(input.orderDirection)
+        }
+        if (input.status) {
+            setStatus(input.status)
+        }
+        if (input.assignee !== undefined) {
+            setAssignee(input.assignee)
+        }
+        if (input.dateRange) {
+            setDateRange(input.dateRange)
+        }
+        if (input.filterTestAccounts !== undefined) {
+            setFilterTestAccounts(!!input.filterTestAccounts)
+        }
+
+        // user/filePath fold into the free-text search, mirroring the backend's build_search_query.
+        const search = [input.searchQuery, input.user, input.filePath]
+            .filter((s): s is string => typeof s === 'string' && s.length > 0)
+            .join(' ')
+        if (search) {
+            setSearchQuery(search)
+        }
+
+        // Absent filter fields mean "leave the user's filters alone" (the agent may just be listing issues).
+        // personId and release have no representation in the issue-filters UI; limit/offset/volumeResolution
+        // are scene-managed presentation options.
+        if (input.filterGroup !== undefined || input.library || input.fingerprint || input.url) {
+            const flat: UniversalFiltersGroup['values'] = (
+                Array.isArray(input.filterGroup) ? input.filterGroup : []
+            ).map((f: Record<string, any>) => ({
+                ...f,
+                type: f.type || PropertyFilterType.Event,
+                operator: f.operator || PropertyOperator.Exact,
+            }))
+            if (input.library) {
+                flat.push({
+                    type: PropertyFilterType.Event,
+                    key: '$lib',
+                    operator: PropertyOperator.Exact,
+                    value: [input.library],
+                })
+            }
+            if (input.fingerprint) {
+                flat.push({
+                    type: PropertyFilterType.Event,
+                    key: '$exception_fingerprint',
+                    operator: PropertyOperator.Exact,
+                    value: [input.fingerprint],
+                })
+            }
+            if (input.url) {
+                flat.push({
+                    type: PropertyFilterType.Event,
+                    key: '$current_url',
+                    operator: PropertyOperator.IContains,
+                    value: input.url,
+                })
+            }
+            setFilterGroup({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: flat }],
+            })
+        }
+    }
+
     useMcpToolApplyBack({
-        tools: ['suggest-error-tracking-filters'],
-        applyOn: 'completed',
+        tools: ['query-error-tracking-issues-list'],
+        targetKey: 'error-tracking-issues',
         onApply: (_event, { innerInput }) => {
             if (!innerInput) {
                 return
             }
-            callback(innerInput as unknown as ErrorTrackingIssueFilteringToolOutput)
+            applyIssuesListQuery(innerInput)
         },
     })
 

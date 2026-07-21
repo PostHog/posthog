@@ -31,9 +31,10 @@ import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { PropertyFilterType, PropertyMathType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
@@ -153,6 +154,17 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     )
 }
 
+// Static instruction rendered into the trusted context block — never interpolate user or ingested data.
+const WEB_QUERY_TOOLS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        'The user has the web analytics page open. When you call query-web-overview or query-web-stats, the filters ' +
+        'from your query (date range, property filters, comparison, path cleaning, test-account filtering, conversion ' +
+        'goal) are also applied to the page, so the user sees the results both in this chat and on screen. Only ' +
+        'filters are updated on the page — breakdown and table options are not.',
+}
+
 const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
@@ -160,8 +172,14 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         isPathCleaningEnabled,
         compareFilter,
     } = useValues(webAnalyticsLogic)
-    const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
-        useActions(webAnalyticsLogic)
+    const {
+        setDates,
+        setWebAnalyticsFilters,
+        setIsPathCleaningEnabled,
+        setCompareFilter,
+        setShouldFilterTestAccounts,
+        setConversionGoal,
+    } = useActions(webAnalyticsLogic)
 
     useAttachedContext([
         {
@@ -175,8 +193,10 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
             }),
             label: 'Current filters',
         },
+        WEB_QUERY_TOOLS_CONTEXT_ITEM,
     ])
 
+    // Legacy MaxTool (langgraph) output: top-level date_from/date_to and possibly grouped properties.
     const applyFilters = (toolOutput: Record<string, any>): void => {
         if (toolOutput.properties !== undefined) {
             const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
@@ -193,16 +213,44 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         }
     }
 
-    // Apply the PostHog AI surface's suggest-web-analytics-filters echo to the open page, reusing the
-    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    // The headless query tools' call input mirrored onto the open page. The args are raw agent-sent JSON
+    // (never zod-validated), so every field is presence-guarded and the property-filter type/operator
+    // defaults are stamped back on. Stats-only presentation fields (breakdownBy, includeBounceRate, limit,
+    // ...) are per-tile options with no page-level setter.
+    const applyWebQueryInput = (input: Record<string, any>): void => {
+        if (Array.isArray(input.properties)) {
+            const props = input.properties.map((f: Record<string, any>) => ({
+                ...f,
+                type: f.type || PropertyFilterType.Event,
+                ...(f.operator || f.type === PropertyFilterType.Cohort ? {} : { operator: PropertyOperator.Exact }),
+            })) as AnyPropertyFilter[]
+            setWebAnalyticsFilters(props.filter(isWebAnalyticsPropertyFilter))
+        }
+        if (input.dateRange) {
+            setDates(input.dateRange.date_from ?? null, input.dateRange.date_to ?? null)
+        }
+        if (input.doPathCleaning !== undefined) {
+            setIsPathCleaningEnabled(!!input.doPathCleaning)
+        }
+        if (input.compareFilter !== undefined) {
+            setCompareFilter(input.compareFilter)
+        }
+        if (input.filterTestAccounts !== undefined) {
+            setShouldFilterTestAccounts(!!input.filterTestAccounts)
+        }
+        if (input.conversionGoal !== undefined) {
+            setConversionGoal(input.conversionGoal ?? null)
+        }
+    }
+
     useMcpToolApplyBack({
-        tools: ['suggest-web-analytics-filters'],
-        applyOn: 'completed',
+        tools: ['query-web-overview', 'query-web-stats'],
+        targetKey: 'web-analytics-filters',
         onApply: (_event, { innerInput }) => {
             if (!innerInput) {
                 return
             }
-            applyFilters(innerInput)
+            applyWebQueryInput(innerInput)
         },
     })
 

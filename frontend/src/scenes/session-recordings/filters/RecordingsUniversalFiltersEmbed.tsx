@@ -57,7 +57,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import {
     PropertyOperator,
     RecordingUniversalFilters,
@@ -80,8 +80,37 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
-import { deriveOperand } from './recordingsQueryConversions'
+import {
+    DURATION_KEYS,
+    deriveOperand,
+    isValidRecordingOrder,
+    recordingsQueryToUniversalFilters,
+} from './recordingsQueryConversions'
 import { SavedFilters } from './SavedFilters'
+
+// Static instruction rendered into the trusted context block — never interpolate user or ingested data.
+const RECORDINGS_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        'The user has the session replay list open. When you call query-session-recordings-list, the filters from ' +
+        'your query (properties, duration, date range, ordering) are also applied to the open recordings list, so ' +
+        'the user sees matching recordings both in this chat and on screen.',
+}
+
+// Recording-metric keys of the query's `properties` filters, whose `type: 'recording'` is a zod
+// default the agent may omit from its raw args.
+const RECORDING_METRIC_KEYS = new Set([
+    ...DURATION_KEYS,
+    'console_error_count',
+    'console_log_count',
+    'console_warn_count',
+    'click_count',
+    'keypress_count',
+    'activity_score',
+    'visited_page',
+    'snapshot_source',
+])
 
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
@@ -145,6 +174,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 
     useAttachedContext([
         { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
+        RECORDINGS_QUERY_TOOL_CONTEXT_ITEM,
         ...(currentSessionRecordingId
             ? [{ type: 'session_recording', key: currentSessionRecordingId, label: 'Current session' } as const]
             : []),
@@ -156,16 +186,60 @@ export const RecordingsUniversalFiltersEmbedButton = ({
         setIsFiltersExpanded(true)
     }
 
-    // Apply the PostHog AI surface's suggest-session-recording-filters echo to the open page, reusing the
-    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    // The headless query tool's call input mirrored onto the open list. The args are raw agent-sent JSON
+    // (never zod-validated), so every field is presence-guarded and the recording-metric `type` default is
+    // stamped back on before converting to the universal filter shape.
+    const applyRecordingsQuery = (input: Record<string, any>): void => {
+        const partial: Partial<RecordingUniversalFilters> = {}
+        if (Array.isArray(input.properties)) {
+            const props = input.properties.map((f: Record<string, any>) =>
+                f && !f.type && RECORDING_METRIC_KEYS.has(f.key) ? { ...f, type: 'recording' } : f
+            )
+            // Duration filters have their own control in the universal shape, so the converter expects
+            // them in `having_predicates` rather than `properties`.
+            const universal = recordingsQueryToUniversalFilters({
+                kind: NodeKind.RecordingsQuery,
+                properties: props.filter((f: Record<string, any>) => !DURATION_KEYS.has(f?.key)),
+                having_predicates: props.filter((f: Record<string, any>) => DURATION_KEYS.has(f?.key)),
+            } as RecordingsQuery)
+            partial.filter_group = universal.filter_group
+            partial.duration = universal.duration
+        }
+        if ('date_from' in input) {
+            partial.date_from = input.date_from
+        }
+        if ('date_to' in input) {
+            partial.date_to = input.date_to
+        }
+        if (input.filter_test_accounts !== undefined) {
+            partial.filter_test_accounts = !!input.filter_test_accounts
+        }
+        if (isValidRecordingOrder(input.order)) {
+            partial.order = input.order
+        }
+        if (input.order_direction === 'ASC' || input.order_direction === 'DESC') {
+            partial.order_direction = input.order_direction
+        }
+        if (Array.isArray(input.session_ids)) {
+            partial.session_ids = input.session_ids
+        }
+        // person_uuid (query-level constraint), after (pagination cursor), and limit (the agent's page
+        // size, which shouldn't shrink the user's list) have no counterpart in the universal filters.
+        if (Object.keys(partial).length === 0) {
+            return
+        }
+        setFilters(partial)
+        setIsFiltersExpanded(true)
+    }
+
     useMcpToolApplyBack({
-        tools: ['suggest-session-recording-filters'],
-        applyOn: 'completed',
+        tools: ['query-session-recordings-list'],
+        targetKey: 'replay-playlist-filters',
         onApply: (_event, { innerInput }) => {
             if (!innerInput) {
                 return
             }
-            applyFilters(innerInput)
+            applyRecordingsQuery(innerInput)
         },
     })
 
