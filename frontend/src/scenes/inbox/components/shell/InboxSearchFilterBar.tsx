@@ -125,7 +125,10 @@ export function InboxSearchFilterBar({
                 size="small"
             />
 
-            <div className="flex items-center gap-2 ml-auto">
+            {/* ml-auto right-aligns the cluster; flex-wrap + max-w-full keep the controls from
+                overflowing on narrow viewports — each can wrap within the group rather than the
+                whole row clipping, the behavior the flat (ungrouped) layout had before. */}
+            <div className="flex flex-wrap items-center justify-end gap-2 ml-auto max-w-full">
                 <FilterPopover
                     label="Sort"
                     value={activeSort?.label ?? 'Priority first'}
