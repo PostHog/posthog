@@ -646,6 +646,14 @@ export interface PaginatedReplayObservationListApi {
 }
 
 /**
+ * The PostHog Task created from an observation.
+ */
+export interface CreateTaskFromObservationResponseApi {
+    /** ID of the PostHog Task holding this observation's finding, created now (201) or by an earlier call (200). */
+    task_id: string
+}
+
+/**
  * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
  */
 export interface RetryResponseApi {
@@ -1031,6 +1039,8 @@ export interface ObservationVersionMarkerApi {
     version: number
     /** The prompt text this version ran with, taken from the observation run snapshots. */
     prompt: string
+    /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
+    scanner_config: unknown
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
@@ -1160,7 +1170,7 @@ export interface PromptEvaluationResultApi {
      * @nullable
      */
     after: string | null
-    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
     outcome: string
     /**
      * Why this session's re-run failed, when it did.
@@ -1216,6 +1226,12 @@ export interface ReplayScannerPromptSuggestionApi {
     readonly suggested_prompt: string
     /** The scanner prompt this suggestion was generated against, for diffing. */
     readonly base_prompt: string
+    /** The scanner config this suggestion was generated against. */
+    readonly base_config: unknown
+    /** The full proposed scanner config, ready to apply. */
+    readonly suggested_config: unknown
+    /** Typed per-field diff entries driving the change cards. */
+    readonly changes: unknown
     /** What the rewrite changed and why, grounded in the ratings. */
     readonly rationale: string
     /** Thumbs-up ratings the suggestion was based on. */
@@ -1244,6 +1260,11 @@ export interface PaginatedReplayScannerPromptSuggestionListApi {
     results: ReplayScannerPromptSuggestionApi[]
 }
 
+export interface ApplyPromptSuggestionRequestApi {
+    /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
+    config?: unknown
+}
+
 export interface EvaluatePromptSuggestionRequestApi {
     /**
      * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
@@ -1251,6 +1272,8 @@ export interface EvaluatePromptSuggestionRequestApi {
      * @maximum 100
      */
     session_limit?: number
+    /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
+    config?: unknown
 }
 
 export interface CurrentPromptSuggestionApi {
@@ -1465,6 +1488,14 @@ export type VisionObservationsListParams = {
 
 export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1560,6 +1591,14 @@ export type VisionScannersImpactRetrieveParams = {
 
 export type VisionScannersObservationsListParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean
@@ -1603,6 +1642,14 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1637,6 +1684,14 @@ export type VisionScannersObservationsRetrieveParams = {
 }
 
 export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */

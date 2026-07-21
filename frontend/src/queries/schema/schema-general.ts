@@ -2314,6 +2314,16 @@ export interface QueryUpgradeResponse {
 /**
  * All analytics query responses must inherit from this.
  */
+/** A connector-synced data warehouse source referenced by a query. */
+export interface DataWarehouseSourceUsage {
+    /** ExternalDataSource id */
+    id: string
+    /** Connector type of the source (e.g. Stripe, Postgres), if known */
+    source_type?: string
+    /** Warehouse table name that was referenced */
+    table_name: string
+}
+
 export interface AnalyticsQueryResponseBase {
     results: any
     /** Measured timings for different parts of the query generation process */
@@ -2338,6 +2348,8 @@ export interface AnalyticsQueryResponseBase {
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
 
 interface CachedQueryResponseMixin {
@@ -7131,7 +7143,6 @@ export const externalDataSources = [
     'Dixa',
     'Gladly',
     'Qualtrics',
-    'Delighted',
     'AzureDevOps',
     'Rollbar',
     'Opsgenie',
@@ -7809,6 +7820,9 @@ export const externalDataSources = [
     'Plivo',
     'DataForSEO',
     'Sleekplan',
+    'Tally',
+    'Nuntly',
+    'FusionAuth',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

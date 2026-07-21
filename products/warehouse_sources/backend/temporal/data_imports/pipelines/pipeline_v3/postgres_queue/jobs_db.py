@@ -42,6 +42,17 @@ LEASE_TTL_SECONDS = 300
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
+# Oldest a batch may be and still be claimed or recovery-swept. MUST stay below
+# the retention window (RETENTION_DAYS in
+# posthog/temporal/warehouse_sources_queue_partition_management/activities.py):
+# a claimed batch's extraction parquet must still exist in S3, and the half-day
+# margin absorbs clock skew and sweep timing. Applies only to the outer claim
+# candidates and the recovery sweep — never to the head-of-line/failed-run/
+# schema-busy gates, which must keep seeing rows aged past this window for as
+# long as they exist. The duckgres claim path (duckgres/jobs_db.py) has a
+# similar exposure but is deliberately out of scope here.
+CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
+
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as
 # abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
 TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
@@ -211,6 +222,12 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     candidate set to this fleet's classes. It must never be applied inside the
     NOT EXISTS gates below: they have to see other fleets' batches so one
     schema's runs stay mutually exclusive across fleets.
+
+    The outer candidate set is likewise bounded by
+    ``CLAIM_ELIGIBILITY_INTERVAL``: a batch older than that may already have
+    lost its parquet to retention, so it must never be claimed. The gates keep
+    ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
+    stays out of them — they must see every row that still exists.
     """
     return f"""
         SELECT
@@ -223,7 +240,7 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
             b.created_at
         FROM {BATCH_TABLE} b
         WHERE
-            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
             {sync_type_scope}
             AND (
                 b.latest_state = 'pending'
@@ -275,6 +292,9 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
     currently-executing batches. The lateral itself must stay: heartbeats
     refresh the status log, deliberately not the column, so the grace clock
     comes from ``s.created_at``.
+
+    Bounded by ``CLAIM_ELIGIBILITY_INTERVAL``, matching the claim path: a
+    recovered batch gets re-processed, which needs its parquet to still exist.
     """
     return f"""
         SELECT
@@ -283,7 +303,7 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
         {latest_status_lateral("b", "s", join="INNER")}
         LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
         WHERE
-            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
             AND b.latest_state = 'executing'
             AND s.job_state = 'executing'
             AND s.created_at <= now() - make_interval(secs => %(grace)s)
@@ -511,8 +531,9 @@ class BatchQueue:
         """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
 
         Candidates come from the denormalized state columns, so poll cost
-        tracks the claimable set rather than everything retained in the
-        14-day window.
+        tracks the claimable set rather than everything retained; candidates
+        are also capped at ``CLAIM_ELIGIBILITY_INTERVAL`` old so a claimed
+        batch's parquet is guaranteed to predate the retention sweep.
 
         Group ownership is a row in ``sourcegrouplease`` keyed by
         (team_id, schema_id). The outer query claims-or-renews the lease for

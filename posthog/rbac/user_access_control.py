@@ -82,6 +82,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "metrics",
     "tracing",
     "replay_scanner",
+    "toolbar",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -180,7 +181,7 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
         return "admin"
     if resource in ["organization"]:
         return "member"
-    if resource in ["activity_log"]:
+    if resource in ["activity_log", "toolbar"]:
         return "viewer"
     return "editor"
 
@@ -194,7 +195,7 @@ def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the highest allowed access level for a resource."""
-    if resource in ["activity_log"]:
+    if resource in ["activity_log", "toolbar"]:
         return "viewer"
     return ordered_access_levels(resource)[-1]
 

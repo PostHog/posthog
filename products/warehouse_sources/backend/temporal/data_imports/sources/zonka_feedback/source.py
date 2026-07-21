@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZonkaFeedbackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
+    ZonkaFeedbackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

@@ -175,9 +175,13 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
 
     const toNumberOrNull = (val: number | undefined): number | null => (val === undefined || isNaN(val) ? null : val)
 
+    // The "filtered" toggle names what it filters on, per scanner type — "Only matching observations"
+    // is circular (matching what?) before anything is picked.
+    let filteredLabel: string
     let controls: JSX.Element
     switch (scanner.scanner_type) {
         case 'monitor':
+            filteredLabel = 'Only certain verdicts'
             controls = (
                 <div className="flex flex-col gap-1">
                     <div className="flex gap-1">
@@ -207,6 +211,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
         case 'classifier': {
             const configuredTags: string[] = scanner.scanner_config?.tags ?? []
             const allowFreeform = !!scanner.scanner_config?.allow_freeform_tags
+            filteredLabel = 'Only certain tags'
             controls = (
                 <div className="flex flex-col gap-1">
                     <LemonInputSelect
@@ -228,6 +233,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
         }
         case 'scorer': {
             const scale = scanner.scanner_config?.scale
+            filteredLabel = 'Only a score range'
             controls = (
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
@@ -274,7 +280,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                 onChange={(mode) => setTargetingMode(mode)}
                 options={[
                     { value: 'all' as const, label: 'All observations' },
-                    { value: 'filtered' as const, label: 'Only matching observations' },
+                    { value: 'filtered' as const, label: filteredLabel },
                 ]}
                 data-attr="vision-action-targeting-mode"
             />
@@ -548,7 +554,6 @@ function DeliverySection(): JSX.Element {
 export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
-    const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
     // Hooks can't be skipped, and effectiveScannerId can be empty before the action/scanner resolve —
@@ -587,7 +592,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     }
 
     const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
-    const noun = isAlert ? 'alert' : 'group summary'
+    const noun = isAlert ? 'alert' : 'summary'
     const title = isNew
         ? scannerName
             ? `New ${noun} for ${scannerName}`
@@ -626,23 +631,6 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     autoFocus
                                 />
                             </LemonField>
-
-                            <div>
-                                <h4 className="mb-1">Type</h4>
-                                <LemonSegmentedButton
-                                    size="small"
-                                    value={actionForm.mode}
-                                    onChange={(value) => setActionFormValue('mode', value)}
-                                    options={[
-                                        {
-                                            value: VisionActionModeEnumApi.GroupSummary,
-                                            label: 'Scheduled group summary',
-                                        },
-                                        { value: VisionActionModeEnumApi.Alert, label: 'Alert' },
-                                    ]}
-                                    data-attr="vision-action-mode"
-                                />
-                            </div>
 
                             {!isAlert && (
                                 <div>

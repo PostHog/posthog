@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import XmattersSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xmatters import (
+    XmattersSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

@@ -201,7 +201,6 @@ from .decagon.source import DecagonSource
 from .deel.source import DeelSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
-from .delighted.source import DelightedSource
 from .deno_deploy.source import DenoDeploySource
 from .deputy.source import DeputySource
 from .devin_ai.source import DevinAISource
@@ -285,6 +284,7 @@ from .frill.source import FrillSource
 from .front.source import FrontSource
 from .fulcrum.source import FulcrumSource
 from .fullstory.source import FullStorySource
+from .fusionauth.source import FusionAuthSource
 from .gainsight_px.source import GainsightPxSource
 from .gerrit.source import GerritSource
 from .getstream.source import GetStreamSource
@@ -507,6 +507,7 @@ from .northflank.source import NorthflankSource
 from .northpass_lms.source import NorthpassLMSSource
 from .notion.source import NotionSource
 from .nuget.source import NugetSource
+from .nuntly.source import NuntlySource
 from .nutshell.source import NutshellSource
 from .nylas.source import NylasSource
 from .octolens.source import OctolensSource
@@ -754,6 +755,7 @@ from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
 from .tailscale.source import TailscaleSource
 from .talkwalker.source import TalkwalkerSource
+from .tally.source import TallySource
 from .tavus.source import TavusSource
 from .tawk_to.source import TawkToSource
 from .teachable.source import TeachableSource

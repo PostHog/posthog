@@ -1,7 +1,7 @@
 """Schema and rules for ``.test_quarantine.json`` — THE quarantine contract.
 
 This module is stdlib-only and runner-agnostic: it knows nothing about pytest
-markers or CI. Runner adapters (``pytest_support``, a future jest adapter,
+markers or CI. Runner adapters (``pytest_support``, ``jest.quarantine.ts``,
 ``.github/scripts/turbo-discover.js``) consume the contract below and
 interpret selectors for their runner; they must not reimplement parsing,
 date handling, or matching beyond what is documented here.
@@ -25,11 +25,11 @@ File format (repo root, sorted by ``id``, 4-space indent, trailing newline)::
     }
 
 Fields: ``runner`` defaults to ``"pytest"``; ``mode`` is ``"run"`` (default,
-the test still executes but cannot fail the suite) or ``"skip"`` (for hangs,
-import-time flakes, and state-polluters — the test is not executed at all);
-``issue`` is optional; everything else is required. ``added``/``expires`` are
-ISO dates, so they also compare correctly as plain strings (which is how the
-JS reader compares them).
+the matching test still executes but tolerated failures do not fail the suite)
+or ``"skip"`` (for hangs, import-time flakes, and state-polluters; the test is
+not executed at all); ``issue`` is optional; everything else is required.
+``added``/``expires`` are ISO dates, so they also compare correctly as plain
+strings (which is how the JS reader compares them).
 
 Selector grammar (``id``, pytest):
 
@@ -37,9 +37,19 @@ Selector grammar (``id``, pytest):
 - prefix: a directory (``posthog/api/test``), file (``.../test_foo.py``),
   class (``...::TestFoo``), or test function (``...::test_bar``) — matches
   everything underneath it, where "underneath" means the next character in
-  the nodeid is a ``/``, ``::``, or ``[`` boundary (so a function selector
-  covers its parameterized variants, and partial names never match)
+  the nodeid is a ``/``, ``::``, ``[``, or space boundary (so a function
+  selector covers its parameterized variants, and partial names never match)
 - ``product:<dashed-name>``: everything under ``products/<name_with_underscores>/``
+
+Selector grammar (``id``, jest): a jest id is ``<repo-relative-file>::<full
+test name>``, where the name is the space-joined ancestor ``describe`` titles
+plus the ``it``/``test`` title (jest's ``currentTestName``). The same prefix
+rules apply: a file, directory, or ``product:`` selector covers every test
+under it, and a ``::``-qualified selector covers a describe block (space
+boundary) or an exact test. Only the path before ``::`` is constrained; the
+name after it may contain spaces. ``test.each`` row titles are resolved after
+the adapter sees the declaration, so quarantine those at file, directory, or
+``product:`` scope.
 
 When several entries match the same test, the most specific (longest)
 selector wins — so a narrow ``mode: skip`` entry overrides a broad
@@ -71,7 +81,12 @@ from typing import Any
 SCHEMA_VERSION = 1
 MAX_QUARANTINE_DAYS = 30
 DEFAULT_GRACE_DAYS = 7
-DEFAULT_RUNNER = "pytest"
+PYTEST_RUNNER = "pytest"  # also the schema default when an entry omits `runner`
+JEST_RUNNER = "jest"
+# Runners with an enforcement adapter that consumes this contract (pytest via
+# ``pytest_support``, jest via ``frontend/jest.quarantine.ts``). Entries for any
+# other runner are kept but only informational; ``check`` warns, never errors.
+ADAPTED_RUNNERS = (PYTEST_RUNNER, JEST_RUNNER)
 MODES = ("run", "skip")
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -86,7 +101,7 @@ class Entry:
     id: str
     added: date
     expires: date
-    runner: str = DEFAULT_RUNNER
+    runner: str = PYTEST_RUNNER
     reason: str = ""
     owner: str = ""
     issue: str = ""
@@ -182,7 +197,7 @@ def _parse_entry(raw: Any, index: int, result: LoadResult) -> Entry | None:
         id=raw["id"],
         added=dates["added"],
         expires=dates["expires"],
-        runner=raw.get("runner", DEFAULT_RUNNER),
+        runner=raw.get("runner", PYTEST_RUNNER),
         reason=raw.get("reason", ""),
         owner=raw.get("owner", ""),
         issue=raw.get("issue", ""),
@@ -206,7 +221,7 @@ def selector_matches(selector: str, test_id: str) -> bool:
     if selector.startswith(_PRODUCT_SELECTOR_PREFIX):
         return test_id.startswith(product_path_prefix(selector))
     selector = selector.rstrip("/")
-    return test_id == selector or test_id.startswith((f"{selector}/", f"{selector}::", f"{selector}["))
+    return test_id == selector or test_id.startswith((f"{selector}/", f"{selector}::", f"{selector}[", f"{selector} "))
 
 
 def product_path_prefix(selector: str) -> str:
@@ -251,27 +266,52 @@ def _entry_to_dict(entry: Entry) -> dict[str, Any]:
 
 
 def validate_selector(selector: str, runner: str) -> str | None:
-    """Selector validity for known runners; returns a violation message or None.
+    """Selector validity for runners with an adapter; returns a violation message or None.
 
-    Only pytest selectors have rules today; other runners' grammars belong to
-    their future adapters and are not validated here.
+    Only pytest and jest selectors have rules; runners without an enforcement
+    adapter are not validated here. ``product:`` selectors share one rule across
+    runners; path selectors differ (jest ids carry a space-bearing test name
+    after ``::``).
     """
-    if runner != DEFAULT_RUNNER:
+    if runner not in ADAPTED_RUNNERS:
         return None
     if selector.startswith(_PRODUCT_SELECTOR_PREFIX):
-        name = selector[len(_PRODUCT_SELECTOR_PREFIX) :]
-        if "_" in name:
-            # turbo-discover compares dashed product names; the underscored
-            # directory form would silently skip nothing there.
-            return "use the dashed product name (e.g. 'batch-exports'), not the directory form"
-        product_dir = REPO_ROOT / product_path_prefix(selector)
-        if not product_dir.is_dir():
-            return f"no directory {product_dir.relative_to(REPO_ROOT)} — is the product name right?"
-        return None
+        return _validate_product_selector(selector)
+    if runner == JEST_RUNNER:
+        return _validate_jest_selector(selector)
+    return _validate_pytest_selector(selector)
+
+
+def _validate_product_selector(selector: str) -> str | None:
+    name = selector[len(_PRODUCT_SELECTOR_PREFIX) :]
+    if "_" in name:
+        # turbo-discover compares dashed product names; the underscored
+        # directory form would silently skip nothing there.
+        return "use the dashed product name (e.g. 'batch-exports'), not the directory form"
+    product_dir = REPO_ROOT / product_path_prefix(selector)
+    if not product_dir.is_dir():
+        return f"no directory {product_dir.relative_to(REPO_ROOT)}. Is the product name right?"
+    return None
+
+
+def _validate_pytest_selector(selector: str) -> str | None:
     if selector.startswith("/") or selector.startswith("\\"):
         return "must be repo-root-relative, not absolute"
     if any(c.isspace() for c in selector):
         return "must not contain whitespace"
+    return None
+
+
+def _validate_jest_selector(selector: str) -> str | None:
+    # A jest id is '<repo-relative-file>::<full test name>'; the name may hold
+    # spaces, so only the path before '::' is constrained.
+    path_part = selector.split("::", 1)[0]
+    if not path_part:
+        return "missing a file path before '::'"
+    if path_part.startswith("/") or path_part.startswith("\\"):
+        return "must be repo-root-relative, not absolute"
+    if any(c.isspace() for c in path_part):
+        return "the file path must not contain whitespace (the test name goes after '::')"
     return None
 
 
@@ -307,7 +347,7 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
             deadline = f"within {days_left} days" if days_left else "today — grace period ends"
             warnings.append(f"{label}: expired {expired_for} days ago — remove {deadline}")
 
-        if entry.runner != DEFAULT_RUNNER:
+        if entry.runner not in ADAPTED_RUNNERS:
             warnings.append(f"{label}: runner '{entry.runner}' has no enforcement adapter yet")
         selector_problem = validate_selector(entry.id, entry.runner)
         if selector_problem is not None:

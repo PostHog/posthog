@@ -24,6 +24,7 @@ import {
     IconSearch,
     IconSpotlight,
     IconToggle,
+    IconToolbar,
     IconTrends,
     IconWarning,
 } from '@posthog/icons'
@@ -92,6 +93,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPieChart />
         case 'tracing':
             return <IconListTree />
+        case 'toolbar':
+            return <IconToolbar />
         default:
             return null
     }
