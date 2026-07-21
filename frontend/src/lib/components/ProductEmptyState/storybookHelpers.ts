@@ -37,10 +37,12 @@ export function productEmptyStateStory(
             mswDecorator({
                 ...mocks,
                 post: {
+                    // nosemgrep: no-environments-api-urls-frontend -- api.query is env-scoped, so the msw mock must match /api/environments to intercept it
                     '/api/environments/:team_id/query/:kind': [200, { results: [] }],
                     ...mocks?.post,
                 },
                 patch: {
+                    // nosemgrep: no-environments-api-urls-frontend -- add_product_intent is env-scoped, so the msw mock must match /api/environments to intercept it
                     '/api/environments/:team_id/add_product_intent': [200, {}],
                     ...mocks?.patch,
                 },
