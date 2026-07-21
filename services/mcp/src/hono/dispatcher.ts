@@ -23,13 +23,14 @@ import { randomUUID } from 'node:crypto'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import {
-    isSupportedProtocolVersion,
+    isModernRequest,
     META_SERVER_INFO,
     MODERN_PROTOCOL_VERSIONS,
     parseRequestProtocolMeta,
+    readProtocolHeaders,
     SERVER_DISCOVER_METHOD,
     STATELESS_PROTOCOL_VERSION,
-    UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
+    validateModernRequest,
 } from '@/lib/stateless-protocol'
 
 import { trackInitEvent } from './analytics'
@@ -112,11 +113,18 @@ function jsonRpcMethodError(id: number | string, code: number, message: string, 
     return { jsonrpc: JSONRPC_VERSION, id, error: { code, message, ...(data !== undefined ? { data } : {}) } }
 }
 
-function jsonRpcErrorResponse(id: unknown, code: number, message: string): Response {
-    return new Response(JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-    })
+function jsonRpcErrorResponse(id: unknown, code: number, message: string, data?: unknown, status = 200): Response {
+    return new Response(
+        JSON.stringify({
+            jsonrpc: JSONRPC_VERSION,
+            id: id ?? null,
+            error: { code, message, ...(data !== undefined ? { data } : {}) },
+        }),
+        {
+            status,
+            headers: { 'Content-Type': 'application/json' },
+        }
+    )
 }
 
 class McpDispatcher {
@@ -167,12 +175,50 @@ class McpDispatcher {
             return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Batch too large')
         }
 
+        // SEP-2243 header validation, before any dispatch: modern messages must
+        // carry matching operation headers, and (since JSON-RPC batching was
+        // removed in 2025-06-18) can never arrive inside an array. Legacy
+        // traffic takes neither branch and keeps its exact wire behavior.
+        const protocolHeaders = readProtocolHeaders(req.headers)
+        let singleModern = false
+        if (wasArray) {
+            const batchHasModern = messages.some((m) =>
+                isModernRequest(protocolHeaders, parseRequestProtocolMeta((m as { params?: unknown }).params))
+            )
+            if (batchHasModern) {
+                return jsonRpcErrorResponse(
+                    null,
+                    ErrorCode.InvalidRequest,
+                    `JSON-RPC batching is not supported by protocol version ${STATELESS_PROTOCOL_VERSION}`,
+                    undefined,
+                    400
+                )
+            }
+        } else {
+            const message = messages[0]! as { id?: number | string; method?: unknown; params?: unknown }
+            singleModern = isModernRequest(protocolHeaders, parseRequestProtocolMeta(message.params))
+            if (singleModern) {
+                const validationError = validateModernRequest(protocolHeaders, message)
+                if (validationError) {
+                    return jsonRpcErrorResponse(
+                        message.id ?? null,
+                        validationError.code,
+                        validationError.message,
+                        validationError.data,
+                        400
+                    )
+                }
+            }
+        }
+
         const requests = messages.filter(isRequest)
         if (requests.length === 0) {
             return new Response(null, { status: 202 })
         }
 
-        const hasInit = requests.some((r) => r.method === Method.Initialize)
+        // Only the legacy dialect mints sessions — modern `initialize` is a
+        // removed RPC and gets method-not-found in dispatch.
+        const hasInit = !singleModern && requests.some((r) => r.method === Method.Initialize)
         if (hasInit) {
             props.mcpSessionId = randomUUID()
         }
@@ -187,7 +233,10 @@ class McpDispatcher {
 
         if (!wasArray && requests.length === 1) {
             const result = await this.dispatch(requests[0]!, props, state)
-            return new Response(JSON.stringify(result), { status: 200, headers })
+            // SEP-2575: unsupported RPCs get HTTP 404 in the modern dialect.
+            const status =
+                singleModern && 'error' in result && result.error.code === ErrorCode.MethodNotFound ? 404 : 200
+            return new Response(JSON.stringify(result), { status, headers })
         }
 
         const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
@@ -201,23 +250,13 @@ class McpDispatcher {
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
-        // Versions declared via `_meta` must be modern — legacy versions are
-        // only implemented behind the `initialize` handshake, so a legacy value
-        // here (or an unknown one) gets the spec's UnsupportedProtocolVersionError
-        // with the machine-readable `data.supported` list clients retry from.
+        // Version and header validation for modern requests happens in
+        // `handleRequest` before dispatch; here `_meta` only picks the dialect.
         const protocolMeta = parseRequestProtocolMeta(params)
-        if (protocolMeta.protocolVersion && !isSupportedProtocolVersion(protocolMeta.protocolVersion)) {
-            return jsonRpcMethodError(
-                id,
-                UNSUPPORTED_PROTOCOL_VERSION_ERROR_CODE,
-                `Unsupported protocol version: ${protocolMeta.protocolVersion}`,
-                { supported: [...MODERN_PROTOCOL_VERSIONS], requested: protocolMeta.protocolVersion }
-            )
-        }
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state)
+            const result = await this.dispatchMethod(method, params, props, state, stateless)
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
@@ -233,8 +272,13 @@ class McpDispatcher {
         method: string,
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
-        state: ResolvedState | undefined
+        state: ResolvedState | undefined,
+        stateless: boolean
     ): Promise<unknown> {
+        // SEP-2575 removed `initialize` and `ping` from the modern dialect.
+        if (stateless && (method === Method.Initialize || method === Method.Ping)) {
+            return METHOD_NOT_FOUND
+        }
         switch (method) {
             case Method.Initialize:
                 return await this.handleInitialize(params, props, state!)
@@ -316,6 +360,7 @@ class McpDispatcher {
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
             capabilities: SERVER_CAPABILITIES,
+            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
     }

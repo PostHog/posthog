@@ -1688,7 +1688,11 @@ export function defineStatelessProtocolTests(
         const STATELESS_VERSION = '2026-07-28'
         const META_VERSION_KEY = 'io.modelcontextprotocol/protocolVersion'
         const META_CLIENT_INFO_KEY = 'io.modelcontextprotocol/clientInfo'
+        const META_CLIENT_CAPABILITIES_KEY = 'io.modelcontextprotocol/clientCapabilities'
         const META_SERVER_INFO_KEY = 'io.modelcontextprotocol/serverInfo'
+        const VERSION_HEADER = 'MCP-Protocol-Version'
+        const METHOD_HEADER = 'Mcp-Method'
+        const NAME_HEADER = 'Mcp-Name'
 
         function statelessParams(params: Record<string, unknown> = {}): Record<string, unknown> {
             return {
@@ -1696,6 +1700,7 @@ export function defineStatelessProtocolTests(
                 _meta: {
                     [META_VERSION_KEY]: STATELESS_VERSION,
                     [META_CLIENT_INFO_KEY]: { name: 'stateless-suite', version: '0.0.1' },
+                    [META_CLIENT_CAPABILITIES_KEY]: {},
                 },
             }
         }
@@ -1712,22 +1717,50 @@ export function defineStatelessProtocolTests(
             error?: { code?: number; message?: string; data?: { supported?: string[]; requested?: string } }
         }
 
+        // SEP-2243 operation headers, derived from the body the way a conforming
+        // modern client sends them. Deriving the version header from `_meta`
+        // keeps unsupported-version tests reaching the version check instead of
+        // failing on a header/body mismatch. An `extraHeaders` value of `null`
+        // deletes the derived default so tests can express "omit this header"
+        // (keys must match the literal casing used here).
+        function specHeaders(method: string, params: Record<string, unknown>): Record<string, string> {
+            const meta = params._meta as Record<string, unknown> | undefined
+            const metaVersion = meta?.[META_VERSION_KEY]
+            if (typeof metaVersion !== 'string') {
+                return {}
+            }
+            const headers: Record<string, string> = { [VERSION_HEADER]: metaVersion, [METHOD_HEADER]: method }
+            const name = params.name ?? params.uri
+            if (typeof name === 'string') {
+                headers[NAME_HEADER] = name
+            }
+            return headers
+        }
+
         async function postSingle(
             harness: ProtocolTestHarness,
             method: string,
             params: Record<string, unknown>,
             id: number | string = 1,
-            extraHeaders: Record<string, string> = {}
+            extraHeaders: Record<string, string | null> = {}
         ): Promise<{ response: Response; json: RpcEnvelope }> {
+            const headers: Record<string, string> = {
+                Authorization: `Bearer ${harness.token}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'x-posthog-mcp-mode': 'tools',
+                ...specHeaders(method, params),
+            }
+            for (const [key, value] of Object.entries(extraHeaders)) {
+                if (value === null) {
+                    delete headers[key]
+                } else {
+                    headers[key] = value
+                }
+            }
             const response = await harness.fetch(new URL('/mcp', harness.baseUrl), {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${harness.token}`,
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json, text/event-stream',
-                    'x-posthog-mcp-mode': 'tools',
-                    ...extraHeaders,
-                },
+                headers,
                 body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
             })
             return { response, json: (await response.json()) as RpcEnvelope }
@@ -1751,6 +1784,8 @@ export function defineStatelessProtocolTests(
             // served a dialect we can't speak statelessly.
             expect(result.supportedVersions).toEqual([STATELESS_VERSION])
             expect(result.capabilities).toMatchObject({ tools: { listChanged: false } })
+            // DiscoverResult requires top-level serverInfo (not just result _meta).
+            expect(result.serverInfo).toMatchObject({ name: 'PostHog' })
             expect(typeof result.instructions).toBe('string')
             expect((result.instructions as string).length).toBeGreaterThan(0)
 
@@ -1831,13 +1866,146 @@ export function defineStatelessProtocolTests(
                     'bad-version'
                 )
 
-                expect(response.status).toBe(200)
+                // SEP-2575: UnsupportedProtocolVersionError rides on HTTP 400.
+                expect(response.status).toBe(400)
                 expect(json.id).toBe('bad-version')
                 expect(json.error?.code).toBe(-32022)
                 expect(json.error?.data?.supported).toEqual([STATELESS_VERSION])
                 expect(json.error?.data?.requested).toBe(version)
             }
         )
+
+        // SEP-2243 makes the operation headers mandatory on modern requests and
+        // requires body-processing servers to reject missing or mismatched
+        // values (HeaderMismatch -32020, HTTP 400) — otherwise a caller could
+        // label a tools/call as something innocuous for header-routing
+        // intermediaries while executing a different operation. The exhaustive
+        // failure matrix is unit-tested against validateModernRequest; these
+        // prove the dispatcher wiring and status codes.
+        it.each([VERSION_HEADER, METHOD_HEADER, NAME_HEADER])(
+            'rejects a modern tools/call missing the %s header',
+            async (header) => {
+                const harness = await getHarness()
+                const { response, json } = await postSingle(
+                    harness,
+                    'tools/call',
+                    statelessParams({ name: 'organization-get', arguments: {} }),
+                    'no-header',
+                    { [header]: null }
+                )
+
+                expect(response.status).toBe(400)
+                expect(json.id).toBe('no-header')
+                expect(json.error?.code).toBe(-32020)
+                expect(json.error?.message).toContain(header)
+            }
+        )
+
+        it('rejects a modern request whose Mcp-Method header contradicts the body', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(
+                harness,
+                'tools/call',
+                statelessParams({ name: 'organization-get', arguments: {} }),
+                'mismatch',
+                { [METHOD_HEADER]: 'server/discover' }
+            )
+
+            expect(response.status).toBe(400)
+            expect(json.error?.code).toBe(-32020)
+            expect(json.error?.message).toContain("'server/discover'")
+            expect(json.error?.message).toContain("'tools/call'")
+        })
+
+        it('rejects a modern-header request whose body lacks protocol _meta', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(harness, 'tools/list', {}, 'header-only', {
+                [VERSION_HEADER]: STATELESS_VERSION,
+                [METHOD_HEADER]: 'tools/list',
+            })
+
+            expect(response.status).toBe(400)
+            expect(json.error?.code).toBe(-32020)
+        })
+
+        it('rejects a modern request missing required _meta client fields', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(harness, 'tools/list', {
+                _meta: {
+                    [META_VERSION_KEY]: STATELESS_VERSION,
+                    [META_CLIENT_INFO_KEY]: { name: 'stateless-suite', version: '0.0.1' },
+                },
+            })
+
+            expect(response.status).toBe(400)
+            expect(json.error?.code).toBe(-32602)
+            expect(json.error?.message).toContain(META_CLIENT_CAPABILITIES_KEY)
+        })
+
+        // Batching was removed from the protocol in 2025-06-18 — arrays exist
+        // only for old legacy clients, and a single Mcp-Method header cannot
+        // describe a mixed batch.
+        it.each([
+            ['modern _meta in the batch body', () => statelessParams(), {}],
+            [
+                'a modern MCP-Protocol-Version header',
+                () => ({}),
+                { [VERSION_HEADER]: STATELESS_VERSION, [METHOD_HEADER]: 'tools/list' },
+            ],
+        ] as Array<[string, () => Record<string, unknown>, Record<string, string>]>)(
+            'rejects a JSON-RPC batch carrying %s',
+            async (_label, makeParams, headers) => {
+                const harness = await getHarness()
+                const response = await harness.fetch(new URL('/mcp', harness.baseUrl), {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${harness.token}`,
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'x-posthog-mcp-mode': 'tools',
+                        ...headers,
+                    },
+                    body: JSON.stringify([
+                        { jsonrpc: '2.0', id: 'batched', method: 'tools/list', params: makeParams() },
+                    ]),
+                })
+                const json = (await response.json()) as RpcEnvelope
+
+                expect(response.status).toBe(400)
+                expect(json.error?.code).toBe(-32600)
+            }
+        )
+
+        // SEP-2575 removed initialize and ping from the modern dialect, and
+        // unsupported RPCs ride on HTTP 404 there.
+        it.each(['ping', 'initialize'])('answers modern %s with method-not-found and HTTP 404', async (method) => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(harness, method, statelessParams(), 'removed-rpc')
+
+            expect(response.status).toBe(404)
+            expect(json.error?.code).toBe(-32601)
+            // Modern initialize must not mint a session either.
+            expect(response.headers.get('mcp-session-id')).toBeNull()
+        })
+
+        it('leaves legacy initialize untouched when it carries a legacy MCP-Protocol-Version header', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(
+                harness,
+                'initialize',
+                {
+                    protocolVersion: '2025-06-18',
+                    capabilities: {},
+                    clientInfo: { name: 'legacy-suite', version: '0.0.1' },
+                },
+                'legacy-init',
+                { [VERSION_HEADER]: '2025-06-18' }
+            )
+
+            expect(response.status).toBe(200)
+            expect(json.error).toBeUndefined()
+            expect(json.result?.protocolVersion).toBe('2025-06-18')
+        })
 
         it('keeps the legacy wire shape for requests without protocol _meta', async () => {
             const harness = await getHarness()
