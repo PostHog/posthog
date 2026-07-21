@@ -11,6 +11,7 @@ from products.replay_vision.backend.billing import (
     OBSERVATION_CREDITS_BY_MODEL,
     get_replay_vision_credits_by_team,
     observation_credits_for_model,
+    suggested_observation_credits,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
@@ -82,3 +83,10 @@ def test_gemini_models_config_mirrors_scanner_model_enum() -> None:
     assert current == set(ScannerModel.values), (
         f"GEMINI_MODELS current lineup {current} does not mirror ScannerModel {set(ScannerModel.values)}"
     )
+
+
+def test_flash_credit_price_tracks_the_margin_formula() -> None:
+    # The flash price is contractually the formula output (the budget tier is pinned below it), so a
+    # token price or margin change here must come with a conscious repricing, not silently stale credits.
+    flash = GEMINI_MODELS[ScannerModel.GEMINI_3_6_FLASH]
+    assert flash.credits_per_observation == suggested_observation_credits(flash)
