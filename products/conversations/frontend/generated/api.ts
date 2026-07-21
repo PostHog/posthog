@@ -12,6 +12,8 @@ import type {
     AiFeedbackRequestApi,
     BulkAddTagsRequestApi,
     BulkAddTagsResponseApi,
+    BulkRemoveTagsRequestApi,
+    BulkRemoveTagsResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -515,6 +517,31 @@ export const conversationsTicketsBulkAddTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkAddTagsRequestApi),
+    })
+}
+
+export const getConversationsTicketsBulkRemoveTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_remove_tags/`
+}
+
+/**
+ * Remove one or more tags from multiple tickets in a single request.
+ *
+ * Tags not present on a ticket are ignored. Only tickets belonging to the
+ * current team are affected; other-team UUIDs are silently ignored. Each
+ * removed tag is recorded on the ticket's activity timeline by the
+ * TaggedItem model activity signal.
+ */
+export const conversationsTicketsBulkRemoveTagsCreate = async (
+    projectId: string,
+    bulkRemoveTagsRequestApi: BulkRemoveTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkRemoveTagsResponseApi> => {
+    return apiMutator<BulkRemoveTagsResponseApi>(getConversationsTicketsBulkRemoveTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkRemoveTagsRequestApi),
     })
 }
 

@@ -938,6 +938,81 @@ class TestBulkAddTags(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkRemoveTags(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_remove_tags/"
+
+    def _tags_of(self, ticket) -> set[str]:
+        ticket.refresh_from_db()
+        return set(ticket.tagged_items.values_list("tag__name", flat=True))
+
+    def _tag(self, ticket, *names: str) -> None:
+        for name in names:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
+            ticket.tagged_items.get_or_create(tag_id=tag.id)
+
+    def test_removes_only_the_specified_tags(self, mock_on_commit):
+        self._tag(self.tickets[0], "keep", "drop")
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "tags": ["drop"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(self._tags_of(self.tickets[0]), {"keep"})
+
+    def test_skips_tickets_without_the_tag(self, mock_on_commit):
+        self._tag(self.tickets[0], "drop")
+        ids = [str(self.tickets[0].id), str(self.tickets[1].id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "tags": ["drop"]},
+            format="json",
+        )
+        # tickets[1] never had "drop", so it isn't counted or returned.
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+
+    def test_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        other_tag, _ = Tag.objects.get_or_create(name="shared", team_id=other_team.id)
+        other_ticket.tagged_items.get_or_create(tag_id=other_tag.id)
+        self._tag(self.tickets[0], "shared")
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "tags": ["shared"]},
+            format="json",
+        )
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        # The other team's ticket keeps its tag.
+        self.assertEqual(set(other_ticket.tagged_items.values_list("tag__name", flat=True)), {"shared"})
+
+
 class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()

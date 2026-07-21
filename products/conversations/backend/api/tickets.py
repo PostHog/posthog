@@ -226,6 +226,29 @@ class BulkAddTagsResponseSerializer(serializers.Serializer):
     )
 
 
+class BulkRemoveTagsRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to remove tags from.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        allow_empty=False,
+        max_length=BULK_ADD_TAGS_MAX_TAGS,
+        help_text="Tags to remove from every selected ticket. Tags not present on a ticket are ignored.",
+    )
+
+
+class BulkRemoveTagsResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets that had at least one tag removed.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets that had at least one tag removed.",
+    )
+
+
 class TicketPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
@@ -1086,6 +1109,58 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     report_user_action(
                         request.user,
                         "support tickets bulk tags added",
+                        {"count": len(changed_ids), "tag_count": len(normalized_tags)},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+            transaction.on_commit(_emit_bulk_side_effects)
+
+        return Response({"updated": len(changed_ids), "ids": changed_ids})
+
+    @extend_schema(
+        request=BulkRemoveTagsRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkRemoveTagsResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_remove_tags(self, request, *args, **kwargs):
+        """Remove one or more tags from multiple tickets in a single request.
+
+        Tags not present on a ticket are ignored. Only tickets belonging to the
+        current team are affected; other-team UUIDs are silently ignored. Each
+        removed tag is recorded on the ticket's activity timeline by the
+        TaggedItem model activity signal.
+        """
+        serializer = BulkRemoveTagsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        normalized_tags = {tagify(t) for t in serializer.validated_data["tags"]}
+
+        changed_ids: list[str] = []
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            tag_ids = list(
+                Tag.objects.filter(name__in=normalized_tags, team_id=self.team_id).values_list("id", flat=True)
+            )
+            if tag_ids:
+                for ticket in tickets:
+                    # Delete per-instance (not a bulk queryset delete) so the TaggedItem
+                    # activity signal fires for each removed tag.
+                    items = list(ticket.tagged_items.filter(tag_id__in=tag_ids))
+                    for item in items:
+                        item.delete()
+                    if items:
+                        changed_ids.append(str(ticket.id))
+
+        if changed_ids:
+
+            def _emit_bulk_side_effects() -> None:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk tags removed",
                         {"count": len(changed_ids), "tag_count": len(normalized_tags)},
                         team=self.team,
                         request=request,

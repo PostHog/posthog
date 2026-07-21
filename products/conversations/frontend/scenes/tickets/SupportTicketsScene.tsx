@@ -62,8 +62,9 @@ interface SupportTicketsTableProps {
 }
 
 function SupportTicketsBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus, bulkAddTags, setBulkTagsToAdd } = useActions(supportTicketsSceneLogic)
+    const { selectedTicketIds, selectedTickets, selectedTicketTagStates, bulkUpdating } =
+        useValues(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, bulkAddTags, bulkRemoveTags } = useActions(supportTicketsSceneLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const [dropdownOpen, setDropdownOpen] = useState(false)
 
@@ -77,11 +78,12 @@ function SupportTicketsBulkActions(): JSX.Element {
             return acc === s ? acc : 'mixed'
         }, null)
 
-    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
-    const addTagsLabel =
-        bulkTagsToAdd.length > 0
-            ? `Add ${bulkTagsToAdd.length} tag${bulkTagsToAdd.length === 1 ? '' : 's'}`
-            : 'Add tags'
+    // The tag editor lists tags already on the selection with their state; the input below only
+    // offers tags not yet on any selected ticket, so the two don't overlap.
+    const tagsOnSelection = new Set(selectedTicketTagStates.map((t) => t.tag))
+    const addableTagOptions = (tagsAvailable ?? [])
+        .filter((t: string) => !tagsOnSelection.has(t))
+        .map((t: string) => ({ key: t, label: t }))
 
     return (
         <LemonDropdown
@@ -115,30 +117,54 @@ function SupportTicketsBulkActions(): JSX.Element {
                     </div>
                     <LemonDivider className="my-1" />
                     <div className="flex flex-col gap-2">
-                        <span className="text-muted text-xs">Add tags</span>
+                        <span className="text-muted text-xs">Tags</span>
+                        {selectedTicketTagStates.length > 0 && (
+                            <div className="flex flex-col gap-px">
+                                {selectedTicketTagStates.map(({ tag, state }) => (
+                                    <LemonButton
+                                        key={tag}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        loading={bulkUpdating}
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={state === 'all' ? true : 'indeterminate'}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        tooltip={
+                                            state === 'all'
+                                                ? 'On all selected tickets — click to remove'
+                                                : 'On some selected tickets — click to add to all'
+                                        }
+                                        onClick={() => {
+                                            if (state === 'all') {
+                                                bulkRemoveTags(selectedTicketIds, [tag])
+                                            } else {
+                                                bulkAddTags(selectedTicketIds, [tag])
+                                            }
+                                        }}
+                                    >
+                                        {tag}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
                         <LemonInputSelect
                             mode="multiple"
                             allowCustomValues
-                            value={bulkTagsToAdd}
-                            options={tagOptions}
-                            onChange={setBulkTagsToAdd}
-                            placeholder="Select or type tags..."
+                            value={[]}
+                            options={addableTagOptions}
+                            onChange={(vals) => {
+                                const tag = vals[vals.length - 1]
+                                if (tag) {
+                                    bulkAddTags(selectedTicketIds, [tag])
+                                }
+                            }}
+                            placeholder="Add a tag..."
                             data-attr="bulk-add-tags-input"
                         />
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            fullWidth
-                            center
-                            loading={bulkUpdating}
-                            disabledReason={bulkTagsToAdd.length === 0 ? 'Select at least one tag' : undefined}
-                            onClick={() => {
-                                bulkAddTags(selectedTicketIds, bulkTagsToAdd)
-                                setDropdownOpen(false)
-                            }}
-                        >
-                            {addTagsLabel}
-                        </LemonButton>
                     </div>
                 </div>
             }

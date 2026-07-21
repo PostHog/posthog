@@ -54,7 +54,6 @@ export interface supportTicketsSceneLogicValues {
     aiTriageResultFilter: AITriageFilterValue[]
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
-    bulkTagsToAdd: string[]
     bulkUpdating: boolean
     channelFilter: TicketChannel | 'all'
     currentFilters: TicketViewFilters
@@ -69,6 +68,10 @@ export interface supportTicketsSceneLogicValues {
     priorityFilter: TicketPriority[]
     searchQuery: string
     selectedTicketIds: string[]
+    selectedTicketTagStates: {
+        tag: string
+        state: 'all' | 'some'
+    }[]
     selectedTickets: Ticket[]
     slaFilter: TicketSlaState | 'all'
     sorting: Sorting | null
@@ -89,7 +92,23 @@ export interface supportTicketsSceneLogicActions {
     applyViewFilters: (filters: TicketViewFilters) => {
         filters: TicketViewFilters
     }
+    applyTicketTagPatch: (
+        ids: string[],
+        addTags: string[],
+        removeTags: string[]
+    ) => {
+        ids: string[]
+        addTags: string[]
+        removeTags: string[]
+    }
     bulkAddTags: (
+        ids: string[],
+        tags: string[]
+    ) => {
+        ids: string[]
+        tags: string[]
+    }
+    bulkRemoveTags: (
         ids: string[],
         tags: string[]
     ) => {
@@ -123,9 +142,6 @@ export interface supportTicketsSceneLogicActions {
     }
     setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
         assignees: AssigneeFilterEntry[]
-    }
-    setBulkTagsToAdd: (tags: string[]) => {
-        tags: string[]
     }
     setBulkUpdating: (updating: boolean) => {
         updating: boolean
@@ -201,6 +217,7 @@ export interface supportTicketsSceneLogicMeta {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        selectedTicketTagStates: (selectedTickets: Ticket[]) => { tag: string; state: 'all' | 'some' }[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         currentFilters: (
             statusFilter: TicketStatus[],
@@ -257,7 +274,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
         bulkAddTags: (ids: string[], tags: string[]) => ({ ids, tags }),
-        setBulkTagsToAdd: (tags: string[]) => ({ tags }),
+        bulkRemoveTags: (ids: string[], tags: string[]) => ({ ids, tags }),
+        applyTicketTagPatch: (ids: string[], addTags: string[], removeTags: string[]) => ({ ids, addTags, removeTags }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         toggleTicketSelected: (id: string) => ({ id }),
@@ -269,6 +287,24 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             [] as Ticket[],
             {
                 setTickets: (_, { tickets }) => tickets,
+                // Optimistically reflect a bulk tag add/remove without a full reload, so the
+                // selection and the tag editor stay open across multiple edits.
+                applyTicketTagPatch: (state, { ids, addTags, removeTags }) => {
+                    const idSet = new Set(ids)
+                    const removeSet = new Set(removeTags)
+                    return state.map((ticket) => {
+                        if (!idSet.has(ticket.id)) {
+                            return ticket
+                        }
+                        const tags = (ticket.tags ?? []).filter((t) => !removeSet.has(t))
+                        for (const tag of addTags) {
+                            if (!tags.includes(tag)) {
+                                tags.push(tag)
+                            }
+                        }
+                        return { ...ticket, tags }
+                    })
+                },
             },
         ],
         ticketsLoading: [
@@ -417,13 +453,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 setBulkUpdating: (_, { updating }) => updating,
             },
         ],
-        bulkTagsToAdd: [
-            [] as string[],
-            {
-                setBulkTagsToAdd: (_, { tags }) => tags,
-                bulkAddTags: () => [],
-            },
-        ],
         selectedTicketIds: [
             [] as string[],
             {
@@ -465,6 +494,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             (tickets: Ticket[], selectedIds: string[]): Ticket[] => {
                 const idSet = new Set(selectedIds)
                 return tickets.filter((t) => idSet.has(t.id))
+            },
+        ],
+        selectedTicketTagStates: [
+            (s) => [s.selectedTickets],
+            (selectedTickets: Ticket[]): { tag: string; state: 'all' | 'some' }[] => {
+                const counts = new Map<string, number>()
+                for (const ticket of selectedTickets) {
+                    for (const tag of ticket.tags ?? []) {
+                        counts.set(tag, (counts.get(tag) ?? 0) + 1)
+                    }
+                }
+                const total = selectedTickets.length
+                return Array.from(counts.entries())
+                    .map(([tag, count]) => ({ tag, state: count === total ? ('all' as const) : ('some' as const) }))
+                    .sort((a, b) => a.tag.localeCompare(b.tag))
             },
         ],
         assigneeFilterEntries: [
@@ -681,9 +725,25 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             try {
                 const result = await api.conversationsTickets.bulkAddTags(ids, tags)
                 lemonToast.success(`Tagged ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
-                actions.loadTickets()
+                // Patch locally instead of reloading so the selection and tag editor stay open.
+                actions.applyTicketTagPatch(ids, tags, [])
             } catch {
                 lemonToast.error('Failed to add tags')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
+        bulkRemoveTags: async ({ ids, tags }) => {
+            if (tags.length === 0) {
+                return
+            }
+            actions.setBulkUpdating(true)
+            try {
+                const result = await api.conversationsTickets.bulkRemoveTags(ids, tags)
+                lemonToast.success(`Removed tags from ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.applyTicketTagPatch(ids, [], tags)
+            } catch {
+                lemonToast.error('Failed to remove tags')
             } finally {
                 actions.setBulkUpdating(false)
             }

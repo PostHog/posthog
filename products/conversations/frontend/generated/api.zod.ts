@@ -337,6 +337,31 @@ export const ConversationsTicketsBulkAddTagsCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
+ * Remove one or more tags from multiple tickets in a single request.
+ *
+ * Tags not present on a ticket are ignored. Only tickets belonging to the
+ * current team are affected; other-team UUIDs are silently ignored. Each
+ * removed tag is recorded on the ticket's activity timeline by the
+ * TaggedItem model activity signal.
+ */
+export const conversationsTicketsBulkRemoveTagsCreateBodyIdsMax = 500
+
+export const conversationsTicketsBulkRemoveTagsCreateBodyTagsItemMax = 200
+
+export const conversationsTicketsBulkRemoveTagsCreateBodyTagsMax = 50
+
+export const ConversationsTicketsBulkRemoveTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(conversationsTicketsBulkRemoveTagsCreateBodyIdsMax)
+        .describe('List of ticket UUIDs to remove tags from.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsBulkRemoveTagsCreateBodyTagsItemMax))
+        .max(conversationsTicketsBulkRemoveTagsCreateBodyTagsMax)
+        .describe('Tags to remove from every selected ticket. Tags not present on a ticket are ignored.'),
+})
+
+/**
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs

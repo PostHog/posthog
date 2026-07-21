@@ -954,6 +954,27 @@ export interface BulkAddTagsResponseApi {
     ids: string[]
 }
 
+export interface BulkRemoveTagsRequestApi {
+    /**
+     * List of ticket UUIDs to remove tags from.
+     * @maxItems 500
+     */
+    ids: string[]
+    /**
+     * Tags to remove from every selected ticket. Tags not present on a ticket are ignored.
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+    tags: string[]
+}
+
+export interface BulkRemoveTagsResponseApi {
+    /** Number of tickets that had at least one tag removed. */
+    updated: number
+    /** UUIDs of the tickets that had at least one tag removed. */
+    ids: string[]
+}
+
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.

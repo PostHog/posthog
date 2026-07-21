@@ -13309,6 +13309,27 @@ export namespace Schemas {
       notification_ids: string[];
     }
 
+    export interface BulkRemoveTagsRequest {
+      /**
+         * List of ticket UUIDs to remove tags from.
+         * @maxItems 500
+         */
+      ids: string[];
+      /**
+         * Tags to remove from every selected ticket. Tags not present on a ticket are ignored.
+         * @maxItems 50
+         * @items.maxLength 200
+         */
+      tags: string[];
+    }
+
+    export interface BulkRemoveTagsResponse {
+      /** Number of tickets that had at least one tag removed. */
+      updated: number;
+      /** UUIDs of the tickets that had at least one tag removed. */
+      ids: string[];
+    }
+
     /**
      * * `new` - New
      * * `open` - Open

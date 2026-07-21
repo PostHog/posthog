@@ -7128,6 +7128,13 @@ const api = {
                 .create({ data: { ids, tags } })
         },
 
+        async bulkRemoveTags(ids: string[], tags: string[]): Promise<{ updated: number; ids: string[] }> {
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('bulk_remove_tags')
+                .create({ data: { ids, tags } })
+        },
+
         async submitAiFeedback(
             ticketId: string,
             data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }

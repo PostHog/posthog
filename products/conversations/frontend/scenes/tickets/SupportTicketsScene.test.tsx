@@ -88,4 +88,36 @@ describe('SupportTicketsTable selection', () => {
         logic.actions.toggleSelectAllOnPage(pageIds)
         expect(logic.values.selectedTicketIds).toEqual([])
     })
+
+    // Tag state powers the tri-state editor: fully-applied vs partially-applied across the selection.
+    it('marks a tag "all" when every selected ticket has it and "some" otherwise', () => {
+        logic.actions.setTickets([
+            makeTicket({ id: 'ticket-1', ticket_number: 1, tags: ['billing', 'urgent'] }),
+            makeTicket({ id: 'ticket-2', ticket_number: 2, tags: ['billing'] }),
+        ])
+        logic.actions.setSelectedTicketIds(['ticket-1', 'ticket-2'])
+
+        expect(logic.values.selectedTicketTagStates).toEqual([
+            { tag: 'billing', state: 'all' },
+            { tag: 'urgent', state: 'some' },
+        ])
+    })
+
+    // Optimistic patch keeps the selection (and the tag editor) open across edits.
+    it('patches tags on selected tickets without dropping the selection or touching others', () => {
+        logic.actions.setTickets([
+            makeTicket({ id: 'ticket-1', ticket_number: 1, tags: ['old'] }),
+            makeTicket({ id: 'ticket-2', ticket_number: 2, tags: ['old'] }),
+            makeTicket({ id: 'ticket-3', ticket_number: 3, tags: ['keep'] }),
+        ])
+        logic.actions.setSelectedTicketIds(['ticket-1', 'ticket-2'])
+
+        logic.actions.applyTicketTagPatch(['ticket-1', 'ticket-2'], ['new'], ['old'])
+
+        const tagsById = Object.fromEntries(logic.values.tickets.map((t) => [t.id, t.tags]))
+        expect(tagsById['ticket-1']).toEqual(['new'])
+        expect(tagsById['ticket-2']).toEqual(['new'])
+        expect(tagsById['ticket-3']).toEqual(['keep'])
+        expect(logic.values.selectedTicketIds).toEqual(['ticket-1', 'ticket-2'])
+    })
 })
