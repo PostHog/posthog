@@ -5,7 +5,7 @@
 //! ingestion framework's `ok | drop | dlq | redirect` semantics, but the redirect
 //! target set is part of the pipeline's *type* rather than a runtime string — so a
 //! pipeline that can redirect to an unconfigured output fails to compile (see
-//! [`crate::outputs::OutputRegistry::check`]).
+//! [`OutputRegistry::check`](crate::framework::outputs::OutputRegistry::check)).
 
 use std::fmt;
 
@@ -19,8 +19,9 @@ use std::fmt;
 /// for the POC a hand-written const slice is plenty (a derive macro would generate
 /// it in the real framework).
 pub trait Outputs: Copy + Eq + fmt::Debug + 'static {
-    /// Every variant of this output set. Used by [`crate::outputs::OutputRegistry::check`]
-    /// to prove every redirect target has a configured topic.
+    /// Every variant of this output set. Used by
+    /// [`OutputRegistry::check`](crate::framework::outputs::OutputRegistry::check) to
+    /// prove every redirect target has a configured topic.
     const ALL: &'static [Self];
 
     /// Stable name used as a metric label and registry key.
@@ -29,7 +30,8 @@ pub trait Outputs: Copy + Eq + fmt::Debug + 'static {
 
 /// The uninhabited output set: a step declaring `type Outputs = NoOutputs` can never
 /// emit a [`StepResult::Redirect`]. Because it has no values, it lifts into *any*
-/// other output set for free (see [`crate::outputs::IntoOutputs`]).
+/// other output set for free (see
+/// [`IntoOutputs`](crate::framework::chain::IntoOutputs)).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NoOutputs {}
 

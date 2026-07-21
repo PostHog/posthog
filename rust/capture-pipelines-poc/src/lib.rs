@@ -9,29 +9,28 @@
 //! passes tests and `clippy -D warnings`, and reads as the skeleton the real framework
 //! would grow from. See `README.md` for how it maps onto the plan and #70814.
 //!
-//! ## Tour
+//! ## Layout (mirrors the Node ingestion layering)
 //!
-//! - [`result`] — the verdict vocabulary: [`StepResult`](result::StepResult),
-//!   [`Outputs`](result::Outputs), [`NoOutputs`](result::NoOutputs).
-//! - [`step`] — the [`Step`](step::Step) workhorse and its
-//!   [`FallibleStep`](step::FallibleStep) sibling.
-//! - [`chain`] — monomorphized composition: [`Chain`](chain::Chain), the typestate
-//!   [`PipelineBuilder`](chain::PipelineBuilder), and the runnable
-//!   [`Pipeline`](chain::Pipeline).
-//! - [`fail_open`] — turn a fallible step into an infallible one (capture's failure
-//!   philosophy, compile-enforced).
-//! - [`capability`] — minimal-input capability bounds, phase wrappers, and type-level
-//!   lanes. Home of the [`impl_passthrough_caps!`] macro.
-//! - [`fx`] — cross-cutting effects as compile-time capabilities. Home of the
-//!   [`compose_fx!`] macro and the `compile_fail` proof that a missing sink is a
-//!   compile error.
-//! - [`observer`] — read-only verdict hooks composed as tuples. Home of the
-//!   [`impl_observer_tuple!`] macro.
-//! - [`outputs`] — typed redirect targets and the startup-checked
-//!   [`OutputRegistry`](outputs::OutputRegistry).
-//! - [`chunk`] — async chunk stages via native async-fn-in-trait.
-//! - [`demo`] — a small analytics pipeline wired end to end (see the
-//!   `tests/analytics_demo.rs` integration test).
+//! - [`framework`] — the reusable, domain-agnostic machinery. Never references the
+//!   domain layers below.
+//! - [`events`] — the demo event domain: capability traits, phase/enrichment wrappers,
+//!   lane markers, and the boundary [`ParsedEvent`](events::parsed::ParsedEvent).
+//! - [`steps`] — one demo step per file (`validate`, `enrich`, `quota`,
+//!   `restrictions`, `annotate`).
+//! - [`pipeline`] — the composed analytics pipeline: its `Outputs` enum, composed
+//!   effects struct, and builder wiring.
+//!
+//! Dependency direction is one-way: `framework` ← `events` ← `steps` ← `pipeline`.
+//!
+//! ## Design rule: steps are open by default
+//!
+//! A step is generic over its input `In`, bounding only the capability traits it
+//! reads, and generic over the effects struct `Fx`. It may fix a concrete input or
+//! output type **only when there is a good reason, stated in a doc comment** — the
+//! legitimate cases being boundary steps that create the initial type (parse:
+//! bytes → `ParsedEvent`), steps whose job is type-specific aggregation/folding, and
+//! adapters at the pipeline edge. This keeps upstream enrichment from rippling into
+//! every downstream signature (see the `open_extension_*` integration test).
 //!
 //! ## The three macros
 //!
@@ -43,13 +42,17 @@
 
 #![warn(missing_docs)]
 
-pub mod capability;
-pub mod chain;
-pub mod chunk;
-pub mod demo;
-pub mod fail_open;
-pub mod fx;
-pub mod observer;
-pub mod outputs;
-pub mod result;
-pub mod step;
+pub mod events;
+pub mod framework;
+pub mod pipeline;
+pub mod steps;
+
+// Ergonomic re-exports so the framework's core vocabulary is available at short paths.
+pub use framework::chain::{builder, Chain, Identity, IntoOutputs, Pipeline, PipelineBuilder};
+pub use framework::chunk::{run_chunk_stage, run_pipeline, yield_now, ChunkStep};
+pub use framework::fail_open::{FailOpen, FallibleStepExt};
+pub use framework::fx::{HasSink, Warning, WarningEffects, WarningSink};
+pub use framework::observer::{CountingObserver, Observer};
+pub use framework::outputs::{MemProducer, MissingTopic, OutputRegistry, Produce};
+pub use framework::result::{NoOutputs, Outputs, StepResult, VerdictKind};
+pub use framework::step::{FallibleStep, Step};

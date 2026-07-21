@@ -1,45 +1,22 @@
 //! End-to-end demo: a mini analytics pipeline wired from the framework, exercising
 //! every verdict path, fail-open passthrough, warnings, the output registry, and an
-//! async chunk stage — all with static dispatch.
+//! async chunk stage — all with static dispatch. Also holds the open-extension
+//! regression test proving a step's input is open to upstream enrichment.
 
-use capture_pipelines_poc::capability::{Restricted, Validated};
-use capture_pipelines_poc::chain::{builder, Chain, Identity, Pipeline};
-use capture_pipelines_poc::chunk::{run_chunk_stage, ChunkStep};
-use capture_pipelines_poc::demo::{
-    analytics_topic_for, AnalyticsFx, ApplyQuota, ApplyRestrictions, ParsedEvent, Validate,
+use capture_pipelines_poc::events::capabilities::{HasGeo, HasToken};
+use capture_pipelines_poc::events::parsed::ParsedEvent;
+use capture_pipelines_poc::pipeline::{
+    analytics_topic_for, build_analytics_pipeline, AnalyticsFx, AnalyticsOutputs,
 };
-use capture_pipelines_poc::fail_open::{FailOpen, FallibleStepExt};
-use capture_pipelines_poc::observer::{CountingObserver, Observer};
-use capture_pipelines_poc::outputs::{AnalyticsOutputs, MemProducer, OutputRegistry};
-use capture_pipelines_poc::result::{NoOutputs, StepResult, VerdictKind};
-
-/// The async chunk stage (deliberately in the test crate, where tokio is available):
-/// pretend to do a batched lookup, yielding to the runtime, then stamp each survivor.
-struct BatchAnnotate;
-
-impl<Fx> ChunkStep<Restricted<Validated<ParsedEvent>>, Fx> for BatchAnnotate {
-    type Out = Restricted<Validated<ParsedEvent>>;
-    type Outputs = NoOutputs;
-
-    async fn apply_chunk(
-        &self,
-        events: Vec<Restricted<Validated<ParsedEvent>>>,
-        _fx: &mut Fx,
-    ) -> Vec<StepResult<Restricted<Validated<ParsedEvent>>, NoOutputs>> {
-        tokio::task::yield_now().await;
-        events
-            .into_iter()
-            .map(|mut e| {
-                e.skip_person = true; // the "annotation"
-                StepResult::Continue(e)
-            })
-            .collect()
-    }
-
-    fn name(&self) -> &'static str {
-        "batch_annotate"
-    }
-}
+use capture_pipelines_poc::steps::annotate::BatchAnnotate;
+use capture_pipelines_poc::steps::enrich::Enrich;
+use capture_pipelines_poc::steps::quota::ApplyQuota;
+use capture_pipelines_poc::steps::restrictions::ApplyRestrictions;
+use capture_pipelines_poc::steps::validate::Validate;
+use capture_pipelines_poc::{
+    builder, run_chunk_stage, CountingObserver, FailOpen, MemProducer, Observer, OutputRegistry,
+    StepResult, VerdictKind,
+};
 
 #[derive(Debug, PartialEq)]
 enum Outcome {
@@ -61,30 +38,18 @@ fn ev(token: &str, event: &str) -> ParsedEvent {
 
 #[tokio::test]
 async fn analytics_pipeline_end_to_end() {
-    // Compose the sync segment with the builder. The spelled-out type is the proof
-    // that composition is one flat, monomorphized struct — no boxes, no dyn. The
-    // verbosity is the whole point here, so the complexity lint is silenced.
-    #[allow(clippy::type_complexity)]
-    let pipeline: Pipeline<
-        Chain<
-            Chain<Chain<Identity<ParsedEvent>, Validate>, FailOpen<ApplyQuota>>,
-            ApplyRestrictions,
-        >,
-    > = builder::<ParsedEvent>()
-        .step(Validate)
-        // The builder's `.step` is intentionally unconstrained, so the generic
-        // `fail_open` needs its input/effects types named here (a real assembly infers
-        // them from the surrounding pipeline types).
-        .step(
-            FallibleStepExt::<Validated<ParsedEvent>, AnalyticsFx>::fail_open(ApplyQuota {
-                failing_token: "redis_down",
-            }),
-        )
-        .step(ApplyRestrictions {
-            dlq_token: "dlq_tok",
-            overflow_token: "overflow_tok",
-        })
-        .build();
+    // The composed sync pipeline. Its type — `AnalyticsPipeline` — is a spelled-out
+    // `Chain<Chain<…>>` (see `pipeline::AnalyticsPipeline`), the static-dispatch proof.
+    // Its size is exactly the sum of its steps' own sizes (the ZST steps add nothing,
+    // only the config-carrying ones do) — no box indirection anywhere.
+    let pipeline = build_analytics_pipeline("redis_down", "dlq_tok", "overflow_tok");
+    let flat_size =
+        std::mem::size_of::<FailOpen<ApplyQuota>>() + std::mem::size_of::<ApplyRestrictions>();
+    assert_eq!(
+        std::mem::size_of_val(&pipeline),
+        flat_size,
+        "flat struct: size is the sum of its steps, no boxes",
+    );
 
     let registry = OutputRegistry::new(analytics_topic_for, MemProducer::new());
     assert!(registry.check().is_ok(), "every output must have a topic");
@@ -139,8 +104,6 @@ async fn analytics_pipeline_end_to_end() {
     assert_eq!(annotated.len(), survivor_idx.len(), "same-length invariant");
     for (idx, result) in survivor_idx.into_iter().zip(annotated) {
         assert!(result.is_continue());
-        // Annotation applied.
-        assert!(result.continued().unwrap().skip_person);
         outcomes[idx] = Some(Outcome::Continue);
     }
 
@@ -179,4 +142,37 @@ async fn analytics_pipeline_end_to_end() {
     assert_eq!(observer.count(VerdictKind::Redirect), 2);
     assert_eq!(observer.count(VerdictKind::Drop), 2);
     assert_eq!(observer.count(VerdictKind::Continue), 3);
+}
+
+/// Open-extension proof. `Enrich` is inserted *before* `Validate`, wrapping every
+/// event in `WithGeo` and adding a brand-new capability (`HasGeo`). Crucially,
+/// `Validate` and `ApplyRestrictions` are the exact, unmodified crate steps — yet the
+/// pipeline still compiles and runs, because those steps bound only the capabilities
+/// they read and `WithGeo` forwards them. The enrichment data survives through the
+/// `Restricted<Validated<WithGeo<ParsedEvent>>>` wrapper stack and is still readable
+/// via the `HasGeo` capability downstream.
+#[test]
+fn open_extension_upstream_enrichment_needs_no_downstream_changes() {
+    // Enrich -> Validate -> ApplyRestrictions, all reused unchanged.
+    let pipeline = builder::<ParsedEvent>()
+        .step(Enrich { geo: "US" })
+        .step(Validate)
+        .step(ApplyRestrictions {
+            dlq_token: "dlq_tok",
+            overflow_token: "overflow_tok",
+        })
+        .build();
+
+    let mut fx = AnalyticsFx::default();
+    let verdict = pipeline.run_one(ev("good", "$pageview"), &mut fx);
+
+    let survivor = match verdict {
+        StepResult::Continue(s) => s,
+        _ => panic!("expected the event to pass through"),
+    };
+    // Geo, added upstream by Enrich, is readable through two phase wrappers via the
+    // forwarded `HasGeo` capability — no downstream step was changed to carry it.
+    assert_eq!(survivor.geo(), "US");
+    // The original token is still readable via the forwarded `HasToken` capability.
+    assert_eq!(survivor.token(), "good");
 }

@@ -1,43 +1,16 @@
-//! Typed redirect outputs and the [`OutputRegistry`] that maps them to topics.
+//! The [`OutputRegistry`] that maps a pipeline's typed outputs to topics + a producer.
 //!
-//! A pipeline's redirect targets are an `enum` implementing [`Outputs`]. The registry
-//! binds each variant to a topic and a producer, and [`check`](OutputRegistry::check)
-//! proves at startup that *every* variant has a topic — the Rust equivalent of Node's
-//! `outputs.checkTopics()`. Production goes through a generic [`Produce`] bound, so
-//! there is no `Box<dyn Producer>` anywhere; tests use the in-memory [`MemProducer`].
+//! The output *enum* itself is domain data (see
+//! [`AnalyticsOutputs`](crate::pipeline::outputs::AnalyticsOutputs)); this module owns
+//! only the generic machinery. The registry binds each variant to a topic and a
+//! producer, and [`check`](OutputRegistry::check) proves at startup that *every*
+//! variant has a topic — the Rust equivalent of Node's `outputs.checkTopics()`.
+//! Production goes through a generic [`Produce`] bound, so there is no
+//! `Box<dyn Producer>` anywhere; tests use the in-memory [`MemProducer`].
 
-use crate::chain::IntoOutputs;
-use crate::result::Outputs;
+use crate::framework::result::Outputs;
 use std::marker::PhantomData;
 use std::sync::Mutex;
-
-/// The demo analytics pipeline's redirect targets.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AnalyticsOutputs {
-    /// Hot-key overflow lane.
-    Overflow,
-    /// Dead-letter topic.
-    Dlq,
-}
-
-impl Outputs for AnalyticsOutputs {
-    const ALL: &'static [Self] = &[AnalyticsOutputs::Overflow, AnalyticsOutputs::Dlq];
-
-    fn name(&self) -> &'static str {
-        match self {
-            AnalyticsOutputs::Overflow => "overflow",
-            AnalyticsOutputs::Dlq => "dlq",
-        }
-    }
-}
-
-// Identity lift, so a chain ending in `AnalyticsOutputs` unifies with itself. (The
-// `NoOutputs → O` lift is provided blanket-style in `chain`.)
-impl IntoOutputs<AnalyticsOutputs> for AnalyticsOutputs {
-    fn into_outputs(self) -> AnalyticsOutputs {
-        self
-    }
-}
 
 /// A produce sink: hand it a topic and payload, it emits. Generic bound — no trait
 /// objects.
@@ -46,7 +19,8 @@ pub trait Produce {
     fn produce(&self, topic: &'static str, payload: Vec<u8>);
 }
 
-/// An in-memory producer for tests: records every `(topic, payload)` it receives.
+/// An in-memory producer for tests (test-support, not a real transport): records every
+/// `(topic, payload)` it receives.
 #[derive(Default)]
 pub struct MemProducer {
     sent: Mutex<Vec<(&'static str, Vec<u8>)>>,
@@ -141,38 +115,51 @@ impl<O: Outputs, P: Produce> OutputRegistry<O, P> {
 mod tests {
     use super::*;
 
-    fn topic_for(o: AnalyticsOutputs) -> Option<&'static str> {
+    // A local output set, so this generic module needs no domain enum to test.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum TestOut {
+        A,
+        B,
+    }
+    impl Outputs for TestOut {
+        const ALL: &'static [Self] = &[TestOut::A, TestOut::B];
+        fn name(&self) -> &'static str {
+            match self {
+                TestOut::A => "a",
+                TestOut::B => "b",
+            }
+        }
+    }
+
+    fn full(o: TestOut) -> Option<&'static str> {
         match o {
-            AnalyticsOutputs::Overflow => Some("events_overflow"),
-            AnalyticsOutputs::Dlq => Some("events_dlq"),
+            TestOut::A => Some("topic_a"),
+            TestOut::B => Some("topic_b"),
         }
     }
 
     #[test]
     fn check_passes_when_every_output_has_a_topic() {
-        let registry = OutputRegistry::new(topic_for, MemProducer::new());
+        let registry = OutputRegistry::new(full, MemProducer::new());
         assert!(registry.check().is_ok());
     }
 
     #[test]
     fn check_fails_and_names_the_missing_output() {
-        // Overflow deliberately unconfigured.
-        fn partial(o: AnalyticsOutputs) -> Option<&'static str> {
+        fn partial(o: TestOut) -> Option<&'static str> {
             match o {
-                AnalyticsOutputs::Overflow => None,
-                AnalyticsOutputs::Dlq => Some("events_dlq"),
+                TestOut::A => None,
+                TestOut::B => Some("topic_b"),
             }
         }
         let registry = OutputRegistry::new(partial, MemProducer::new());
-        assert_eq!(registry.check(), Err(MissingTopic { output: "overflow" }));
+        assert_eq!(registry.check(), Err(MissingTopic { output: "a" }));
     }
 
     #[test]
     fn emit_records_topic_and_payload() {
-        let registry = OutputRegistry::new(topic_for, MemProducer::new());
-        registry
-            .emit(AnalyticsOutputs::Dlq, b"raw".to_vec())
-            .unwrap();
-        assert_eq!(registry.producer().topics(), vec!["events_dlq"]);
+        let registry = OutputRegistry::new(full, MemProducer::new());
+        registry.emit(TestOut::B, b"raw".to_vec()).unwrap();
+        assert_eq!(registry.producer().topics(), vec!["topic_b"]);
     }
 }

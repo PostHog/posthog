@@ -18,15 +18,16 @@
 //! into itself via a one-line identity impl. This is the simplest scheme that
 //! composes the demo pipeline without type gymnastics.
 
-use crate::result::{NoOutputs, Outputs, StepResult};
-use crate::step::Step;
+use crate::framework::result::{NoOutputs, Outputs, StepResult};
+use crate::framework::step::Step;
 use std::marker::PhantomData;
 
 /// Lift one output set into another when composing a chain.
 ///
 /// Implemented blanket-style for [`NoOutputs`] (which lifts into anything), and as a
 /// one-line identity impl for each concrete output enum (see
-/// [`crate::outputs::AnalyticsOutputs`]). There is deliberately no reflexive blanket
+/// [`AnalyticsOutputs`](crate::pipeline::outputs::AnalyticsOutputs)). There is
+/// deliberately no reflexive blanket
 /// `impl<O> IntoOutputs<O> for O` — it would overlap the `NoOutputs` impl and break
 /// coherence.
 pub trait IntoOutputs<O: Outputs>: Outputs {

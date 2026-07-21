@@ -10,8 +10,33 @@
 //! [`run_pipeline`] demonstrates the execution model the harness uses per batch:
 //! sync segment → await chunk stage → sync segment.
 
-use crate::result::StepResult;
-use crate::step::Step;
+use crate::framework::result::StepResult;
+use crate::framework::step::Step;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+/// A runtime-agnostic "yield once" await point — the std-only stand-in for
+/// `tokio::task::yield_now`, so the library never depends on a specific runtime.
+/// A demo async step awaits this to prove there is a real suspension point at the
+/// chunk boundary.
+pub async fn yield_now() {
+    /// Resolves `Pending` exactly once, then `Ready`.
+    struct YieldOnce(bool);
+    impl Future for YieldOnce {
+        type Output = ();
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+            if self.0 {
+                Poll::Ready(())
+            } else {
+                self.0 = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        }
+    }
+    YieldOnce(false).await
+}
 
 /// An asynchronous, chunk-scoped step. `apply_chunk` gets every survivor of the
 /// preceding sync segment and must return exactly one verdict per input.
@@ -23,7 +48,7 @@ pub trait ChunkStep<In, Fx> {
     /// The event state produced on `Continue`.
     type Out;
     /// The redirect targets this step can emit.
-    type Outputs: crate::result::Outputs;
+    type Outputs: crate::framework::result::Outputs;
 
     /// Process the whole chunk. The returned vector MUST be the same length as
     /// `events`, with verdict `i` corresponding to input `i`.
@@ -63,8 +88,8 @@ where
 /// and their post-stage verdicts are merged back positionally, so order is preserved
 /// end to end.
 ///
-/// `Mid` is the type flowing between the sync segment and the chunk stage (the chunk
-/// stage passes events through unchanged here, keeping the demo focused on ordering).
+/// The chunk stage passes events through unchanged here, keeping the demo focused on
+/// ordering.
 pub async fn run_pipeline<In, Fx, S1, C, S2>(
     sync_head: &S1,
     chunk: &C,
@@ -128,7 +153,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::result::NoOutputs;
+    use crate::framework::result::NoOutputs;
 
     // A demo async chunk step: pretend to do a batched lookup, yielding to the runtime
     // mid-flight, then annotate each event by doubling it.
@@ -143,7 +168,7 @@ mod tests {
             events: Vec<u32>,
             _fx: &mut Fx,
         ) -> Vec<StepResult<u32, NoOutputs>> {
-            tokio::task::yield_now().await; // an await point at the chunk boundary
+            yield_now().await; // an await point at the chunk boundary
             events
                 .into_iter()
                 .map(|e| StepResult::Continue(e * 2))

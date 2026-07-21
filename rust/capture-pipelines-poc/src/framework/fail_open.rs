@@ -11,8 +11,8 @@
 //! keep a cheap clone as the fallback. That is the one simplification here; the real
 //! framework would additionally `catch_unwind` per event for panic isolation.
 
-use crate::result::StepResult;
-use crate::step::{FallibleStep, Step};
+use crate::framework::result::StepResult;
+use crate::framework::step::{FallibleStep, Step};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Wraps a fallible pure-filter step, making it infallible by passing the event
@@ -76,7 +76,7 @@ impl<In, Fx, S> FallibleStepExt<In, Fx> for S where S: FallibleStep<In, Fx> {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::result::NoOutputs;
+    use crate::framework::result::NoOutputs;
 
     // A limiter that errors for one token (simulating Redis being down) and otherwise
     // drops "over_quota" events.

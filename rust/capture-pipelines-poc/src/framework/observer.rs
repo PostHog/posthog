@@ -10,7 +10,7 @@
 //! composed observer is a concrete tuple type, dispatch stays static — the runner is
 //! generic over `O: Observer`, monomorphized per pipeline.
 
-use crate::result::VerdictKind;
+use crate::framework::result::VerdictKind;
 
 /// A read-only hook invoked once per event with the deciding step's name and verdict.
 pub trait Observer {
@@ -31,13 +31,20 @@ impl<T: Observer + ?Sized> Observer for &T {
 #[macro_export]
 macro_rules! impl_observer_tuple {
     () => {
-        impl $crate::observer::Observer for () {
-            fn on_verdict(&self, _step: &'static str, _verdict: $crate::result::VerdictKind) {}
+        impl $crate::framework::observer::Observer for () {
+            fn on_verdict(
+                &self,
+                _step: &'static str,
+                _verdict: $crate::framework::result::VerdictKind,
+            ) {
+            }
         }
     };
     ($($t:ident),+) => {
-        impl<$($t: $crate::observer::Observer),+> $crate::observer::Observer for ($($t,)+) {
-            fn on_verdict(&self, step: &'static str, verdict: $crate::result::VerdictKind) {
+        impl<$($t: $crate::framework::observer::Observer),+>
+            $crate::framework::observer::Observer for ($($t,)+)
+        {
+            fn on_verdict(&self, step: &'static str, verdict: $crate::framework::result::VerdictKind) {
                 #[allow(non_snake_case)]
                 let ($($t,)+) = self;
                 $( $t.on_verdict(step, verdict); )+

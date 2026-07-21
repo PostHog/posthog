@@ -81,7 +81,7 @@ impl<Fx: HasSink<WarningSink>> WarningEffects for Fx {
 ///
 /// ```
 /// use capture_pipelines_poc::compose_fx;
-/// use capture_pipelines_poc::fx::{WarningSink, WarningEffects};
+/// use capture_pipelines_poc::{WarningSink, WarningEffects};
 ///
 /// compose_fx!(MyFx { warnings: WarningSink });
 ///
@@ -94,7 +94,7 @@ impl<Fx: HasSink<WarningSink>> WarningEffects for Fx {
 ///
 /// ```compile_fail
 /// use capture_pipelines_poc::compose_fx;
-/// use capture_pipelines_poc::fx::WarningEffects;
+/// use capture_pipelines_poc::WarningEffects;
 ///
 /// // An Fx with NO warning sink registered.
 /// compose_fx!(BareFx {});
@@ -115,7 +115,7 @@ macro_rules! compose_fx {
         }
 
         $(
-            impl $crate::fx::HasSink<$sink> for $name {
+            impl $crate::framework::fx::HasSink<$sink> for $name {
                 fn sink(&mut self) -> &mut $sink {
                     &mut self.$field
                 }

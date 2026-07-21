@@ -8,18 +8,18 @@
 //!
 //! Steps that genuinely can fail (a Redis-backed limiter, say) implement
 //! [`FallibleStep`] instead, and must be wrapped with
-//! [`fail_open`](crate::fail_open::FallibleStepExt::fail_open) before they can join
-//! an infallible chain. Fallibility is *unrepresentable* in a capture chain unless
-//! it has been explicitly neutralized.
+//! [`fail_open`](crate::framework::fail_open::FallibleStepExt::fail_open) before they
+//! can join an infallible chain. Fallibility is *unrepresentable* in a capture chain
+//! unless it has been explicitly neutralized.
 
-use crate::result::{Outputs, StepResult};
+use crate::framework::result::{Outputs, StepResult};
 
 /// A synchronous, infallible, per-event step — the framework's workhorse.
 ///
 /// `In` is the input event state; `Out` is the (possibly enriched or type-changed)
 /// output state. `Fx` is the pipeline's composed effects struct — steps constrain it
 /// with capability bounds (e.g. `Fx: WarningEffects`) rather than the framework
-/// hardcoding cross-cutting concerns into the event type. See [`crate::fx`].
+/// hardcoding cross-cutting concerns into the event type. See [`crate::framework::fx`].
 ///
 /// Type-changing steps (`In` → `Out`) model phase progression: a step that needs the
 /// team takes `WithTeam`, one that needs only the token takes anything `HasToken`.
@@ -44,7 +44,7 @@ pub trait Step<In, Fx> {
 /// error channel is for infrastructure failures, not policy verdicts (those are
 /// still `Drop`/`Dlq`/`Redirect`). A `FallibleStep` cannot join a capture chain
 /// directly — it must first be wrapped by
-/// [`fail_open`](crate::fail_open::FallibleStepExt::fail_open), which converts any
+/// [`fail_open`](crate::framework::fail_open::FallibleStepExt::fail_open), which converts any
 /// `Err` into "pass the event through unchanged" plus a counter bump.
 pub trait FallibleStep<In, Fx> {
     /// The event state this step produces on `Continue`.

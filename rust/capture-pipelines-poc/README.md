@@ -32,9 +32,9 @@ interface. That is the one thing this crate deliberately does differently. Here:
 The public vocabulary matches the plan page and the design doc (§3.2–3.4):
 `Step`, `FallibleStep`, `StepResult`, `Outputs`/`NoOutputs`, `OutputRegistry`,
 `fail_open`, `HasSink`, and the capability traits `HasToken` / `HasEventName` /
-`HasDistinctId` / `HasTimestamp` / `HasLane`. The demo pipeline mirrors the plan's
-step templates: `Validate` → `ApplyQuota.fail_open()` → `ApplyRestrictions` → an async
-`BatchAnnotate` chunk stage.
+`HasDistinctId` / `HasTimestamp` / `HasTeamId` / `HasLane` (plus a demo `HasGeo`
+enrichment capability). The demo pipeline mirrors the plan's step templates: `Validate`
+→ `ApplyQuota.fail_open()` → `ApplyRestrictions` → an async `BatchAnnotate` chunk stage.
 
 Three properties from the design are made *structural* here:
 
@@ -48,25 +48,56 @@ Three properties from the design are made *structural* here:
   (`HasLane<Lane = Main>`), so an overflow step simply cannot accept a
   `Laned<_, Historical>` — it's a type error, not a runtime guard.
 
-## Module tour
+## Steps are open by default
 
-| Module | Contents |
-|---|---|
-| `result` | `StepResult`, `Outputs`, `NoOutputs`, `VerdictKind` |
-| `step` | `Step` (infallible workhorse), `FallibleStep` |
-| `chain` | `Chain`, `IntoOutputs`, typestate `PipelineBuilder`, `Pipeline` runner |
-| `fail_open` | `FailOpen<S>` + the `.fail_open()` extension method |
-| `capability` | capability traits, phase wrappers, lane markers, **`impl_passthrough_caps!`** |
-| `fx` | `HasSink`, `WarningSink`, `WarningEffects`, **`compose_fx!`** |
-| `observer` | `Observer`, `CountingObserver`, **`impl_observer_tuple!`** |
-| `outputs` | `AnalyticsOutputs`, `Produce`, `MemProducer`, `OutputRegistry` |
-| `chunk` | `ChunkStep` (native async-fn-in-trait), sync→chunk→sync runner |
-| `demo` | the analytics demo steps, reused by `tests/analytics_demo.rs` |
+A step is generic over its input `In`, bounding only the capability traits it reads
+(`In: HasToken + HasEventName`, never `In = ParsedEvent`), and generic over the effects
+struct `Fx`. This is the Node framework's "input open to extension" property: an
+upstream step can *enrich* an event — wrapping it to add a field or a whole new
+capability — and every downstream step keeps compiling unchanged, because none of them
+named the concrete type. A step may fix a concrete input or output type **only when
+there is a good reason, stated in a doc comment** — the legitimate cases being boundary
+steps that create the initial type (`ParsedEvent` at intake), steps whose job is
+type-specific aggregation/folding, and adapters at the pipeline edge. `enrich`'s
+concrete *output* wrapper is exactly the "creates a new capability layer" case; every
+other demo step is fully open. The `open_extension_*` integration test inserts `Enrich`
+ahead of the unmodified `Validate`/`ApplyRestrictions` steps and proves the enrichment
+survives to the end.
+
+## Layout
+
+The crate mirrors the Node ingestion layering, one primary abstraction per file, with a
+strictly one-way dependency direction `framework ← events ← steps ← pipeline`.
+
+```text
+src/
+  lib.rs                  crate docs + module tree + ergonomic re-exports
+  framework/              reusable, domain-agnostic machinery (never references the domain layers)
+    result.rs             StepResult, Outputs, NoOutputs, VerdictKind
+    step.rs               Step (infallible workhorse), FallibleStep
+    chain.rs              Chain, IntoOutputs, Identity, typestate PipelineBuilder, Pipeline runner
+    chunk.rs              ChunkStep (native async-fn-in-trait), yield_now, sync→chunk→sync runner
+    fail_open.rs          FailOpen<S> + the .fail_open() extension method
+    extend.rs             impl_passthrough_caps! — generic wrapper/openness machinery
+    fx.rs                 HasSink, WarningSink, WarningEffects, compose_fx!
+    observer.rs           Observer, CountingObserver, impl_observer_tuple!
+    outputs.rs            Produce, MemProducer, OutputRegistry (generic; no domain enum)
+  events/                 the demo event domain
+    capabilities.rs       HasToken/EventName/DistinctId/Timestamp/TeamId/Geo/Lane + lane markers
+    wrappers.rs           Validated, Restricted, WithGeo, Laned + capability forwarding
+    parsed.rs             ParsedEvent (a legitimate concrete boundary type)
+  steps/                  one demo step per file
+    validate.rs  enrich.rs  quota.rs  restrictions.rs  annotate.rs (async chunk step)
+  pipeline/               the composed analytics pipeline
+    mod.rs                AnalyticsFx (compose_fx!), AnalyticsPipeline type alias, builder wiring
+    outputs.rs            AnalyticsOutputs enum + topic map
+```
 
 The three `macro_rules!` macros each eliminate one class of boilerplate that a derive
 macro would generate in the real framework: capability forwarding through wrappers
-(`impl_passthrough_caps!`), `HasSink` wiring for a composed effects struct
-(`compose_fx!`), and `Observer` impls for tuple composition (`impl_observer_tuple!`).
+(`impl_passthrough_caps!`, kept domain-agnostic — it takes the trait/accessor list as
+arguments), `HasSink` wiring for a composed effects struct (`compose_fx!`), and
+`Observer` impls for tuple composition (`impl_observer_tuple!`).
 
 ## Running
 
@@ -111,11 +142,12 @@ corners:
   in. `NoOutputs → O` is free (uninhabited); a concrete enum needs a one-line identity
   impl (`impl IntoOutputs<AnalyticsOutputs> for AnalyticsOutputs`). There is no
   reflexive blanket impl — it would overlap the `NoOutputs` impl and break coherence.
-- **Two generic extension methods need type annotations at the call site.** Because
-  `FallibleStepExt<In, Fx>` and the builder's unconstrained `.step` don't pin `In`/`Fx`
-  locally, `.fail_open()` occasionally needs `FallibleStepExt::<In, Fx>::fail_open(..)`.
-  In a real pipeline assembly these are inferred from the surrounding step types; the
-  annotations only appear in isolated unit-test snippets.
+- **`.fail_open()` needs its `In`/`Fx` named where the builder can't infer them.**
+  `FallibleStepExt<In, Fx>` is generic and the builder's `.step` is intentionally
+  unconstrained, so wiring a fallible step into a builder chain uses
+  `FallibleStepExt::<In, Fx>::fail_open(..)` (see `build_analytics_pipeline`). The
+  return-type alias then pins the whole composed shape, so this appears once at the
+  assembly site, not at every call.
 - **`async_fn_in_trait` lint allowed crate-wide.** `ChunkStep` is a public trait with an
   `async fn`; the lint guards against auto-trait (`Send`) leakage, which a
   single-threaded demo doesn't need. The real framework would spell the `Send` bound out
