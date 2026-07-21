@@ -15,12 +15,26 @@
 //! feature flag access, even though this endpoint can return decrypted payloads. OAuth
 //! access tokens are also not accepted — any non-`phs_` bearer goes through personal-key
 //! validation and gets 401; only `phs_` and `phx_` credentials work.
+//!
+//! Supports `If-None-Match` conditional requests like `/flags/definitions`, but with a
+//! content-derived ETag: no cache backs this endpoint (the payload is read from Postgres
+//! per request), so the etag is a hash of the exact response body computed after payload
+//! resolution. That makes it caller-dependent by construction — a secret-key caller's
+//! redacted body and a personal-key caller's decrypted body hash to different etags, so a
+//! 304 never validates one credential class's cached body against the other's. A match
+//! saves the body transfer, not the DB read.
+//!
+//! Because the body varies by `Authorization` at the same URL, responses carry
+//! `Cache-Control: private, no-cache` (revalidate on every reuse, not just when stale)
+//! and `Vary: Authorization` — otherwise a private cache primed by a personal-key
+//! request could replay the decrypted body to a secret-key caller without ever hitting
+//! the etag check.
 
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
     flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
-    metrics::consts::REMOTE_CONFIG_AUTH_COUNTER,
+    metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
     router::State as AppState,
     team::team_models::Team,
 };
@@ -28,12 +42,18 @@ use axum::{
     debug_handler,
     extract::{Path, Query, State},
     http::{HeaderMap, Method, StatusCode},
-    response::{IntoResponse, Json, Response},
+    response::{IntoResponse, Response},
 };
 use common_metrics::inc;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
+
+/// The body varies by `Authorization` at the same URL (decrypted vs redacted), so caches
+/// must revalidate on every reuse (`no-cache`, stronger than the sibling endpoint's
+/// `must-revalidate`) and key entries by credential (`Vary: Authorization`).
+const CACHE_CONTROL: &str = "private, no-cache";
+const VARY: &str = "Authorization";
 
 /// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
 /// as the URL segment; the token resolves the project, matching Django. `api_key` is Django's
@@ -192,10 +212,76 @@ pub async fn remote_config(
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
     // string nulls out too.
-    match payload.filter(|v| !is_falsy(v)) {
-        Some(v) => Ok(Json(v).into_response()),
-        None => Ok(empty_ok_no_content_type()),
+    let payload = payload.filter(|v| !is_falsy(v));
+
+    // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
+    // etag hashes the exact bytes the client receives (empty payloads hash the empty body).
+    let body = payload.as_ref().map(Value::to_string).unwrap_or_default();
+    let current_etag = compute_etag(&body);
+
+    let client_etag = flag_definitions::extract_etag_from_header(headers.get("if-none-match"));
+    if client_etag.as_deref() == Some(current_etag.as_str()) {
+        inc(
+            REMOTE_CONFIG_ETAG_COUNTER,
+            &[("result".to_string(), "hit".to_string())],
+            1,
+        );
+        return Ok(not_modified(&current_etag));
     }
+    inc(
+        REMOTE_CONFIG_ETAG_COUNTER,
+        &[(
+            "result".to_string(),
+            if client_etag.is_some() {
+                "miss"
+            } else {
+                "none"
+            }
+            .to_string(),
+        )],
+        1,
+    );
+
+    match payload {
+        Some(_) => Ok(json_ok_with_etag(body, &current_etag)),
+        None => Ok(empty_ok_no_content_type(&current_etag)),
+    }
+}
+
+/// Content-derived ETag over the exact response body, using the same HyperCache helper
+/// that produces `/flags/definitions` etags, so SDKs see one etag format across both
+/// endpoints.
+fn compute_etag(body: &str) -> String {
+    common_hypercache::writer::compute_etag(body)
+}
+
+/// The ETag/Cache-Control/Vary trio every response carries. Shared so the credential
+/// isolation (`no-cache` + `Vary: Authorization`) can't silently drop off one response
+/// path while surviving on the others.
+fn revalidation_headers(etag: &str) -> [(&'static str, String); 3] {
+    [
+        ("etag", flag_definitions::format_weak_etag(etag)),
+        ("cache-control", CACHE_CONTROL.to_string()),
+        ("vary", VARY.to_string()),
+    ]
+}
+
+/// 200 with a pre-serialized JSON body plus the revalidation headers.
+fn json_ok_with_etag(body: String, etag: &str) -> Response {
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        revalidation_headers(etag),
+        body,
+    )
+        .into_response()
+}
+
+/// 304 carrying the same revalidation headers as the 200s — not the sibling endpoint's
+/// `not_modified_response`, whose `must-revalidate` would weaken the stored entry's
+/// policy when a cache updates its headers from the 304.
+fn not_modified(etag: &str) -> Response {
+    (StatusCode::NOT_MODIFIED, revalidation_headers(etag)).into_response()
 }
 
 /// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
@@ -223,9 +309,10 @@ fn resolve_decrypted_payload(
 }
 
 /// 200 with an empty body and no Content-Type (NOT a JSON `null`), matching DRF's `Response(None)`:
-/// the renderer emits no bytes and DRF then deletes the Content-Type header.
-fn empty_ok_no_content_type() -> Response {
-    StatusCode::OK.into_response()
+/// the renderer emits no bytes and DRF then deletes the Content-Type header. Still carries the
+/// revalidation headers so a client polling a not-yet-set payload can 304 too.
+fn empty_ok_no_content_type(etag: &str) -> Response {
+    (StatusCode::OK, revalidation_headers(etag)).into_response()
 }
 
 /// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
