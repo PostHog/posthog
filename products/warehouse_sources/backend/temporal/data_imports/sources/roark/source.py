@@ -132,6 +132,8 @@ Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is 
         return roark_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Roark endpoint is full refresh
         )

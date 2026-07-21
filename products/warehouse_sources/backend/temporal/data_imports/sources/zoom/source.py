@@ -106,7 +106,8 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             client_id=config.client_id,
             client_secret=config.client_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 
