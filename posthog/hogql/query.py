@@ -65,6 +65,7 @@ from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringR
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -736,28 +737,33 @@ class HogQLQueryExecutor:
             if not query_reads_events_without_timestamp_filter(self.select_query):
                 return
             tags = get_query_tags()
-            # Non-blocking capture on the global client: this runs on the synchronous query path,
-            # before the ClickHouse query, so it must never block. The SDK enqueues to a background
-            # consumer and returns immediately — a scoped client's flush-on-exit would instead do an
-            # unbounded wait that could stall a flagged query for minutes if ingestion is degraded.
-            posthoganalytics.capture(
-                distinct_id=str(tags.team_id or self.team.pk),
-                event="unbounded events query",
-                properties={
-                    "team_id": self.team.pk,
-                    "query_type": self.query_type,
-                    "access_method": tags.access_method,
-                    "product": tags.product,
-                    "feature": tags.feature,
-                    "insight_id": tags.insight_id,
-                    "dashboard_id": tags.dashboard_id,
-                    "session_id": tags.session_id,
-                    "client_query_id": tags.client_query_id,
-                    "scene": tags.scene,
-                    "$process_person_profile": False,
-                },
-                groups={"organization": str(tags.org_id)} if tags.org_id else None,
-            )
+            distinct_id = str(self.team.pk)
+            event = "unbounded events query"
+            properties = {
+                "team_id": self.team.pk,
+                "query_type": self.query_type,
+                "access_method": tags.access_method,
+                "product": tags.product,
+                "feature": tags.feature,
+                "insight_id": tags.insight_id,
+                "dashboard_id": tags.dashboard_id,
+                "session_id": tags.session_id,
+                "client_query_id": tags.client_query_id,
+                "scene": tags.scene,
+                "$process_person_profile": False,
+            }
+            groups = {"organization": str(tags.org_id)} if tags.org_id else None
+
+            # On the synchronous web-request path capture must never block — this runs before the
+            # ClickHouse query — so use the global client, which enqueues to a background consumer and
+            # returns immediately. Everything else (Celery/Temporal/Dagster) runs where that background
+            # flush may never happen before the worker exits, silently dropping the event — exactly the
+            # shared/embedded-dashboard recalc path this telemetry targets — so flush before exit there.
+            if tags.kind == "request":
+                posthoganalytics.capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
+            else:
+                with ph_scoped_capture() as capture:
+                    capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
         except Exception as e:
             capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
 
