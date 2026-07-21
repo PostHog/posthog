@@ -1,15 +1,15 @@
 import json
 import time
 import uuid
-from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
-from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -21,10 +21,11 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import AlertState
+from posthog.utils import relative_date_parse
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
-from products.slack_app.backend.api import _extract_alert_snooze_hint, _handle_insight_alert_snooze
+from products.slack_app.backend.api import _extract_alert_snooze_hints, _handle_insight_alert_snooze
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 if TYPE_CHECKING:
@@ -922,7 +923,7 @@ class TestSignalsDismissReport(TestCase):
         )
 
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_dismiss_suppresses_report_and_writes_artefact(self, mock_config, mock_requests_post, mock_is_org_member):
         from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -943,7 +944,7 @@ class TestSignalsDismissReport(TestCase):
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
 
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_dismiss_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
         from products.signals.backend.models import SignalReport
@@ -958,7 +959,7 @@ class TestSignalsDismissReport(TestCase):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY  # not suppressed
 
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_dismiss_ignores_report_from_another_team(self, mock_config, mock_requests_post):
         from products.signals.backend.models import SignalReport
@@ -1033,37 +1034,39 @@ class TestInsightAlertSnooze(TestCase):
             HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
         )
 
-    @parameterized.expand(
-        [
-            ("1h", timedelta(hours=1)),
-            ("1d", timedelta(days=1)),
-            ("1w", timedelta(weeks=1)),
-        ]
-    )
+    @parameterized.expand(["1h", "1d", "1w"])
+    @freeze_time("2026-07-21T12:34:56Z")
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_sets_state_and_snoozed_until(
-        self, duration_token, expected_delta, mock_config, mock_requests_post, mock_is_org_member
+        self, duration_token, mock_config, mock_requests_post, mock_is_org_member
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_is_org_member.return_value = self.user
 
-        before = timezone.now()
+        # Duration tokens use the same relative_date_parse call (with always_truncate) as the
+        # alerts REST API's snooze path, so "1d"/"1w" snap to a UTC day boundary rather than
+        # landing exactly 24h/7d from the click — this locks in that the Slack path means the
+        # same thing the API does for the same token.
+        expected_snoozed_until = relative_date_parse(
+            duration_token, ZoneInfo("UTC"), increase=True, always_truncate=True
+        )
         response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|{duration_token}"))
 
         assert response.status_code == 200
         self.alert.refresh_from_db()
         assert self.alert.state == AlertState.SNOOZED
-        assert self.alert.snoozed_until is not None
-        assert abs((self.alert.snoozed_until - (before + expected_delta)).total_seconds()) < 30
+        assert self.alert.snoozed_until == expected_snoozed_until
 
         assert AlertCheck.objects.filter(alert_configuration=self.alert, state=AlertState.SNOOZED).exists()
 
         # Attributed to the resolved Slack clicker, not left blank — activity_storage has no
         # user set in a webhook request, so this only passes if the handler attributes the save.
-        activity_log = ActivityLog.objects.filter(scope="AlertConfiguration", item_id=str(self.alert.id)).latest(
-            "created_at"
+        # Filtered to "updated" specifically since setUp's alert creation also logs an entry
+        # (with no actor) under the same scope/item_id.
+        activity_log = ActivityLog.objects.get(
+            scope="AlertConfiguration", item_id=str(self.alert.id), activity="updated"
         )
         assert activity_log.user_id == self.user.id
 
@@ -1073,7 +1076,7 @@ class TestInsightAlertSnooze(TestCase):
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
 
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -1087,7 +1090,7 @@ class TestInsightAlertSnooze(TestCase):
         assert self.alert.snoozed_until is None
         mock_requests_post.assert_not_called()
 
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_ignores_integration_from_another_team(self, mock_config, mock_requests_post):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -1104,7 +1107,7 @@ class TestInsightAlertSnooze(TestCase):
         mock_requests_post.assert_not_called()
 
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_refuses_without_project_membership(self, mock_config, mock_requests_post, mock_is_org_member):
         # A non-admin org member with no explicit membership in a private project must be
@@ -1135,7 +1138,7 @@ class TestInsightAlertSnooze(TestCase):
         mock_requests_post.assert_not_called()
 
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_refuses_without_insight_access(self, mock_config, mock_requests_post, mock_is_org_member):
         # Project membership doesn't imply access to every insight in it — mirrors the real
@@ -1167,7 +1170,7 @@ class TestInsightAlertSnooze(TestCase):
         mock_requests_post.assert_not_called()
 
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_disabled_alert_is_a_noop(self, mock_config, mock_requests_post, mock_is_org_member):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -1185,10 +1188,10 @@ class TestInsightAlertSnooze(TestCase):
             == "This alert is disabled, so there is nothing to snooze."
         )
 
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_malformed_value_is_dropped_before_reaching_handler(self, mock_config, mock_requests_post):
-        # _extract_alert_snooze_hint returns None for a value it can't parse, so the routing
+        # _extract_alert_snooze_hints returns None for a value it can't parse, so the routing
         # check never claims locality and the payload is dropped before _handle_insight_alert_snooze
         # runs at all. This only proves the endpoint doesn't crash on garbage input — the guards
         # inside the handler itself are covered directly in TestHandleInsightAlertSnoozeGuards.
@@ -1244,7 +1247,7 @@ class TestHandleInsightAlertSnoozeGuards(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     def test_guard_rejects_without_mutation(self, _name, value, mock_requests_post, mock_is_org_member):
         mock_is_org_member.return_value = self.user
 
@@ -1257,13 +1260,13 @@ class TestHandleInsightAlertSnoozeGuards(TestCase):
         mock_requests_post.assert_not_called()
 
 
-class TestExtractAlertSnoozeHint(TestCase):
+class TestExtractAlertSnoozeHints(TestCase):
     def _payload(self, value: str) -> dict:
         return {"actions": [{"action_id": "insight_alert_snooze", "value": value}]}
 
     def test_returns_uuid_for_valid_payload(self):
         alert_id = uuid.uuid4()
-        result = _extract_alert_snooze_hint(self._payload(f"{alert_id}|1d"))
+        result = _extract_alert_snooze_hints(self._payload(f"{alert_id}|1d"))
         assert result == alert_id
 
     @parameterized.expand(
@@ -1276,4 +1279,4 @@ class TestExtractAlertSnoozeHint(TestCase):
     )
     def test_returns_none_for_garbage(self, _name, value):
         payload = self._payload(value) if value is not None else {"actions": []}
-        assert _extract_alert_snooze_hint(payload) is None
+        assert _extract_alert_snooze_hints(payload) is None

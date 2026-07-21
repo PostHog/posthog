@@ -5,7 +5,6 @@ import uuid
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
@@ -25,7 +24,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
-from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     GitHubIntegration,
@@ -38,7 +36,6 @@ from posthog.models.integration import (
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -59,7 +56,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
-from products.alerts.backend.models.alert import AlertConfiguration
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
@@ -3289,40 +3285,48 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
-    """Best-effort: replace the original message so it reads as dismissed."""
+def _replace_message_stripping_actions(payload: dict, text: str, *, keep_link_buttons: bool = True) -> None:
+    """Best-effort: replace the original message's interactive buttons with a context line.
+
+    When keep_link_buttons is True, link buttons (elements with a "url" key, e.g. "View in
+    PostHog") are preserved instead of being dropped along with the interactive ones.
+    """
     response_url = payload.get("response_url")
     if not response_url:
         return
 
+    original_message = payload.get("message", {})
+    kept_blocks = []
+    for block in original_message.get("blocks", []):
+        if block.get("type") != "actions":
+            kept_blocks.append(block)
+            continue
+        if keep_link_buttons:
+            kept_elements = [el for el in block.get("elements", []) if "url" in el]
+            if kept_elements:
+                kept_blocks.append({**block, "elements": kept_elements})
+    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
+
+    inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text, "blocks": kept_blocks})
+
+
+def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
+    """Best-effort: replace the original message so it reads as dismissed."""
     if dismissed:
         actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
         text = f"✅ Dismissed by {actor}"
     else:
         text = "This report could not be dismissed — it may already be resolved or removed."
 
-    original_message = payload.get("message", {})
-    kept_blocks = [b for b in original_message.get("blocks", []) if b.get("type") != "actions"]
-    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
-
-    try:
-        requests.post(
-            response_url,
-            json={"replace_original": True, "text": text, "blocks": kept_blocks},
-            timeout=5,
-        )
-    except requests.RequestException as e:
-        logger.warning("signals_dismiss_report_feedback_failed", error=str(e))
+    # keep_link_buttons=False: historical dismiss-capable messages carried "Review PR"/"Open in
+    # PostHog" link buttons in the same actions block as Dismiss (see the pre-removal
+    # slack_inbox_notifications.py block construction), so dropping the whole block here matches
+    # existing behavior rather than the default.
+    _replace_message_stripping_actions(payload, text, keep_link_buttons=False)
 
 
 # Snoozes an insight alert from the button on its firing Slack message.
 INSIGHT_ALERT_SNOOZE_ACTION_ID = "insight_alert_snooze"
-
-INSIGHT_ALERT_SNOOZE_DURATIONS: dict[str, timedelta] = {
-    "1h": timedelta(hours=1),
-    "1d": timedelta(days=1),
-    "1w": timedelta(weeks=1),
-}
 
 INSIGHT_ALERT_SNOOZE_DURATION_LABELS: dict[str, str] = {
     "1h": "1 hour",
@@ -3340,7 +3344,7 @@ def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | Non
     if len(parts) != 2:
         return None
     alert_uuid_str, duration = parts
-    if duration not in INSIGHT_ALERT_SNOOZE_DURATIONS:
+    if duration not in INSIGHT_ALERT_SNOOZE_DURATION_LABELS:
         return None
     try:
         alert_uuid = uuid.UUID(alert_uuid_str)
@@ -3349,7 +3353,7 @@ def _parse_insight_alert_snooze_value(value: str) -> tuple[uuid.UUID, str] | Non
     return alert_uuid, duration
 
 
-def _extract_alert_snooze_hint(payload: dict) -> uuid.UUID | None:
+def _extract_alert_snooze_hints(payload: dict) -> uuid.UUID | None:
     """Alert UUID carried by the snooze button, used for region-ownership routing."""
     action = _insight_alert_snooze_action(payload)
     if not action:
@@ -3361,35 +3365,13 @@ def _extract_alert_snooze_hint(payload: dict) -> uuid.UUID | None:
     return parsed[0] if parsed else None
 
 
-def _post_insight_alert_snooze_feedback(payload: dict, *, text: str) -> None:
-    """Best-effort: replace the original message so it reads as snoozed (or explains why not)."""
-    response_url = payload.get("response_url")
-    if not response_url:
-        return
-
-    original_message = payload.get("message", {})
-    kept_blocks = []
-    for block in original_message.get("blocks", []):
-        if block.get("type") != "actions":
-            kept_blocks.append(block)
-            continue
-        kept_elements = [el for el in block.get("elements", []) if "url" in el]
-        if kept_elements:
-            kept_blocks.append({**block, "elements": kept_elements})
-    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
-
-    try:
-        requests.post(
-            response_url,
-            json={"replace_original": True, "text": text, "blocks": kept_blocks},
-            timeout=5,
-        )
-    except requests.RequestException as e:
-        logger.warning("insight_alert_snooze_feedback_failed", error=str(e))
-
-
 def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
-    """Snooze an insight alert when a user clicks 'Snooze' on its firing Slack message."""
+    """Snooze an insight alert when a user clicks 'Snooze' on its firing Slack message.
+
+    Only Slack-side concerns live here (parsing, workspace-integration match, org membership) —
+    alert-side authorization and the mutation itself belong to products.alerts and are reached
+    through its facade, never a direct cross-product model import (see tach.toml).
+    """
     action = _insight_alert_snooze_action(payload)
     slack_team_id = payload.get("team", {}).get("id")
     if not action or not slack_team_id:
@@ -3405,13 +3387,13 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
     alert_uuid, duration = parsed
 
-    try:
-        # Slack webhook: no team context, and the button value is untrusted — it originates
-        # from user-editable hog function config. Authorization is derived below from the
-        # alert row itself (workspace-integration match + org-member gate), not from the value.
-        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
-        alert = AlertConfiguration.objects.select_related("insight", "team").get(id=alert_uuid)
-    except AlertConfiguration.DoesNotExist:
+    from products.alerts.backend.facade.api import (  # noqa: PLC0415 — cross-product calls kept off the slack import path
+        get_alert_team_id,
+        snooze_alert_from_slack,
+    )
+
+    alert_team_id = get_alert_team_id(alert_uuid)
+    if alert_team_id is None:
         logger.info("insight_alert_snooze_no_alert", alert_id=str(alert_uuid))
         return HttpResponse(status=200)
 
@@ -3419,7 +3401,7 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         # Proves the Slack workspace the click came from is connected to the alert's team.
         # nosemgrep: idor-lookup-without-team
         integration = Integration.objects.get(
-            kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id, team_id=alert.team_id
+            kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id, team_id=alert_team_id
         )
     except Integration.DoesNotExist:
         logger.info("insight_alert_snooze_no_integration", alert_id=str(alert_uuid), slack_team_id=slack_team_id)
@@ -3431,37 +3413,26 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.warning("insight_alert_snooze_not_org_member", alert_id=str(alert_uuid), slack_user_id=slack_user_id)
         return HttpResponse(status=200)
 
-    # Org membership alone doesn't imply project membership on EE orgs with ACCESS_CONTROL — a
-    # non-admin member with no explicit membership in a private project must still be denied.
-    # This is the same mechanism TeamMemberAccessPermission uses for the API path
-    # (posthog/permissions.py): effective_membership_level short-circuits to the org membership
-    # level when ACCESS_CONTROL isn't available, so this never false-denies on non-EE orgs.
-    if UserPermissions(org_member).team(alert.team).effective_membership_level is None:
-        logger.warning(
-            "insight_alert_snooze_no_project_membership", alert_id=str(alert_uuid), slack_user_id=slack_user_id
-        )
-        return HttpResponse(status=200)
+    # Everything below this point is untrusted alert_id/duration re-derived from the alert row
+    # itself, not the Slack button value — see snooze_alert_from_slack's docstring.
+    outcome = snooze_alert_from_slack(alert_uuid, duration=duration, user=org_member)
 
-    # Project membership doesn't imply object-level access to this specific insight — the alert
-    # API itself gates read/write on viewer access to the linked insight (see
-    # AlertViewSet.safely_get_queryset / _require_insight_viewer_access; "alert" isn't an
-    # access-control resource, so access is checked via the insight it belongs to). Mirror that
-    # boundary here too.
-    if not UserAccessControl(org_member, team=alert.team).check_access_level_for_object(alert.insight, "viewer"):
-        logger.warning("insight_alert_snooze_no_team_access", alert_id=str(alert_uuid), slack_user_id=slack_user_id)
+    if outcome == "not_found":
+        # Existed at get_alert_team_id but is gone now (race, e.g. concurrent delete) — same
+        # silent drop as the earlier not-found check.
+        logger.info("insight_alert_snooze_no_alert", alert_id=str(alert_uuid))
         return HttpResponse(status=200)
-
-    if not alert.enabled:
+    if outcome == "no_access":
+        logger.warning("insight_alert_snooze_no_access", alert_id=str(alert_uuid), slack_user_id=slack_user_id)
+        return HttpResponse(status=200)
+    if outcome == "disabled":
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
-        _post_insight_alert_snooze_feedback(payload, text="This alert is disabled, so there is nothing to snooze.")
+        _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
         return HttpResponse(status=200)
-
-    with ActingUserContext(org_member):
-        alert.snooze(until=timezone.now() + INSIGHT_ALERT_SNOOZE_DURATIONS[duration])
 
     human_duration = INSIGHT_ALERT_SNOOZE_DURATION_LABELS[duration]
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
-    _post_insight_alert_snooze_feedback(payload, text=f"😴 Snoozed for {human_duration} by {actor}")
+    _replace_message_stripping_actions(payload, f"😴 Snoozed for {human_duration} by {actor}")
     return HttpResponse(status=200)
 
 
@@ -3523,7 +3494,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     authorship_integration_id, _ = _extract_action_value_hints(payload, "posthog_code_continue_as_bot")
     dismiss_integration_id = _extract_dismiss_hints(payload)
-    alert_snooze_uuid = _extract_alert_snooze_hint(payload)
+    alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -3569,10 +3540,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # Alert UUIDs are globally unique per region (each region has its own DB), so a local
         # existence check alone settles region ownership — no need to consult Integration here.
         # Authorization (workspace-integration match + org-member gate) is enforced in
-        # _handle_insight_alert_snooze.
-        local = AlertConfiguration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=alert_snooze_uuid  # nosemgrep: idor-taint-user-input-to-model-get
-        ).exists()
+        # _handle_insight_alert_snooze. Routed through the alerts facade rather than the model
+        # directly — see tach.toml, products.slack_app doesn't depend on products.alerts's internals.
+        from products.alerts.backend.facade.api import (  # noqa: PLC0415 — cross-product lookup kept off the slack import path
+            get_alert_team_id,
+        )
+
+        local = get_alert_team_id(alert_snooze_uuid) is not None
     elif slack_team_id and inbox_integration_id:
         # Inbox onboarding buttons (create/join) are DMed to a user; any clicker may act, so this
         # is gated only on owning the integration locally.
