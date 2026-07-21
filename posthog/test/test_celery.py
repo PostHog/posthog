@@ -1,9 +1,12 @@
+import threading
+
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import posthoganalytics
 from parameterized import parameterized
 
+import posthog.celery
 from posthog.celery import on_worker_process_shutdown
 from posthog.tasks.tasks import clickhouse_errors_count
 
@@ -14,6 +17,26 @@ class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
         with patch.object(posthoganalytics, "default_client", client):
             on_worker_process_shutdown()
         client.metrics.flush.assert_called_once()
+
+    def test_hung_flush_does_not_stall_worker_recycling(self) -> None:
+        release = threading.Event()
+        flush_completed = threading.Event()
+
+        def hung_flush() -> None:
+            release.wait(timeout=10)
+            flush_completed.set()
+
+        client = MagicMock(**{"metrics.flush.side_effect": hung_flush})
+        try:
+            with (
+                patch.object(posthog.celery, "_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS", 0.05),
+                patch.object(posthoganalytics, "default_client", client),
+            ):
+                on_worker_process_shutdown()
+            # The handler must abandon the hung flush, not wait it out.
+            assert not flush_completed.is_set()
+        finally:
+            release.set()
 
     @parameterized.expand(
         [
