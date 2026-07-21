@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-20 10:59:43 UTC
+// Generated at: 2026-07-20 20:27:17 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -141,6 +141,7 @@ export type CanonicalProvider =
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
+    | 'tencent-fp8'
     | 'together'
     | 'together-fp4'
     | 'together-fp8'
