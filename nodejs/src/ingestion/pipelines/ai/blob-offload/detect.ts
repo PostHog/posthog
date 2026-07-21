@@ -39,10 +39,13 @@ interface Extraction {
 function pointerFor(
     state: Extraction,
     base64: string,
-    mime: string,
+    rawMime: string,
     detector: BlobDetector,
     countBelowFloor: boolean
 ): string | null {
+    // Mime types are case-insensitive per RFC; canonical lowercase at rest keeps the
+    // read side's mime allowlist comparisons exact.
+    const mime = rawMime.toLowerCase()
     if (base64.length < state.minBase64Length) {
         if (countBelowFloor && isCanonicalBase64(base64)) {
             state.belowFloorCount += 1

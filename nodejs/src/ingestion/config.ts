@@ -338,7 +338,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // AI blob offload: content-addressed S3 storage for multimodal payloads.
         // Empty bucket or empty teams list disables the offload step entirely.
         AI_BLOB_S3_BUCKET: '',
-        AI_BLOB_S3_PREFIX: '',
+        // Bucket+prefix are a shared contract with the Django read side (posthog/settings/
+        // object_storage.py) — defaults must agree or reads 404 while writes succeed.
+        AI_BLOB_S3_PREFIX: 'aio/',
         AI_BLOB_S3_ENDPOINT: '',
         AI_BLOB_S3_REGION: 'us-east-1',
         AI_BLOB_S3_ACCESS_KEY_ID: '',

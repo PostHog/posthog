@@ -165,6 +165,14 @@ describe('extractBlobs', () => {
         expect(Object.getPrototypeOf(result.value)).toBe(Object.prototype)
     })
 
+    it('lowercases declared mimes so stored content types are canonical', () => {
+        const input = { source: { type: 'base64', media_type: 'IMAGE/PNG', data: PNG_B64 } }
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.blobs[0].mime).toBe('image/png')
+        expect(parseBlobPointer((result.value as typeof input).source.data)?.mime).toBe('image/png')
+    })
+
     it('caps traversal depth instead of overflowing the stack on deeply nested payloads', () => {
         let deep: unknown = 'leaf'
         for (let i = 0; i < 100000; i++) {
