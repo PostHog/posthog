@@ -8,6 +8,7 @@ from products.web_analytics.dags.cache_warming import (
     get_warmable_queries_op,
     maybe_opt_into_lazy_precompute,
     queries_to_keep_fresh,
+    warm_queries_op,
 )
 
 
@@ -64,8 +65,35 @@ class TestFleetQuerySelection(BaseTest):
         )
 
     @patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[])
+    def test_selection_sql_survives_driver_percent_formatting(self, mock_exec: MagicMock) -> None:
+        # clickhouse_driver %-formats the query when params are passed, so literal
+        # % (the LIKE prefilter) must be written as %%. A bare % would crash only
+        # in production, because tests mock sync_execute away.
+        queries_to_keep_fresh(dagster.build_op_context(), days=2, minimum_query_count=10, max_shapes=100)
+
+        sql, params = mock_exec.call_args[0]
+        rendered = sql % dict.fromkeys(params, "1")  # what the driver's substitution does
+
+        self.assertIn("LIKE '%Web%'", rendered)
+        self.assertIn("system.query_log", rendered)
+
+    @patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[])
     def test_op_reads_instance_settings(self, _mock_exec: MagicMock) -> None:
         # Runs the op against the real instance-setting machinery so a renamed or
         # unregistered setting key fails here instead of at the hourly run.
         result = get_warmable_queries_op(dagster.build_op_context())
         self.assertEqual(result, [])
+
+
+class TestWarmQueriesOp(BaseTest):
+    @patch("products.web_analytics.dags.cache_warming.capture_exception")
+    def test_kind_without_runner_is_not_an_error(self, mock_capture: MagicMock) -> None:
+        # Selection is by kind prefix, so kinds get_query_runner can't build
+        # (WebVitalsQuery) reach the warm op. They must be skipped quietly — as
+        # "unsupported", not "failed" — or every hourly run pages Sentry.
+        warm_queries_op(
+            dagster.build_op_context(),
+            [{"team_id": self.team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": "h"}],
+        )
+
+        mock_capture.assert_not_called()
