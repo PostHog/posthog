@@ -11,10 +11,12 @@ per organization (not per team).
 """
 
 import re
+from datetime import date
 from typing import TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 
 import requests as http_requests
 import structlog
@@ -273,6 +275,7 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, schem
 
     try:
         enable_team_backfill(team_id=team_id, organization_id=organization_id, table_name=schema_name)
+        _schedule_earliest_event_date_sync(team_id)
     except Exception:
         logger.exception("Failed to register provisioning team after provision", team_id=team_id)
 
@@ -359,6 +362,73 @@ def create_team(
     return _request("POST", organization_id, "/teams", json_body=body, require_enabled=require_enabled)
 
 
+def update_team(
+    organization_id: UUID | str,
+    team_id: int,
+    *,
+    require_enabled: bool = True,
+    **fields: object,
+) -> Response:
+    """Update fields on an existing duckgres team row via the admin PUT endpoint.
+
+    Presence-aware on the duckgres side: only the fields present in the body change, so
+    callers pass exactly what they want written (e.g. just ``earliest_event_date``).
+    """
+    return _request(
+        "PUT", organization_id, f"/teams/{team_id}", json_body=dict(fields), require_enabled=require_enabled
+    )
+
+
+def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
+    """Best-effort mirror of a team's cached earliest event date onto its duckgres team row.
+
+    Part of the dual-write moving per-team backfill state into the control plane: the
+    Django ``DuckgresServerTeam.earliest_event_date`` (including the no-history sentinel)
+    stays the read source for now, so a failure here is logged and swallowed — a later
+    push (the provisioning-time task or the full-backfill sensor) converges the CP row.
+    Returns True when the control plane accepted the value.
+    """
+    if earliest is None:
+        return False
+    try:
+        resp = update_team(organization_id, team_id, require_enabled=False, earliest_event_date=earliest.isoformat())
+    except Exception:
+        logger.exception(
+            "Failed to push earliest event date to duckgres",
+            organization_id=str(organization_id),
+            team_id=team_id,
+        )
+        return False
+    if not status.is_success(resp.status_code):
+        logger.warning(
+            "Duckgres rejected earliest event date push",
+            organization_id=str(organization_id),
+            team_id=team_id,
+            status_code=resp.status_code,
+        )
+        return False
+    return True
+
+
+def _schedule_earliest_event_date_sync(team_id: int) -> None:
+    """Dispatch the earliest-event-date resolution task once the membership row commits.
+
+    ``transaction.on_commit`` so the task never races a rollback of the row it reads (it
+    runs immediately in autocommit). Best-effort: a dispatch failure is logged, not
+    raised — the full-backfill sensor resolves the date lazily regardless.
+    """
+    # Keep the Celery task module (and its import graph) off the API import path.
+    from products.data_warehouse.backend.tasks.tasks import sync_team_earliest_event_date  # noqa: PLC0415
+
+    def dispatch() -> None:
+        try:
+            sync_team_earliest_event_date.delay(team_id)
+        except Exception:
+            logger.exception("Failed to schedule earliest event date sync", team_id=team_id)
+
+    transaction.on_commit(dispatch)
+
+
 def delete_team(organization_id: UUID | str, team_id: int, require_enabled: bool = True) -> Response:
     """Delete a team row from the org's duckgres warehouse.
 
@@ -416,6 +486,7 @@ def onboard_team(
         # duckgres upsert is idempotent, so a retry after the user picks another name is safe.
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+    _schedule_earliest_event_date_sync(team_id)
     return Response({"onboarded": True, "schema_name": suffix}, status=status.HTTP_200_OK)
 
 

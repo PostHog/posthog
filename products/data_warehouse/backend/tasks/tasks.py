@@ -62,6 +62,37 @@ def send_external_data_failure_digest_task(team_id: int) -> None:
         logger.info("External data failure digest already in flight for team, skipping", team_id=team_id)
 
 
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.sync_team_earliest_event_date")
+@skip_team_scope_audit  # DuckgresServerTeam is on the default Django manager
+def sync_team_earliest_event_date(team_id: int) -> None:
+    """Resolve, cache, and mirror a team's earliest event date after provision/onboard.
+
+    Dual-write: the clamped earliest event date (or the no-history sentinel for teams
+    without events) is stored on the Django ``DuckgresServerTeam`` row — the full-backfill
+    sensor's read source — and mirrored to the team's duckgres control-plane row.
+    Idempotent: an already-cached date is never recomputed, and both writes are upserts.
+    Best-effort on the control-plane side: a failed push is logged and dropped — the
+    sensor still works entirely off the Django row.
+    """
+    # Deferred: ducklake.common pulls duckdb in, and posthog.models must not load while
+    # Celery imports task modules — keep both off this module's import path.
+    from posthog.ducklake.common import resolve_team_earliest_event_date  # noqa: PLC0415
+    from posthog.ducklake.models import DuckgresServerTeam  # noqa: PLC0415
+
+    from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
+        push_team_earliest_event_date,
+    )
+
+    bf = DuckgresServerTeam.objects.select_related("server").filter(team_id=team_id).first()
+    if bf is None:
+        logger.info("No duckling membership row for team; skipping earliest event date sync", team_id=team_id)
+        return
+    if bf.earliest_event_date is None:
+        bf.earliest_event_date = resolve_team_earliest_event_date(team_id)
+        bf.save(update_fields=["earliest_event_date"])
+    push_team_earliest_event_date(bf.server.organization_id, team_id, bf.earliest_event_date)
+
+
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")
 @skip_team_scope_audit
 def send_external_data_failure_digest_catchup() -> None:

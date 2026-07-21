@@ -880,3 +880,65 @@ def test_block_team_deletion_lets_unonboarded_team_through_on_control_plane_erro
     mock_delete.return_value = Response({"error": "unreachable"}, status=502)
 
     assert managed_warehouse.block_team_deletion(team.id, org.id) is None
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_update_team_puts_only_passed_fields_to_org_team_route(mock_internal: MagicMock) -> None:
+    # The earliest-event-date mirror uses the admin PUT: only the passed fields may appear
+    # in the body, so the presence-aware CP update can't clobber schema/table names.
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {}})
+
+    resp = managed_warehouse.update_team(org_id, 42, require_enabled=False, earliest_event_date="2020-06-15")
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "PUT"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}/teams/42"
+    assert mock_internal.request.call_args.kwargs["json"] == {"earliest_event_date": "2020-06-15"}
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.tasks.tasks.sync_team_earliest_event_date")
+def test_onboard_team_schedules_earliest_event_date_sync_after_commit(
+    mock_task: MagicMock,
+    _mock_enabled: MagicMock,
+    mock_request: MagicMock,
+    django_capture_on_commit_callbacks,
+) -> None:
+    # The resolve task must only fire once the DuckgresServerTeam row is committed,
+    # or it could run against a rolled-back membership row.
+    org, team, _ = _provisioned_org()
+    mock_request.return_value = Response({"team_id": team.id, "schema_name": "my_events"}, status=200)
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        resp = managed_warehouse.onboard_team(org.id, team.id, "my_events")
+
+    assert resp.status_code == 200
+    assert len(callbacks) == 1
+    mock_task.delay.assert_called_once_with(team.id)
+
+
+@pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+@patch("products.data_warehouse.backend.tasks.tasks.sync_team_earliest_event_date")
+def test_provision_schedules_earliest_event_date_sync_after_commit(
+    mock_task: MagicMock,
+    mock_request: MagicMock,
+    django_capture_on_commit_callbacks,
+) -> None:
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
+
+    mock_task.delay.assert_called_once_with(team.id)
