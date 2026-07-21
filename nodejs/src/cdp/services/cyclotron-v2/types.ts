@@ -134,7 +134,9 @@ export interface CyclotronV2InFlightCounts {
     count: number
     /** Parked/running jobs per current action id. Point-in-time — jobs transition during the read. */
     byAction: Record<string, number>
-    /** Jobs with no action_id (written before the lookup column existed). */
+    /** Jobs with no action_id: freshly enqueued and not yet executed (currentAction is set on the
+     * first executor pass), or written before the lookup column existed. A steady-state category
+     * that grows under worker lag, not a shrinking migration artifact. */
     positionUnknown: number
 }
 

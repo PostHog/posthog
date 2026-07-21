@@ -437,7 +437,8 @@ export class CyclotronV2Manager {
     // "In flight" = jobs still owned by the queue: parked waits/delays ('available' with a future
     // scheduled time) and jobs a worker currently holds ('running'). Terminal rows don't count.
     // Grouped by action_id so publish impact can say "N runs are parked on step X"; rows without
-    // one (written before the lookup column existed) land in positionUnknown, never silently dropped.
+    // one (freshly enqueued and not yet executed, or predating the lookup column) land in
+    // positionUnknown, never silently dropped.
     async countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts> {
         const result = await this.pool.query<{ action_id: string | null; count: number }>(
             `SELECT action_id, COUNT(*)::int AS count FROM cyclotron_jobs

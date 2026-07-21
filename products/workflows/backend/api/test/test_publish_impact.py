@@ -37,6 +37,12 @@ class TestFindVariableReferences(SimpleTestCase):
     def test_reference_extraction(self, _name, config, expected):
         assert find_variable_references(config) == expected
 
+    def test_pathological_nesting_is_ignored_not_crashed(self):
+        deep: dict = {"value": "{variables.too_deep}"}
+        for _ in range(2000):
+            deep = {"nested": deep}
+        assert find_variable_references({"inputs": {"shallow": "{variables.ok}", "deep": deep}}) == {"ok"}
+
 
 class TestBuildPublishImpact(SimpleTestCase):
     def _base(self, **overrides: Any) -> dict:
@@ -129,6 +135,27 @@ class TestBuildPublishImpact(SimpleTestCase):
             _action("b", inputs={"body": {"value": "{variables.score}"}}),
         ]
         impact = self._base(live_actions=actions, draft_actions=actions)
+        assert impact["empty_variables"] == []
+
+    def test_output_variable_added_to_existing_action_is_flagged(self):
+        # Runs already past "a" never executed the version that stores its output
+        impact = self._base(
+            draft_actions=[
+                _action("trigger"),
+                _action("a", output_variable={"key": "score"}),
+                _action("b", inputs={"body": {"value": "{variables.score}"}}),
+                _action("c"),
+            ],
+        )
+        assert impact["empty_variables"] == [{"variable": "score", "set_by": "a", "referenced_by": ["b"]}]
+
+    def test_reference_outside_inputs_and_mappings_is_not_flagged(self):
+        # The worker renders templates only from config.inputs/config.mappings — a variables-shaped
+        # string elsewhere in the config never renders, so it must not warn
+        impact = self._base(
+            draft_actions=[_action("trigger"), _action("a", metadata={"note": "{variables.plan}"})],
+            draft_variables=[{"key": "plan", "type": "string", "default": ""}],
+        )
         assert impact["empty_variables"] == []
 
     def test_newly_declared_variable_referenced_in_draft_is_flagged(self):

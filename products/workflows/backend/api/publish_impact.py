@@ -18,27 +18,34 @@ _BRACKET_REFERENCE_REGEX = re.compile(r"\bvariables\s*\[\s*['\"]([^'\"\]]+)['\"]
 # constant would be a false positive.
 _SKIPPED_KEYS = {"bytecode", "transpiled"}
 
+# Draft configs are user-controlled JSON: a ~6 KB payload nested ~1000 deep parses fine at write
+# time but would RecursionError this scan. Legitimate configs nest a handful of levels; anything
+# deeper is ignored rather than crashing the preview (same posture as integration_usage.py).
+_MAX_CONFIG_DEPTH = 20
+
 
 def find_variable_references(value: Any) -> set[str]:
     """Names of workflow variables referenced anywhere in a config blob's template strings."""
     found: set[str] = set()
-    _collect_references(value, found)
+    _collect_references(value, found, _MAX_CONFIG_DEPTH)
     return found
 
 
-def _collect_references(value: Any, into: set[str]) -> None:
+def _collect_references(value: Any, into: set[str], depth_left: int) -> None:
+    if depth_left <= 0:
+        return
     if isinstance(value, str):
         for regex in (_DOT_REFERENCE_REGEX, _BRACKET_REFERENCE_REGEX):
             into.update(regex.findall(value))
         return
     if isinstance(value, list):
         for item in value:
-            _collect_references(item, into)
+            _collect_references(item, into, depth_left - 1)
         return
     if isinstance(value, dict):
         for key, item in value.items():
             if key not in _SKIPPED_KEYS:
-                _collect_references(item, into)
+                _collect_references(item, into, depth_left - 1)
 
 
 def _output_variable_keys(action: dict) -> list[str]:
@@ -63,7 +70,6 @@ def build_publish_impact(
 ) -> dict:
     """What publishing the draft does to people in-flight. Counts are point-in-time approximations
     (jobs transition during the read); None means the counting service was unavailable, never 0."""
-    live_ids = {action["id"] for action in live_actions if action.get("id")}
     draft_ids = {action["id"] for action in draft_actions if action.get("id")}
     draft_names = {action["id"]: action.get("name") or action["id"] for action in draft_actions if action.get("id")}
 
@@ -84,19 +90,24 @@ def build_publish_impact(
             }
         )
 
-    # A variable produced only by something new in the draft renders empty for runs already past
-    # that point: an output_variable on a new action, or a workflow variable declared by this draft
-    # (declared variables are seeded at run start, so pre-existing runs never had it).
+    # A variable produced only by something new in the draft may render empty for runs already past
+    # its producer: an output_variable key this draft adds (on a new action, or newly added to a
+    # surviving one), or a workflow variable declared by this draft (declared variables are seeded
+    # at run start, so pre-existing runs never had it).
     producers: dict[str, Optional[str]] = {}
     live_variable_keys = {variable.get("key") for variable in live_variables}
     for variable in draft_variables:
         key = variable.get("key")
         if key and key not in live_variable_keys:
             producers[key] = None
+    live_output_keys = {action["id"]: set(_output_variable_keys(action)) for action in live_actions if action.get("id")}
     for action in draft_actions:
-        if action.get("id") and action["id"] not in live_ids:
-            for key in _output_variable_keys(action):
-                producers[key] = action["id"]
+        action_id = action.get("id")
+        if not action_id:
+            continue
+        for key in _output_variable_keys(action):
+            if key not in live_output_keys.get(action_id, set()):
+                producers[key] = action_id
 
     empty_variables = []
     if producers:
@@ -105,7 +116,10 @@ def build_publish_impact(
             action_id = action.get("id")
             if not action_id:
                 continue
-            for key in find_variable_references(action.get("config")):
+            config = action.get("config") or {}
+            # Only inputs/mappings — the worker renders templates from those two fields alone, so a
+            # variables-shaped string anywhere else in the config never renders and must not warn.
+            for key in find_variable_references([config.get("inputs"), config.get("mappings")]):
                 if key in references and action_id != producers[key]:
                     references[key].append(action_id)
         empty_variables = [
