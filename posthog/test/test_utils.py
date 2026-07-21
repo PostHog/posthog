@@ -1090,6 +1090,15 @@ class TestSharingOverrideProtection(TestCase):
         with self.assertRaises(serializers.ValidationError):
             filters_override_requested_by_client(request, None)
 
+    def test_filters_override_rejects_invalid_properties(self):
+        request = self._make_request(
+            None,
+            query_params={"filters_override": json.dumps({"properties": {"type": "AND", "values": "invalid"}})},
+        )
+
+        with self.assertRaises(serializers.ValidationError):
+            filters_override_requested_by_client(request, None)
+
     @parameterized.expand(
         [
             ("access_token_auth",),
@@ -1165,6 +1174,15 @@ class TestSharingOverrideProtection(TestCase):
     @parameterized.expand([(["invalid"],), ("invalid",)])
     def test_tile_filters_override_rejects_non_dict_json(self, override):
         request = self._make_request(None, query_params={"tile_filters_override": json.dumps(override)})
+
+        with self.assertRaises(serializers.ValidationError):
+            tile_filters_override_requested_by_client(request, None)
+
+    def test_tile_filters_override_rejects_invalid_properties(self):
+        request = self._make_request(
+            None,
+            query_params={"tile_filters_override": json.dumps({"properties": {"type": "AND", "values": "invalid"}})},
+        )
 
         with self.assertRaises(serializers.ValidationError):
             tile_filters_override_requested_by_client(request, None)

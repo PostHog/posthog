@@ -596,7 +596,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_record_outcome.assert_not_called()
 
-    def test_cannot_update_dashboard_with_invalid_filters(self):
+    @parameterized.expand(
+        [
+            ("list", []),
+            ("string", ""),
+            ("number", 0),
+            ("null", None),
+        ]
+    )
+    def test_cannot_update_dashboard_with_invalid_filters(self, _name: str, filters: Any) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="private dashboard",
@@ -605,21 +613,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.dashboard_api.update_dashboard(
             dashboard.pk,
-            {
-                "filters": [
-                    {
-                        "key": "brand",
-                        "value": ["1"],
-                        "operator": "exact",
-                        "type": "event",
-                    }
-                ]
-            },
+            {"filters": filters},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
+
+    def test_cannot_create_dashboard_with_invalid_falsy_filters(self) -> None:
+        self.dashboard_api.create_dashboard(
+            {"name": "invalid filters", "filters": []},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
 
     def test_cannot_update_dashboard_with_invalid_variables(self):
         dashboard = Dashboard.objects.create(
@@ -1654,19 +1658,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("non_dict", ["invalid"]),
+            ("non_dict", ["invalid"], {}),
             (
                 "unsupported_group",
                 {
+                    "date_from": "-7d",
                     "properties": {
                         "type": "OR",
                         "values": [{"key": "$browser", "value": "Chrome", "type": "event"}],
-                    }
+                    },
                 },
+                {"date_from": "-7d"},
             ),
         ]
     )
-    def test_use_template_ignores_invalid_dashboard_filters(self, _name: str, dashboard_filters: Any) -> None:
+    def test_use_template_ignores_invalid_dashboard_filters(
+        self, _name: str, dashboard_filters: Any, expected_filters: dict
+    ) -> None:
         template = DashboardTemplate.objects.create(
             team=self.team,
             template_name="invalid-filters",
@@ -1682,7 +1690,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         dashboard = Dashboard.objects.get(id=dashboard_id, team=self.team)
-        self.assertEqual(dashboard.filters, {})
+        self.assertEqual(dashboard.filters, expected_filters)
 
     @parameterized.expand(
         [

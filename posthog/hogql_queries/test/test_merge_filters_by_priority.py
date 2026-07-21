@@ -216,6 +216,16 @@ class TestDashboardFilterFromDict(SimpleTestCase):
 
 
 class TestFlattenPropertyLeaves(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("scalar", "invalid", "Properties must be a list"),
+            ("group values", {"type": "AND", "values": "invalid"}, "Property group values must be a list"),
+        ]
+    )
+    def test_rejects_invalid_property_container(self, _name, properties, expected_error):
+        with self.assertRaisesRegex(ValueError, expected_error):
+            flatten_property_leaves(properties)
+
     def test_rejects_or_property_group(self):
         or_group = {
             "type": "OR",

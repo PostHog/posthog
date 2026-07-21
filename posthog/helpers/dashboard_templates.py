@@ -510,7 +510,7 @@ def create_from_template(
     try:
         dashboard.filters = normalize_dashboard_filters_properties(raw_filters) if isinstance(raw_filters, dict) else {}
     except ValueError:
-        dashboard.filters = {}
+        dashboard.filters = {key: value for key, value in raw_filters.items() if key != "properties"}
     dashboard.description = template.dashboard_description or ""
 
     for template_tag in template.tags or []:

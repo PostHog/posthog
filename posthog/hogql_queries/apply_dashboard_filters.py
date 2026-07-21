@@ -129,15 +129,19 @@ def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
     `_MAX_PROPERTY_GROUP_DEPTH` to prevent a deeply-nested payload from stack-overflowing the request."""
     if _depth >= _MAX_PROPERTY_GROUP_DEPTH:
         raise ValueError("Property group nesting exceeds the supported depth")
+    if properties is None:
+        return []
     if isinstance(properties, dict):
         if properties.get("type") not in (None, "AND"):
             raise ValueError("Only AND property groups are supported")
-        properties = properties.get("values")
+        if not isinstance(properties.get("values"), list):
+            raise ValueError("Property group values must be a list")
+        properties = properties["values"]
     if not isinstance(properties, list):
-        return []
+        raise ValueError("Properties must be a list or an AND property group")
     leaves: list[dict] = []
     for item in properties:
-        if isinstance(item, dict) and isinstance(item.get("values"), list):
+        if isinstance(item, dict) and "values" in item:
             leaves.extend(flatten_property_leaves(item, _depth + 1))
         elif isinstance(item, dict):
             leaves.append(item)
