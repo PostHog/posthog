@@ -329,6 +329,7 @@ the row lists both.
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
+| loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mem0                             | HTTP                        | requests                                                        | ✅                          |
@@ -793,7 +794,6 @@ doesn't conflict with concurrent PRs.
 - llama_cloud
 - lokalise
 - looker
-- loops
 - m3ter
 - mailtrap
 - mantle
