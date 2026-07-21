@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZenloopSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
+    ZenloopSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AsanaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asana import AsanaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

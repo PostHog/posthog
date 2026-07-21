@@ -6,7 +6,7 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PexelsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.pexels import PexelsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source import PexelsSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

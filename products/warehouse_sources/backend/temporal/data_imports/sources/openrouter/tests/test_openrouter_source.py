@@ -5,7 +5,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenRouterSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
+    OpenRouterSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
     OpenRouterResumeConfig,

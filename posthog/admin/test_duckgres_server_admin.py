@@ -89,7 +89,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "organization_id": str(self.organization.id),
                 "team_id": str(self.team.id),
                 "database_name": "my-warehouse",
-                "table_name": "prod_events",
+                "schema_name": "prod_events",
             },
         )
         body = {"username": "root", "password": "sup3r-secret-pw"}
@@ -113,7 +113,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "organization_id": str(self.organization.id),
                 "team_id": str(self.team.id),
                 "database_name": "my-warehouse",
-                "table_name": "prod_events",
+                "schema_name": "prod_events",
             },
         )
         with patch(f"{MW}.provision", return_value=Response({"error": "nope"}, status=400)):
@@ -132,7 +132,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "organization_id": str(self.organization.id),
                 "team_id": str(other_team.id),
                 "database_name": "my-warehouse",
-                "table_name": "prod_events",
+                "schema_name": "prod_events",
             },
         )
         with patch(f"{MW}.provision") as mock_provision:
@@ -148,7 +148,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "organization_id": str(self.organization.id),
                 "team_id": str(self.team.id),
                 "database_name": "my-warehouse",
-                "table_name": "prod_events",
+                "schema_name": "prod_events",
             },
         )
         with patch(f"{MW}.provision", return_value=Response({"error": "boom"}, status=400)):
@@ -160,14 +160,14 @@ class TestDuckgresServerAdminProvision(BaseTest):
         server = self._server()
         request = self._post(
             f"/admin/posthog/duckgresserver/{server.pk}/enable-backfill/",
-            {"team_id": str(self.team.id), "table_name": "env_b"},
+            {"team_id": str(self.team.id), "schema_name": "env_b"},
         )
         with patch(
-            f"{MW}.enable_backfill", return_value=Response({"enabled": True, "table_suffix": "env_b"}, status=200)
-        ) as mock_enable:
+            f"{MW}.onboard_team", return_value=Response({"onboarded": True, "schema_name": "env_b"}, status=200)
+        ) as mock_onboard:
             self.admin.enable_backfill_view(request, str(server.pk))
 
-        mock_enable.assert_called_once_with(self.organization.id, self.team.id, "env_b", require_enabled=False)
+        mock_onboard.assert_called_once_with(self.organization.id, self.team.id, "env_b", require_enabled=False)
 
     def test_enable_backfill_invalid_server_returns_404(self) -> None:
         request = self._get("/admin/posthog/duckgresserver/999999/enable-backfill/")

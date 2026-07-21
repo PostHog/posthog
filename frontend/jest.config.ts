@@ -271,7 +271,12 @@ const config: Config = {
     setupFiles: ['<rootDir>/jest.polyfills.js', '<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', '<rootDir>/src/mocks/jest.ts'],
+    // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
+    setupFilesAfterEnv: [
+        '<rootDir>/jest.quarantine.ts',
+        '<rootDir>/jest.setupAfterEnv.ts',
+        '<rootDir>/src/mocks/jest.ts',
+    ],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,

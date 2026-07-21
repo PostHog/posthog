@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TypeformSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typeform import (
+    TypeformSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.typeform.settings import (
     ALLOWED_TYPEFORM_API_BASE_URLS,
     DEFAULT_TYPEFORM_API_BASE_URL,
