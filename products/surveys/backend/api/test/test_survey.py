@@ -577,6 +577,35 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert mock_generate_survey_translation.call_args.kwargs["source_language"] == "es"
 
+    @override_settings(CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_when_gateway_unconfigured(self, mock_generate_survey_translation):
+        survey = Survey.objects.create(team=self.team, name="Customer feedback", type="popover", questions=[])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "pt-BR"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_generate_survey_translation.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_on_partial_gateway_config(self, mock_generate_survey_translation):
+        # Pins the `and`: a URL without a key must not pass the guard.
+        survey = Survey.objects.create(team=self.team, name="Customer feedback", type="popover", questions=[])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "pt-BR"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_generate_survey_translation.assert_not_called()
+
     @override_settings(
         CLOUD_DEPLOYMENT="US", LLM_GATEWAY_URL="https://llm-gateway.test", LLM_GATEWAY_API_KEY="test-key"
     )

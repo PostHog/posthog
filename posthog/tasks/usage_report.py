@@ -1410,6 +1410,7 @@ POSTHOG_AI_PRODUCTS = [
     "alert_investigation_agent",
     "product_analytics",
     "surveys",
+    "survey_translation",
     "replay_vision",
 ]
 

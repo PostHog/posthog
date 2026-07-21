@@ -159,7 +159,11 @@ SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
 
 
 class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
-    target_language = serializers.CharField(help_text="Language code to generate translations for, for example pt-BR.")
+    # Bounded because it is echoed into an `x-posthog-property-*` header on the
+    # gateway call, and header values are ASCII-only on the wire.
+    target_language = serializers.CharField(
+        max_length=64, help_text="Language code to generate translations for, for example pt-BR."
+    )
     source_language = serializers.CharField(
         required=False,
         allow_blank=True,

@@ -2,9 +2,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from posthog.llm.gateway_client import Product
+
 from products.surveys.backend.llm import generate_structured_output_via_gateway
 
-TRANSLATION_GATEWAY_PRODUCT = "survey_translation"
+TRANSLATION_GATEWAY_PRODUCT: Product = "survey_translation"
 DEFAULT_TRANSLATION_MODEL = "claude-haiku-4-5"
 DRAFT_TRANSLATION_QUESTION_ID_PREFIX = "__draft_question_"
 
