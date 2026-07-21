@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any
 
 from products.replay_vision.backend import tag_suggestions
 from products.replay_vision.backend.proposers.base import ConfigChange, prompt_change
+from products.replay_vision.backend.tags import slugify_tag
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -69,7 +70,9 @@ class ClassifierProposer:
         # unchanged config as pending.
         working = list(base_config.get("tags", []))
         for op in llm_output.get("tag_ops", []):
-            kind, tag, to = str(op["op"]), op["tag"], op.get("to")
+            kind, tag, to = op.get("op"), op.get("tag"), op.get("to")
+            if not kind or not tag:
+                continue
             if kind == "add" and tag not in working:
                 working.append(tag)
                 before, after = None, tag
@@ -77,7 +80,7 @@ class ClassifierProposer:
                 working.remove(tag)
                 before, after = tag, None
             elif kind == "rename" and tag in working and to:
-                working[working.index(tag)] = to
+                _rename_tag(working, tag, to)
                 before, after = tag, to
             else:
                 continue
@@ -97,11 +100,27 @@ class ClassifierProposer:
 def _apply_tag_ops(tags: list[str], ops: list[dict[str, Any]]) -> list[str]:
     result = list(tags)
     for op in ops:
-        kind, tag = op["op"], op["tag"]
+        kind, tag = op.get("op"), op.get("tag")
+        # A malformed op (schema not honored) is skipped rather than raising, so one bad op can't turn a
+        # whole generation into a 500 instead of a usable suggestion.
+        if not kind or not tag:
+            continue
         if kind == "add" and tag not in result:
             result.append(tag)
         elif kind == "remove" and tag in result:
             result.remove(tag)
         elif kind == "rename" and tag in result and op.get("to"):
-            result[result.index(tag)] = op["to"]
+            _rename_tag(result, tag, op["to"])
     return result
+
+
+def _rename_tag(tags: list[str], tag: str, to: str) -> None:
+    """Rename in place, but merge into the destination when another tag already shares its slug rather than
+    creating a duplicate. Tag uniqueness is slug-normalized (see api.scanners), so a plain string check would
+    still let `Payment` and `payment` both land and make the suggestion fail to apply."""
+    index = tags.index(tag)
+    to_slug = slugify_tag(to)
+    if any(slugify_tag(other) == to_slug for i, other in enumerate(tags) if i != index):
+        tags.pop(index)
+    else:
+        tags[index] = to

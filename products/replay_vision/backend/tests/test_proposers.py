@@ -126,11 +126,14 @@ def test_classifier_patch_applies_tag_ops() -> None:
         {"op": "add", "tag": "checkout"},  # already in the vocabulary
         {"op": "remove", "tag": "missing"},  # never existed
         {"op": "rename", "tag": "missing", "to": "renamed"},  # nothing to rename
+        {"op": "add"},  # malformed: no tag
+        {"tag": "orphan"},  # malformed: no op
     ],
 )
 def test_classifier_patch_ignores_ops_that_dont_apply(op: dict[str, Any]) -> None:
-    # An LLM tag op can reference a tag that's already gone, already present, or never existed.
-    # _apply_tag_ops must leave the vocabulary untouched rather than duplicate a tag or raise.
+    # An LLM tag op can reference a tag that's already gone/present/never existed, or be malformed (a model
+    # response the schema should have rejected). _apply_tag_ops must leave the vocabulary untouched rather
+    # than duplicate a tag or raise a KeyError (which would 500 the whole generation instead of a usable one).
     proposer = get_proposer("classifier")
     base = {"prompt": "p", "tags": ["checkout"]}
     llm = {"suggested_prompt": "p", "tag_ops": [op], "rationale": "r"}
@@ -140,6 +143,23 @@ def test_classifier_patch_ignores_ops_that_dont_apply(op: dict[str, Any]) -> Non
     assert suggested["tags"] == ["checkout"]
     # A no-op op must not emit a change, or an unchanged config would wrongly be marked pending.
     assert proposer.to_changes(base, suggested, llm) == []
+
+
+@pytest.mark.parametrize(
+    "existing,to,expected",
+    [
+        (["checkout", "payment"], "payment", ["payment"]),  # exact-name destination already present
+        (["checkout", "Payment"], "payment", ["Payment"]),  # same slug, different case: still a duplicate
+    ],
+)
+def test_classifier_rename_onto_existing_tag_merges(existing: list[str], to: str, expected: list[str]) -> None:
+    # Renaming onto a tag that already shares its slug must merge (drop the source), not create a duplicate
+    # that fails the config's slug-normalized uniqueness check and leaves the recommendation impossible to apply.
+    proposer = get_proposer("classifier")
+    base = {"prompt": "p", "tags": existing}
+    llm = {"suggested_prompt": "p", "tag_ops": [{"op": "rename", "tag": "checkout", "to": to}], "rationale": "r"}
+
+    assert proposer.to_config_patch(llm, base)["tags"] == expected
 
 
 def test_summarizer_patch_and_changes() -> None:
@@ -173,10 +193,11 @@ def test_summarizer_patch_defends_against_missing_or_invalid_length() -> None:
 
 
 class TestClassifierGrounding(_VisionAPITestCase):
-    def test_grounding_reuses_tag_suggestions_evidence(self) -> None:
-        # A sibling classifier's vocabulary is real evidence tag_suggestions._sibling_vocabularies assembles.
-        # It only reaches the briefing if grounding() genuinely calls into tag_suggestions instead of a
-        # stub or a from-scratch reimplementation of that evidence gathering.
+    def test_grounding_reflects_own_config_but_omits_sibling_vocabularies(self) -> None:
+        # grounding() must reflect the scanner's own config (proving it calls into tag_suggestions rather
+        # than a stub), but must NOT include a sibling classifier's vocabulary. The suggestion is shown to
+        # everyone with access to this scanner, so grounding it with the creator's access would leak the
+        # tags of object-level-restricted siblings to viewers who cannot see them.
         self._create_scanner(
             name="sibling",
             scanner_type=ScannerType.CLASSIFIER,
@@ -193,4 +214,4 @@ class TestClassifierGrounding(_VisionAPITestCase):
 
         assert "categorize by intent" in briefing
         assert "pricing" in briefing
-        assert "confused_user" in briefing
+        assert "confused_user" not in briefing

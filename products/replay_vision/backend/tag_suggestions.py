@@ -251,21 +251,16 @@ def _assemble_grounding_evidence(
 
 
 def grounding_briefing(scanner: ReplayScanner) -> str:
-    """The same emitted-tag + product-taxonomy + sibling-vocabulary evidence `suggest_classifier_tags` uses,
-    assembled for a scanner's own persisted config. Lets the classifier config proposer ground its prompt and
-    tag-vocabulary suggestions without a second copy of this evidence gathering.
+    """The same emitted-tag + product-taxonomy evidence `suggest_classifier_tags` uses, assembled for a
+    scanner's own persisted config. Lets the classifier config proposer ground its prompt and tag-vocabulary
+    suggestions without a second copy of this evidence gathering.
 
-    Uses the scanner's creator as the acting user for the sibling-vocabulary RBAC check, mirroring the
-    creator-as-actor pattern the sweep activities use for other unattended scanner reads. Falls back to no
-    sibling evidence when the scanner has no creator (e.g. seeded outside the API, or after the creating
-    user is deleted, since created_by is SET_NULL).
+    Omits sibling-scanner vocabularies on purpose: this suggestion is shown to everyone with access to the
+    scanner, so grounding it with any single principal's access would leak the tag vocabularies of
+    object-level-restricted sibling scanners to viewers who cannot see those scanners. The interactive
+    suggest_classifier_tags path keeps sibling evidence, filtered by the requesting user's own access.
     """
     config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
-    user_access_control = None
-    if scanner.created_by is not None:
-        user_access_control = UserAccessControl(
-            user=scanner.created_by, team=scanner.team, organization_id=str(scanner.team.organization_id)
-        )
     return _assemble_grounding_evidence(
         team=scanner.team,
         prompt=str(config.get("prompt", "")),
@@ -273,7 +268,7 @@ def grounding_briefing(scanner: ReplayScanner) -> str:
         multi_label=bool(config.get("multi_label", True)),
         allow_freeform_tags=bool(config.get("allow_freeform_tags", False)),
         scanner=scanner,
-        user_access_control=user_access_control,
+        user_access_control=None,
     )
 
 
