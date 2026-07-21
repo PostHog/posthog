@@ -19,11 +19,13 @@ from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
     get_github_token,
     get_pr_authorship_mode,
+    get_sandbox_github_identity_user,
     get_sandbox_github_token,
     get_task_run_credential_user,
     is_caller_token_run,
     is_slack_interaction_state,
     resolve_user_github_integration_for_task,
+    sandbox_identity_scope,
 )
 
 if TYPE_CHECKING:
@@ -159,7 +161,14 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
             task__github_user_integration_id=user_integration_id,
         )
         .select_related("task")
-        .only("id", "state", "task__repository", "task__github_user_integration_id", "task__origin_product")
+        .only(
+            "id",
+            "state",
+            "task__repository",
+            "task__github_user_integration_id",
+            "task__origin_product",
+            "task__created_by_id",
+        )
     )
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
@@ -171,6 +180,13 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
         if get_pr_authorship_mode(run.task, run.state) != PrAuthorshipMode.USER:
             continue
         if is_caller_token_run(str(run.id), run.state):
+            continue
+        # A per-message actor transition may have rebound (or logged out) this sandbox's GitHub
+        # identity to someone other than the run owner. This loop carries the owner's token, so
+        # re-applying it would undo that transition and resurrect the owner's identity for the
+        # current actor. Skip when the sandbox is bound to a different actor.
+        bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(str(run.id), run.state))
+        if bound_actor is not None and bound_actor != run.task.created_by_id:
             continue
         rows.append((str(run.id), sandbox_id, run.task.repository))
     return rows
