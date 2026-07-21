@@ -28,6 +28,7 @@ import {
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
+    setPreferredRecordingsSort,
 } from './sessionRecordingsPlaylistLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
@@ -1447,6 +1448,41 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
             }
         )
+
+        describe('preferred sort', () => {
+            it.each<[string, () => void, string, string]>([
+                [
+                    'an explicitly chosen sort overrides the relevance default',
+                    () => setPreferredRecordingsSort({ order: 'start_time', order_direction: 'DESC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'DESC',
+                ],
+                [
+                    'the chosen direction is kept',
+                    () => setPreferredRecordingsSort({ order: 'start_time', order_direction: 'ASC' }),
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'ASC',
+                ],
+                [
+                    'an unparseable stored preference is ignored',
+                    () => localStorage.setItem('replay_list_preferred_sort', 'not json'),
+                    'surfacing_score',
+                    'DESC',
+                ],
+            ])('%s', (_name, setup, expectedOrder, expectedDirection) => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                setup()
+                const result = getDefaultFilters()
+                expect(result.order).toBe(expectedOrder)
+                expect(result.order_direction).toBe(expectedDirection)
+            })
+
+            it('keeps recency on person pages regardless of the stored preference', () => {
+                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+                setPreferredRecordingsSort({ order: 'activity_score', order_direction: 'DESC' })
+                expect(getDefaultFilters('some-person-uuid').order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+            })
+        })
     })
 
     describe('pinnedFilters', () => {

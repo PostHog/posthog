@@ -26,6 +26,7 @@ import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
     sessionRecordingsPlaylistLogic,
+    setPreferredRecordingsSort,
 } from './sessionRecordingsPlaylistLogic'
 
 const SortingKeyToLabel = {
@@ -91,6 +92,7 @@ function SortedBy({
         if (sortChangedEvent) {
             posthog.capture('session recording list sort changed', sortChangedEvent)
         }
+        setPreferredRecordingsSort(sort)
         setFilters(sort)
     }
 
