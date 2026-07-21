@@ -31,6 +31,7 @@ from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     MATERIALIZED_COLUMNS_CACHE_TIMEOUT,
+    MATERIALIZED_COLUMNS_EXISTENCE_CACHE_TIMEOUT,
     MATERIALIZED_COLUMNS_USE_CACHE,
     TEST,
 )
@@ -250,6 +251,46 @@ def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
     return {k: column for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
+
+
+@cache_for(timedelta(seconds=MATERIALIZED_COLUMNS_EXISTENCE_CACHE_TIMEOUT), background_refresh=True)
+def get_physical_column_names(table: TablesWithMaterializedColumns) -> frozenset[str] | None:
+    """Names of the columns that physically exist on the table a HogQL query actually reads from.
+
+    A fail-safe existence check for the materialized-column rewrite: the materialized-columns snapshot can
+    lag the physical schema (a dropped column, an in-flight materialization, a column present on the data
+    table but not the distributed read table), and emitting `mat_<x>` for a column ClickHouse can't resolve
+    hard-fails the whole query. Kept on a short, independent TTL so a stale materialized-columns entry can't
+    linger here too. Returns None (meaning "could not confirm") in TEST — where the schema is set up
+    deterministically and the extra `system.columns` probe would run on every property resolution — and on
+    any query failure, so callers fall open to the materialized-columns snapshot rather than globally
+    disabling materialized columns on a transient hiccup.
+    """
+    if TEST:
+        return None
+
+    table_info = tables.get(table)
+    read_table = table_info.read_table if table_info else table
+    try:
+        with tags_context(
+            name="get_physical_column_names",
+            product=Product.INTERNAL,
+            feature=Feature.SCHEMA_INTROSPECTION,
+        ):
+            rows = sync_execute(
+                """
+                SELECT name
+                FROM system.columns
+                WHERE database = %(database)s
+                  AND table = %(table)s
+                """,
+                {"database": CLICKHOUSE_DATABASE, "table": read_table},
+                ch_user=ClickHouseUser.HOGQL,
+            )
+    except Exception:
+        logger.warning("Failed to fetch physical column names for table %s", table, exc_info=True)
+        return None
+    return frozenset(name for (name,) in rows)
 
 
 @dataclass

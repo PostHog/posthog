@@ -27,7 +27,7 @@ class MaterializedColumn(Protocol):
 
 
 if EE_AVAILABLE:
-    from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns
+    from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, get_physical_column_names
 
     def get_materialized_column_for_property(
         table: TablesWithMaterializedColumns, table_column: TableColumn, property_name: PropertyName
@@ -35,7 +35,20 @@ if EE_AVAILABLE:
         if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
             return None
 
-        return get_enabled_materialized_columns(table).get((property_name, table_column))
+        column = get_enabled_materialized_columns(table).get((property_name, table_column))
+        if column is None:
+            return None
+
+        # Fail safe: the materialized-columns snapshot can lag the physical schema. If the resolved column
+        # isn't physically present on the table we're about to query, fall back to reading the JSON blob
+        # rather than emitting an identifier ClickHouse can't resolve (which hard-fails the whole query).
+        # A None result means existence couldn't be confirmed (test mode / transient failure) — trust the
+        # snapshot then, so a single system.columns hiccup doesn't disable every materialized column.
+        physical_columns = get_physical_column_names(table)
+        if physical_columns is not None and column.name not in physical_columns:
+            return None
+
+        return column
 else:
 
     def get_materialized_column_for_property(
