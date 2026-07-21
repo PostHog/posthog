@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -43,5 +45,17 @@ describe('productSetupStatusLogic', () => {
         const logic = mountLogic()
         logic.actions.setDetectedStatus(status)
         expect(logic.values.showEmptyState).toBe(expected)
+    })
+
+    // Guards the team stamp: without it, a project switch serves the previous
+    // team's detected status and the gate exposes (or hides) the wrong screen.
+    it('a detected status does not survive a project switch', async () => {
+        const logic = mountLogic()
+        logic.actions.setDetectedStatus('has-data')
+        expect(logic.values.status).toBe('has-data')
+
+        const otherTeam = { ...teamLogic.values.currentTeam!, id: (teamLogic.values.currentTeamId ?? 0) + 1 }
+        await expectLogic(logic, () => teamLogic.actions.loadCurrentTeamSuccess(otherTeam)).toFinishAllListeners()
+        expect(logic.values.status).toBe('loading')
     })
 })
