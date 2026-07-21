@@ -302,7 +302,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             # so a dict would make `values` a dict and silently drop the filters. Flatten to leaves.
             # Imported lazily — this model loads during django.setup(), and the apply_dashboard_filters
             # module pulls in the query_runner import graph.
-            if dashboard_properties:
+            if isinstance(dashboard_properties, list) or (
+                isinstance(dashboard_properties, dict) and "values" in dashboard_properties
+            ):
                 from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves  # noqa: PLC0415
 
                 dashboard_properties = flatten_property_leaves(dashboard_properties)
