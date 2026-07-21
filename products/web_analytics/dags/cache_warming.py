@@ -54,6 +54,40 @@ def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
     return value if isinstance(value, list) else []
 
 
+def get_active_web_analytics_team_ids(limit: int, lookback_hours: int = 24) -> list[int]:
+    """Top teams by deliberate WA dashboard activity (stats-table tile queries),
+    most active first — the demand-driven audience layered on top of the static
+    warming list.
+
+    Best-effort: any failure returns [] so warming falls back to the static list
+    rather than skipping the run.
+    """
+    if limit <= 0:
+        return []
+    try:
+        rows = sync_execute(
+            """
+            SELECT JSONExtractInt(log_comment, 'team_id') AS team_id, count() AS n
+            FROM clusterAllReplicas(%(cluster)s, system, query_log)
+            WHERE event_time > now() - INTERVAL %(hours)s HOUR
+              AND type = 'QueryFinish' AND is_initial_query = 1
+              AND JSONExtractString(log_comment, 'query_type') LIKE 'stats_table%%'
+              AND JSONExtractString(log_comment, 'feature') != 'cache_warmup'
+              AND JSONExtractString(log_comment, 'trigger') = ''
+              AND JSONExtractString(log_comment, 'access_method') != 'personal_api_key'
+              AND team_id != 0
+            GROUP BY team_id
+            ORDER BY n DESC
+            LIMIT %(limit)s
+            """,
+            {"cluster": "posthog", "hours": lookback_hours, "limit": limit},
+        )
+        return [int(row[0]) for row in rows]
+    except Exception as e:
+        capture_exception(e)
+        return []
+
+
 # Query kinds that carry the `useWebAnalyticsPrecompute` per-query opt-in.
 LAZY_PRECOMPUTE_QUERY_KINDS = frozenset(
     {"WebStatsTableQuery", "WebOverviewQuery", "WebGoalsQuery", "WebVitalsPathBreakdownQuery"}
@@ -153,10 +187,27 @@ def queries_to_keep_fresh(
 def get_teams_for_warming_op(
     context: dagster.OpExecutionContext, posthoganalytics: PostHogAnalyticsResource
 ) -> list[int]:
-    team_ids = get_teams_enabled_for_web_analytics_cache_warming()
+    static_team_ids = get_teams_enabled_for_web_analytics_cache_warming()
 
-    context.log.info(f"Found {len(team_ids)} teams for cache warming")
-    context.add_output_metadata({"team_count": len(team_ids), "team_ids": str(team_ids)})
+    max_active = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_ACTIVE_TEAMS") or 0
+    active_team_ids = get_active_web_analytics_team_ids(max_active)
+
+    # Static list first so always-enrolled teams warm before the demand ramp when
+    # a run is truncated; dict.fromkeys dedupes teams in both lists, preserving order.
+    team_ids = list(dict.fromkeys([*static_team_ids, *active_team_ids]))
+
+    context.log.info(
+        f"Found {len(team_ids)} teams for cache warming "
+        f"({len(static_team_ids)} static, {len(active_team_ids)} demand-driven active)"
+    )
+    context.add_output_metadata(
+        {
+            "team_count": len(team_ids),
+            "static_teams": len(static_team_ids),
+            "active_teams": len(active_team_ids),
+            "team_ids": str(team_ids),
+        }
+    )
     return team_ids
 
 

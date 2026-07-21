@@ -301,6 +301,11 @@ CONSTANCE_CONFIG = {
         "Teams that will have web analytics cache warming enabled",
         list[int],
     ),
+    "WEB_ANALYTICS_WARMING_MAX_ACTIVE_TEAMS": (
+        get_from_env("WEB_ANALYTICS_WARMING_MAX_ACTIVE_TEAMS", default=0, type_cast=int),
+        "Max number of most-active web analytics teams to demand-warm on top of the static list (0 = static list only)",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -356,6 +361,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
+    "WEB_ANALYTICS_WARMING_MAX_ACTIVE_TEAMS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
