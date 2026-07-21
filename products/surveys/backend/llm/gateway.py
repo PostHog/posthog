@@ -1,17 +1,15 @@
 """LLM gateway client utilities for surveys.
 
-Sibling of `client.py`, which calls Gemini directly with `settings.GEMINI_API_KEY`.
-That key is per-deployment, so a bad value takes every direct caller down at once
-with no gateway in the path to absorb it. Callers routed here borrow the gateway's
-own provider credentials instead.
+Routes structured-output calls through the internal LLM gateway, which holds its
+own provider credentials. The direct-Gemini sibling in `client.py` reads the
+per-deployment `settings.GEMINI_API_KEY`, so one bad key there takes every caller
+down at once with nothing in the path to absorb it.
 
 The gateway captures `$ai_generation` itself, so the client is deliberately NOT
-wrapped with `posthoganalytics.ai` -- wrapping would double-capture every call.
+wrapped with `posthoganalytics.ai`: wrapping double-captures every call.
 
-Shape conformance is weaker than the Gemini path this replaces: Gemini enforced
-`response_json_schema` server-side, whereas `json_object` only guarantees
-syntactically valid JSON, so the schema rides in the prompt and pydantic is the
-only real gate.
+`json_object` guarantees syntactically valid JSON but not shape, so the schema
+rides in the prompt and pydantic is the only real gate.
 """
 
 import re
@@ -35,8 +33,8 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 # These run inline on a DRF request thread, so they need a bound well under the
-# SDK's 600s default. Retries are capped because a replayed generation is billed
-# again -- nothing between here and the gateway's cost recorder deduplicates one.
+# SDK's 600s default. Retries are capped because nothing between here and the
+# gateway's cost recorder deduplicates a replayed generation, so each one bills.
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_TOKENS = 4096
 MAX_RETRIES = 1

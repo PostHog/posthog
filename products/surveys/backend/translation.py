@@ -205,7 +205,7 @@ def generate_survey_translation(
             f"Questions: {questions}"
         ),
         response_schema=SurveyTranslationResponse,
-        # `ai_product` and `$ai_billable` now come from the gateway's product config.
+        # `ai_product` and `$ai_billable` come from the gateway's product config.
         posthog_properties={
             "ai_feature": "survey_translation",
             "target_language": target_language,
