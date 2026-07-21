@@ -113,6 +113,15 @@ procs:
             layer: Ingestion pipeline
             tech: Node
 
+    integration-gateway:
+        sandbox: true
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=integration-gateway HTTP_SERVER_PORT=6746 ./bin/posthog-node'
+        capability: nodejs_integration_gateway
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Application
+            tech: Node
+
     ingestion:
         sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'

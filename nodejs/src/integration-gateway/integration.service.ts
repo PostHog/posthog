@@ -1,5 +1,6 @@
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+
 import { CredentialCache } from './cache'
-import { IntegrationDecryptor } from './crypto'
 import { RefreshManager } from './refresh/manager'
 import { IntegrationRepository } from './repository'
 import { DecryptedIntegration } from './types'
@@ -19,7 +20,7 @@ export interface FetchOutcome {
 export class IntegrationService {
     constructor(
         private repository: IntegrationRepository,
-        private decryptor: IntegrationDecryptor,
+        private encryptedFields: EncryptedFields,
         private cache: CredentialCache,
         private refresh: RefreshManager | null
     ) {}
@@ -60,7 +61,9 @@ export class IntegrationService {
                     team_id: row.team_id,
                     kind: row.kind,
                     config: row.config,
-                    sensitive_config: this.decryptor.decryptSensitiveConfig(row.sensitive_config),
+                    sensitive_config: this.encryptedFields.decryptObject(row.sensitive_config, {
+                        ignoreDecryptionErrors: true,
+                    }),
                 }
                 this.cache.insert(row.id, decrypted)
                 resolved.set(row.id, decrypted)

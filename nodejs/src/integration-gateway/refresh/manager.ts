@@ -1,8 +1,8 @@
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 import { RedisPool } from '~/types'
 
-import { IntegrationDecryptor } from '../crypto'
 import { recordRefresh } from '../metrics'
 import { IntegrationRepository } from '../repository'
 import { IntegrationRow } from '../types'
@@ -31,7 +31,7 @@ export class RefreshManager {
 
     constructor(
         private repository: IntegrationRepository,
-        private decryptor: IntegrationDecryptor,
+        private encryptedFields: EncryptedFields,
         private redisPool: RedisPool,
         private config: RefreshManagerConfig,
         ownedKinds: string[]
@@ -126,10 +126,10 @@ export class RefreshManager {
         // Overwrite only the rotated leaves; other (still-encrypted) leaves are left untouched.
         const newSensitiveConfig: Record<string, any> = {
             ...fresh.sensitive_config,
-            access_token: this.decryptor.encryptLeaf(tokens.access_token!),
+            access_token: this.encryptedFields.encrypt(tokens.access_token!),
         }
         if (tokens.refresh_token) {
-            newSensitiveConfig.refresh_token = this.decryptor.encryptLeaf(tokens.refresh_token)
+            newSensitiveConfig.refresh_token = this.encryptedFields.encrypt(tokens.refresh_token)
         }
 
         await this.repository.updateAfterRefresh(fresh.id, newConfig, newSensitiveConfig)
@@ -142,7 +142,12 @@ export class RefreshManager {
         if (typeof encrypted !== 'string') {
             throw new Error('integration has no stored refresh_token')
         }
-        const decrypted = this.decryptor.decryptLeaf(encrypted)
+        let decrypted: string | undefined
+        try {
+            decrypted = this.encryptedFields.decrypt(encrypted)
+        } catch {
+            decrypted = undefined
+        }
         if (decrypted === undefined) {
             throw new Error('integration refresh_token is not decryptable')
         }

@@ -192,6 +192,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    nodejs_integration_gateway:
+        description: 'Node.js Integration Gateway - third-party credential access + JIT OAuth refresh'
+        requires: [core_infra]
+        docker_profiles: []
+
     batch_imports:
         description: 'Batch data import worker'
         requires: [event_ingestion]
@@ -241,7 +246,15 @@ capabilities:
 intents:
     product_analytics:
         description: 'Core product analytics (insights, funnels, trends)'
-        capabilities: [event_ingestion, property_definitions, property_values, celery_workers, nodejs_cdp]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                nodejs_cdp,
+                nodejs_integration_gateway,
+            ]
 
     error_tracking:
         description: 'Track and analyze application errors'

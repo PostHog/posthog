@@ -520,7 +520,9 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
+    // The DB `kind` column — any IntegrationKind (slack, email, oauth, firebase, apns, hubspot,
+    // salesforce, google-ads, ...). Consumers compare against specific kinds rather than switching.
+    kind: string
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }
