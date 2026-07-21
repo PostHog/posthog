@@ -229,12 +229,11 @@ export class EmailReputationService {
     private async fetchHourlyEmailMetrics(teamIds: number[], evaluatedAt: string): Promise<HourlyEmailMetricsRow[]> {
         const result = await this.clickhouse.query({
             // email_blocked is how SES complaint events are recorded (see helpers/ses.ts), hence
-            // the `complained` alias. Note email_bounced includes ALL SES bounce types, while
-            // AWS's account bounce rate counts only hard bounces — so our rate deliberately
-            // overcounts (greylisting/mailbox-full push it up). Conservative in the safe
-            // direction for a visibility-only phase; splitting transient bounces into their own
-            // metric at the SES webhook is the enforcement-phase fix (it changes live metric
-            // semantics for every app_metrics2 consumer, so it doesn't belong in this service). No HAVING sent > 0: buckets holding only late-arriving
+            // the `complained` alias. email_bounced_hard counts only Permanent bounces, matching
+            // AWS's account bounce rate (which excludes transient greylisting/mailbox-full
+            // traffic). The metric is emitted from the same deploy that created the snapshot
+            // table, so windows reaching back before that deploy undercount bounces until it has
+            // volume-window depth — acceptable while the score is visibility-only. No HAVING sent > 0: buckets holding only late-arriving
             // bounces/complaints must still count toward the window they fall into.
             query: `
                 SELECT
@@ -242,12 +241,12 @@ export class EmailReputationService {
                     app_source_id,
                     toUnixTimestamp(toStartOfHour(timestamp)) AS hour_bucket,
                     sumIf(count, metric_name = 'email_sent') AS sent,
-                    sumIf(count, metric_name = 'email_bounced') AS bounced,
+                    sumIf(count, metric_name = 'email_bounced_hard') AS bounced,
                     sumIf(count, metric_name = 'email_blocked') AS complained
                 FROM app_metrics2
                 WHERE app_source = 'hog_flow'
                     AND metric_kind = 'email'
-                    AND metric_name IN ('email_sent', 'email_bounced', 'email_blocked')
+                    AND metric_name IN ('email_sent', 'email_bounced_hard', 'email_blocked')
                     AND team_id IN ({teamIds:Array(UInt64)})
                     AND timestamp >= parseDateTimeBestEffort({evaluatedAt:String}) - INTERVAL {lookbackDays:UInt32} DAY
                     AND timestamp < parseDateTimeBestEffort({evaluatedAt:String})
