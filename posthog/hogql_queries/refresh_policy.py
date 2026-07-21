@@ -59,6 +59,15 @@ SURFACE_DEFAULT_EXECUTION_MODE: dict[ComputeSurface, ExecutionMode] = {
 }
 
 
+def _refresh_param_present(request: "Request") -> bool:
+    """Whether the client sent a `refresh` param at all (query string or body), regardless of its
+    value — so an explicit `refresh=false` is distinguished from an absent param."""
+    if request.query_params.get("refresh") is not None:
+        return True
+    data = getattr(request, "data", None)
+    return isinstance(data, dict) and data.get("refresh") is not None
+
+
 def resolve_execution_mode(
     request: "Request", *, surface: ComputeSurface, is_shared: bool = False
 ) -> SharedExecutionSettings:
@@ -70,9 +79,12 @@ def resolve_execution_mode(
     a `SharedExecutionSettings(execution_mode, cache_age_seconds)`; `cache_age_seconds` is None
     off the shared path.
     """
-    refresh_requested = refresh_requested_by_client(request)
-    if refresh_requested:
-        execution_mode = execution_mode_from_refresh(refresh_requested)
+    # An explicit ?refresh= (any value, including false/0/no) is honored via
+    # execution_mode_from_refresh, matching historical behavior — so a client that opts out of
+    # refreshing still gets CACHE_ONLY even after a surface default is flipped off cache-only.
+    # The surface default applies only when no refresh param is present at all.
+    if _refresh_param_present(request):
+        execution_mode = execution_mode_from_refresh(refresh_requested_by_client(request))
     else:
         execution_mode = SURFACE_DEFAULT_EXECUTION_MODE[surface]
 

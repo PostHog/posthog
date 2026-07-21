@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.http import HttpRequest
 from django.test import SimpleTestCase
 
@@ -39,6 +41,21 @@ class TestResolveExecutionMode(SimpleTestCase):
             mode, cache_age = resolve_execution_mode(_request(refresh), surface=surface)
             assert mode == expected, surface
             assert cache_age is None
+
+    def test_explicit_refresh_false_stays_cache_only_when_surface_default_is_flipped(self) -> None:
+        # An explicit ?refresh=false is the client opting out of a recompute; it must stay
+        # cache-only even once a surface default is flipped off cache-only, whereas an absent
+        # param follows the (flipped) surface default. Guards the exact regression where explicit
+        # opt-out silently inherits a non-cache default.
+        with mock.patch.dict(
+            "posthog.hogql_queries.refresh_policy.SURFACE_DEFAULT_EXECUTION_MODE",
+            {ComputeSurface.DASHBOARD_TILE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE},
+        ):
+            absent_mode, _ = resolve_execution_mode(_request(), surface=ComputeSurface.DASHBOARD_TILE)
+            assert absent_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+
+            false_mode, _ = resolve_execution_mode(_request("false"), surface=ComputeSurface.DASHBOARD_TILE)
+            assert false_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
     def test_shared_flag_applies_the_clamp(self) -> None:
         # resolve_execution_mode's own responsibility is to route through the shared clamp iff
