@@ -7,6 +7,7 @@
 //! is spelled out as [`AnalyticsPipeline`] — the visible proof that the whole thing is
 //! one flat, monomorphized struct (no boxes, no `dyn`).
 
+pub mod accumulate;
 pub mod outputs;
 
 pub use outputs::{analytics_topic_for, AnalyticsOutputs};

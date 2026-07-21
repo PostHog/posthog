@@ -1,55 +1,43 @@
-//! Openness machinery: forwarding capability impls through wrapper types.
+//! Openness machinery: forwarding one capability impl through a wrapper type.
 //!
-//! The "input open to extension" property (a step bounds only the capabilities it
-//! reads; wrappers extend an event without breaking downstream bounds) needs each
-//! wrapper to forward the capabilities of its inner event. [`impl_passthrough_caps!`]
-//! generates that forwarding.
+//! This is the domain-agnostic half of the "input open to extension" property. It
+//! emits a *single* capability-forwarding impl given the wrapper's generic shape, the
+//! trait, and its accessor signature — it names no domain traits itself (those are
+//! supplied by the capability registry in [`crate::events::capabilities`], which drives
+//! this via a callback). The wrapper's inner event must live in a field named `inner`.
 //!
-//! The macro is **domain-agnostic**: it takes the capability traits and their accessor
-//! signatures as arguments, so `framework` stays decoupled from any particular event
-//! vocabulary. The concrete event capabilities live in [`crate::events`], and the
-//! wrappers there invoke this macro with them.
+//! Three shapes cover the demo wrappers:
+//! - `single` — `W<In>` (a wrapper with one type parameter, e.g. `WithGeo`, `Restricted`).
+//! - `tagged` — `Tagged<Tag, In>` (one forwarding site covers every pure phase tag).
+//! - `laned` — `Laned<In, Lane>` (a wrapper carrying a type-level lane).
+//!
+//! In a production framework this whole file collapses into a `#[derive(Passthrough)]`
+//! proc-macro; `macro_rules!` is the POC stand-in.
 
-/// Forward a set of single-method capability traits through a single-type-parameter
-/// wrapper whose inner event lives in a field named `inner`.
-///
-/// Each entry is `TraitPath: fn method(&self) -> ReturnType`. The generated impl is
-/// conditional on the inner type implementing the trait, so it applies exactly when
-/// the wrapped event has the capability — and never fabricates one it lacks.
-///
-/// ```
-/// use capture_pipelines_poc::impl_passthrough_caps;
-///
-/// trait HasName {
-///     fn name(&self) -> &str;
-/// }
-///
-/// struct Wrapper<In> {
-///     inner: In,
-/// }
-/// impl_passthrough_caps!(Wrapper {
-///     HasName: fn name(&self) -> &str,
-/// });
-///
-/// struct Base;
-/// impl HasName for Base {
-///     fn name(&self) -> &str {
-///         "base"
-///     }
-/// }
-///
-/// let w = Wrapper { inner: Base };
-/// assert_eq!(w.name(), "base"); // capability forwarded through the wrapper
-/// ```
+/// Emit one capability-forwarding impl. Selected by a leading shape keyword; the trait,
+/// accessor name, and return type come from the registry callback.
+#[doc(hidden)]
 #[macro_export]
-macro_rules! impl_passthrough_caps {
-    ($wrapper:ident { $( $trait:path : fn $method:ident(&self) -> $ret:ty ),* $(,)? }) => {
-        $(
-            impl<In: $trait> $trait for $wrapper<In> {
-                fn $method(&self) -> $ret {
-                    self.inner.$method()
-                }
+macro_rules! forward_one_capability {
+    (single $wrapper:ident $trait:path, $method:ident, $ret:ty) => {
+        impl<In: $trait> $trait for $wrapper<In> {
+            fn $method(&self) -> $ret {
+                self.inner.$method()
             }
-        )*
+        }
+    };
+    (tagged $wrapper:ident $trait:path, $method:ident, $ret:ty) => {
+        impl<Tag, In: $trait> $trait for $wrapper<Tag, In> {
+            fn $method(&self) -> $ret {
+                self.inner.$method()
+            }
+        }
+    };
+    (laned $wrapper:ident $trait:path, $method:ident, $ret:ty) => {
+        impl<In: $trait, Lane> $trait for $wrapper<In, Lane> {
+            fn $method(&self) -> $ret {
+                self.inner.$method()
+            }
+        }
     };
 }

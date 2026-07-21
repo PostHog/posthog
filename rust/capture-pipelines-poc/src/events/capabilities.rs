@@ -1,15 +1,17 @@
-//! Capability traits and lane markers — the minimal-input vocabulary steps bound on.
+//! Capability traits, lane markers, and the capability registry.
 //!
 //! A step declares exactly the fields it reads as trait bounds on its input — not a
-//! concrete event struct. `ApplyQuota` bounds `In: HasToken + HasEventName`; it does
-//! not care what else the event carries. This is the "input open to extension"
-//! property: wrappers can enrich an event (adding fields/capabilities) without breaking
-//! the bounds a downstream step already relies on.
+//! concrete event struct. This is the "input open to extension" property: wrappers can
+//! enrich an event without breaking the bounds a downstream step already relies on.
 //!
-//! Lanes are encoded at the *type* level ([`Main`]/[`Overflow`]/[`Historical`]), so
-//! "historical never overflows" becomes a compile error: an overflow step bounds its
-//! input `HasLane<Lane = Main>`, and a `Laned<_, Historical>` simply does not satisfy
-//! it.
+//! ## The forwarding registry
+//!
+//! Every wrapper must forward the capabilities of its inner event. Rather than hand-
+//! write `wrappers × capabilities` impls, the standard capabilities are listed **once**
+//! in [`for_each_capability!`], and each wrapper forwards them all with a one-line
+//! invocation ([`impl_passthrough_caps!`] and friends). Adding a capability is one
+//! registry line; adding a wrapper is one invocation. See `README.md`, "The forwarding
+//! problem", for the full ladder.
 
 /// The event carries an ingest token.
 pub trait HasToken {
@@ -42,8 +44,10 @@ pub trait HasTeamId {
 }
 
 /// The event carries a resolved geo country — an *enrichment* capability added by an
-/// upstream step ([`Enrich`](crate::steps::enrich::Enrich)), used to demonstrate open
-/// extension.
+/// upstream step ([`Enrich`](crate::steps::enrich::Enrich)). Deliberately **not** part
+/// of the standard registry: it is provided by one wrapper and forwarded by hand where
+/// needed (a `macro_rules!` registry can't express "forward all except this one" — see
+/// the forwarding-problem note in the README).
 pub trait HasGeo {
     /// The resolved geo country code.
     fn geo(&self) -> &str;
@@ -61,3 +65,52 @@ pub struct Main;
 pub struct Overflow;
 /// Historical lane (bulk imports kept off the live path — never overflows).
 pub struct Historical;
+
+/// The capability registry: every standard capability, listed **exactly once** as
+/// `(Trait, accessor, ReturnType)`.
+///
+/// Callback pattern: `for_each_capability!({ path::to::cb } (prefix))` expands to one
+/// `cb!(prefix Trait, accessor, ReturnType)` per capability. (The callback is wrapped
+/// in braces so a `$crate::`-qualified path can be used — a bare `path!` can't follow a
+/// `:path` fragment.) Extending the vocabulary is a single line here that every
+/// wrapper's forwarding picks up automatically.
+#[macro_export]
+macro_rules! for_each_capability {
+    ({ $($cb:tt)* } ( $($prefix:tt)* )) => {
+        $($cb)*!($($prefix)* $crate::events::capabilities::HasToken, token, &str);
+        $($cb)*!($($prefix)* $crate::events::capabilities::HasEventName, event_name, &str);
+        $($cb)*!(
+            $($prefix)* $crate::events::capabilities::HasDistinctId,
+            distinct_id,
+            ::core::option::Option<&str>
+        );
+        $($cb)*!($($prefix)* $crate::events::capabilities::HasTimestamp, timestamp, i64);
+        $($cb)*!($($prefix)* $crate::events::capabilities::HasTeamId, team_id, u64);
+    };
+}
+
+/// Forward every standard capability through a single-type-parameter wrapper `W<In>`
+/// whose inner event is in a field named `inner`. One line per wrapper.
+#[macro_export]
+macro_rules! impl_passthrough_caps {
+    ($wrapper:ident) => {
+        $crate::for_each_capability!({ $crate::forward_one_capability } (single $wrapper));
+    };
+}
+
+/// Forward every standard capability through a phase-tag wrapper `Tagged<Tag, In>`.
+/// One invocation covers **all** pure phase tags at once.
+#[macro_export]
+macro_rules! impl_passthrough_caps_tagged {
+    ($wrapper:ident) => {
+        $crate::for_each_capability!({ $crate::forward_one_capability } (tagged $wrapper));
+    };
+}
+
+/// Forward every standard capability through a lane-carrying wrapper `Laned<In, Lane>`.
+#[macro_export]
+macro_rules! impl_passthrough_caps_laned {
+    ($wrapper:ident) => {
+        $crate::for_each_capability!({ $crate::forward_one_capability } (laned $wrapper));
+    };
+}

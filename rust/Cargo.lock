@@ -1916,6 +1916,7 @@ dependencies = [
 name = "capture-pipelines-poc"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "tokio",
 ]
 

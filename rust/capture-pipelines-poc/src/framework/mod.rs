@@ -8,10 +8,12 @@
 
 pub mod chain;
 pub mod chunk;
+pub mod concurrency;
 pub mod extend;
 pub mod fail_open;
 pub mod fx;
 pub mod observer;
 pub mod outputs;
 pub mod result;
+pub mod retry;
 pub mod step;

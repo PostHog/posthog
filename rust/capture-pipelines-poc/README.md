@@ -7,9 +7,10 @@ whole framework — composition, effects, observers, typed outputs, and async st
 be expressed without type erasure?* This crate is the worked answer: **yes**.
 
 It is a demonstration crate. There is no server, no Kafka, no Redis, no real config.
-`[dependencies]` is empty; the only dev-dependency is `tokio`, used to drive the async
-chunk-step demos in tests. It compiles, passes `cargo test`, and passes
-`cargo clippy -- -D warnings`.
+The only runtime dependency is `futures` (the concurrency combinators are built on its
+stream combinators — the design says to buy these, not hand-roll Node's
+synchronization engine); the only dev-dependency is `tokio`, to drive the async demos
+in tests. It compiles, passes `cargo test`, and passes `cargo clippy -- -D warnings`.
 
 ## Why: the #70814 gap
 
@@ -78,26 +79,76 @@ src/
     chain.rs              Chain, IntoOutputs, Identity, typestate PipelineBuilder, Pipeline runner
     chunk.rs              ChunkStep (native async-fn-in-trait), yield_now, sync→chunk→sync runner
     fail_open.rs          FailOpen<S> + the .fail_open() extension method
-    extend.rs             impl_passthrough_caps! — generic wrapper/openness machinery
+    retry.rs              Retry<S> + .retry(tries, backoff) — injectable backoff
+    extend.rs             forward_one_capability! — domain-agnostic forwarding machinery
+    concurrency/          async combinators (built on futures)
+      processor.rs        AsyncProcessor (per-item async, no &mut Fx)
+      concurrently.rs     concurrently (FIFO), sequentially, filter_map
+      grouping.rs         concurrently_per_group (keyed, in-order within group)
+      branching.rs        Branching (classifier → exhaustive match)
     fx.rs                 HasSink, WarningSink, WarningEffects, compose_fx!
     observer.rs           Observer, CountingObserver, impl_observer_tuple!
     outputs.rs            Produce, MemProducer, OutputRegistry (generic; no domain enum)
   events/                 the demo event domain
-    capabilities.rs       HasToken/EventName/DistinctId/Timestamp/TeamId/Geo/Lane + lane markers
-    wrappers.rs           Validated, Restricted, WithGeo, Laned + capability forwarding
+    capabilities.rs       capability traits + lane markers + for_each_capability! registry
+    wrappers.rs           Tagged (Validated), Restricted, WithGeo, Laned + one-line forwarding
     parsed.rs             ParsedEvent (a legitimate concrete boundary type)
   steps/                  one demo step per file
     validate.rs  enrich.rs  quota.rs  restrictions.rs  annotate.rs (async chunk step)
   pipeline/               the composed analytics pipeline
     mod.rs                AnalyticsFx (compose_fx!), AnalyticsPipeline type alias, builder wiring
     outputs.rs            AnalyticsOutputs enum + topic map
+    accumulate.rs         Accumulating — per-key fold + threshold flush (replay shape)
 ```
 
-The three `macro_rules!` macros each eliminate one class of boilerplate that a derive
-macro would generate in the real framework: capability forwarding through wrappers
-(`impl_passthrough_caps!`, kept domain-agnostic — it takes the trait/accessor list as
-arguments), `HasSink` wiring for a composed effects struct (`compose_fx!`), and
-`Observer` impls for tuple composition (`impl_observer_tuple!`).
+## The forwarding problem
+
+Wrappers must forward the capabilities of the event they wrap, or a downstream step's bounds stop resolving.
+Done naively that is `wrappers × capabilities` hand-written impls — the boilerplate the user rejected.
+The POC climbs the first two rungs of the ladder and documents the rest:
+
+1. **Registry macro (here).**
+   `for_each_capability!` lists the standard capabilities **exactly once** as `(Trait, accessor, ReturnType)` and drives a callback (`{ path } (prefix)`) that emits one impl per capability.
+   A wrapper forwards them all with one line — `impl_passthrough_caps!(Restricted)` (or `_tagged!` / `_laned!` for the other generic shapes).
+   Adding a capability is one registry line; adding a wrapper is one invocation.
+   The domain-agnostic emitter (`forward_one_capability!`) lives in `framework/extend.rs` and names no domain traits; the registry lives in `events/` because it names them.
+2. **Marker collapse (here).**
+   Wrappers that add *no data* — pure phase tags — all share one generic `Tagged<Tag, In>`, so a single forwarding site covers every tag.
+   `Validated<In>` is a `type` alias for `Tagged<ValidatedTag, In>`; a second phase tag costs zero forwarding.
+   Wrappers that carry data (`WithGeo`, `Restricted`) or a type-level lane (`Laned`) stay concrete.
+3. **Providing wrappers (hand-written, documented).**
+   `WithGeo` *provides* `HasGeo`, so `HasGeo` is outside the registry and forwarded by hand on the three wrappers that pass it through.
+   `macro_rules!` can't express "forward all *except* `HasGeo`"; a production framework would use `#[derive(Passthrough)]` with `except(HasGeo)` (a proc-macro).
+4. **Zero-forwarding via type maps (rejected default).**
+   An HList / type-map (`frunk`) inner-state design would need *no* forwarding at all, but at the cost of index type-params and inscrutable error messages.
+   The design doc already passed on `frunk` for the effects struct for the same reason; we keep hand-written forwarding legible and reserve the type-map option for if wrapper count ever explodes.
+
+## Pipeline shapes & combinators
+
+Every structurally-impactful Node builder maps to a Rust demonstration or a documented deferral:
+
+| Node builder | Rust demonstration |
+|---|---|
+| `concurrently(maxConcurrency)` | [`concurrently(max, proc, items)`] — `futures` `buffered`; bounded concurrency, FIFO emission. Proven in `combinators.rs` (order preserved, `max_in_flight == 2`). |
+| `concurrentlyPerGroup(groupingFn)` | [`concurrently_per_group(max, key_of, proc, items)`] — groups run concurrently (bounded), items strictly in-order within a group. Emits **positionally** (vs Node's group-completion order) because verdicts are recorded by position. Proven: in-group order, cross-group overlap (`max_in_flight == 3`), bounded (`== 1`), positional verdicts. |
+| `sequentially` | The default. Sync steps chain with `.step().step()` (no combinator); an async `sequentially(proc, items)` is provided for symmetry. |
+| `branching` (`Exclude<TRemaining, B>`) | `Branching { classify, route }` — a classifier maps to a user enum, the router `match`es it. Exhaustiveness is the compiler's match check: adding a variant breaks every router until handled — the Rust answer to the `Exclude` builder trick. |
+| `gather` | Implicit: chunk stages already receive and return the whole `Vec<In>`, so gathering a chunk into one emission needs no combinator. |
+| `filterMap` | `filter_map(results, f)` — map `Continue` values (which may re-drop), pass non-`Continue` verdicts through positionally. |
+| retry (`withStepRetry` / `isRetriable`) | `Retry<S>` / `.retry(tries, backoff)` around a `FallibleStep`; backoff is an injectable `Fn(u32)` (tests record attempts, no real sleep). Still fallible, so it composes with `.fail_open()`. |
+| `BatchingPipeline` before/after-batch hooks | Plain functions bracketing the runner — no framework machinery (`combinators.rs::batching_hooks_are_plain_functions_around_the_runner`). |
+| accumulating (replay session buffering) | `Accumulating<K, T>` — per-key fold with threshold flush + end-of-batch drain; proves the accumulating shape fits static dispatch. |
+| `concurrentlyPerGroup` unbounded, `messageAware`/`teamAware` scoping | Deferred: unbounded is `max = group_count`; the `*Aware` builder scopes are capability bounds here (`Fx: WarningEffects`), not builder subtypes. |
+
+The concurrency combinators operate on an `AsyncProcessor` (per-item async, **no `&mut Fx`**): running many concurrently would make a shared `&mut Fx` unsound, and the framework collects effects at chunk boundaries (design §3.4), so per-item concurrent work stays effect-free.
+
+## The macros
+
+Five `macro_rules!` macros each eliminate one class of boilerplate a derive macro would generate in the real framework:
+`for_each_capability!` (the capability registry, listed once),
+`impl_passthrough_caps!` / `_tagged!` / `_laned!` (one-line capability forwarding per wrapper, driven by the registry via the domain-agnostic `forward_one_capability!` emitter),
+`compose_fx!` (`HasSink` wiring for a composed effects struct),
+and `impl_observer_tuple!` (`Observer` impls for tuple composition).
 
 ## Running
 
@@ -134,6 +185,13 @@ corners:
 - **Observers are notified by the demo harness, not a built-in executor.** In the real
   framework the batch executor drives observer callbacks; here the integration test
   calls `on_verdict` in its run loop.
+- **The concurrency combinators take an `AsyncProcessor`, not a `Step`.** It has no
+  `&mut Fx` (concurrent per-item effects would need synchronization); effects belong at
+  chunk boundaries. Wiring the combinators into the `Step`/`ChunkStep` builder is left
+  as follow-up.
+- **`concurrently_per_group` emits positionally, not in group-completion order** (the
+  one intentional divergence from Node). Within-group order and bounded cross-group
+  concurrency match Node exactly.
 
 ### Deviations from the brief
 

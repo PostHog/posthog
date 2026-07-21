@@ -32,13 +32,22 @@
 //! adapters at the pipeline edge. This keeps upstream enrichment from rippling into
 //! every downstream signature (see the `open_extension_*` integration test).
 //!
-//! ## The three macros
+//! ## The macros
 //!
 //! | Macro | Eliminates |
 //! |---|---|
-//! | [`impl_passthrough_caps!`] | hand-written capability forwarding through wrappers |
+//! | [`for_each_capability!`] | listing the capability vocabulary more than once |
+//! | [`impl_passthrough_caps!`] (+ `_tagged!`/`_laned!`) | hand-written capability forwarding through wrappers |
 //! | [`compose_fx!`] | hand-written `HasSink` wiring for a pipeline's effects struct |
 //! | [`impl_observer_tuple!`] | hand-written `Observer` impls for tuple composition |
+//!
+//! ## Pipeline shapes & combinators
+//!
+//! The structurally-impactful Node builders are demonstrated with static dispatch in
+//! [`framework::concurrency`] ([`concurrently`], [`concurrently_per_group`],
+//! [`sequentially`], [`filter_map`], [`Branching`]), [`framework::retry`]
+//! ([`Retry`]/[`RetryExt`]), and [`pipeline::accumulate`]. See `README.md`,
+//! "Pipeline shapes & combinators", for the full Node-feature mapping.
 
 #![warn(missing_docs)]
 
@@ -50,9 +59,13 @@ pub mod steps;
 // Ergonomic re-exports so the framework's core vocabulary is available at short paths.
 pub use framework::chain::{builder, Chain, Identity, IntoOutputs, Pipeline, PipelineBuilder};
 pub use framework::chunk::{run_chunk_stage, run_pipeline, yield_now, ChunkStep};
+pub use framework::concurrency::{
+    concurrently, concurrently_per_group, filter_map, sequentially, AsyncProcessor, Branching,
+};
 pub use framework::fail_open::{FailOpen, FallibleStepExt};
 pub use framework::fx::{HasSink, Warning, WarningEffects, WarningSink};
 pub use framework::observer::{CountingObserver, Observer};
 pub use framework::outputs::{MemProducer, MissingTopic, OutputRegistry, Produce};
 pub use framework::result::{NoOutputs, Outputs, StepResult, VerdictKind};
+pub use framework::retry::{Retry, RetryExt};
 pub use framework::step::{FallibleStep, Step};
