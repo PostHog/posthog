@@ -1,17 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBookmark } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from 'lib/ui/quill'
+import { IconBookmark, IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { SavedViewsModal } from './SavedViewsModal'
@@ -25,45 +15,43 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
 
     return (
         <>
-            <DropdownMenu onOpenChange={(open) => open && loadViews()}>
-                <DropdownMenuTrigger
-                    render={
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconBookmark />}
-                            active={!!activeView}
-                            tooltip={activeView ? `Viewing "${activeView.name}"` : undefined}
-                        >
-                            {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
-                        </LemonButton>
-                    }
-                />
-                <DropdownMenuContent align="start" className="min-w-[220px]">
-                    <DropdownMenuGroup>
-                        <DropdownMenuLabel>Favorites</DropdownMenuLabel>
-                        {favoriteViews.length ? (
-                            favoriteViews.map((view) => (
-                                <DropdownMenuItem key={view.short_id} onClick={() => loadView(view)}>
-                                    <span className="truncate">{view.name}</span>
-                                </DropdownMenuItem>
-                            ))
-                        ) : (
-                            <DropdownMenuItem disabled>
-                                {viewsLoading ? 'Loading…' : 'No favorite views yet'}
-                            </DropdownMenuItem>
-                        )}
-                    </DropdownMenuGroup>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={openModal}>All saved views</DropdownMenuItem>
-                    {activeView && (
-                        <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={resetFilters}>Clear view and reset filters</DropdownMenuItem>
-                        </>
-                    )}
-                </DropdownMenuContent>
-            </DropdownMenu>
+            <LemonMenu
+                placement="bottom-start"
+                onVisibilityChange={(visible) => visible && loadViews()}
+                items={[
+                    {
+                        title: 'Favorites',
+                        items: favoriteViews.length
+                            ? favoriteViews.map((view) => ({
+                                  label: view.name,
+                                  onClick: () => loadView(view),
+                              }))
+                            : [
+                                  {
+                                      label: viewsLoading ? 'Loading…' : 'No favorite views yet',
+                                      disabledReason: 'Favorite a view to see it here',
+                                  },
+                              ],
+                    },
+                    {
+                        items: [
+                            { label: 'All saved views', onClick: openModal },
+                            activeView && { label: 'Clear view and reset filters', onClick: resetFilters },
+                        ],
+                    },
+                ]}
+            >
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconBookmark />}
+                    sideIcon={<IconChevronDown />}
+                    active={!!activeView}
+                    tooltip={activeView ? `Viewing "${activeView.name}"` : undefined}
+                >
+                    {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
+                </LemonButton>
+            </LemonMenu>
             <SavedViewsModal id={id} />
         </>
     )
