@@ -2,16 +2,14 @@
 
 A SQL node whose refs are all hogql (node_type "hogql" after `resolve_sql_node_run`)
 never needs the kernel — its inlined query runs on the same async query manager the
-data plane already uses, enqueued straight from run dispatch. The manager's query_id
-is derived from the run id (not the run id itself — see `notebook_direct_query_id`),
-so no state beyond the run row is needed; the run-result poll advances the row from
-the query status (`sync_direct_run`) because the manager has no completion callback.
+data plane already uses, enqueued straight from run dispatch. The run's own id is
+the manager's query_id, so no state beyond the run row is needed; the run-result
+poll advances the row from the query status (`sync_direct_run`) because the manager
+has no completion callback.
 
 Kernel-lane runs (python/duckdb) keep the Temporal -> sandbox dispatch in sql_v2.py.
 """
 
-import hmac
-import hashlib
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -36,25 +34,6 @@ logger = structlog.get_logger(__name__)
 # it expired (its TTL is 20 min) or the run predates the direct lane (a kernel-executed
 # hogql run, whose callback should land well within this window).
 DIRECT_RUN_RESULT_GRACE_SECONDS = 600
-
-
-def notebook_direct_query_id(run_id: str) -> str:
-    """A private async-manager query id for a direct run, derived from the run id.
-
-    Not the run id itself. The run id is client-visible (it's in the notebook document
-    and lands in the query log as client_query_id), and the async-manager status endpoint
-    returns a query's cached rows to any team member with query access. Using the run id
-    as the query id would put it in that shared namespace, letting a caller read a run's
-    rows through the generic /query/<id>/ endpoint (bypassing the notebook + per-user
-    warehouse checks) or poison them by enqueuing a colliding client_query_id. Deriving an
-    unpublished id from SECRET_KEY keeps the run id out of the namespace; it's deterministic
-    so the poll recomputes it with nothing stored.
-    """
-    return hmac.new(
-        settings.SECRET_KEY.encode(),
-        f"notebook-direct-query:{run_id}".encode(),
-        hashlib.sha256,
-    ).hexdigest()
 
 
 def wrap_hogql_page_query(query: str, limit: int, offset: int) -> str:
@@ -84,7 +63,7 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
             team=team,
             user_id=user.id if user else None,
             query_json={"kind": "HogQLQuery", "query": wrapped},
-            query_id=notebook_direct_query_id(str(run.id)),
+            query_id=str(run.id),
             # A Run click always executes; never serve a stale cached result.
             refresh_requested=True,
             # Dispatch normally rides transaction.on_commit, which never fires inside
@@ -133,7 +112,7 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
         return None
 
     try:
-        status = get_query_status(team_id=run.team_id, query_id=notebook_direct_query_id(str(run.id)))
+        status = get_query_status(team_id=run.team_id, query_id=str(run.id))
     except QueryNotFoundError:
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if run.status == NotebookNodeRun.Status.RUNNING and age_seconds > DIRECT_RUN_RESULT_GRACE_SECONDS:

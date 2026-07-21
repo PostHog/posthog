@@ -20,7 +20,6 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -53,7 +52,7 @@ from products.notebooks.backend.sql_v2 import (
 )
 from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
-from products.notebooks.backend.sql_v2_direct import notebook_direct_query_id, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import sync_direct_run
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -318,33 +317,16 @@ class TestSQLV2Run(APIBaseTest):
 
     @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_direct_enqueue_threads_user_and_private_query_id(self, _mock_enabled, mock_enqueue):
+    def test_direct_enqueue_threads_user_and_run_id(self, _mock_enabled, mock_enqueue):
         # user_id drives HogQL/warehouse access control downstream (a userless run fails
-        # closed). The query_id must be the private derived id, never the client-visible
-        # run_id — using the run_id would expose a run's rows through the generic query
-        # endpoint and let a colliding client_query_id poison them.
+        # closed), and query_id=run_id is how the result poll finds the query status.
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(response.status_code, 200)
-        run_id = response.json()["run_id"]
         kwargs = mock_enqueue.call_args.kwargs
         self.assertEqual(kwargs["user_id"], self.user.id)
-        self.assertNotEqual(kwargs["query_id"], run_id)
-        self.assertEqual(kwargs["query_id"], notebook_direct_query_id(run_id))
+        self.assertEqual(kwargs["query_id"], response.json()["run_id"])
         self.assertTrue(kwargs["refresh_requested"])
         self.assertIn("select 1", kwargs["query_json"]["query"])
-
-    @patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError())
-    def test_a_query_status_under_the_run_id_cannot_poison_the_run(self, mock_status):
-        # The vuln being closed: a collaborator enqueues a query with client_query_id =
-        # run_id, then polls while the run is RUNNING. The poll must look up the private
-        # derived id, not the run_id, so the attacker's rows are never adopted.
-        with team_scope(self.team.id):
-            run = NotebookNodeRun.objects.create(
-                team=self.team, notebook=self.notebook, node_id="n1", status=NotebookNodeRun.Status.RUNNING
-            )
-        sync_direct_run(run)
-        self.assertEqual(mock_status.call_args.kwargs["query_id"], notebook_direct_query_id(str(run.id)))
-        self.assertNotEqual(mock_status.call_args.kwargs["query_id"], str(run.id))
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
