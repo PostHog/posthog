@@ -861,6 +861,30 @@ class TestOauthIntegrationModel(BaseTest):
             ("reddit_shape_on_other_kind", 400, {"message": "Bad Request", "error": 400}, "hubspot", "other"),
             ("reddit_5xx", 502, {"message": "Bad Gateway", "error": 502}, "reddit-ads", "http_5xx"),
             ("reddit_oauth_error_code", 400, {"error": "invalid_grant"}, "reddit-ads", "invalid_grant"),
+            (
+                "hubspot_dead_hub_shape",
+                400,
+                {"status": "BAD_HUB", "message": "missing or unknown hub id", "error": "access_denied"},
+                "hubspot",
+                "invalid_grant",
+            ),
+            (
+                "hubspot_shape_on_other_kind",
+                400,
+                {"status": "BAD_HUB", "error": "access_denied"},
+                "salesforce",
+                "other",
+            ),
+            ("hubspot_bad_hub_5xx_is_outage", 502, {"status": "BAD_HUB"}, "hubspot", "http_5xx"),
+            (
+                "hubspot_bad_refresh_token_still_oauth_code",
+                400,
+                {"status": "BAD_REFRESH_TOKEN", "error": "invalid_grant"},
+                "hubspot",
+                "invalid_grant",
+            ),
+            ("rate_limited", 429, {"status": "error", "errorType": "RATE_LIMIT"}, "hubspot", "rate_limited"),
+            ("rate_limited_any_kind", 429, {}, None, "rate_limited"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):

@@ -1,12 +1,22 @@
 import { getHogEvalExample } from './hogEvalExamples'
 
+export type EvaluationTemplateIcon =
+    | 'target'
+    | 'thumbs-up'
+    | 'eye'
+    | 'alert-triangle'
+    | 'code'
+    | 'search'
+    | 'wrench'
+    | 'emoji'
+
 export interface LLMJudgeTemplate {
     key: string
     name: string
     description: string
     evaluation_type: 'llm_judge'
     prompt: string
-    icon: 'target' | 'thumbs-up' | 'eye' | 'alert-triangle' | 'code'
+    icon: EvaluationTemplateIcon
 }
 
 export interface HogTemplate {
@@ -15,12 +25,51 @@ export interface HogTemplate {
     description: string
     evaluation_type: 'hog'
     source: string
-    icon: 'target' | 'thumbs-up' | 'eye' | 'alert-triangle' | 'code'
+    icon: EvaluationTemplateIcon
 }
 
-export type EvaluationTemplate = LLMJudgeTemplate | HogTemplate
+export interface SentimentTemplate {
+    key: string
+    name: string
+    description: string
+    evaluation_type: 'sentiment'
+    icon: EvaluationTemplateIcon
+}
+
+export type EvaluationTemplate = LLMJudgeTemplate | HogTemplate | SentimentTemplate
 
 export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
+    {
+        key: 'sentiment',
+        name: 'Sentiment analysis',
+        description: "Classify the sentiment of the user's last message on each generation",
+        evaluation_type: 'sentiment',
+        icon: 'emoji',
+    },
+    {
+        key: 'cost_latency',
+        name: 'Cost & latency',
+        description: 'Flag expensive or slow generations and traces using Hog code',
+        evaluation_type: 'hog',
+        icon: 'code',
+        source: getHogEvalExample('cost_latency').source,
+    },
+    {
+        key: 'contains_keyword',
+        name: 'Contains keyword',
+        description: 'Check the output contains required keywords using Hog code',
+        evaluation_type: 'hog',
+        icon: 'search',
+        source: getHogEvalExample('contains_keywords').source,
+    },
+    {
+        key: 'tools_called',
+        name: 'Tools called',
+        description: 'Check that specific tools were called using Hog code',
+        evaluation_type: 'hog',
+        icon: 'wrench',
+        source: getHogEvalExample('tools_called').source,
+    },
     {
         key: 'relevance',
         name: 'Relevance',
@@ -44,14 +93,6 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
 - If the response provides useful, actionable information that helps the user, return true
 - If the response attempts to assist but provides limited or unclear guidance, return true
 - If the response is dismissive, unhelpful, or provides no value to the user, return false`,
-    },
-    {
-        key: 'cost_latency',
-        name: 'Cost & latency',
-        description: 'Flag expensive or slow generations and traces using Hog code',
-        evaluation_type: 'hog',
-        icon: 'code',
-        source: getHogEvalExample('cost_latency').source,
     },
     {
         key: 'hallucination',
