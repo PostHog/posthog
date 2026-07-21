@@ -10,13 +10,8 @@ import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterCohortMembershipControlMessageSkipped } from './metrics'
 
-// Zod schema for validation.
-// Invariant: a membership row must never carry a `type` field. Control messages (e.g. reconcile
-// completion markers) are the only shape with `type`, and `isTypedControlMessage` skips any object
-// that defines one *before* this schema runs — so adding `type` to a membership row would make the
-// consumer silently drop it.
+// Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),
@@ -26,12 +21,6 @@ const CohortMembershipChangeSchema = z.object({
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
-
-type TypedControlMessage = { type: unknown }
-
-function isTypedControlMessage(message: unknown): message is TypedControlMessage {
-    return typeof message === 'object' && message !== null && 'type' in message && message.type !== undefined
-}
 
 export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
@@ -107,16 +96,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                     throw new Error('Empty message received')
                 }
 
-                const parsedMessage: unknown = parseJSON(messageValue)
-
-                if (isTypedControlMessage(parsedMessage)) {
-                    counterCohortMembershipControlMessageSkipped.inc()
-                    logger.info('Skipping typed cohort membership control message', {
-                        messageType:
-                            typeof parsedMessage.type === 'string' ? parsedMessage.type : typeof parsedMessage.type,
-                    })
-                    continue
-                }
+                const parsedMessage = parseJSON(messageValue)
 
                 // Validate using Zod schema
                 const validationResult = CohortMembershipChangeSchema.safeParse(parsedMessage)

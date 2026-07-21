@@ -23,8 +23,3 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     help: 'A batch hog flow run failed during audience resolution and was skipped',
     labelNames: ['hog_flow_id', 'reason'],
 })
-
-export const counterCohortMembershipControlMessageSkipped = new Counter({
-    name: 'cdp_cohort_membership_control_message_skipped',
-    help: 'A typed cohort membership control message was skipped',
-})
