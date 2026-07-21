@@ -103,7 +103,7 @@ class TestDispatchLoopEventCooldown(LoopNotificationsTestCase):
 
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.send_user_push.delay")
-    def test_cooldown_drops_second_run_failed_within_window(self, mock_push_delay, _mock_create_notification):
+    def test_cooldown_drops_second_run_failed_within_window(self, mock_push_delay, mock_create_notification):
         loop = self.create_loop(notifications={"push": {"enabled": True, "events": ["run_failed"]}})
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -111,6 +111,9 @@ class TestDispatchLoopEventCooldown(LoopNotificationsTestCase):
             dispatch_loop_event(loop, "run_failed", {"reason": "boom again"})
 
         self.assertEqual(mock_push_delay.call_count, 1)
+        # In-app is cooldown-gated too: repeated failure/attention events (a capped or
+        # crash-looping loop) must not write a notification row per fire.
+        self.assertEqual(mock_create_notification.call_count, 1)
 
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.send_user_push.delay")

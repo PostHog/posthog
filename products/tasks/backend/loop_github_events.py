@@ -6,6 +6,7 @@ GitHub App webhook fan-out (``posthog.urls.github_webhook``) for the ``pull_requ
 and JSON parsing, alongside the other webhook consumers.
 """
 
+import time
 from typing import Any, Literal
 
 import structlog
@@ -13,6 +14,7 @@ from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
+from posthog.redis import get_client
 
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.models import LoopTrigger
@@ -22,7 +24,13 @@ logger = structlog.get_logger(__name__)
 _EXCERPT_LIMIT = 500
 _SELF_TRIGGER_BRANCH_PREFIX = "loop/"
 
-LoopGithubEventOutcome = Literal["matched", "deduped", "skipped", "fired", "error"]
+# Request-level flood control ahead of the per-loop/team rate caps: those bound dispatched runs,
+# not the matching work or the fire/notification records a sustained stream of unique deliveries
+# would otherwise write. Sized well above a busy repo's real event volume.
+_EVENT_THROTTLE_LIMIT = 300
+_EVENT_THROTTLE_WINDOW_SECONDS = 300
+
+LoopGithubEventOutcome = Literal["matched", "deduped", "skipped", "throttled", "fired", "error"]
 
 LOOP_GITHUB_EVENT_TOTAL = Counter(
     "posthog_tasks_loop_github_event_total",
@@ -60,6 +68,18 @@ def handle_github_event_for_loops(event_type: str, payload: dict[str, Any], deli
     if not _event_actor_is_trusted(event_type, payload):
         logger.info("loop_github_event_untrusted_actor_excluded", event_type=event_type, delivery_id=delivery_id)
         _observe_github_event("skipped")
+        return
+
+    # After the trusted-actor check on purpose: only events that could actually fire consume the
+    # budget, so untrusted external activity can't starve a repo's legitimate trigger fires.
+    if _github_events_throttled(installation_id, repository_full_name):
+        logger.warning(
+            "loop_github_event_throttled",
+            event_type=event_type,
+            delivery_id=delivery_id,
+            repository=repository_full_name,
+        )
+        _observe_github_event("throttled")
         return
 
     action = payload.get("action")
@@ -149,6 +169,22 @@ def _fire_result_outcome(reason: str) -> LoopGithubEventOutcome:
     if reason == "deduped":
         return "deduped"
     return "skipped"
+
+
+def _github_events_throttled(installation_id: str, repository_full_name: str) -> bool:
+    """Fixed-window counter per (installation, repository), keyed on the window bucket so a missed
+    expiry can never wedge the throttle shut. Fails open: a Redis outage must not drop fires."""
+    try:
+        client = get_client()
+        bucket = int(time.time() // _EVENT_THROTTLE_WINDOW_SECONDS)
+        key = f"loop_github_events:throttle:{installation_id}:{repository_full_name.lower()}:{bucket}"
+        count = client.incr(key)
+        if count == 1:
+            client.expire(key, _EVENT_THROTTLE_WINDOW_SECONDS * 2)
+        return count > _EVENT_THROTTLE_LIMIT
+    except Exception:
+        logger.warning("loop_github_event_throttle_check_failed", installation_id=installation_id, exc_info=True)
+        return False
 
 
 def _extract_installation_id(payload: dict[str, Any]) -> str | None:

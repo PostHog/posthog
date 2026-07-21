@@ -54,11 +54,13 @@ _EVENT_DEFAULTS: dict[str, tuple[str, str]] = {
 def dispatch_loop_event(loop: Loop, event: str, payload: dict[str, Any]) -> None:
     title, body = _event_copy(loop, event, payload)
 
-    _send_in_app(loop, event, title, body, payload)
-
+    # In-app sits behind the cooldown too: failure/attention events can repeat every fire (a
+    # capped or crash-looping loop), and each in-app send is a new notification row.
     if not _acquire_cooldown(loop, event):
         logger.info("loop_notifications.cooldown_dropped", loop_id=str(loop.id), loop_event=event)
         return
+
+    _send_in_app(loop, event, title, body, payload)
 
     config = loop.notifications if isinstance(loop.notifications, dict) else {}
     _send_push(loop, event, title, payload, config.get("push") or {})

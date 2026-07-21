@@ -1,6 +1,7 @@
 import json
 from typing import ClassVar
 
+from freezegun import freeze_time
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -11,11 +12,13 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.redis import get_client
 
 from products.tasks.backend.loop_github_events import _build_event_summary, handle_github_event_for_loops
 from products.tasks.backend.models import Loop, LoopTrigger
 
 FIRE_LOOP_PATCH_TARGET = "products.tasks.backend.logic.services.loop_runs.fire_loop"
+LOOP_GITHUB_EVENTS_MODULE = "products.tasks.backend.loop_github_events"
 
 
 class TestHandleGithubEventForLoops(TestCase):
@@ -35,6 +38,16 @@ class TestHandleGithubEventForLoops(TestCase):
             integration_id="998877",
             config={},
         )
+
+    def setUp(self):
+        super().setUp()
+        self._clear_throttle_keys()
+        self.addCleanup(self._clear_throttle_keys)
+
+    def _clear_throttle_keys(self):
+        client = get_client()
+        for key in client.scan_iter("loop_github_events:throttle:*"):
+            client.delete(key)
 
     def _create_loop(self, team: Team, *, name: str = "Test loop") -> Loop:
         return Loop.objects.for_team(team.id, canonical=True).create(
@@ -309,3 +322,23 @@ class TestHandleGithubEventForLoops(TestCase):
         self.assertEqual(mock_fire_loop.call_count, 3)
         fire_keys = [call.kwargs["fire_key"] for call in mock_fire_loop.call_args_list]
         self.assertEqual(fire_keys, ["del-redelivered", "del-redelivered", "del-other"])
+
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_event_flood_beyond_the_throttle_stops_matching_and_firing(self, mock_fire_loop):
+        # A collaborator streaming matching events with unique delivery ids must be bounded
+        # before matching/firing, or every delivery writes fire and notification records.
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["push"],
+        )
+        payload = self._event_payload("push", installation_id=998877, repository="acme/repo")
+
+        with freeze_time("2026-01-02 03:04:05"), patch(f"{LOOP_GITHUB_EVENTS_MODULE}._EVENT_THROTTLE_LIMIT", 2):
+            for i in range(4):
+                handle_github_event_for_loops("push", payload, delivery_id=f"del-flood-{i}")
+
+        self.assertEqual(mock_fire_loop.call_count, 2)

@@ -260,6 +260,12 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "rate_capped")
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
         mock_dispatch.assert_called_once_with(loop, "needs_attention", {"reason": "rate_capped"})
+        # A capped attempt must not write a LoopFire row, or a stream of unique fire keys
+        # at a capped loop would grow the ledger without bound.
+        self.assertEqual(
+            LoopFire.objects.for_team(self.team.id, canonical=True).count(),
+            LOOP_RATE_CAP_PER_DAY,
+        )
 
     @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
     def test_team_wide_rate_cap_blocks_a_loop_under_its_own_cap(self, _mock_gate):

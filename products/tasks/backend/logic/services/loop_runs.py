@@ -356,6 +356,14 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
                 task_run_id=existing.outcome_task_run_id,
             )
 
+        # Caps precede the LoopFire insert: a capped stream of unique fire keys (e.g. webhook
+        # deliveries) writes no rows, so it can't grow the fire ledger. Rejections below
+        # (overlap_skipped) still record a row for idempotent replay.
+        if _rate_capped(loop):
+            return _FireDecision(reason="rate_capped", created=False, is_replay=False)
+        if _team_rate_capped(loop):
+            return _FireDecision(reason="team_rate_capped", created=False, is_replay=False)
+
         fire = LoopFire.objects.for_team(loop.team_id, canonical=True).create(
             team_id=loop.team_id, loop=loop, loop_trigger=trigger, fire_key=fire_key
         )
@@ -363,11 +371,6 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
             LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(id=trigger.id).update(
                 last_fired_at=django_timezone.now()
             )
-
-        if _rate_capped(loop):
-            return _record_fire_outcome(fire, "rate_capped")
-        if _team_rate_capped(loop):
-            return _record_fire_outcome(fire, "team_rate_capped")
 
         now = django_timezone.now()
         non_terminal_runs = list(
@@ -443,10 +446,11 @@ def _usage_gate_blocked(loop: Loop) -> bool:
 
 
 # The rate caps bound actual dispatched runs, so they count only fires that created one
-# (`outcome_reason="created"`). A rejected or deduped fire still records a LoopFire row for
-# idempotent replay, but must not consume the budget: otherwise a caller could spam unique
-# idempotency keys at an already-capped loop and, with each rejected attempt still counted, drain
-# the shared per-team budget and freeze every other loop in the project for 24h.
+# (`outcome_reason="created"`). A rejected fire must not consume the budget: otherwise a caller
+# could spam unique idempotency keys at an already-capped loop and, with each rejected attempt
+# still counted, drain the shared per-team budget and freeze every other loop in the project for
+# 24h. Capped attempts are also checked before the LoopFire insert and write no row, so the same
+# spam can't grow the fire ledger either.
 def _rate_capped(loop: Loop) -> bool:
     since = django_timezone.now() - timedelta(hours=24)
     fire_count = (
