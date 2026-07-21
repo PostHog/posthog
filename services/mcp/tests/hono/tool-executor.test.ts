@@ -156,6 +156,56 @@ describe('ToolExecutor', () => {
         })
     })
 
+    describe('governed metric search wiring', () => {
+        const metricRow = {
+            name: 'top_customers_mrr',
+            display_name: 'Top customers by MRR',
+            description: 'Ranks customers by monthly recurring revenue',
+            status: 'approved',
+            is_drifted: false,
+        }
+
+        function makeCatalogState(flagOn: boolean, request: ReturnType<typeof vi.fn>): ResolvedState {
+            const state = makeState([], {
+                toolFeatureFlags: { 'product-data-catalog': flagOn },
+            })
+            state.context = {
+                ...state.context,
+                api: { request },
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
+            } as any
+            return state
+        }
+
+        it('fetches and surfaces governed metrics when the catalog flag is on', async () => {
+            const request = vi
+                .fn()
+                .mockResolvedValue({ count: 1, next: null, previous: null, results: [metricRow] })
+
+            const result = await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'search revenue customers' } },
+                makeCatalogState(true, request)
+            )
+
+            expect(request).toHaveBeenCalledOnce()
+            const serialized = JSON.stringify(result)
+            expect(serialized).toContain('governed_metrics')
+            expect(serialized).toContain('top_customers_mrr')
+        })
+
+        it('performs no catalog fetch and emits no metrics section when the flag is off', async () => {
+            const request = vi.fn()
+
+            const result = await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'search revenue customers' } },
+                makeCatalogState(false, request)
+            )
+
+            expect(request).not.toHaveBeenCalled()
+            expect(JSON.stringify(result)).not.toContain('governed_metrics')
+        })
+    })
+
     describe('handleToolsList', () => {
         it('returns filtered tools matching the state allTools', async () => {
             const allEntries = catalog.getPreBuiltEntries()
