@@ -647,7 +647,7 @@ class TeamMergeTrend:
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
-    completes after newer runs land (SPEC §8) — treat ``pending`` as unsettled.
+    completes after newer runs land (SPEC §7) — treat ``pending`` as unsettled.
     """
 
     runs: int

@@ -2,7 +2,7 @@
 
 Maps the raw GitHub workflow-runs warehouse snapshot into honest CI columns:
 ``status`` and ``conclusion`` are passed through unchanged (a conclusion can be
-stale until the ``workflow_run`` webhook settles it — see SPEC §8), and
+stale until the ``workflow_run`` webhook settles it — see SPEC §7), and
 ``duration_seconds`` is only computed for completed runs. ``head_sha`` is the
 canonical join key back to the pull-requests builder for a PR's CI status, while
 ``pr_number`` keys the per-PR push / re-run rollup and ``run_attempt`` distinguishes
