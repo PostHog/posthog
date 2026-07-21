@@ -4,6 +4,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
+import { RERUN_QUEUE_NAME } from '../../rerun/rerun-job.types'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -40,6 +41,11 @@ const janitorPoisonedCounter = new Counter({
 const janitorGiveUpSkippedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_give_up_skipped',
     help: 'Poison pills the janitor could not record a recovery row for, so kept (not deleted)',
+})
+
+const janitorRerunWrapperDroppedCounter = new Counter({
+    name: 'cdp_cyclotron_v2_janitor_rerun_wrapper_dropped',
+    help: 'Poisoned rerun wrapper jobs dropped without a replay record (a wrapper is a meta-job, not a replayable invocation)',
 })
 
 const janitorRunCounter = new Counter({
@@ -241,6 +247,16 @@ export class CyclotronV2Janitor {
     private async recordAndDeletePoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
+        // Rerun *wrapper* jobs share this table. A wrapper is a meta-job, not a
+        // replayable invocation — recording one as a `failed` result would give it
+        // `function_kind='hog_flow'` with the target's `function_id` (poisonRowToInvocation
+        // always tags hogFlow), making it indistinguishable from a genuine poisoned
+        // flow. The autodrain would then rediscover and replay a real flow with
+        // fabricated globals. So give up on poisoned wrappers separately: delete
+        // them with NO record. This is self-healing — the invocations the wrapper
+        // was draining keep their own poison rows and get picked up by a fresh rerun.
+        await this.dropRerunWrapperPoisonPills(heartbeatCutoff)
+
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
                     parent_run_id, state, distinct_id, person_id, action_id,
@@ -249,10 +265,11 @@ export class CyclotronV2Janitor {
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
                AND janitor_touch_count >= $2
+               AND queue_name <> $4
              ORDER BY last_transition ASC
              LIMIT $3
              FOR UPDATE SKIP LOCKED`,
-            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize, RERUN_QUEUE_NAME]
         )
 
         if (result.rows.length === 0) {
@@ -320,6 +337,34 @@ export class CyclotronV2Janitor {
         }
 
         return deletedIds
+    }
+
+    /**
+     * Give up on poisoned rerun *wrapper* jobs by deleting them with no replay
+     * record — see the rationale in recordAndDeletePoisonPills. A wrapper is a
+     * meta-job, so there is nothing meaningful to replay; the invocations it was
+     * draining keep their own poison-pill rows and are re-picked-up by a fresh
+     * rerun, so dropping the wrapper is safe and self-healing.
+     */
+    private async dropRerunWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
+        const deleted = await this.pool.query<{ id: string }>(
+            `DELETE FROM cyclotron_jobs
+             WHERE status = 'running'
+               AND queue_name = $1
+               AND COALESCE(last_heartbeat, $2) <= $2
+               AND janitor_touch_count >= $3
+             RETURNING id`,
+            [RERUN_QUEUE_NAME, heartbeatCutoff, this.maxTouchCount]
+        )
+        const count = deleted.rows.length
+        if (count > 0) {
+            janitorRerunWrapperDroppedCounter.inc(count)
+            logger.warn('CyclotronV2Janitor dropped poisoned rerun wrapper jobs (no replay record — meta-job)', {
+                count,
+                ids: deleted.rows.map((r) => r.id),
+            })
+        }
+        return count
     }
 
     // Turn a raw poisoned row into a hog flow invocation the results service can
