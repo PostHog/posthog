@@ -469,9 +469,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         integration: Integration,
         setup_destination,
     ):
-        """If the target table has been created with an invalid schema then we should raise a
-        `DatabricksIncompatibleSchemaError`."""
-
         # Pre-create the target table with a schema that doesn't match the persons model. None of
         # these columns match the merge keys (`team_id`, `distinct_id`), so the MERGE condition
         # references columns that can't be resolved on the target.
