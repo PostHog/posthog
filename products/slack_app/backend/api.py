@@ -1305,7 +1305,10 @@ def resolve_posthog_user_from_event(
 
     The probe is used to call Slack's ``users.info``; the candidate list scopes
     the organization-membership check. A user with no membership in any
-    connected org returns ``None`` so the caller can refuse the event.
+    connected org returns ``None`` so the caller can refuse the event. A
+    deactivated user is treated the same as "no membership" — every caller of
+    this helper (dismiss, channel approval, alert snooze, ...) authorizes off
+    the returned ``User``, so a deactivated account must not resolve to one.
 
     ``slack_email`` may be passed by callers that already have it (e.g.
     ``resolve_user_and_integrations``) so we don't repeat the cache lookup.
@@ -1325,7 +1328,7 @@ def resolve_posthog_user_from_event(
         candidate_org_ids=org_ids,
     )
     if linked_user is not None and is_slack_app_oauth_enabled(probe_integration, slack_team_id):
-        return linked_user
+        return linked_user if linked_user.is_active else None
 
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
@@ -1333,7 +1336,9 @@ def resolve_posthog_user_from_event(
         return None
     try:
         membership = (
-            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=slack_email)
+            OrganizationMembership.objects.filter(
+                organization_id__in=org_ids, user__email__iexact=slack_email, user__is_active=True
+            )
             .select_related("user")
             .first()
         )

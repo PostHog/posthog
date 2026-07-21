@@ -1090,6 +1090,28 @@ class TestInsightAlertSnooze(TestCase):
         assert self.alert.snoozed_until is None
         mock_requests_post.assert_not_called()
 
+    @patch("products.slack_app.backend.api.get_slack_email_for_user")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_snooze_refuses_inactive_user(self, mock_config, mock_requests_post, mock_get_email):
+        # Exercises the real resolve_posthog_user_from_event path (not _is_org_member mocked
+        # away) so the user__is_active filter on the membership query actually runs — a
+        # deactivated user still in the workspace must not be able to snooze via an old message.
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        inactive_user = User.objects.create(
+            email="inactive@example.com", distinct_id="inactive-snoozer-1", is_active=False
+        )
+        OrganizationMembership.objects.create(user=inactive_user, organization=self.organization)
+        mock_get_email.return_value = inactive_user.email
+
+        response = self._post_interactivity(self._snooze_payload(f"{self.alert.id}|1d"))
+
+        assert response.status_code == 200
+        self.alert.refresh_from_db()
+        assert self.alert.state == AlertState.FIRING
+        assert self.alert.snoozed_until is None
+        mock_requests_post.assert_not_called()
+
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_snooze_ignores_integration_from_another_team(self, mock_config, mock_requests_post):
