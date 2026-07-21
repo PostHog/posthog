@@ -1098,6 +1098,44 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 20}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_partial_update_sets_daily_run_time_and_clears_it_for_other_cadences(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        daily_response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"run_interval_minutes": 1440, "run_time_of_day": "09:30:00"},
+            format="json",
+        )
+
+        assert daily_response.status_code == status.HTTP_200_OK
+        assert daily_response.json()["run_time_of_day"] == "09:30:00"
+
+        hourly_response = self.client.patch(
+            self._detail_url(str(config.id)), data={"run_interval_minutes": 60}, format="json"
+        )
+
+        assert hourly_response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.run_interval_minutes == 60
+        assert config.run_time_of_day is None
+
+    def test_partial_update_rejects_run_time_for_non_daily_cadence(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"run_interval_minutes": 60, "run_time_of_day": "09:30:00"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "A run time can only be set when the cadence is daily (1440 minutes).",
+            "attr": "run_time_of_day",
+        }
+
     def test_partial_update_cannot_change_skill_name(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         self.client.patch(self._detail_url(str(config.id)), data={"skill_name": "signals-scout-bar"}, format="json")

@@ -1,9 +1,9 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { ScoutOrigin } from '../../../types'
+import type { ScoutOriginEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 /** Canonical (PostHog-maintained) vs Custom (team-authored) scout badge. */
-export function ScoutOriginBadge({ origin }: { origin: ScoutOrigin }): JSX.Element {
+export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JSX.Element {
     return (
         <Tooltip
             title={

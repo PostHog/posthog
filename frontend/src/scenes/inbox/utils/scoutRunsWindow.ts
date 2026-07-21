@@ -9,7 +9,9 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
-import { SignalScoutConfig, SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
+import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 
 /**
  * The window every scout stat describes. The cloud runs endpoint caps each list

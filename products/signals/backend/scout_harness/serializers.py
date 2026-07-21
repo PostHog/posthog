@@ -8,6 +8,8 @@ in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
 
 from __future__ import annotations
 
+from typing import Any
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -1505,18 +1507,26 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         ),
     )
     enabled = serializers.BooleanField(
-        required=False,
+        read_only=True,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
     )
     emit = serializers.BooleanField(
-        required=False,
+        read_only=True,
         help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
     )
     run_interval_minutes = serializers.IntegerField(
-        required=False,
+        read_only=True,
         min_value=30,
         max_value=43200,
         help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+    )
+    run_time_of_day = serializers.TimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. "
+            "The project timezone is used automatically. Null keeps the rolling interval schedule."
+        ),
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
@@ -1548,10 +1558,60 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "emit",
             "run_interval_minutes",
+            "run_time_of_day",
             "last_run_at",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+def _validate_scout_schedule(attrs: dict[str, Any], instance: SignalScoutConfig | None = None) -> dict[str, Any]:
+    run_interval_minutes = attrs.get(
+        "run_interval_minutes",
+        instance.run_interval_minutes if instance is not None else 1440,
+    )
+    requested_run_time = attrs.get("run_time_of_day")
+    if requested_run_time is not None and run_interval_minutes != 1440:
+        raise serializers.ValidationError(
+            {"run_time_of_day": "A run time can only be set when the cadence is daily (1440 minutes)."}
+        )
+    if run_interval_minutes != 1440 and instance is not None and instance.run_time_of_day is not None:
+        attrs["run_time_of_day"] = None
+    return attrs
+
+
+class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
+    """Editable schedule, enablement, and emit posture for one scout config."""
+
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=30,
+        max_value=43200,
+        help_text="Minutes between runs (30–43200). Use 1440 for a daily schedule.",
+    )
+    run_time_of_day = serializers.TimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. "
+            "The project timezone is used automatically. Set null to return to a rolling 24-hour interval."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return _validate_scout_schedule(attrs, self.instance)
+
+    class Meta:
+        model = SignalScoutConfig
+        fields = ["enabled", "emit", "run_interval_minutes", "run_time_of_day"]
 
 
 class SignalScoutConfigCreateSerializer(serializers.Serializer):
@@ -1585,6 +1645,17 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         max_value=43200,
         help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
+    run_time_of_day = serializers.TimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. "
+            "The project timezone is used automatically."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        return _validate_scout_schedule(attrs)
 
     def validate_skill_name(self, value: str) -> str:
         # A config for a non-scout skill would never dispatch (the coordinator only considers

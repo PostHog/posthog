@@ -181,8 +181,9 @@ one sandbox session → zero or more emitted signals.
   DB constraint is still a possible follow-up for stronger single-flight guarantees.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; each scout has its own
-  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
-  `run_interval_minutes` schedule the coordinator's per-scout due-check honors.
+  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag,
+  `run_interval_minutes`, and optional project-local daily `run_time_of_day` schedule the
+  coordinator's per-scout due-check honors.
 - Scout sandbox GitHub credentials are **always read-only**: the runner requests
   `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
   installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never
@@ -248,9 +249,9 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default every 24 hours) is due, most-overdue
-  first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
-  drop ticks rather than queue them.
+  per-scout schedule (`run_interval_minutes`, default every 24 hours, plus an optional
+  project-local `run_time_of_day` for daily configs) is due, most-overdue first, hard cap
+  `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
   `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with

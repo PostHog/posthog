@@ -1,7 +1,13 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
-import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
+import { teamLogic } from 'scenes/teamLogic'
+
+import type {
+    PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
+    SignalScoutConfigApi as SignalScoutConfig,
+} from 'products/signals/frontend/generated/api.schemas'
+
 import { formatRunInterval, prettifyScoutSkillName, RUN_INTERVAL_OPTIONS } from '../../../utils/scoutRunsWindow'
 
 interface ScoutConfigControlsProps {
@@ -13,6 +19,8 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
     deleting?: boolean
+    /** True while this scout's config update request is in flight. */
+    updating?: boolean
 }
 
 function intervalOptions(config: SignalScoutConfig): { value: string; label: string }[] {
@@ -30,7 +38,11 @@ function intervalOptions(config: SignalScoutConfig): { value: string; label: str
 }
 
 /** Enable/disable toggle for a scout. Lives on the row, not in the settings form. */
-export function ScoutEnabledSwitch({ config, onUpdate }: ScoutConfigControlsProps): JSX.Element {
+export function ScoutEnabledSwitch({
+    config,
+    onUpdate,
+    updating = false,
+}: ScoutConfigControlsProps & { updating?: boolean }): JSX.Element {
     return (
         <Tooltip title={config.enabled ? 'Disable scout' : 'Enable scout'}>
             <span>
@@ -38,6 +50,7 @@ export function ScoutEnabledSwitch({ config, onUpdate }: ScoutConfigControlsProp
                     size="small"
                     checked={config.enabled}
                     onChange={(checked) => onUpdate(config.id, { enabled: checked })}
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
                     aria-label={`${config.skill_name} enabled`}
                 />
             </span>
@@ -49,7 +62,15 @@ export function ScoutEnabledSwitch({ config, onUpdate }: ScoutConfigControlsProp
  * Labeled settings form for one scout, shown when a fleet row's gear is toggled
  * open. Everything except enablement, which stays on the row.
  */
-export function ScoutConfigForm({ config, onUpdate, onDelete, deleting }: ScoutConfigFormProps): JSX.Element {
+export function ScoutConfigForm({
+    config,
+    onUpdate,
+    onDelete,
+    deleting,
+    updating = false,
+}: ScoutConfigFormProps): JSX.Element {
+    const projectTimezone = teamLogic.values.currentTeam?.timezone ?? 'UTC'
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-4">
@@ -61,11 +82,39 @@ export function ScoutConfigForm({ config, onUpdate, onDelete, deleting }: ScoutC
                     size="small"
                     value={String(config.run_interval_minutes)}
                     options={intervalOptions(config)}
-                    disabledReason={config.enabled ? undefined : 'Enable the scout first'}
+                    disabledReason={
+                        updating ? 'Saving scout settings' : config.enabled ? undefined : 'Enable the scout first'
+                    }
                     className="w-36"
-                    onChange={(value) => onUpdate(config.id, { run_interval_minutes: Number(value) })}
+                    onChange={(value) => {
+                        const runIntervalMinutes = Number(value)
+                        onUpdate(config.id, {
+                            run_interval_minutes: runIntervalMinutes,
+                            ...(runIntervalMinutes === 1440 ? {} : { run_time_of_day: null }),
+                        })
+                    }}
                 />
             </div>
+            {config.run_interval_minutes === 1440 ? (
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-xs text-default">Daily run time</span>
+                        <span className="text-[11.5px] text-muted">
+                            Optional. Uses the project timezone ({projectTimezone})
+                        </span>
+                    </div>
+                    <LemonInput
+                        type="time"
+                        size="small"
+                        value={config.run_time_of_day?.slice(0, 5) ?? ''}
+                        disabledReason={
+                            updating ? 'Saving scout settings' : config.enabled ? undefined : 'Enable the scout first'
+                        }
+                        className="w-36"
+                        onChange={(value) => onUpdate(config.id, { run_time_of_day: value ? `${value}:00` : null })}
+                    />
+                </div>
+            ) : null}
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
             {onDelete && config.scout_origin === 'custom' ? (

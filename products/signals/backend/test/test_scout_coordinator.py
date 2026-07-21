@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import random
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
@@ -50,6 +52,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     StampDispatchedRunsInput,
     _allocate_tick_budget,
     _DueRun,
+    _overdue_seconds,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -470,6 +473,78 @@ async def test_config_whose_skill_is_gone_is_skipped(ateam):
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
+
+
+class TestDailyRunTimeDueCheck:
+    @parameterized.expand(
+        [
+            (
+                "before_project_local_time",
+                "America/Toronto",
+                "2026-07-21T12:59:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                time(9, 0),
+                None,
+            ),
+            (
+                "after_project_local_time",
+                "America/Toronto",
+                "2026-07-21T13:01:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                time(9, 0),
+                60.0,
+            ),
+            (
+                "after_spring_dst_change",
+                "America/Toronto",
+                "2026-03-08T13:01:00+00:00",
+                "2026-03-07T14:05:00+00:00",
+                "2026-03-07T13:00:00+00:00",
+                time(9, 0),
+                60.0,
+            ),
+            (
+                "schedule_saved_after_today_slot",
+                "America/Toronto",
+                "2026-07-21T15:00:00+00:00",
+                "2026-07-20T13:05:00+00:00",
+                "2026-07-21T14:00:00+00:00",
+                time(9, 0),
+                None,
+            ),
+            (
+                "midnight_catch_up_does_not_skip_next_day",
+                "America/Toronto",
+                "2026-07-23T03:46:00+00:00",
+                "2026-07-22T04:01:00+00:00",
+                "2026-07-20T12:00:00+00:00",
+                time(23, 45),
+                60.0,
+            ),
+        ]
+    )
+    def test_daily_run_time_uses_project_timezone_and_schedule_slots(
+        self,
+        _name: str,
+        timezone_name: str,
+        now_iso: str,
+        last_run_iso: str,
+        updated_at_iso: str,
+        run_time_of_day: time,
+        expected_overdue_seconds: float | None,
+    ) -> None:
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_time_of_day=run_time_of_day,
+            last_run_at=datetime.fromisoformat(last_run_iso),
+            updated_at=datetime.fromisoformat(updated_at_iso),
+        )
+
+        overdue_seconds = _overdue_seconds(config, datetime.fromisoformat(now_iso), ZoneInfo(timezone_name))
+
+        assert overdue_seconds == expected_overdue_seconds
 
 
 @pytest.mark.asyncio

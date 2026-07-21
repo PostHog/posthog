@@ -23,8 +23,6 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalScoutConfig,
-    SignalScoutConfigUpdate,
     SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
@@ -1216,17 +1214,6 @@ export class ApiRequest {
 
     public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.signalScoutRuns(teamId).addPathComponent(id)
-    }
-
-    public signalScoutConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('signals')
-            .addPathComponent('scout')
-            .addPathComponent('configs')
-    }
-
-    public signalScoutConfig(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalScoutConfigs(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -5247,8 +5234,7 @@ const api = {
         },
     },
 
-    // Scouts: scheduled agents that sweep the project and emit findings. Backend:
-    // SignalScoutRunViewSet (runs) + SignalScoutConfigViewSet (configs).
+    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
     signalScout: {
         runs: {
             // Newest-first raw array (not paginated), capped at 100 server-side.
@@ -5287,18 +5273,6 @@ const api = {
                     .signalScoutRuns()
                     .withAction('emissions/reports/batch')
                     .create({ data: { run_ids: runIds } })
-            },
-        },
-        configs: {
-            // Newest-first raw array, ordered by skill_name.
-            async list(): Promise<SignalScoutConfig[]> {
-                return await new ApiRequest().signalScoutConfigs().get()
-            },
-            async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
-                return await new ApiRequest().signalScoutConfig(id).update({ data })
-            },
-            async delete(id: string): Promise<void> {
-                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },

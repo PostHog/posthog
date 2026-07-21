@@ -48686,44 +48686,25 @@ export namespace Schemas {
       summary?: string;
     }
 
-    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
-
-
-    export const ScoutOriginEnum = {
-      Canonical: 'canonical',
-      Custom: 'custom',
-    } as const;
-
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
-     *
-     * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
-     * when it discovers a scout skill; this serializer lets agents tune the row.
+     * Editable schedule, enablement, and emit posture for one scout config.
      */
-    export interface PatchedSignalScoutConfig {
-      readonly id?: string;
-      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-      readonly skill_name?: string;
-      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-      readonly description?: string;
-      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-      readonly scout_origin?: ScoutOriginEnum;
+    export interface PatchedSignalScoutConfigUpdate {
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
       /**
-         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * Minutes between runs (30–43200). Use 1440 for a daily schedule.
          * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;
       /**
-         * When the coordinator last dispatched this scout. Null if it has never run.
+         * Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Set null to return to a rolling 24-hour interval.
          * @nullable
          */
-      readonly last_run_at?: string | null;
-      readonly created_at?: string;
+      run_time_of_day?: string | null;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -57528,6 +57509,14 @@ export namespace Schemas {
       limits: ScoutLimits;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
      * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
@@ -58133,15 +58122,20 @@ export namespace Schemas {
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-      enabled?: boolean;
+      readonly enabled: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-      emit?: boolean;
+      readonly emit: boolean;
       /**
          * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
          * @minimum 30
          * @maximum 43200
          */
-      run_interval_minutes?: number;
+      readonly run_interval_minutes: number;
+      /**
+         * Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Null keeps the rolling interval schedule.
+         * @nullable
+         */
+      readonly run_time_of_day: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -58172,6 +58166,11 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /**
+         * Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically.
+         * @nullable
+         */
+      run_time_of_day?: string | null;
     }
 
     /**

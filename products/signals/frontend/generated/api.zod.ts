@@ -226,7 +226,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, daily `run_time_of_day`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const signalsScoutConfigCreateBodySkillNameMax = 200
@@ -255,13 +255,19 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+        run_time_of_day: zod.iso
+            .time({})
+            .nullish()
+            .describe(
+                'Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically.'
+            ),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
     )
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (`run_interval_minutes` and optional daily `run_time_of_day`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
@@ -284,13 +290,15 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
+            .describe('Minutes between runs (30–43200). Use 1440 for a daily schedule.'),
+        run_time_of_day: zod.iso
+            .time({})
+            .nullish()
             .describe(
-                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
+                'Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Set null to return to a rolling 24-hour interval.'
             ),
     })
-    .describe(
-        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-\*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
-    )
+    .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.

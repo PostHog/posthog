@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 
 from django.db.models import Q
 from django.utils import timezone
@@ -224,7 +224,7 @@ def _collect_planned_runs(
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
-            overdue_s = _overdue_seconds(config, now)
+            overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
@@ -390,8 +390,27 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     return [(teams[team_id], team_id in explicit) for team_id in sorted(all_ids) if team_id in teams]
 
 
-def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
-    """Seconds past due (down to `-DUE_GRACE_SECONDS`), or None if not yet due. Never-run rows are maximally overdue."""
+def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
+    """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
+    if config.run_interval_minutes == 1440 and config.run_time_of_day is not None:
+        local_now = now.astimezone(project_timezone)
+        scheduled_today = datetime.combine(local_now.date(), config.run_time_of_day, project_timezone)
+        latest_scheduled_at = (
+            scheduled_today
+            if local_now >= scheduled_today
+            else datetime.combine(local_now.date() - timedelta(days=1), config.run_time_of_day, project_timezone)
+        )
+        # `updated_at` anchors a newly saved schedule so selecting a future daily time waits
+        # for that occurrence instead of immediately catching up against yesterday's slot.
+        schedule_reference = max(
+            reference for reference in (config.last_run_at, config.updated_at) if reference is not None
+        )
+        if schedule_reference >= latest_scheduled_at:
+            return None
+        # Fixed daily times never dispatch early: an early stamp would still compare before the
+        # slot and could dispatch the same scout again on the next coordinator tick.
+        return (now - latest_scheduled_at.astimezone(now.tzinfo)).total_seconds()
+
     if config.last_run_at is None:
         return float("inf")
     overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60
