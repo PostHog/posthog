@@ -68,8 +68,6 @@ export interface supportTicketsSceneLogicValues {
     orderBy: string
     priorityFilter: TicketPriority[]
     searchQuery: string
-    selectedTicketIds: string[]
-    selectedTickets: Ticket[]
     slaFilter: TicketSlaState | 'all'
     sorting: Sorting | null
     statusFilter: TicketStatus[]
@@ -104,9 +102,6 @@ export interface supportTicketsSceneLogicActions {
         status: TicketStatus
     }
     clearActiveView: () => {
-        value: true
-    }
-    clearSelectedTickets: () => {
         value: true
     }
     loadTickets: () => {
@@ -156,9 +151,6 @@ export interface supportTicketsSceneLogicActions {
     setSearchQuery: (query: string) => {
         query: string
     }
-    setSelectedTicketIds: (ids: string[]) => {
-        ids: string[]
-    }
     setSlaFilter: (sla: TicketSlaState | 'all') => {
         sla: TicketSlaState | 'all'
     }
@@ -194,7 +186,6 @@ export interface supportTicketsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
-        selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         currentFilters: (
             statusFilter: TicketStatus[],
@@ -253,8 +244,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         bulkAddTags: (ids: string[], tags: string[]) => ({ ids, tags }),
         setBulkTagsToAdd: (tags: string[]) => ({ tags }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
-        setSelectedTicketIds: (ids: string[]) => ({ ids }),
-        clearSelectedTickets: true,
     }),
     reducers({
         tickets: [
@@ -414,15 +403,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setBulkTagsToAdd: (_, { tags }) => tags,
                 bulkAddTags: () => [],
-                clearSelectedTickets: () => [],
-            },
-        ],
-        selectedTicketIds: [
-            [] as string[],
-            {
-                setSelectedTicketIds: (_, { ids }) => ids,
-                clearSelectedTickets: () => [],
-                loadTickets: () => [],
             },
         ],
     }),
@@ -439,13 +419,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 const prefix = sorting.order === 1 ? '' : '-'
                 return `${prefix}${sorting.columnKey}`
-            },
-        ],
-        selectedTickets: [
-            (s) => [s.tickets, s.selectedTicketIds],
-            (tickets: Ticket[], selectedIds: string[]): Ticket[] => {
-                const idSet = new Set(selectedIds)
-                return tickets.filter((t) => idSet.has(t.id))
             },
         ],
         assigneeFilterEntries: [
@@ -647,7 +620,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             try {
                 const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
                 lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
-                actions.clearSelectedTickets()
                 actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to update tickets')
@@ -663,7 +635,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             try {
                 const result = await api.conversationsTickets.bulkAddTags(ids, tags)
                 lemonToast.success(`Tagged ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
-                actions.clearSelectedTickets()
                 actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to add tags')

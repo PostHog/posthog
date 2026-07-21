@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -29,7 +29,7 @@ const TICKET: Ticket = {
     unread_customer_count: 0,
 }
 
-describe('SupportTicketsTable selection', () => {
+describe('SupportTicketsTable bulk selection', () => {
     let logic: ReturnType<typeof supportTicketsSceneLogic.build>
 
     beforeEach(() => {
@@ -60,41 +60,21 @@ describe('SupportTicketsTable selection', () => {
         return checkboxes[1] as HTMLInputElement
     }
 
-    // Regression: the hook selection (selectedKeys) and kea (selectedTicketIds) were synced by
-    // two effects, and on the first click the "clear when kea is empty" effect fired before the
-    // push effect had propagated — instantly wiping the selection. The checkbox never stuck.
-    it('keeps a row checked after clicking and pushes the id into kea', async () => {
+    // Guards the LemonTable `bulkSelection` wiring: selecting a row must surface our
+    // `renderActions` bulk-action bar. The selection mechanics themselves live in
+    // useBulkSelection and are covered by useBulkSelection.test.ts.
+    it('surfaces the "Update tickets" action once a ticket is selected', async () => {
         render(
             <Provider>
                 <SupportTicketsTable />
             </Provider>
         )
 
-        const rowCheckbox = getRowCheckbox()
-        expect(rowCheckbox).not.toBeChecked()
-
-        await userEvent.click(rowCheckbox)
-
-        await waitFor(() => expect(getRowCheckbox()).toBeChecked())
-        expect(logic.values.selectedTicketIds).toEqual([TICKET.id])
-    })
-
-    it('clears the checkbox when the kea selection is reset externally', async () => {
-        render(
-            <Provider>
-                <SupportTicketsTable />
-            </Provider>
-        )
+        expect(screen.queryByText('Update tickets')).not.toBeInTheDocument()
 
         await userEvent.click(getRowCheckbox())
-        await waitFor(() => expect(getRowCheckbox()).toBeChecked())
 
-        // A bulk update / page reload resets the kea selection — the hook should follow.
-        act(() => {
-            logic.actions.clearSelectedTickets()
-        })
-
-        await waitFor(() => expect(getRowCheckbox()).not.toBeChecked())
-        expect(logic.values.selectedTicketIds).toEqual([])
+        expect(await screen.findByText('Update tickets')).toBeInTheDocument()
+        expect(getRowCheckbox()).toBeChecked()
     })
 })

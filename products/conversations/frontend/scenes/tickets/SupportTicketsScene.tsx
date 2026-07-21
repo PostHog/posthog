@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import {
@@ -17,7 +17,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { type BulkSelectionContext } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -62,20 +62,23 @@ interface SupportTicketsTableProps {
     embedded?: boolean
 }
 
-function SupportTicketsBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
+function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, string> }): JSX.Element {
+    const { bulkUpdating, bulkTagsToAdd } = useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus, bulkAddTags, setBulkTagsToAdd } = useActions(supportTicketsSceneLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const [dropdownOpen, setDropdownOpen] = useState(false)
 
-    const hasSelection = selectedTicketIds.length > 0
-    const selectedStatuses = selectedTickets.map((t) => t.status)
-    const currentStatus = selectedStatuses.reduce<TicketStatus | 'mixed' | null>((acc, s) => {
-        if (acc === null) {
-            return s
-        }
-        return acc === s ? acc : 'mixed'
-    }, null)
+    const selectedIds = [...ctx.selectedKeys]
+    // Status is derived from the selected rows visible on the current page; a selection spanning
+    // pages will show 'mixed' if the on-page rows disagree, which is the safe default.
+    const currentStatus = ctx.selectedRecords
+        .map((t) => t.status)
+        .reduce<TicketStatus | 'mixed' | null>((acc, s) => {
+            if (acc === null) {
+                return s
+            }
+            return acc === s ? acc : 'mixed'
+        }, null)
 
     const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
     const addTagsLabel =
@@ -91,7 +94,7 @@ function SupportTicketsBulkActions(): JSX.Element {
             overlay={
                 <div className="p-2 min-w-64 flex flex-col gap-2">
                     <span className="text-muted text-xs">
-                        Update {selectedTicketIds.length} selected ticket{selectedTicketIds.length === 1 ? '' : 's'}
+                        Update {ctx.selectedCount} selected ticket{ctx.selectedCount === 1 ? '' : 's'}
                     </span>
                     <div className="flex flex-col gap-1">
                         <span className="text-muted text-xs">Mark as</span>
@@ -106,8 +109,9 @@ function SupportTicketsBulkActions(): JSX.Element {
                                     loading={bulkUpdating}
                                     onClick={() => {
                                         if (o.value !== currentStatus) {
-                                            bulkUpdateStatus(selectedTicketIds, o.value as TicketStatus)
+                                            bulkUpdateStatus(selectedIds, o.value as TicketStatus)
                                         }
+                                        ctx.clearSelection()
                                         setDropdownOpen(false)
                                     }}
                                 >
@@ -136,7 +140,8 @@ function SupportTicketsBulkActions(): JSX.Element {
                             loading={bulkUpdating}
                             disabledReason={bulkTagsToAdd.length === 0 ? 'Select at least one tag' : undefined}
                             onClick={() => {
-                                bulkAddTags(selectedTicketIds, bulkTagsToAdd)
+                                bulkAddTags(selectedIds, bulkTagsToAdd)
+                                ctx.clearSelection()
                                 setDropdownOpen(false)
                             }}
                         >
@@ -146,12 +151,7 @@ function SupportTicketsBulkActions(): JSX.Element {
                 </div>
             }
         >
-            <LemonButton
-                type="secondary"
-                size="small"
-                sideIcon={<IconChevronDown />}
-                disabledReason={!hasSelection ? 'Select tickets first' : undefined}
-            >
+            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
                 Update tickets
             </LemonButton>
         </LemonDropdown>
@@ -160,81 +160,20 @@ function SupportTicketsBulkActions(): JSX.Element {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
+    const { setCurrentPage, setSorting } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
-    const getKey = useMemo(() => (t: Ticket) => t.id, [])
-    const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
-    // `bulk` is a fresh object every render, but its members are individually stable
-    // (callbacks/useState/useMemo or primitives). Destructure so hook deps reference the
-    // stable members instead of the unstable wrapper object.
-    const {
-        selectedKeys,
-        clearSelection,
-        isSomeOnPageSelected,
-        isAllOnPageSelected,
-        toggleAllOnPage,
-        selectedKeysSet,
-        toggleRow,
-    } = bulk
-
-    useEffect(() => {
-        setSelectedTicketIds(selectedKeys)
-    }, [selectedKeys, setSelectedTicketIds])
-
-    // Clear hook selection only when kea's selection is reset *externally* (e.g. after a bulk
-    // update or page reload). We detect that as a non-empty -> empty transition. Reacting to
-    // `selectedTicketIds.length === 0` alone would also fire during the brief window right after
-    // the first selection, before the effect above has pushed `selectedKeys` into kea — which
-    // would immediately wipe the selection the user just made.
-    const prevSelectedTicketIdCount = useRef(selectedTicketIds.length)
-    useEffect(() => {
-        const wasSelected = prevSelectedTicketIdCount.current > 0
-        prevSelectedTicketIdCount.current = selectedTicketIds.length
-        if (wasSelected && selectedTicketIds.length === 0 && selectedKeys.length > 0) {
-            clearSelection()
-        }
-    }, [selectedTicketIds, selectedKeys, clearSelection])
-
-    const columns = useMemo<LemonTableColumns<Ticket>>(() => {
-        const checkboxCol: LemonTableColumns<Ticket>[number] = {
-            key: '__select__' as any,
-            width: 32,
-            title: (
-                <LemonCheckbox
-                    checked={isSomeOnPageSelected ? 'indeterminate' : isAllOnPageSelected}
-                    onChange={toggleAllOnPage}
-                    stopPropagation
-                />
-            ),
-            render: (_, ticket: Ticket, recordIndex: number) => (
-                <LemonCheckbox
-                    checked={selectedKeysSet.has(ticket.id)}
-                    onChange={(_value, event) =>
-                        toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
-                    }
-                    stopPropagation
-                />
-            ),
-        }
-        return [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded })]
-    }, [
-        visibleColumns,
-        embedded,
-        aiEnabled,
-        isSomeOnPageSelected,
-        isAllOnPageSelected,
-        toggleAllOnPage,
-        selectedKeysSet,
-        toggleRow,
-    ])
+    const columns = useMemo<LemonTableColumns<Ticket>>(
+        () => buildTicketColumns(visibleColumns, { aiEnabled, embedded }),
+        [visibleColumns, aiEnabled, embedded]
+    )
 
     return (
-        <LemonTable<Ticket>
+        <LemonTable<Ticket, string>
             dataSource={tickets}
             rowKey="id"
             loading={ticketsLoading}
@@ -245,6 +184,13 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             sorting={sorting}
             onSort={(newSorting) => setSorting(newSorting)}
             noSortingCancellation
+            bulkSelection={{
+                getKey: (ticket: Ticket): string => ticket.id,
+                rowAriaLabel: (ticket: Ticket) => `Select ticket ${ticket.ticket_number}`,
+                headerAriaLabel: 'Select all tickets on this page',
+                noun: ['ticket', 'tickets'],
+                renderActions: (ctx) => <SupportTicketsBulkActions ctx={ctx} />,
+            }}
             pagination={{
                 controlled: true,
                 currentPage,
@@ -591,7 +537,6 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
             <div className="flex items-center gap-2">
-                <SupportTicketsBulkActions />
                 <TicketColumnsDropdown aiEnabled={aiEnabled} embedded={embedded} />
                 <SavedViewsButton id="SupportTicketsScene" />
                 <LemonButton
