@@ -1,10 +1,6 @@
-
 import { sanitizeEventName } from '~/common/utils/db/utils'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
-import {
-    featureFlagCalledPropertyCountHistogram,
-    invalidTimestampCounter,
-} from '~/ingestion/common/metrics'
+import { featureFlagCalledPropertyCountHistogram, invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'

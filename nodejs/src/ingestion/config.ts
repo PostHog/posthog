@@ -193,8 +193,8 @@ export type IngestionConsumerConfig = {
     STRIP_FEATURE_FLAG_CALLED_PROPERTIES_EXCLUDED_TEAMS: string
 
     // $feature_flag_called keep-first dedup config
-/** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
-INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: string
+    /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: string
     /** '*' for all teams, or comma-separated team IDs */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: string
     /** Comma-separated team IDs never deduped, even when TEAMS is '*' */
@@ -312,7 +312,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         STRIP_FEATURE_FLAG_CALLED_PROPERTIES_EXCLUDED_TEAMS: '*',
 
         // $feature_flag_called keep-first dedup config
-    INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
 
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: '',
 
