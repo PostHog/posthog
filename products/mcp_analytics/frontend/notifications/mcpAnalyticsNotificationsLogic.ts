@@ -43,6 +43,7 @@ export interface mcpAnalyticsNotificationsLogicValues {
     notificationsFailed: boolean
     notificationsLoaded: boolean
     notificationsLoading: boolean
+    notificationsTruncated: boolean
     pendingDeleteIds: Record<string, true>
     pendingToggleIds: Record<string, true>
 }
@@ -88,6 +89,9 @@ export interface mcpAnalyticsNotificationsLogicActions {
         notifications: HogFunctionType[]
         payload?: any
     }
+    setNotificationsTruncated: (notificationsTruncated: boolean) => {
+        notificationsTruncated: boolean
+    }
     toggleNotificationEnabled: (
         notificationId: string,
         enabled: boolean
@@ -120,8 +124,9 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
         deleteNotification: (notification: HogFunctionType) => ({ notification }),
         deleteNotificationStarted: (notificationId: string) => ({ notificationId }),
         deleteNotificationSettled: (notificationId: string) => ({ notificationId }),
+        setNotificationsTruncated: (notificationsTruncated: boolean) => ({ notificationsTruncated }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         notificationCount: [
             0,
             {
@@ -146,7 +151,9 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                         full: true,
                         limit: MCP_NOTIFICATION_LIST_LIMIT,
                     })
-                    if (response.next) {
+                    const notificationsTruncated = !!response.next
+                    actions.setNotificationsTruncated(notificationsTruncated)
+                    if (notificationsTruncated) {
                         lemonToast.warning(
                             `Showing the first ${MCP_NOTIFICATION_LIST_LIMIT} notifications — manage the rest from the data pipelines page.`
                         )
@@ -169,6 +176,12 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
         ],
     })),
     reducers({
+        notificationsTruncated: [
+            false,
+            {
+                setNotificationsTruncated: (_, { notificationsTruncated }) => notificationsTruncated,
+            },
+        ],
         pendingToggleIds: [
             {} as Record<string, true>,
             {
@@ -217,6 +230,11 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
     }),
     listeners(({ actions, values }) => ({
         loadNotificationsSuccess: ({ notifications }) => {
+            // Preserve the server total while the list is capped. Optimistic deletes can leave it
+            // slightly stale until the next count reload, which is more accurate than replacing it with 500.
+            if (values.notificationsTruncated) {
+                return
+            }
             actions.loadNotificationCountSuccess(notifications.length)
         },
         toggleNotificationEnabled: async ({ notificationId, enabled }) => {

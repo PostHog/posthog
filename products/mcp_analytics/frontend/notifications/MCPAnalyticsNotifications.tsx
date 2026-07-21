@@ -3,16 +3,8 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonMenu,
-    LemonMenuItems,
-    LemonSkeleton,
-    LemonSwitch,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
 import { MailHog } from 'lib/components/hedgehogs'
@@ -65,43 +57,39 @@ export function MCPAnalyticsNotifications(): JSX.Element {
     const { openDialog: openMissingCapabilityDialog } = useActions(missingCapabilityDialogLogic)
     const { openDialog: openToolErrorDialog } = useActions(toolErrorDialogLogic)
 
-    const addMenuItems: LemonMenuItems = [
-        {
-            key: 'mcp-missing-capability',
-            label: (
-                <div className="min-w-0">
-                    <div>Agents asked for something your server can't do</div>
-                    <div className="text-xs text-muted">Their verbatim intent, delivered as your MCP roadmap.</div>
-                </div>
-            ),
-            onClick: openMissingCapabilityDialog,
-        },
-        {
-            key: 'mcp-tool-error',
-            label: (
-                <div className="min-w-0">
-                    <div>A tool call failed</div>
-                    <div className="text-xs text-muted">
-                        The failing tool, the agent's intent, and a link to the tool detail.
-                    </div>
-                </div>
-            ),
-            onClick: openToolErrorDialog,
-        },
-    ]
-
     const renderAddNotificationButton = (type: 'primary' | 'secondary', size?: 'small'): JSX.Element => (
-        <LemonMenu items={addMenuItems} placement="bottom-end" maxContentWidth>
-            <LemonButton
-                type={type}
-                size={size}
-                icon={<IconPlus />}
-                disabledReason={addDisabledReason ?? undefined}
-                data-attr="mcp-analytics-add-notification"
-            >
-                Add notification
-            </LemonButton>
-        </LemonMenu>
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                disabled={!!addDisabledReason}
+                render={
+                    <LemonButton
+                        type={type}
+                        size={size}
+                        icon={<IconPlus />}
+                        disabledReason={addDisabledReason ?? undefined}
+                        data-attr="mcp-analytics-add-notification"
+                    >
+                        Add notification
+                    </LemonButton>
+                }
+            />
+            <DropdownMenuContent align="end" className="w-auto">
+                <DropdownMenuItem onClick={openMissingCapabilityDialog}>
+                    <div className="min-w-0">
+                        <div>Agents asked for something your server can't do</div>
+                        <div className="text-xs text-muted">Their verbatim intent, delivered as your MCP roadmap.</div>
+                    </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={openToolErrorDialog}>
+                    <div className="min-w-0">
+                        <div>A tool call failed</div>
+                        <div className="text-xs text-muted">
+                            The failing tool, the agent's intent, and a link to the tool detail.
+                        </div>
+                    </div>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 
     let content: JSX.Element

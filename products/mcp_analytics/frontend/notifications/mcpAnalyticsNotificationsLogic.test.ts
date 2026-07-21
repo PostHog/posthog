@@ -96,11 +96,15 @@ describe('mcpAnalyticsNotificationsLogic', () => {
             results: notifications,
         })
 
+        logic.actions.loadNotificationCountSuccess(501)
+
         await expectLogic(logic, () => logic.actions.loadNotifications())
             .toFinishAllListeners()
             .toMatchValues({
+                notificationCount: 501,
                 notifications,
                 notificationsFailed: false,
+                notificationsTruncated: true,
             })
 
         expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ full: true, limit: 500 }))

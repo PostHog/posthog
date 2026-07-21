@@ -1,0 +1,26 @@
+---
+title: MCP analytics notifications
+sidebar: Docs
+showTitle: true
+---
+
+MCP analytics notifications tell you when an agent hits one of these moments:
+
+- A missing capability, captured as `$mcp_missing_capability`
+- A failed tool call, captured as `$mcp_tool_call` with `$mcp_is_error`
+
+You can send these notifications to Slack, Microsoft Teams, Discord, or any webhook.
+
+## Create a notification
+
+1. Open **MCP analytics** and select the **Notifications** tab.
+2. Select **Add notification** and choose the moment you want to track.
+3. Choose the channel where PostHog should send the notification.
+
+PostHog prefills the message. You can customize it later from the notification's page.
+
+## Manage destinations
+
+MCP analytics notifications are standard CDP destinations. You can also manage them from the data pipelines page. To use another pipeline destination type, create it manually with the same MCP events and filters.
+
+Slack notifications require the PostHog Slack integration. Microsoft Teams, Discord, and webhook destinations only require a webhook URL.

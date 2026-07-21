@@ -350,111 +350,102 @@ const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolErrorMessage(slackEscapeExpr, '*')
 const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolErrorMessage(markdownEscapeExpr, '**')
 const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(${MCP_EFFECTIVE_TOOL_EXPR})}`
 
+interface MCPNotificationVariantsOptions {
+    subTemplateId: 'mcp-missing-capability' | 'mcp-tool-error'
+    nameSuffix: string
+    description: string
+    webhookDescription: string
+    slackMessage: string
+    slackFallbackText: string
+    markdownMessage: string
+    slackButton: { url: string; label: string }
+}
+
+function mcpNotificationVariants({
+    subTemplateId,
+    nameSuffix,
+    description,
+    webhookDescription,
+    slackMessage,
+    slackFallbackText,
+    markdownMessage,
+    slackButton,
+}: MCPNotificationVariantsOptions): HogFunctionSubTemplateType[] {
+    const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
+
+    return [
+        {
+            ...commonProperties,
+            template_id: 'template-slack',
+            name: `Post to Slack ${nameSuffix}`,
+            description,
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'section', text: { type: 'mrkdwn', text: slackMessage } },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: slackButton.url,
+                                    text: { text: slackButton.label, type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: { value: slackFallbackText },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-microsoft-teams',
+            name: `Post to Microsoft Teams ${nameSuffix}`,
+            description,
+            inputs: {
+                text: { value: markdownMessage },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-discord',
+            name: `Post to Discord ${nameSuffix}`,
+            description,
+            inputs: {
+                content: { value: markdownMessage },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-webhook',
+            name: `HTTP Webhook ${nameSuffix}`,
+            description: webhookDescription,
+        },
+    ]
+}
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
-    'mcp-missing-capability': [
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-missing-capability'],
-            template_id: 'template-slack',
-            name: 'Post to Slack when agents ask for a missing capability',
-            description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
-            inputs: {
-                blocks: {
-                    value: [
-                        { type: 'section', text: { type: 'mrkdwn', text: MCP_MISSING_CAPABILITY_SLACK_MESSAGE } },
-                        {
-                            type: 'actions',
-                            elements: [
-                                {
-                                    url: MCP_MISSING_CAPABILITY_LINK,
-                                    text: { text: 'View MCP activity', type: 'plain_text' },
-                                    type: 'button',
-                                },
-                            ],
-                        },
-                    ],
-                },
-                text: { value: 'An agent hit a missing capability on your MCP server' },
-            },
-        },
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-missing-capability'],
-            template_id: 'template-microsoft-teams',
-            name: 'Post to Microsoft Teams when agents ask for a missing capability',
-            description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
-            inputs: {
-                text: {
-                    value: `${MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
-                },
-            },
-        },
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-missing-capability'],
-            template_id: 'template-discord',
-            name: 'Post to Discord when agents ask for a missing capability',
-            description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
-            inputs: {
-                content: {
-                    value: `${MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
-                },
-            },
-        },
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-missing-capability'],
-            template_id: 'template-webhook',
-            name: 'HTTP Webhook when agents ask for a missing capability',
-            description: 'Send the full missing-capability report to your own endpoint',
-        },
-    ],
-    'mcp-tool-error': [
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],
-            template_id: 'template-slack',
-            name: 'Post to Slack when an MCP tool call fails',
-            description: 'Know the moment agents hit an error on one of your tools',
-            inputs: {
-                blocks: {
-                    value: [
-                        { type: 'section', text: { type: 'mrkdwn', text: MCP_TOOL_ERROR_SLACK_MESSAGE } },
-                        {
-                            type: 'actions',
-                            elements: [
-                                {
-                                    url: MCP_TOOL_ERROR_LINK,
-                                    text: { text: 'View tool detail', type: 'plain_text' },
-                                    type: 'button',
-                                },
-                            ],
-                        },
-                    ],
-                },
-                text: { value: 'An MCP tool call failed' },
-            },
-        },
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],
-            template_id: 'template-microsoft-teams',
-            name: 'Post to Microsoft Teams when an MCP tool call fails',
-            description: 'Know the moment agents hit an error on one of your tools',
-            inputs: {
-                text: { value: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}` },
-            },
-        },
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],
-            template_id: 'template-discord',
-            name: 'Post to Discord when an MCP tool call fails',
-            description: 'Know the moment agents hit an error on one of your tools',
-            inputs: {
-                content: { value: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}` },
-            },
-        },
-        {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],
-            template_id: 'template-webhook',
-            name: 'HTTP Webhook when an MCP tool call fails',
-            description: 'Send failing tool calls to your own endpoint',
-        },
-    ],
+    'mcp-missing-capability': mcpNotificationVariants({
+        subTemplateId: 'mcp-missing-capability',
+        nameSuffix: 'when agents ask for a missing capability',
+        description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
+        webhookDescription: 'Send the full missing-capability report to your own endpoint',
+        slackMessage: MCP_MISSING_CAPABILITY_SLACK_MESSAGE,
+        slackFallbackText: 'An agent hit a missing capability on your MCP server',
+        markdownMessage: `${MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
+        slackButton: { url: MCP_MISSING_CAPABILITY_LINK, label: 'View MCP activity' },
+    }),
+    'mcp-tool-error': mcpNotificationVariants({
+        subTemplateId: 'mcp-tool-error',
+        nameSuffix: 'when an MCP tool call fails',
+        description: 'Know the moment agents hit an error on one of your tools',
+        webhookDescription: 'Send failing tool calls to your own endpoint',
+        slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
+        slackFallbackText: 'An MCP tool call failed',
+        markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
+        slackButton: { url: MCP_TOOL_ERROR_LINK, label: 'View tool detail' },
+    }),
     'survey-response': [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
