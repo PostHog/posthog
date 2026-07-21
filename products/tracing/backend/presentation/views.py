@@ -244,7 +244,10 @@ class _TracingLatencyHeatmapCellSerializer(serializers.Serializer):
         ),
     )
     count = serializers.IntegerField(
-        help_text="Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows.",
+        help_text=(
+            "Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). "
+            "When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows."
+        ),
     )
 
 

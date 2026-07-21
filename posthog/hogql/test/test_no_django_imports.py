@@ -32,6 +32,11 @@ DJANGO_FREE_MODULES = [
     "posthog.hogql.database.database",
     "posthog.hogql.resolver",
     "posthog.hogql.property_metadata",
+    "posthog.clickhouse.materialized_column_types",
+    "posthog.hogql.property_planner",
+    "posthog.hogql.transforms.property_types",
+    "posthog.hogql.transforms.lazy_tables",
+    "posthog.hogql.transforms.in_cohort",
 ]
 
 _CHILD = f"""
