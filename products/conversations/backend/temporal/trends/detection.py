@@ -21,6 +21,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
@@ -140,6 +141,7 @@ def _evaluate_builtin(
     now: datetime,
     hourly_rows: list[tuple[datetime, str, str | None, int]],
     config: SpikeConfig,
+    history_start: datetime | None,
 ) -> list[Evaluation]:
     overall: dict[datetime, int] = {}
     by_channel: dict[str, dict[datetime, int]] = {}
@@ -162,7 +164,9 @@ def _evaluate_builtin(
 
     evaluations: list[Evaluation] = []
 
-    volume_result = score_builtin_volume(overall, now, week_totals.get(("volume", ""), 0), config)
+    volume_result = score_builtin_volume(
+        overall, now, week_totals.get(("volume", ""), 0), config, history_start=history_start
+    )
     window_start = now - timedelta(minutes=volume_result.window_minutes)
     channel_mix = {
         channel: sum(n for bucket, n in series.items() if bucket >= floor_to_hour(window_start))
@@ -184,7 +188,9 @@ def _evaluate_builtin(
     )
 
     for channel, series in sorted(by_channel.items()):
-        result = score_builtin_volume(series, now, week_totals.get(("channel", channel), 0), config)
+        result = score_builtin_volume(
+            series, now, week_totals.get(("channel", channel), 0), config, history_start=history_start
+        )
         details: dict[str, Any] = {"sparkline_hourly": _sparkline(series, now)}
         if result.fired:
             details["sample_tickets"] = _sample_tickets(
@@ -196,7 +202,9 @@ def _evaluate_builtin(
         )
 
     for priority, series in sorted(by_priority.items()):
-        result = score_builtin_volume(series, now, week_totals.get(("priority", priority), 0), config)
+        result = score_builtin_volume(
+            series, now, week_totals.get(("priority", priority), 0), config, history_start=history_start
+        )
         details = {"sparkline_hourly": _sparkline(series, now)}
         if result.fired:
             details["sample_tickets"] = _sample_tickets(
@@ -210,7 +218,7 @@ def _evaluate_builtin(
     return evaluations
 
 
-def _evaluate_rule(team: Team, rule: TicketAlertRule, now: datetime) -> Evaluation:
+def _evaluate_rule(team: Team, rule: TicketAlertRule, now: datetime, history_start: datetime | None) -> Evaluation:
     params = rule_filter_params(rule.filters or {})
     base_queryset = apply_ticket_filters(Ticket.objects.filter(team_id=team.id), params, team)
     window_minutes = min(max(rule.window_minutes, MIN_RULE_WINDOW_MINUTES), MAX_RULE_WINDOW_MINUTES)
@@ -244,7 +252,9 @@ def _evaluate_rule(team: Team, rule: TicketAlertRule, now: datetime) -> Evaluati
             .annotate(n=Count("id", distinct=True))
         )
         hourly = {row["bucket"]: row["n"] for row in rows}
-        result = score_window(hourly, now, window_hours, config)
+        # history_start is the team's first ticket, not the rule's first match: a rule
+        # whose filter only recently started matching still has a real (quiet) history.
+        result = score_window(hourly, now, window_hours, config, history_start=history_start)
         details["sparkline_hourly"] = _sparkline(hourly, now)
 
     if result.fired:
@@ -282,8 +292,17 @@ def _notify_incident(team: Team, incident: TicketIncident, title: str) -> None:
     if not settings_dict.get("trends_notifications_enabled", True):
         return
     # Notify the configured recipients (the same user list new-ticket emails use);
-    # fall back to the whole team when none are configured.
+    # fall back to the whole team when none are configured. The stored ids are raw
+    # user ids with no auth attached, so filter to current org members — a stale id
+    # (user left the org) must not keep receiving this team's incident activity,
+    # matching the membership check the new-ticket email path applies.
     recipient_ids = settings_dict.get("notification_recipients") or []
+    if recipient_ids:
+        recipient_ids = list(
+            OrganizationMembership.objects.filter(
+                organization_id=team.organization_id, user_id__in=recipient_ids
+            ).values_list("user_id", flat=True)
+        )
     targets = (
         [(TargetType.USER, str(user_id)) for user_id in recipient_ids]
         if recipient_ids
@@ -379,7 +398,10 @@ def _reconcile(team: Team, evaluations: list[Evaluation], now: datetime, stats: 
         else:
             incident.calm_run_count = 0
 
-        aged_out = incident.detected_at <= now - timedelta(hours=MAX_INCIDENT_AGE_HOURS)
+        # The age backstop only applies once the spike has stopped firing: force-resolving
+        # a still-firing incident would immediately reopen it and re-notify for the same
+        # continuous event on the next run.
+        aged_out = not result.fired and incident.detected_at <= now - timedelta(hours=MAX_INCIDENT_AGE_HOURS)
         if incident.calm_run_count >= CALM_RUNS_TO_RESOLVE or aged_out:
             incident.status = IncidentStatus.RESOLVED
             incident.resolved_at = now
@@ -414,8 +436,16 @@ def run_detection(team_id: int) -> DetectionStats:
     # Runs outside request context (Temporal activity), so establish team scope for the
     # fail-closed TicketIncident/TicketAlertRule managers used in reads and the incident write.
     with team_scope(team_id):
-        hourly_rows = _fetch_hourly_buckets(team.id, now - timedelta(days=SERIES_DAYS))
-        evaluations = _evaluate_builtin(team, now, hourly_rows, config)
+        series_start = now - timedelta(days=SERIES_DAYS)
+        hourly_rows = _fetch_hourly_buckets(team.id, series_start)
+        # Baseline days before the team's first-ever ticket are absence of history, not
+        # quiet — scoring excludes them. None once the team predates the fetch window.
+        first_ticket_at = (
+            Ticket.objects.filter(team_id=team.id).order_by("created_at").values_list("created_at", flat=True).first()
+        )
+        history_start = first_ticket_at if first_ticket_at is not None and first_ticket_at > series_start else None
+
+        evaluations = _evaluate_builtin(team, now, hourly_rows, config, history_start)
 
         rules = list(
             TicketAlertRule.objects.for_team(team.id)
@@ -424,7 +454,7 @@ def run_detection(team_id: int) -> DetectionStats:
         )
         for rule in rules:
             try:
-                evaluations.append(_evaluate_rule(team, rule, now))
+                evaluations.append(_evaluate_rule(team, rule, now, history_start))
                 stats.rules_evaluated += 1
             except Exception:
                 capture_exception()

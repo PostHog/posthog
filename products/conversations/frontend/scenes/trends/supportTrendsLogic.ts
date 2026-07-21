@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -24,6 +24,28 @@ export interface AlertRuleDraft {
     min_count: number
     spike_multiplier: number | null
     enabled: boolean
+}
+
+// Mirrors the backend RULE_ALLOWED_FILTER_KEYS: keys the rules API accepts. The
+// tickets-list prefill can carry more (e.g. search), which must be dropped or the
+// create call would be rejected.
+const RULE_ALLOWED_FILTER_KEYS = new Set([
+    'status',
+    'priority',
+    'channel_source',
+    'channel_detail',
+    'assignee',
+    'distinct_ids',
+    'sla',
+    'snoozed',
+    'tags',
+    'tags_all',
+    'tags_exclude',
+    'ai_triage_result',
+])
+
+function sanitizeRuleFilters(filters: Record<string, string>): Record<string, string> {
+    return Object.fromEntries(Object.entries(filters).filter(([key]) => RULE_ALLOWED_FILTER_KEYS.has(key)))
 }
 
 const DEFAULT_RULE_DRAFT: AlertRuleDraft = {
@@ -190,7 +212,7 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
             {
                 openNewRuleModal: (_, { initialFilters }) => ({
                     ...DEFAULT_RULE_DRAFT,
-                    filters: initialFilters ?? {},
+                    filters: sanitizeRuleFilters(initialFilters ?? {}),
                 }),
                 openEditRuleModal: (_, { rule }) => ({
                     id: rule.id,
@@ -254,6 +276,11 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
             }
         },
         saveRule: async () => {
+            // The Save button shows loading, but onPressEnter in the name field
+            // dispatches directly — guard against a double submit.
+            if (values.ruleSaving) {
+                return
+            }
             const draft = values.ruleDraft
             if (!draft.name.trim()) {
                 lemonToast.error('Give the alert rule a name')
@@ -318,10 +345,14 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/support/trends': (_, __, hashParams) => {
+        '/support/trends': (_, searchParams, hashParams) => {
             // Set by the tickets list's "Create alert rule from filters" action.
             if (hashParams.newRuleFilters && typeof hashParams.newRuleFilters === 'object') {
                 actions.openNewRuleModal(hashParams.newRuleFilters as Record<string, string>)
+                // One-shot param: clear it so a refresh or back/forward doesn't
+                // reopen the modal with stale filters.
+                const { newRuleFilters: _consumed, ...remainingHashParams } = hashParams
+                router.actions.replace(router.values.location.pathname, searchParams, remainingHashParams)
             }
         },
     })),

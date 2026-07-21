@@ -32,8 +32,10 @@ MAX_TAG_FILTER_VALUES = 50
 # window supplies the time bound, and ordering/pagination don't affect counts.
 RULE_IGNORED_FILTER_KEYS = frozenset({"date_from", "date_to", "order_by", "limit", "offset", "view"})
 
-# The filter params a stored alert rule may use — everything below that filters
-# rows, i.e. the tickets-list params minus the time/ordering ones above.
+# The filter params a stored alert rule may use — the tickets-list row filters minus
+# the time/ordering ones above and minus `search`: its correlated icontains subquery
+# over comments is unindexed, acceptable once per interactive page load but not
+# re-run for every rule on every 15-minute background evaluation.
 RULE_ALLOWED_FILTER_KEYS = frozenset(
     {
         "status",
@@ -42,7 +44,6 @@ RULE_ALLOWED_FILTER_KEYS = frozenset(
         "channel_detail",
         "assignee",
         "distinct_ids",
-        "search",
         "sla",
         "snoozed",
         "tags",
@@ -51,6 +52,96 @@ RULE_ALLOWED_FILTER_KEYS = frozenset(
         "ai_triage_result",
     }
 )
+
+# Rules re-evaluate every 15 minutes forever; tags_all adds one self-join per value,
+# so cap rule tag lists far below the interactive MAX_TAG_FILTER_VALUES.
+MAX_RULE_TAG_VALUES = 10
+
+_RULE_VALID_SLA_VALUES = frozenset({"breached", "at-risk", "on-track"})
+_RULE_VALID_SNOOZED_VALUES = frozenset({"true", "false"})
+_RULE_VALID_AI_TRIAGE_RESULTS = frozenset(
+    {
+        "persisted",
+        "escalated_with_best",
+        "escalated_no_reply",
+        "skipped_unactionable",
+        "blocked_unsafe",
+        "blocked_unsafe_reply",
+        "in_progress",
+    }
+)
+
+
+def _validate_choice_list(value: str, valid: frozenset[str] | set[str], key: str, errors: list[str]) -> None:
+    entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+    invalid = [entry for entry in entries if entry not in valid]
+    if not entries or invalid:
+        errors.append(f"{key}: invalid value(s) {', '.join(invalid) or repr(value)}")
+
+
+def _validate_tag_list(value: str, key: str, errors: list[str]) -> None:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        errors.append(f"{key}: must be a JSON array of tag names")
+        return
+    if not isinstance(parsed, list) or not parsed or not all(isinstance(tag, str) and tag for tag in parsed):
+        errors.append(f"{key}: must be a non-empty JSON array of tag names")
+    elif len(parsed) > MAX_RULE_TAG_VALUES:
+        errors.append(f"{key}: at most {MAX_RULE_TAG_VALUES} tags per rule")
+
+
+def validate_rule_filter_values(filters: Mapping[str, str]) -> list[str]:
+    """Validate a stored alert rule's filter values, returning human-readable errors.
+
+    The tickets list endpoint tolerates malformed values by silently skipping the
+    clause — fine interactively, but a persisted rule that silently broadens to
+    "all tickets" is a broken alert nobody notices. Reject bad values at save time.
+    """
+    errors: list[str] = []
+    for key, value in filters.items():
+        match key:
+            case "status":
+                _validate_choice_list(value, {s.value for s in Status}, key, errors)
+            case "priority":
+                _validate_choice_list(value, {p.value for p in Priority}, key, errors)
+            case "channel_source":
+                _validate_choice_list(value, {c.value for c in Channel}, key, errors)
+            case "channel_detail":
+                _validate_choice_list(value, {d.value for d in ChannelDetail}, key, errors)
+            case "sla":
+                _validate_choice_list(value, _RULE_VALID_SLA_VALUES, key, errors)
+            case "snoozed":
+                _validate_choice_list(value.lower(), _RULE_VALID_SNOOZED_VALUES, key, errors)
+            case "ai_triage_result":
+                _validate_choice_list(value, _RULE_VALID_AI_TRIAGE_RESULTS, key, errors)
+            case "tags" | "tags_all" | "tags_exclude":
+                _validate_tag_list(value, key, errors)
+            case "assignee":
+                entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+                for entry in entries:
+                    if entry.lower() == "unassigned":
+                        continue
+                    prefix, _, identifier = entry.partition(":")
+                    if prefix == "user":
+                        try:
+                            int(identifier)
+                            continue
+                        except ValueError:
+                            pass
+                    elif prefix == "role":
+                        try:
+                            uuid.UUID(identifier)
+                            continue
+                        except (ValueError, AttributeError):
+                            pass
+                    errors.append(f"assignee: invalid entry {entry!r}")
+                if not entries:
+                    errors.append("assignee: empty value")
+            case "distinct_ids":
+                if not [entry for entry in value.split(",") if entry.strip()]:
+                    errors.append("distinct_ids: empty value")
+    return errors
 
 
 def apply_ticket_filters(queryset: QuerySet[Ticket], params: Mapping[str, str], team: Team) -> QuerySet[Ticket]:
@@ -232,10 +323,11 @@ def apply_ticket_filters(queryset: QuerySet[Ticket], params: Mapping[str, str], 
 
 
 def rule_filter_params(filters: Mapping[str, str]) -> dict[str, str]:
-    """Sanitize a stored rule's filters for evaluation: keep only string values
-    and drop time/ordering params that would fight the rule's own window."""
+    """Sanitize a stored rule's filters for evaluation: keep only allowed keys with
+    string values, dropping anything a rule may not use (time/order params, `search`,
+    and any key persisted before the allowlist tightened)."""
     return {
         key: value
         for key, value in filters.items()
-        if key not in RULE_IGNORED_FILTER_KEYS and isinstance(value, str) and value
+        if key in RULE_ALLOWED_FILTER_KEYS and isinstance(value, str) and value
     }

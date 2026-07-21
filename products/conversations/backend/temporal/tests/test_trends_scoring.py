@@ -82,6 +82,29 @@ class TestScoreWindow:
         result = score_window(hourly, NOW, 2, SpikeConfig())
         assert result.observed == 15
 
+    def test_insufficient_history_never_fires_relative(self) -> None:
+        # A 2-day-old team with steady volume: without the history clamp, the 26
+        # phantom-zero baseline days would deflate the median to 0 and normal volume
+        # would fire as a spike. With it, relative detection stays silent.
+        history_start = WINDOW_END - timedelta(days=2)
+        hourly = {WINDOW_END - timedelta(hours=i): 6 for i in range(1, 48 + 1)}
+        result = score_window(hourly, NOW, 1, SpikeConfig(), history_start=history_start)
+        assert not result.fired
+        assert result.baseline_median is None
+
+    def test_partial_history_excludes_phantom_zero_days(self) -> None:
+        # 10 days of history with flat 6/hr: the baseline uses only those real days,
+        # so steady volume is not a spike, while a genuine burst still fires.
+        history_start = WINDOW_END - timedelta(days=10)
+        hourly = {WINDOW_END - timedelta(hours=i): 6 for i in range(1, 10 * 24 + 1)}
+        steady = score_window(hourly, NOW, 1, SpikeConfig(), history_start=history_start)
+        assert not steady.fired
+        assert steady.baseline_median == 6.0
+
+        hourly[WINDOW_END - timedelta(hours=1)] = 40
+        burst = score_window(hourly, NOW, 1, SpikeConfig(), history_start=history_start)
+        assert burst.fired
+
 
 class TestScoreBuiltinVolume:
     def test_low_volume_falls_back_to_daily_window(self) -> None:

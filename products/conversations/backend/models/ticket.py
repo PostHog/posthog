@@ -137,6 +137,8 @@ class Ticket(UUIDTModel):
             ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
+            # Trends detection: 30-day created_at range scans per team, every 15 minutes
+            models.Index(fields=["team", "created_at"], name="posthog_con_team_created_idx"),
             # Dashboard filtered + ordered queries
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
             # SLA sort/filter queries

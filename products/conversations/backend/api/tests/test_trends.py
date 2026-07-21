@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -44,6 +45,35 @@ class TestTicketAlertRuleAPI(APIBaseTest):
     def test_rejects_unknown_filter_keys(self):
         response = self.client.post(self.base_url, self._valid_payload(filters={"not_a_filter": "x"}), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_rejects_search_filter(self):
+        # search runs an unindexed comment scan; fine interactively, not on a
+        # recurring background evaluation.
+        response = self.client.post(self.base_url, self._valid_payload(filters={"search": "csv export"}), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("bad_status", {"status": "not_a_status"}),
+            ("bad_channel", {"channel_source": "carrier_pigeon"}),
+            ("tags_not_json", {"tags": "billing"}),
+            ("tags_too_many", {"tags_all": '["t0","t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"]'}),
+            ("bad_assignee", {"assignee": "user:not-a-number"}),
+        ]
+    )
+    def test_rejects_malformed_filter_values(self, _name, filters):
+        # A malformed value would evaluate as "no filter", silently broadening the
+        # rule to all tickets; it must be rejected at save time.
+        response = self.client.post(self.base_url, self._valid_payload(filters=filters), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_put_is_not_allowed(self):
+        # Full PUT would reset omitted fields (filters defaults to {}), silently
+        # clearing saved criteria — the viewset is PATCH-only like TicketViewViewSet.
+        with team_scope(self.team.id):
+            rule = TicketAlertRule.objects.create(team=self.team, name="Rule", filters={"channel_source": "email"})
+        response = self.client.put(f"{self.base_url}{rule.id}/", self._valid_payload(), format="json")
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_enabled_rule_cap_enforced(self):
         with team_scope(self.team.id):

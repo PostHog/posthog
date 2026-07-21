@@ -37,7 +37,9 @@ class TestTicketFiltering(APIBaseTest):
         assert helper_ids == list_ids
         assert len(helper_ids) == 1  # only the email + high-priority ticket
 
-    def test_rule_filter_params_drops_time_and_ordering(self):
+    def test_rule_filter_params_keeps_only_allowed_keys(self):
+        # Time/order params would fight the rule's window; search is disallowed in
+        # rules (unindexed comment scan on a recurring background job).
         cleaned = rule_filter_params(
             {
                 "channel_source": "email",
@@ -46,4 +48,4 @@ class TestTicketFiltering(APIBaseTest):
                 "search": "csv export",
             }
         )
-        assert cleaned == {"channel_source": "email", "search": "csv export"}
+        assert cleaned == {"channel_source": "email"}

@@ -26,6 +26,10 @@ DEFAULT_MIN_COUNT = 5
 # Below this many tickets in the trailing 7 days, hourly baselines are
 # meaningless — switch to a single trailing-24h window.
 LOW_VOLUME_WEEKLY_TOTAL = 20
+# Relative detection needs at least this many real baseline samples. Fewer
+# (young teams) and the sample is mostly phantom zeros from before the team's
+# first ticket, which deflates the median and fires on perfectly normal volume.
+MIN_BASELINE_DAYS = 7
 # An active incident is "calm" once observed < CALM_FACTOR × baseline; after
 # CALM_RUNS_TO_RESOLVE consecutive calm evaluations it auto-resolves.
 CALM_FACTOR = 1.5
@@ -64,10 +68,22 @@ def _window_sum(hourly: Mapping[datetime, int], window_end: datetime, window_hou
 
 
 def _baseline_sample(
-    hourly: Mapping[datetime, int], window_end: datetime, window_hours: int, baseline_days: int
+    hourly: Mapping[datetime, int],
+    window_end: datetime,
+    window_hours: int,
+    baseline_days: int,
+    history_start: datetime | None,
 ) -> list[int]:
-    """Window sums ending at the same clock time on each of the prior ``baseline_days`` days."""
-    return [_window_sum(hourly, window_end - timedelta(days=day), window_hours) for day in range(1, baseline_days + 1)]
+    """Window sums ending at the same clock time on each of the prior ``baseline_days``
+    days. Days whose window predates ``history_start`` (before the team's first ticket)
+    are excluded — those zeros are absence of history, not genuine quiet."""
+    samples = []
+    for day in range(1, baseline_days + 1):
+        sample_end = window_end - timedelta(days=day)
+        if history_start is not None and sample_end - timedelta(hours=window_hours) < history_start:
+            continue
+        samples.append(_window_sum(hourly, sample_end, window_hours))
+    return samples
 
 
 def score_window(
@@ -78,6 +94,7 @@ def score_window(
     *,
     absolute_only: bool = False,
     baseline_days: int = BASELINE_DAYS,
+    history_start: datetime | None = None,
 ) -> SpikeResult:
     """Score the trailing ``window_hours`` complete hours ending at the top of the
     current hour. The in-progress hour is never scored (partial buckets read as dips
@@ -98,7 +115,18 @@ def score_window(
             calm=observed < config.min_count,
         )
 
-    sample = _baseline_sample(hourly, window_end, window_hours, baseline_days)
+    sample = _baseline_sample(hourly, window_end, window_hours, baseline_days, history_start)
+    if len(sample) < MIN_BASELINE_DAYS:
+        # Not enough history to say what "normal" looks like — never fire relative
+        # detection for a young team; absolute-only rules still work.
+        return SpikeResult(
+            fired=False,
+            observed=observed,
+            window_minutes=window_minutes,
+            baseline_median=None,
+            zscore=None,
+            calm=observed < config.min_count,
+        )
     median = float(statistics.median(sample))
     mad = float(statistics.median([abs(value - median) for value in sample]))
 
@@ -126,6 +154,8 @@ def score_builtin_volume(
     now: datetime,
     trailing_week_total: int,
     config: SpikeConfig,
+    *,
+    history_start: datetime | None = None,
 ) -> SpikeResult:
     """Built-in volume detection: score the last complete hour and the trailing
     2h window, reporting the stronger signal. Low-volume series fall back to a
@@ -137,10 +167,10 @@ def score_builtin_volume(
     cost of some weekday-seasonality sensitivity.
     """
     if trailing_week_total < LOW_VOLUME_WEEKLY_TOTAL:
-        return score_window(hourly, now, 24, config)
+        return score_window(hourly, now, 24, config, history_start=history_start)
 
-    one_hour = score_window(hourly, now, 1, config)
-    two_hour = score_window(hourly, now, 2, config)
+    one_hour = score_window(hourly, now, 1, config, history_start=history_start)
+    two_hour = score_window(hourly, now, 2, config, history_start=history_start)
     return _stronger(one_hour, two_hour)
 
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.conversations.backend.models import IncidentStatus, Ticket, TicketAlertRule, TicketIncident
 from products.conversations.backend.models.constants import Channel
@@ -46,6 +47,12 @@ class TestTrendsDetection(BaseTest):
             # created_at is auto_now_add; override via queryset update to place it in the window.
             Ticket.objects.filter(id=ticket.id).update(created_at=when)
 
+    def _seed_history(self, *, days: int = 28) -> None:
+        """One ticket per day for the trailing ``days``: relative detection refuses to
+        fire without real baseline history (young teams would false-positive)."""
+        for day in range(1, days + 1):
+            self._make_tickets(1, when=FROZEN_NOW.replace(hour=10, minute=0) - timedelta(days=day))
+
     def _make_rule(self, **kwargs: object) -> TicketAlertRule:
         # TicketAlertRule uses the fail-closed manager; creation needs team context.
         with team_scope(self.team.id):
@@ -53,6 +60,7 @@ class TestTrendsDetection(BaseTest):
 
     def test_spike_creates_incident_and_notifies(self) -> None:
         with freeze_time(FROZEN_NOW):
+            self._seed_history()
             self._make_tickets(8, when=IN_WINDOW)
             stats = detection.run_detection(self.team.id)
 
@@ -67,20 +75,25 @@ class TestTrendsDetection(BaseTest):
         assert notification.target_type == "team"
         assert notification.target_id == str(self.team.id)
 
-    def test_notification_targets_configured_recipients(self) -> None:
-        self.team.conversations_settings = {"notification_recipients": [101, 202]}
+    def test_notification_targets_only_current_org_members(self) -> None:
+        # A configured recipient who has left the org (stale id 999999) must be
+        # dropped; the remaining member is targeted individually.
+        member = User.objects.create_and_join(self.organization, "trends-member@posthog.com", None)
+        self.team.conversations_settings = {"notification_recipients": [member.id, 999999]}
         self.team.save()
         with freeze_time(FROZEN_NOW):
+            self._seed_history()
             self._make_tickets(8, when=IN_WINDOW)
             detection.run_detection(self.team.id)
 
         targets = [
             (call.args[0].target_type, call.args[0].target_id) for call in self.create_notification.call_args_list
         ]
-        assert targets == [("user", "101"), ("user", "202")]
+        assert targets == [("user", str(member.id))]
 
     def test_active_incident_is_not_duplicated(self) -> None:
         with freeze_time(FROZEN_NOW):
+            self._seed_history()
             self._make_tickets(8, when=IN_WINDOW)
             detection.run_detection(self.team.id)
             # Second run, same window, spike still present.
@@ -96,6 +109,7 @@ class TestTrendsDetection(BaseTest):
         # the trailing 2h window a few hours later while staying under the 24h age cap —
         # exercising the calm-run counter rather than the aged-out backstop.
         with freeze_time(FROZEN_NOW):
+            self._seed_history()
             self._make_tickets(25, when=IN_WINDOW)
             detection.run_detection(self.team.id)
 
@@ -110,8 +124,25 @@ class TestTrendsDetection(BaseTest):
         assert incident.status == IncidentStatus.RESOLVED
         assert incident.resolved_at is not None
 
+    def test_aged_incident_stays_open_while_still_firing(self) -> None:
+        # Force-resolving a still-firing incident would reopen and re-notify for the
+        # same continuous event; the age backstop must wait until the spike stops.
+        with freeze_time(FROZEN_NOW):
+            self._seed_history()
+            self._make_tickets(8, when=IN_WINDOW)
+            detection.run_detection(self.team.id)
+            TicketIncident.objects.for_team(self.team.id).filter(scope="volume").update(
+                detected_at=FROZEN_NOW - timedelta(hours=25)
+            )
+            detection.run_detection(self.team.id)
+
+        incident = TicketIncident.objects.for_team(self.team.id).get(scope="volume")
+        assert incident.status == IncidentStatus.ACTIVE
+        assert self.capture_event.call_count == 1
+
     def test_dismissed_incident_suppresses_refire(self) -> None:
         with freeze_time(FROZEN_NOW):
+            self._seed_history()
             self._make_tickets(8, when=IN_WINDOW)
             detection.run_detection(self.team.id)
             TicketIncident.objects.for_team(self.team.id).filter(scope="volume").update(
@@ -130,6 +161,7 @@ class TestTrendsDetection(BaseTest):
         # All tickets share one channel, so overall volume and channel:widget both spike.
         # The hierarchy rule keeps only the overall incident on that run.
         with freeze_time(FROZEN_NOW):
+            self._seed_history()
             self._make_tickets(10, when=IN_WINDOW, channel=Channel.WIDGET)
             detection.run_detection(self.team.id)
 

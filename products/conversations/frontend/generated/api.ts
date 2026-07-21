@@ -366,27 +366,6 @@ export const conversationsAlertRulesRetrieve = async (
     })
 }
 
-export const getConversationsAlertRulesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/conversations/alert_rules/${id}/`
-}
-
-/**
- * Update a ticket alert rule.
- */
-export const conversationsAlertRulesUpdate = async (
-    projectId: string,
-    id: string,
-    ticketAlertRuleApi: NonReadonly<TicketAlertRuleApi>,
-    options?: RequestInit
-): Promise<TicketAlertRuleApi> => {
-    return apiMutator<TicketAlertRuleApi>(getConversationsAlertRulesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketAlertRuleApi),
-    })
-}
-
 export const getConversationsAlertRulesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/conversations/alert_rules/${id}/`
 }

@@ -155,6 +155,7 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'conversations-alerts',
         filters: { events: [{ id: '$conversation_incident_detected', type: 'events' }] },
+        flag: FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_TRENDS,
     },
 }
 

@@ -15,8 +15,11 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -34,6 +37,11 @@ export const scene: SceneExport = {
     component: SupportTrendsScene,
     logic: supportTrendsLogic,
     productKey: ProductKey.CONVERSATIONS,
+}
+
+/** LemonInput number fields emit NaN when cleared; ?? only catches null/undefined. */
+function finiteOr(value: number | undefined, fallback: number): number {
+    return value != null && Number.isFinite(value) ? value : fallback
 }
 
 function windowLabel(windowMinutes: number | undefined): string {
@@ -256,6 +264,7 @@ function RuleModal(): JSX.Element {
         <LemonModal
             isOpen={ruleModalOpen}
             onClose={closeRuleModal}
+            hasUnsavedInput={!!ruleDraft.name.trim() || Object.keys(ruleDraft.filters).length > 0}
             title={ruleDraft.id ? 'Edit alert rule' : 'New alert rule'}
             footer={
                 <>
@@ -314,7 +323,7 @@ function RuleModal(): JSX.Element {
                             min={15}
                             max={1440}
                             value={ruleDraft.window_minutes}
-                            onChange={(value) => setRuleDraft({ window_minutes: value ?? 120 })}
+                            onChange={(value) => setRuleDraft({ window_minutes: finiteOr(value, 120) })}
                         />
                     </div>
                     <div>
@@ -323,7 +332,7 @@ function RuleModal(): JSX.Element {
                             type="number"
                             min={1}
                             value={ruleDraft.min_count}
-                            onChange={(value) => setRuleDraft({ min_count: value ?? 5 })}
+                            onChange={(value) => setRuleDraft({ min_count: finiteOr(value, 5) })}
                         />
                     </div>
                 </div>
@@ -342,7 +351,7 @@ function RuleModal(): JSX.Element {
                                 max={100}
                                 step={0.5}
                                 value={ruleDraft.spike_multiplier}
-                                onChange={(value) => setRuleDraft({ spike_multiplier: value ?? 3 })}
+                                onChange={(value) => setRuleDraft({ spike_multiplier: finiteOr(value, 3) })}
                             />
                             <p className="text-muted-alt text-xs mt-1">
                                 The rule only fires when matching tickets also exceed this multiple of the usual volume
@@ -357,8 +366,15 @@ function RuleModal(): JSX.Element {
 }
 
 export function SupportTrendsScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeIncidents, pastIncidents, incidentsLoading } = useValues(supportTrendsLogic)
     const { openNewRuleModal } = useActions(supportTrendsLogic)
+
+    // The scene registry can't flag-gate routes, so gate here: hiding the tab alone
+    // still leaves the URL reachable.
+    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_TRENDS]) {
+        return <NotFound object="page" />
+    }
 
     return (
         <SceneContent className="pb-4">

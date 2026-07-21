@@ -22,11 +22,15 @@ from products.conversations.backend.models.ticket_alert_rule import (
     MIN_RULE_WINDOW_MINUTES,
     MIN_SPIKE_MULTIPLIER,
 )
-from products.conversations.backend.ticket_filtering import RULE_ALLOWED_FILTER_KEYS, RULE_IGNORED_FILTER_KEYS
+from products.conversations.backend.ticket_filtering import (
+    RULE_ALLOWED_FILTER_KEYS,
+    RULE_IGNORED_FILTER_KEYS,
+    validate_rule_filter_values,
+)
 
 
 class TicketAlertRuleSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, help_text="User who created the rule.")
     filters = serializers.DictField(
         child=serializers.CharField(help_text="Filter value in tickets-list query-param form."),
         required=False,
@@ -35,8 +39,8 @@ class TicketAlertRuleSerializer(serializers.ModelSerializer):
             "Ticket filters in the tickets list endpoint's query-param form, e.g. "
             '`{"channel_source": "email", "tags": "[\\"billing\\"]"}`. Matching tickets created within the '
             "rule's window count toward the threshold. Allowed keys: status, priority, channel_source, "
-            "channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, "
-            "ai_triage_result."
+            "channel_detail, assignee, distinct_ids, sla, snoozed, tags, tags_all, tags_exclude, "
+            "ai_triage_result. Free-text search is not supported in rules."
         ),
     )
 
@@ -94,14 +98,25 @@ class TicketAlertRuleSerializer(serializers.ModelSerializer):
                     f"Time and ordering filters are not allowed in alert rules: {', '.join(sorted(ignored))}. "
                     "The rule's window supplies the time bound."
                 )
+            if "search" in unknown:
+                raise serializers.ValidationError(
+                    "Free-text search is not supported in alert rules. Use tags or the other filters instead."
+                )
             raise serializers.ValidationError(f"Unknown filter keys: {', '.join(sorted(unknown))}.")
+        # Value validation: a malformed value evaluates as "no filter", silently
+        # broadening the rule to all tickets — reject it at save time instead.
+        errors = validate_rule_filter_values(value)
+        if errors:
+            raise serializers.ValidationError(errors)
         return value
 
     def validate(self, attrs: dict) -> dict:
         will_be_enabled = attrs.get("enabled", self.instance.enabled if self.instance else True)
         if will_be_enabled:
             team = self.context["get_team"]()
-            enabled_rules = TicketAlertRule.objects.filter(team=team, enabled=True)
+            # Rows are stored under the canonical (parent) team id — count there.
+            canonical_team_id = team.parent_team_id or team.id
+            enabled_rules = TicketAlertRule.objects.filter(team_id=canonical_team_id, enabled=True)
             if self.instance is not None:
                 enabled_rules = enabled_rules.exclude(id=self.instance.id)
             if enabled_rules.count() >= MAX_ENABLED_RULES_PER_TEAM:
@@ -204,9 +219,14 @@ class TicketAlertRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = TicketAlertRule.objects.unscoped()
     serializer_class = TicketAlertRuleSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
+    # PATCH only: full PUT would reset omitted fields (filters defaults to {}), clearing saved criteria
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("-created_at")
+        # TeamScopedRootMixin.save() canonicalizes writes to the parent team, so reads
+        # must filter on the canonical id too or rows become invisible under child envs.
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        return queryset.filter(team_id=canonical_team_id).select_related("created_by").order_by("-created_at")
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(team_id=self.team_id, created_by=self.request.user)
@@ -249,7 +269,10 @@ class TicketIncidentViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     permission_classes = [IsAuthenticated, APIScopePermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.filter(team_id=self.team_id).select_related("rule")
+        # Same canonicalization as the rules viewset: detection writes rows under the
+        # canonical (parent) team id via TeamScopedRootMixin.
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        queryset = queryset.filter(team_id=canonical_team_id).select_related("rule")
 
         status_param = self.request.query_params.get("status")
         if status_param:

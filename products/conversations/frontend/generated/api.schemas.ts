@@ -573,7 +573,7 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
- * Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.
+ * Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. Free-text search is not supported in rules.
  */
 export type TicketAlertRuleApiFilters = { [key: string]: string }
 
@@ -584,7 +584,7 @@ export interface TicketAlertRuleApi {
      * @maxLength 400
      */
     name: string
-    /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. */
+    /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. Free-text search is not supported in rules. */
     filters?: TicketAlertRuleApiFilters
     /**
      * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).
@@ -611,6 +611,7 @@ export interface TicketAlertRuleApi {
     readonly last_evaluated_at: string | null
     /** @nullable */
     readonly last_fired_at: string | null
+    /** User who created the rule. */
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -626,7 +627,7 @@ export interface PaginatedTicketAlertRuleListApi {
 }
 
 /**
- * Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result.
+ * Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. Free-text search is not supported in rules.
  */
 export type PatchedTicketAlertRuleApiFilters = { [key: string]: string }
 
@@ -637,7 +638,7 @@ export interface PatchedTicketAlertRuleApi {
      * @maxLength 400
      */
     name?: string
-    /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. */
+    /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. Free-text search is not supported in rules. */
     filters?: PatchedTicketAlertRuleApiFilters
     /**
      * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).
@@ -664,6 +665,7 @@ export interface PatchedTicketAlertRuleApi {
     readonly last_evaluated_at?: string | null
     /** @nullable */
     readonly last_fired_at?: string | null
+    /** User who created the rule. */
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
