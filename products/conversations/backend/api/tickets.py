@@ -1408,13 +1408,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             capture_exception(e, {"ticket_id": str(ticket.id)})
             return Response({"detail": str(e)}, status=drf_status.HTTP_400_BAD_REQUEST)
 
-        # Audit trail: who minted which code, for how much, against which ticket (real money).
+        # Audit trail: who minted a code, for how much, against which ticket (real money). The code
+        # itself is redeemable, so record only a non-redeemable reference (last 4 + admin link) —
+        # the full code goes solely to the staff member in the response below. The activity log is
+        # readable by non-staff project members, so it must never carry the redeemable value.
+        code_ref = f"…{result['code'][-4:]}"
         logger.info(
             "conversations_merch_code_generated",
             ticket_id=str(ticket.id),
             ticket_number=ticket.ticket_number,
             user_id=request.user.id,
-            code=result["code"],
+            code_ref=code_ref,
+            admin_url=result.get("admin_url"),
             value_usd=str(value_usd),
             usage_limit=usage_limit,
         )
@@ -1433,12 +1438,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                         Change(
                             type="Ticket",
                             field="merch_code",
-                            after=f"{result['code']} (${value_usd}, {usage_limit} use(s))",
+                            after=f"{code_ref} (${value_usd}, {usage_limit} use(s))",
                             action="created",
                         )
                     ],
                 ),
             )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
             report_user_action(
                 request.user,
                 "support merch code generated",

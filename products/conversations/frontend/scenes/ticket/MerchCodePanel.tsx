@@ -41,7 +41,13 @@ export function MerchCodePanel({ ticketId }: MerchCodeLogicProps): JSX.Element {
                                 fullWidth
                                 center
                                 loading={resultLoading}
-                                disabledReason={valueUsd > 0 ? undefined : 'Choose a discount value first'}
+                                disabledReason={
+                                    valueUsd > 0
+                                        ? result
+                                            ? 'Code generated — change the amount to create another'
+                                            : undefined
+                                        : 'Choose a discount value first'
+                                }
                                 onClick={() => generateCode()}
                             >
                                 Generate merch code
@@ -56,6 +62,10 @@ export function MerchCodePanel({ ticketId }: MerchCodeLogicProps): JSX.Element {
                                         >
                                             {result.code}
                                         </CopyToClipboardInline>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-xs text-muted-alt">Value</span>
+                                        <span className="text-xs font-semibold">${result.value_usd} off</span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2">
                                         <span className="text-xs text-muted-alt">Store link</span>

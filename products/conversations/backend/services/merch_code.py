@@ -10,6 +10,8 @@ from django.conf import settings
 import requests
 import structlog
 
+from posthog.egress.shopify.transport import ShopifyEgressBudgetExhausted, shopify_request
+
 logger = structlog.get_logger(__name__)
 
 SHOPIFY_TIMEOUT_SECONDS = 15
@@ -44,6 +46,14 @@ def derive_merch_code(context: str, iso_timestamp: str, hash_key: str) -> str:
     """
     base = f"{context.replace('/', '-')}-{iso_timestamp}"
     return hashlib.sha256(f"{base}-{hash_key}".encode()).hexdigest()[:12]
+
+
+def _admin_url(discount_id: str) -> str | None:
+    """Shopify admin link for a created discount, derived from the configured store domain."""
+    if not discount_id:
+        return None
+    store_slug = settings.SHOPIFY_MERCH_STORE_DOMAIN.removesuffix(".myshopify.com")
+    return f"https://admin.shopify.com/store/{store_slug}/discounts/{discount_id}"
 
 
 def create_merch_code(*, context: str, value_usd: Decimal, usage_limit: int) -> dict[str, Any]:
@@ -81,20 +91,32 @@ def create_merch_code(*, context: str, value_usd: Decimal, usage_limit: int) -> 
 
     url = f"https://{settings.SHOPIFY_MERCH_STORE_DOMAIN}/admin/api/{settings.SHOPIFY_MERCH_API_VERSION}/graphql.json"
     try:
-        response = requests.post(
+        response = shopify_request(
+            "POST",
             url,
+            source="conversations_merch_code",
+            endpoint="/admin/api/graphql.json",
             json={"query": _DISCOUNT_MUTATION, "variables": variables},
             headers={"X-Shopify-Access-Token": token, "Content-Type": "application/json"},
             timeout=SHOPIFY_TIMEOUT_SECONDS,
         )
-        response.raise_for_status()
-        payload = response.json()
+    except ShopifyEgressBudgetExhausted as e:
+        raise MerchCodeError("Shopify egress budget exhausted; try again shortly.") from e
     except requests.RequestException as e:
         raise MerchCodeError(f"Shopify request failed: {e}") from e
+
+    if not response.ok:
+        # Shopify puts the actionable detail in the body; keep it for on-call rather than only the status.
+        logger.warning("merch_code_shopify_request_failed", status=response.status_code, body=response.text[:500])
+        raise MerchCodeError(f"Shopify request failed with status {response.status_code}.")
+
+    try:
+        payload = response.json()
     except ValueError as e:
         raise MerchCodeError("Shopify returned a non-JSON response.") from e
 
     if payload.get("errors"):
+        logger.warning("merch_code_shopify_graphql_errors", errors=payload["errors"])
         raise MerchCodeError(f"Shopify returned errors: {payload['errors']}")
 
     result = (payload.get("data") or {}).get("discountCodeBasicCreate") or {}
@@ -102,13 +124,17 @@ def create_merch_code(*, context: str, value_usd: Decimal, usage_limit: int) -> 
     if user_errors:
         raise MerchCodeError(f"Shopify rejected the discount: {user_errors}")
 
+    # The mutation always returns the node on genuine success; a missing node means the discount was
+    # not created, so fail closed rather than hand out a code that does not exist in Shopify.
     gid: str = (result.get("codeDiscountNode") or {}).get("id") or ""
-    discount_id = gid.rsplit("/", 1)[-1] if gid else ""
+    if not gid:
+        raise MerchCodeError("Shopify did not return the created discount.")
+    discount_id = gid.rsplit("/", 1)[-1]
 
     return {
         "code": code,
         "value_usd": value_usd,
         "usage_limit": usage_limit,
         "discount_url": STOREFRONT_DISCOUNT_URL.format(code=code),
-        "admin_url": f"https://admin.shopify.com/store/posthog/discounts/{discount_id}" if discount_id else None,
+        "admin_url": _admin_url(discount_id),
     }

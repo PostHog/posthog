@@ -76,6 +76,7 @@ export function MessageInput({
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
+    const [editorReady, setEditorReady] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
 
     useEffect(() => {
@@ -84,14 +85,16 @@ export function MessageInput({
 
     // Append externally-provided content (e.g. a generated merch-code message) to the end of the
     // live editor, then signal the parent to clear it. The editor's own onUpdate syncs the draft.
+    // Gated on editorReady so a value that arrives before the editor mounts isn't stranded — the
+    // effect re-runs once onCreate flips editorReady.
     useEffect(() => {
-        if (pendingInsert && editorRef.current) {
+        if (pendingInsert && editorReady && editorRef.current) {
             editorRef.current.insertContentAt(editorRef.current.getEndPosition(), pendingInsert)
             editorRef.current.focus()
             setIsEmpty(false)
             onInsertConsumed?.()
         }
-    }, [pendingInsert, onInsertConsumed])
+    }, [pendingInsert, editorReady, onInsertConsumed])
 
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
@@ -187,6 +190,7 @@ export function MessageInput({
                 placeholder={placeholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
+                    setEditorReady(true)
                     if (draftContent) {
                         setIsEmpty(false)
                     }

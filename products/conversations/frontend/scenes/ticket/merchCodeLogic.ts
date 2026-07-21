@@ -50,6 +50,7 @@ export interface merchCodeLogicActions {
     clearResult: () => { value: true }
     reset: () => { value: true }
     insertIntoComposer: (content: JSONContent) => { content: JSONContent }
+    setDraftIsPrivate: (isPrivate: boolean) => { isPrivate: boolean }
 }
 
 export type merchCodeLogicType = MakeLogicType<merchCodeLogicValues, merchCodeLogicActions, MerchCodeLogicProps>
@@ -59,7 +60,7 @@ export const merchCodeLogic = kea<merchCodeLogicType>([
     props({} as MerchCodeLogicProps),
     key((props) => props.ticketId),
     connect((props: MerchCodeLogicProps) => ({
-        actions: [supportTicketSceneLogic({ id: props.ticketId }), ['insertIntoComposer']],
+        actions: [supportTicketSceneLogic({ id: props.ticketId }), ['insertIntoComposer', 'setDraftIsPrivate']],
     })),
     actions({
         setValueUsd: (valueUsd: number) => ({ valueUsd }),
@@ -90,9 +91,19 @@ export const merchCodeLogic = kea<merchCodeLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        setValueUsd: ({ valueUsd }) => {
+            // The result card and the composer message are tied to the value the code was minted at,
+            // so drop a stale result once the staff member picks a different amount.
+            if (values.result && Number(values.result.value_usd) !== valueUsd) {
+                actions.clearResult()
+            }
+        },
         generateCodeSuccess: ({ result }) => {
             if (result) {
+                // The merch message is customer-facing, so make sure it lands in a customer reply
+                // rather than an internal note if private mode happened to be on.
+                actions.setDraftIsPrivate(false)
                 actions.insertIntoComposer(buildMerchMessageNode(result))
             }
         },

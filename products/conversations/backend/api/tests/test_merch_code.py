@@ -83,6 +83,13 @@ class TestGenerateMerchCode(APIBaseTest):
         assert mock_create.call_args.kwargs["context"] == f"ticket-{self.ticket.ticket_number}"
         # Codes are always single-use regardless of any client-supplied value.
         assert mock_create.call_args.kwargs["usage_limit"] == 1
-        assert ActivityLog.objects.filter(
+
+        log = ActivityLog.objects.filter(
             scope="Ticket", item_id=str(self.ticket.id), activity="generated_merch_code"
-        ).exists()
+        ).first()
+        assert log is not None
+        # The activity log is readable by non-staff members, so it must reference the code (last 4)
+        # without exposing the full redeemable value.
+        serialized = str(log.detail)
+        assert "abc123def456" not in serialized
+        assert "f456" in serialized
