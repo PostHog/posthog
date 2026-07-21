@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailerLiteSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailerlite import (
+    MailerLiteSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
     MailerLiteResumeConfig,
     mailerlite_source,
