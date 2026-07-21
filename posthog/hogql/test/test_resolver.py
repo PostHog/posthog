@@ -26,6 +26,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -1255,7 +1256,7 @@ class TestResolver(BaseTest):
             nullable=False,
             description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
         )
-        assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
+        assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == UUIDDatabaseField(
             name="person_id",
             array=None,
             nullable=False,
@@ -2094,6 +2095,10 @@ class TestResolver(BaseTest):
                 "SELECT event FROM events WHERE uuid IN ('0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b', 'nope')",
             ),
             ("person_subtable_id", "SELECT event FROM events WHERE person.id = 'not-a-uuid'"),
+            (
+                "trailing_newline",
+                "SELECT event FROM events WHERE person_id = '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b\n'",
+            ),
             ("persons_scope_id", "SELECT id FROM persons WHERE id = 'not-a-uuid'"),
         ]
     )

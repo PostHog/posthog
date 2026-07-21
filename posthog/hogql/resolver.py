@@ -73,7 +73,8 @@ USE_GLOBAL_JOINS = False
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # ClickHouse's canonical UUID text form; it rejects anything else when parsing a compared literal.
-_UUID_LITERAL_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+# Checked with fullmatch — a `$` anchor would let a trailing newline through.
+_UUID_LITERAL_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 _UUID_GUARDED_COMPARE_OPS = (
     ast.CompareOperationOp.Eq,
@@ -2309,7 +2310,7 @@ class Resolver(CloningVisitor):
             if not self._resolves_to_uuid(uuid_side):
                 continue
             for constant in _string_constants(literal_side):
-                if not _UUID_LITERAL_RE.match(constant.value):
+                if not _UUID_LITERAL_RE.fullmatch(constant.value):
                     field_name = getattr(uuid_side.type, "name", None) or getattr(uuid_side.type, "alias", None)
                     subject = f"'{field_name}'" if isinstance(field_name, str) else "a UUID column"
                     raise QueryError(
