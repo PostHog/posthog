@@ -1,7 +1,6 @@
 import json
 import dataclasses
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 from requests import RequestException, Response
 
@@ -105,10 +104,13 @@ def watchmode_source(
         "client": {
             "base_url": WATCHMODE_BASE_URL,
             "auth": {
+                # Watchmode accepts the key as an `apiKey` query param or an `X-API-Key`
+                # header. Use the header so the secret never lands in request URLs (and
+                # from there into access/proxy logs).
                 "type": "api_key",
-                "name": "apiKey",
+                "name": "X-API-Key",
                 "api_key": api_key,
-                "location": "query",
+                "location": "header",
             },
         },
         "resource_defaults": {
@@ -150,7 +152,8 @@ def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     session = make_tracked_session(redact_values=(api_key,))
     try:
         response = session.get(
-            f"{WATCHMODE_BASE_URL}/v1/status/?{urlencode({'apiKey': api_key})}",
+            f"{WATCHMODE_BASE_URL}/v1/status/",
+            headers={"X-API-Key": api_key},
             timeout=VALIDATE_CREDENTIALS_TIMEOUT_SECONDS,
         )
     except RequestException as e:

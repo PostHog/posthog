@@ -68,6 +68,24 @@ class TestWatchmodeSource:
         else:
             assert error
 
+    def test_validate_credentials_sends_key_in_header_not_url(self) -> None:
+        # The key must ride in the X-API-Key header, never the query string, so it can't
+        # leak into access/proxy logs that record request URLs.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
+        ) as mock_make_session:
+            response = requests.Response()
+            response.status_code = 200
+            mock_get = mock_make_session.return_value.get
+            mock_get.return_value = response
+
+            self.source.validate_credentials(self.config, team_id=1)
+
+        called_url = mock_get.call_args.args[0] if mock_get.call_args.args else mock_get.call_args.kwargs["url"]
+        assert "test-key" not in called_url
+        assert "apiKey" not in called_url
+        assert mock_get.call_args.kwargs["headers"] == {"X-API-Key": "test-key"}
+
     def test_validate_credentials_handles_connection_errors(self) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
