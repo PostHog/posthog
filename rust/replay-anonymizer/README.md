@@ -15,4 +15,4 @@ Offline consumers (JSONL of individual events rather than Kafka messages) get a 
 
 Publishing to crates.io is automated by `.github/workflows/publish-replay-anonymizer-crate.yml`: bump `version` in `Cargo.toml` in your PR, and on merge to master the workflow publishes any version not yet on crates.io via trusted publishing (GitHub OIDC, no long-lived token). No tags involved.
 
-If crate code changes in a PR without a version bump, CI posts a reminder comment on the PR.
+If crate code changes in a PR without a version bump, CI posts a reminder comment on the PR. If un-bumped crate changes still reach master (say the version got taken by a PR that merged first), the publish run fails loudly instead of silently skipping; bump the version in a follow-up PR.
