@@ -311,7 +311,9 @@ fn go_dwarf_source_extraction_uses_line_table_paths() {
         "GOROOT stdlib sources must be filtered out: {paths:?}"
     );
     assert!(
-        paths.iter().all(|p| p.ends_with(".go") || p.ends_with(".s")),
+        paths
+            .iter()
+            .all(|p| p.ends_with(".go") || p.ends_with(".s")),
         "only Go source files can be bundled: {paths:?}"
     );
 }
