@@ -19,6 +19,9 @@ from posthog.schema import (
     NeighborDirection,
 )
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolDailyStatsQueryRunner,
     MCPToolDescriptionsQueryRunner,
@@ -347,6 +350,40 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
         assert rows[0].harness == "Claude.ai"
         assert rows[1].error_message == ""
         assert rows[1].intent == ""
+
+    def test_caps_event_supplied_session_id_and_intent_lengths(self) -> None:
+        self._emit(
+            distinct_id="d1",
+            error_type="internal",
+            session_id="s" * 500,
+            intent='{"goal":"' + "x" * 2000 + '"}',
+        )
+        flush_persons_and_events()
+
+        rows = self._run("internal")
+
+        assert len(rows) == 1
+        assert len(rows[0].session_id) == 200
+        assert len(rows[0].intent) == 1000
+
+    @parameterized.expand(
+        [
+            (["query:read"], 403),
+            (["mcp_analytics:read"], 403),
+            (["query:read", "mcp_analytics:read"], 200),
+        ]
+    )
+    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": "MCPToolFailureOccurrencesQuery", "toolName": "query_run", "errorType": "internal"}},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     def test_excludes_non_errored_other_tools_and_old_sdk_events(self) -> None:
         self._emit(distinct_id="match", error_type="internal")

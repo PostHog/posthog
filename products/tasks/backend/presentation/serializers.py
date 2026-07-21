@@ -2320,6 +2320,10 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         if method == "user_message":
             content = params.get("content")
             artifact_ids = params.get("artifact_ids")
+            steer = params.get("steer")
+
+            if steer is not None and not isinstance(steer, bool):
+                raise serializers.ValidationError({"params": "steer must be a boolean when provided"})
 
             normalized_content = None
             if content is not None:
@@ -2681,6 +2685,27 @@ class SandboxCustomImageBuildSerializer(serializers.Serializer):
         default=None,
         help_text="Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.",
     )
+
+
+class SandboxCustomImageUpdateSerializer(serializers.Serializer):
+    """Request body for renaming / re-describing a custom sandbox base image."""
+
+    name = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=255,
+        help_text="New display name for the custom image. Omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New description. Omit to leave unchanged; pass an empty string to clear it.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value
 
 
 class TaskPresenceBeaconRequestSerializer(serializers.Serializer):

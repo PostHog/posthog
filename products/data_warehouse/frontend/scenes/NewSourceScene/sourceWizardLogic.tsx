@@ -740,7 +740,6 @@ export interface sourceWizardLogicActions {
             | 'Deel'
             | 'Deepgram'
             | 'Deepsource'
-            | 'Delighted'
             | 'DenoDeploy'
             | 'Deputy'
             | 'DevinAI'

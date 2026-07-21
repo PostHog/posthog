@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShortcutSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortcut import (
+    ShortcutSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source import ShortcutSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -107,10 +109,11 @@ class TestShortcutSource:
     def test_source_for_pipeline_plumbs_arguments(self):
         inputs = mock.Mock()
         inputs.schema_name = "stories"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
         inputs.incremental_field = "updated_at"
-        inputs.logger = mock.Mock()
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source.shortcut_source"
@@ -120,7 +123,8 @@ class TestShortcutSource:
         mock_shortcut_source.assert_called_once_with(
             api_token="test-token",
             endpoint="stories",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
             incremental_field="updated_at",
@@ -129,10 +133,11 @@ class TestShortcutSource:
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self):
         inputs = mock.Mock()
         inputs.schema_name = "members"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = "should-be-ignored"
         inputs.incremental_field = None
-        inputs.logger = mock.Mock()
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source.shortcut_source"

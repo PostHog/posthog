@@ -115,6 +115,7 @@ export interface SavedTicketView {
     filters: TicketViewFilters
     created_at: string
     created_by: { id: number; first_name?: string; email?: string } | null
+    is_favorited: boolean
 }
 
 export interface UserBasic {

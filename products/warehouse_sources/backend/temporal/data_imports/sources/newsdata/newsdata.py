@@ -2,33 +2,30 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ApiKeyAuthConfig,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.settings import (
     NEWSDATA_ENDPOINTS,
     NewsDataEndpointConfig,
 )
 
 NEWSDATA_BASE_URL = "https://newsdata.io/api/1"
-
-# One request grabs a plan-limited page (10 free / 50 paid), so a page never approaches the batch
-# size threshold — we accumulate several pages before handing a batch to the pipeline.
-_BATCH_SIZE = 2000
-
-
-class NewsDataRetryableError(Exception):
-    """Raised for 429/5xx responses so tenacity retries with backoff."""
-
-
-class NewsDataError(Exception):
-    """Raised for permanent API failures (unsupported param, quota exhausted) that must not retry."""
 
 
 @dataclasses.dataclass
@@ -37,10 +34,15 @@ class NewsDataResumeConfig:
     next_page: str | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    # NewsData accepts the key either as an `apikey` query param or the `X-ACCESS-KEY` header. We use
-    # the header so the secret never lands in a logged request URL.
-    return {"X-ACCESS-KEY": api_key, "Accept": "application/json"}
+def _auth_config(api_key: str) -> ApiKeyAuthConfig:
+    # NewsData accepts the key as an `apikey` query param or the `X-ACCESS-KEY` header. We use the
+    # header (via framework auth) so the secret is redacted from logs and never lands in a request URL.
+    return {
+        "type": "api_key",
+        "name": "X-ACCESS-KEY",
+        "api_key": api_key,
+        "location": "header",
+    }
 
 
 def _to_from_date(value: Any) -> str | None:
@@ -59,142 +61,112 @@ def _to_from_date(value: Any) -> str | None:
     return str(value)[:10]
 
 
-def _build_query_params(
-    config: NewsDataEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, str]:
-    """Build the endpoint's query params (excluding the cursor, which is added per page).
-
-    Only `from_date` is applied, and only for date-filter endpoints: on the first incremental sync
-    it floors the crawl at a trailing lookback window, and on later syncs it advances from the stored
-    watermark. Full-refresh endpoints send no params. `size` is intentionally omitted — the page size
-    is plan-capped and passing an over-cap value 4xxs, so we let the API apply its own default.
+def _initial_from_date(config: NewsDataEndpointConfig) -> Optional[date]:
+    """First incremental sync floor: instead of crawling the entire (up to 7-year) archive, the very
+    first sync only pulls the trailing N days. Later syncs advance from the stored watermark.
     """
-    if not (config.supports_date_filter and should_use_incremental_field):
-        return {}
-
-    from_date = _to_from_date(db_incremental_field_last_value)
-    if from_date is None and config.default_lookback_days is not None:
-        from_date = (datetime.now(UTC) - timedelta(days=config.default_lookback_days)).date().isoformat()
-
-    return {"from_date": from_date} if from_date else {}
-
-
-def _raise_for_error_body(payload: dict[str, Any], page_url: str) -> None:
-    """NewsData signals problems in the body (`{"status": "error", "results": {...}}`).
-
-    Retryable rate-limit errors still arrive as HTTP 429 and are handled in `_fetch_page`; anything
-    left here (unsupported params, quota exhaustion) is a hard error worth surfacing.
-    """
-    if payload.get("status") == "error":
-        results = payload.get("results")
-        message = results.get("message") if isinstance(results, dict) else str(results)
-        raise NewsDataError(f"NewsData API returned error status: {message} (url={page_url})")
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            NewsDataRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(page_url, headers=headers, timeout=60)
-
-    # 429 (rate limit / daily credit throttle) and transient 5xx are retryable; everything else that
-    # isn't ok is a permanent failure (bad key, unsupported param) raised via raise_for_status.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise NewsDataRetryableError(f"NewsData API error (retryable): status={response.status_code}, url={page_url}")
-
-    if not response.ok:
-        logger.error(f"NewsData API error: status={response.status_code}, body={response.text}, url={page_url}")
-        response.raise_for_status()
-
-    return response.json()
+    if config.default_lookback_days is None:
+        return None
+    return (datetime.now(UTC) - timedelta(days=config.default_lookback_days)).date()
 
 
 def validate_credentials(api_key: str) -> bool:
     # The sources catalog is the cheapest authenticated probe: no pagination, small body, and it only
     # needs a valid key. An invalid or missing key returns HTTP 401.
-    url = f"{NEWSDATA_BASE_URL}/sources"
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def _page_url(config: NewsDataEndpointConfig, params: dict[str, str], next_page: str | None) -> str:
-    page_params = dict(params)
-    if next_page:
-        page_params["page"] = next_page
-    query = urlencode(page_params)
-    base = f"{NEWSDATA_BASE_URL}{config.path}"
-    return f"{base}?{query}" if query else base
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{NEWSDATA_BASE_URL}/sources",
+        headers={"X-ACCESS-KEY": api_key, "Accept": "application/json"},
+    )
+    return ok
 
 
 def get_rows(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[NewsDataResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = NEWSDATA_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive between requests.
-    # `redact_values` masks the API key anywhere it surfaces in logged/captured telemetry.
-    session = make_tracked_session(redact_values=(api_key,))
 
-    params = _build_query_params(config, should_use_incremental_field, db_incremental_field_last_value)
+    # `nextPage` is an opaque cursor token surfaced in the body and echoed back as the `page` query
+    # param. /sources rejects `page`, so it never paginates even if a stray cursor is present.
+    paginator: JSONResponseCursorPaginator | SinglePagePaginator = (
+        JSONResponseCursorPaginator(cursor_path="nextPage", cursor_param="page")
+        if config.supports_pagination
+        else SinglePagePaginator()
+    )
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        # `size` is intentionally omitted — the page size is plan-capped and passing an over-cap value
+        # 4xxs, so we let the API apply its own default.
+        "params": {},
+        # A missing `results` key reads as an empty page (matching the API's "no data" signal).
+        "data_selector": "results",
+        "paginator": paginator,
+        # NewsData reports hard failures (unsupported param, quota exhausted) in a 200-body envelope
+        # (`{"status": "error", ...}`); fail loud instead of syncing 0 rows. Scoped to HTTP 200 so
+        # 401/403 still fall through to raise_for_status, which get_non_retryable_errors matches on.
+        "response_actions": [
+            {
+                "status_code": 200,
+                "content": '"status":"error"',
+                "action": "raise",
+                "message": "NewsData.io returned an error response. This is usually an unsupported parameter or an exhausted daily request quota — check your plan on the NewsData.io dashboard.",
+            }
+        ],
+    }
+
+    # Only date-filter endpoints (archive, crypto) accept from_date; on the first incremental sync
+    # the lookback floor seeds it, on later syncs the stored watermark advances it.
+    if config.supports_date_filter and should_use_incremental_field:
+        incremental: IncrementalConfig = {
+            "start_param": "from_date",
+            "cursor_path": "pubDate",
+            "initial_value": _to_from_date(_initial_from_date(config)),
+            "convert": _to_from_date,
+        }
+        endpoint_config["incremental"] = incremental
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": NEWSDATA_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(api_key),
+        },
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    next_page = resume.next_page if resume else None
-    if next_page:
-        logger.debug(f"NewsData: resuming {endpoint} from cursor")
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.next_page:
+        initial_paginator_state = {"cursor": resume.next_page}
 
-    batch: list[dict[str, Any]] = []
-    while True:
-        url = _page_url(config, params, next_page)
-        data = _fetch_page(session, url, headers, logger)
-        _raise_for_error_body(data, url)
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the framework calls this AFTER a page is yielded so a
+        # crash re-yields the next page rather than skipping it (the merge dedupes on the primary key).
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(NewsDataResumeConfig(next_page=str(state["cursor"])))
 
-        results = data.get("results") or []
-        batch.extend(results)
-
-        # `nextPage` is an opaque cursor token; its absence (or a non-paginating endpoint) ends the walk.
-        next_page = data.get("nextPage") if config.supports_pagination else None
-
-        if len(batch) >= _BATCH_SIZE:
-            yield batch
-            batch = []
-            # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the primary
-            # key) rather than skipping it. Only persist when more pages remain.
-            if next_page:
-                resumable_source_manager.save_state(NewsDataResumeConfig(next_page=next_page))
-
-        if not next_page:
-            break
-
-    if batch:
-        yield batch
+    yield from rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
 
 def newsdata_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[NewsDataResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -206,7 +178,8 @@ def newsdata_source(
         items=lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
-            logger=logger,
+            team_id=team_id,
+            job_id=job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,

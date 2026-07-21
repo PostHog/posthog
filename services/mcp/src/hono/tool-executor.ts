@@ -579,8 +579,12 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     }
     const apiError = findRecoverableApiError(error)
     if (apiError instanceof PostHogValidationError) {
-        // First-party API validation text (`Validation error: <detail> (field: <attr>)`).
-        return apiError.message
+        // `detail` is the raw API validation body; for query tools it echoes the caller's
+        // offending HogQL/filter expression (`/query/` resolver errors quote the bad name),
+        // so capture only the controlled code + field, never the free-text detail.
+        const code = apiError.code ? `: ${apiError.code}` : ''
+        const field = apiError.attr ? ` (field: ${apiError.attr})` : ''
+        return `Validation error${code}${field}`
     }
     if (apiError instanceof PostHogApiError) {
         // Rebuilt summary: no response body, no query string.
