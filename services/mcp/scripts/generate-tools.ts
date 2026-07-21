@@ -493,15 +493,6 @@ function composeToolSchema(
      */
     const optionalParamNames = new Set<string>()
 
-    /**
-     * Body fields whose Orval shape is `.nullable()` (or `.nullish()`). A
-     * `required` override unwraps one wrapper layer; nullish fields carry two
-     * (`ZodOptional<ZodNullable<...>>`), so we unwrap a second time for these
-     * to reach the base type — a required field must be neither omittable nor
-     * null.
-     */
-    const nullableParamNames = new Set<string>()
-
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
     // original → alias mapping from rename_params config
@@ -633,9 +624,6 @@ function composeToolSchema(
                 if (bodyAllOptional || !bodyRequiredSet.has(name)) {
                     optionalParamNames.add(fieldKey)
                 }
-                if (prop.nullable) {
-                    nullableParamNames.add(fieldKey)
-                }
             }
 
             if (bodyOmitFields.size > 0) {
@@ -746,15 +734,8 @@ function composeToolSchema(
                     if (override.required) {
                         // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
                         // tool schema requires the field, matching the backend serializer.
-                        const wasOptional = optionalParamNames.has(paramName)
                         expr += '.unwrap()'
                         optionalParamNames.delete(paramName)
-                        // A `.nullish()` source is `ZodOptional<ZodNullable<...>>` — two
-                        // wrapper layers. The unwrap above peels the optional one; peel the
-                        // nullable one too so a required field can't be satisfied by `null`.
-                        if (wasOptional && nullableParamNames.has(paramName)) {
-                            expr += '.unwrap()'
-                        }
                     }
                     if (override.default !== undefined) {
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
