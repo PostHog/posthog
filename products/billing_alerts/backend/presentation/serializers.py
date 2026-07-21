@@ -18,7 +18,7 @@ from products.alerts.backend.facade.api import (
     validate_destination_data,
 )
 from products.billing_alerts.backend.facade import api as billing_alerts_api
-from products.billing_alerts.backend.models import (
+from products.billing_alerts.backend.facade.api import (
     BillingAlertConfiguration,
     BillingAlertEvent,
     validate_threshold_configuration,
