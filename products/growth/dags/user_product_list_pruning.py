@@ -364,8 +364,8 @@ def prune_unused_user_products(context: dagster.OpExecutionContext, config: Prun
 
     cutoff = timezone.now() - timedelta(days=config.window_days)
 
-    # Scope everything to teams that actually have sidebar rows in this
-    # region's Postgres; CSV rows for the other region's team ids are dropped.
+    # Scope everything to teams that actually have sidebar rows in this region's Postgres;
+    # CSV rows for the other region's team ids are dropped.
     allowed_team_ids = set(UserProductList.objects.values_list("team_id", flat=True).distinct())
     context.log.info(f"{len(allowed_team_ids)} teams have UserProductList rows")
 
