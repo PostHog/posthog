@@ -1,6 +1,6 @@
 import pytest
 
-from products.signals.backend.emission.linear_issues import linear_issue_emitter
+from products.signals.backend.emission.linear_issues import _linear_team_scope_where, linear_issue_emitter
 
 
 class TestLinearIssueEmitter:
@@ -93,3 +93,29 @@ class TestLinearIssueEmitter:
         assert result is not None
         assert result.extra["state_name"] is None
         assert result.extra["state_type"] is None
+
+
+class TestLinearTeamScopeWhere:
+    # A workspace-wide Linear token imports every team's issues; this builder is the sole guard that
+    # keeps Signals from surfacing teams the user didn't opt into. Regressions here re-leak all teams.
+
+    @pytest.mark.parametrize(
+        "source_config,expected",
+        [
+            # No opt-in: unchanged behavior (all teams) — must NOT emit a filter.
+            ({}, None),
+            ({"linear_team_ids": None}, None),
+            ({"linear_team_ids": []}, None),
+            (
+                {"linear_team_ids": ["team-1", "team-2"]},
+                "JSONExtractString(team, 'id') IN ('team-1', 'team-2')",
+            ),
+            # Fail closed: an opt-in with no usable IDs matches nothing rather than widening to all teams.
+            ({"linear_team_ids": ["bad id!"]}, "JSONExtractString(team, 'id') IN ('')"),
+            ({"linear_team_ids": ["good-1", "bad;drop"]}, "JSONExtractString(team, 'id') IN ('good-1')"),
+            # Malformed config (not a list) is ignored, leaving all-teams behavior.
+            ({"linear_team_ids": "team-1"}, None),
+        ],
+    )
+    def test_builds_scope_clause(self, source_config, expected):
+        assert _linear_team_scope_where(source_config) == expected

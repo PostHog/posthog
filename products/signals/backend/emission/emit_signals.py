@@ -16,6 +16,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
+from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.hooks import EmitSignalsActivityInputs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -41,10 +42,14 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         # `DataWarehouseTable.name` is the storage form (e.g. `<prefix><source_type>_<schema>`),
         # but HogQL exposes warehouse tables under the keys produced by `get_data_warehouse_table_name`
         # (e.g. `github.issues` or `github.<prefix>.<schema>`). Querying the storage name fails to resolve.
+        source_config = await _fetch_source_config(inputs.team_id, config.source_product, config.source_type)
         fetcher_context = {
             "table_name": get_data_warehouse_table_name(schema.source, schema.table.name),
             "last_synced_at": inputs.last_synced_at,
             "extra": inputs.properties_to_log,
+            # Per-team source config (e.g. Linear team allowlist) so the fetcher can scope which
+            # records emit. Empty dict when the team has no config row.
+            "source_config": source_config,
         }
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(
             team, config, fetcher_context
@@ -61,6 +66,16 @@ async def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[Ex
     schema = await ExternalDataSchema.objects.prefetch_related("table", "source").aget(id=schema_id, team_id=team_id)
     team = await Team.objects.aget(id=team_id)
     return schema, team
+
+
+async def _fetch_source_config(team_id: int, source_product: str, source_type: str) -> dict[str, Any]:
+    """The team's SignalSourceConfig.config JSON for this source, or {} when there's no row."""
+    config = await (
+        SignalSourceConfig.objects.filter(team_id=team_id, source_product=source_product, source_type=source_type)
+        .values_list("config", flat=True)
+        .afirst()
+    )
+    return config or {}
 
 
 @workflow.defn(name="emit-data-import-signals")

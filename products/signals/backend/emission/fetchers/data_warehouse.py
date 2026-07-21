@@ -23,6 +23,7 @@ def data_warehouse_record_fetcher(
     table_name: str = context["table_name"]
     last_synced_at: str | None = context.get("last_synced_at")
     extra: dict[str, Any] = context.get("extra", {})
+    source_config: dict[str, Any] = context.get("source_config") or {}
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     partition_expr = (
@@ -39,6 +40,11 @@ def data_warehouse_record_fetcher(
         where_parts.append(f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day")
     if config.where_clause:
         where_parts.append(config.where_clause)
+    # Per-team scoping derived from the team's SignalSourceConfig.config (e.g. Linear team allowlist).
+    if config.source_config_where_builder is not None:
+        extra_clause = config.source_config_where_builder(source_config)
+        if extra_clause:
+            where_parts.append(extra_clause)
     where_sql = " AND ".join(where_parts)
     # None of the data comes externally (neither limits of table name), so it's safe to use f-string interpolation
     fields_sql = ", ".join(config.fields)
