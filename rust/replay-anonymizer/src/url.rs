@@ -299,8 +299,8 @@ fn push_host_port(host_port: &str, out: &mut String) -> bool {
 
 // The WHATWG host parser (what browsers use) decides what is an IP: bracketed IPv6, plus every
 // IPv4 encoding browsers resolve (`192.168.0.1`, hex `0xc0a80101`, octal `0300.0250.0.1`, decimal
-// `3232235777`). A host it cannot parse at all is an IPv4 lookalike (`1.2.3.4.5`, `foo.123`) —
-// masked too rather than risking a pass-through on a malformed-but-routable form.
+// `3232235777`). Unparseable hosts mask too, incidentally — a browser can't have produced a
+// replay from one, so the case doesn't matter.
 fn is_ip_host(host: &str) -> bool {
     if host.is_empty() {
         return false;
