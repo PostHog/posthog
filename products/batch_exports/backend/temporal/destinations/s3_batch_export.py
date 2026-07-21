@@ -78,6 +78,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "NoSuchBucket",
     # Couldn't connect to custom S3 endpoint
     "EndpointConnectionError",
+    # TLS handshake failed against a custom S3 endpoint
+    "SSLError",
     # User provided an invalid S3 key
     "InvalidS3Key",
     # Invalid S3 endpoint URL

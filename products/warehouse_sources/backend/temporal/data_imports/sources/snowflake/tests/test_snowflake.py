@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
@@ -771,6 +773,20 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Network-policy block should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "HTTP 403: Forbidden",
+            # The real shape from production: the errno prefix and host vary, but the status
+            # text is stable. Newlines are normalized to spaces upstream.
+            "290403: 290403: HTTP 403: Forbidden",
+        ],
+    )
+    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class HuntrEndpointConfig:
@@ -26,4 +28,4 @@ HUNTR_ENDPOINTS: dict[str, HuntrEndpointConfig] = {
 
 ENDPOINTS = tuple(HUNTR_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

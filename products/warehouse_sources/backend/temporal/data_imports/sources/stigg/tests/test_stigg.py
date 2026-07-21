@@ -1,215 +1,211 @@
-from typing import Any
+import json
+from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.stigg import stigg
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.settings import ENDPOINTS, STIGG_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.stigg import (
     PAGE_SIZE,
     StiggResumeConfig,
-    StiggRetryableError,
-    check_access,
-    get_rows,
     stigg_source,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = stigg._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the stigg module.
+STIGG_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.stigg.stigg.make_tracked_session"
+)
+# Retryable paths sleep between attempts via tenacity; patch the sleep so failure-path tests are fast.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: StiggResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[StiggResumeConfig] = []
+def _response(
+    items: Optional[list[dict[str, Any]]], next_cursor: Optional[str] = None, *, raw_body: Any = None
+) -> Response:
+    """Build a Stigg list-endpoint response: ``{"data": [...], "pagination": {"next": ...}}``.
 
-    def can_resume(self) -> bool:
-        return self._state is not None
+    ``raw_body`` overrides the whole body for malformed-shape cases (a bare array, or a dict
+    without ``data``).
+    """
+    if raw_body is not None:
+        body: Any = raw_body
+    else:
+        body = {"data": items or [], "pagination": {"next": next_cursor, "prev": None}}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
-    def load_state(self) -> StiggResumeConfig | None:
-        return self._state
 
-    def save_state(self, data: StiggResumeConfig) -> None:
-        self.saved.append(data)
+def _error_response(status: int) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = b""
+    resp.url = f"https://api.stigg.io/api/v1/customers?limit={PAGE_SIZE}"
+    return resp
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[str | None, tuple[list[dict], str | None]],
-        endpoint: str = "customers",
-    ) -> list[dict]:
-        def fake_fetch(
-            session: Any, path: str, cursor: str | None, limit: int, logger: Any
-        ) -> tuple[list[dict], str | None]:
-            return pages[cursor]
+def _make_manager(resume_state: Optional[StiggResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        monkeypatch.setattr(stigg, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(stigg, "make_tracked_session", lambda **kwargs: MagicMock())
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="stigg-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
 
-    def test_single_page_null_next_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([{"id": "a"}, {"id": "b"}], None)})
+    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "customers"):
+    return stigg_source("stigg-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_null_next_yields_and_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "a"}, {"id": "b"}], next_cursor=None)])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == [{"id": "a"}, {"id": "b"}]
+        assert session.send.call_count == 1
         # pagination.next is null, so we stop without persisting resume state.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_follows_next_cursor_until_null(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[str | None, tuple[list[dict], str | None]] = {
-            None: ([{"id": "1"}, {"id": "2"}], "cursor-page-2"),
-            "cursor-page-2": ([{"id": "3"}], None),
-        }
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_next_cursor_until_null(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response([{"id": "1"}, {"id": "2"}], next_cursor="cursor-page-2"),
+                _response([{"id": "3"}], next_cursor=None),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == [{"id": "1"}, {"id": "2"}, {"id": "3"}]
+        # First page carries only `limit`; the second sends the `after` cursor.
+        assert params[0] == {"limit": PAGE_SIZE}
+        assert params[1] == {"limit": PAGE_SIZE, "after": "cursor-page-2"}
         # State is saved after the first page (cursor advances to pagination.next), then we stop.
-        assert [s.cursor for s in manager.saved] == ["cursor-page-2"]
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == StiggResumeConfig(cursor="cursor-page-2")
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(StiggResumeConfig(cursor="cur-99"))
-        # The initial (cursor=None) page must never be fetched on resume.
-        rows = self._collect(manager, monkeypatch, {"cur-99": ([{"id": "5"}], None)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "5"}], next_cursor=None)])
+
+        manager = _make_manager(StiggResumeConfig(cursor="cur-99"))
+        rows = _rows(_source(manager))
+
         assert rows == [{"id": "5"}]
+        # The initial (cursorless) page is never fetched on resume — the first request carries `after`.
+        assert session.send.call_count == 1
+        assert params[0] == {"limit": PAGE_SIZE, "after": "cur-99"}
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([], None)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], next_cursor=None)])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == []
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_empty_page_with_cursor_stops_without_saving(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_with_cursor_stops_without_saving(self, MockSession) -> None:
         # Defensive: an empty page terminates even if the API still returns a next cursor,
         # so a buggy upstream cursor can't loop us forever.
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([], "phantom-cursor")})
+        session = MockSession.return_value
+        _wire(session, [_response([], next_cursor="phantom-cursor")])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"data": [], "pagination": {"next": None}}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
+class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(StiggRetryableError):
-            _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_retry_then_raise(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_error_response(status) for _ in range(5)])
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source(_make_manager()))
+        # 429/5xx are retried up to the client's attempt cap.
+        assert session.send.call_count == 5
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_for_status(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_error_response(status)])
 
-    def test_success_returns_items_and_next_cursor(self) -> None:
-        body = {"data": [{"id": "1"}], "pagination": {"next": "abc", "prev": None}}
-        session = self._session_returning(200, body)
-        items, next_cursor = _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
-        assert items == [{"id": "1"}]
-        assert next_cursor == "abc"
-
-    def test_null_next_cursor_maps_to_none(self) -> None:
-        body = {"data": [{"id": "1"}], "pagination": {"next": None, "prev": "xyz"}}
-        session = self._session_returning(200, body)
-        _, next_cursor = _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
-        assert next_cursor is None
-
-    def test_missing_pagination_maps_to_none(self) -> None:
-        session = self._session_returning(200, {"data": [{"id": "1"}]})
-        _, next_cursor = _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
-        assert next_cursor is None
-
-    def test_non_dict_body_is_retryable(self) -> None:
-        session = self._session_returning(200, [{"id": "1"}])
-        with pytest.raises(StiggRetryableError):
-            _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
-
-    def test_missing_data_key_is_retryable(self) -> None:
-        session = self._session_returning(200, {"pagination": {"next": None}})
-        with pytest.raises(StiggRetryableError):
-            _fetch_page_unwrapped(session, "/customers", None, PAGE_SIZE, MagicMock())
-
-    def test_first_page_uses_limit_without_cursor(self) -> None:
-        session = self._session_returning(200)
-        _fetch_page_unwrapped(session, "/plans", None, PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"limit": PAGE_SIZE}
-
-    def test_subsequent_page_sends_after_cursor(self) -> None:
-        session = self._session_returning(200)
-        _fetch_page_unwrapped(session, "/plans", "cur-42", PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"limit": PAGE_SIZE, "after": "cur-42"}
-
-
-class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
+        # 4xx (other than 429) is a permanent failure — surfaced immediately, not retried.
+        with pytest.raises(HTTPError):
+            _rows(_source(_make_manager()))
+        assert session.send.call_count == 1
 
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Stigg returned HTTP 500"),
+            ("bare_array", [{"id": "1"}]),
+            ("missing_data_key", {"pagination": {"next": None}}),
+            ("data_not_a_list", {"data": {"id": "1"}, "pagination": {"next": None}}),
         ]
     )
-    @patch(f"{stigg.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("stigg-key") == (expected_status, expected_message)
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_malformed_body_shape_is_retryable(self, _name: str, raw_body: Any, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, raw_body=raw_body) for _ in range(5)])
 
-    @patch(f"{stigg.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("stigg-key")
-        assert status == 0
-        assert message is not None and "boom" in message
+        # A 200 whose body isn't `{"data": [...]}` is transient — retried, then reraised.
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source(_make_manager()))
+        assert session.send.call_count == 5
 
+
+class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -228,35 +224,29 @@ class TestCheckAccess:
             ("server_error", 500, False, "Stigg returned HTTP 500"),
         ]
     )
-    @patch(f"{stigg.__name__}.make_tracked_session")
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_session: MagicMock,
+    @mock.patch(STIGG_SESSION_PATCH)
+    def test_status_mapping(
+        self, _name: str, status: int, expected_valid: bool, expected_message: Optional[str], mock_session
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("stigg-key") == (expected_valid, expected_message)
 
+    @mock.patch(STIGG_SESSION_PATCH)
+    def test_connection_error_maps_to_generic_message(self, mock_session) -> None:
+        # validate_via_probe swallows transport errors and returns (False, None).
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("stigg-key") == (False, "Could not validate Stigg API key")
 
-class TestStiggSourceResponse:
+
+class TestSourceResponseShape:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = stigg_source(
-            api_key="stigg-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(_make_manager(), endpoint)
         assert response.name == endpoint
         assert response.primary_keys == STIGG_ENDPOINTS[endpoint].primary_keys
         # createdAt is required on every list DTO and never changes, so it's a stable partition key.
         assert response.partition_mode == "datetime"
+        assert response.partition_format == "month"
         assert response.partition_keys == ["createdAt"]
 
     @parameterized.expand([("plans",), ("addons",)])

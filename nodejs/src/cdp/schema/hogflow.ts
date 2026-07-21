@@ -277,6 +277,9 @@ export const HogFlowSchema = z.object({
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     billable_action_types: z.array(z.string()).optional().nullable(),
+    // Skip-forward map for deleted steps ({deleted_action_id: surviving_action_id}), maintained by
+    // the API on live graph edits. Values always reference actions present in this flow's `actions`.
+    action_redirects: z.record(z.string(), z.string()).optional().nullable(),
     // Selected by the worker (HOG_FLOW_FIELDS); pg returns timestamptz as a Date, fixtures use
     // epoch millis. Used to distinguish live edits from malformed-from-birth graphs.
     updated_at: z.union([z.number(), z.string(), z.date()]).optional(),

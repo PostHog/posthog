@@ -16,6 +16,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -132,6 +133,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
+
+    def test_create_flag_translates_concurrent_duplicate_key_integrity_error(self):
+        # Simulates a concurrent create racing past the unlocked validate_key pre-check:
+        # the "unique key for team" DB constraint is the last line of defense, and must
+        # surface as the same clean 400 the pre-check gives a sequential duplicate, not a
+        # raw 500.
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.FeatureFlag.objects.create",
+            side_effect=IntegrityError('duplicate key value violates unique constraint "unique key for team"'),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {"name": "Beta feature", "key": "red_button"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
 
     @parameterized.expand(
         [
@@ -420,6 +445,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_flag_dependency_numeric_key_is_coerced_to_string(self) -> None:
+        # A numeric dependency key persisted as a raw JSON number fails deserialization
+        # in the Rust flags service (key is typed as String), taking down flag evaluation
+        # for the whole project. Ensure it's stored as a string regardless of input type.
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base-flag",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Dependent flag",
+                "key": "dependent-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": base_flag.id,  # numeric, as stored by some migrations
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        stored_key = response.json()["filters"]["groups"][0]["properties"][0]["key"]
+        self.assertEqual(stored_key, str(base_flag.id))
+
     @parameterized.expand(
         [
             ("in",),
@@ -549,6 +610,46 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, 200)
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
+
+    def test_can_update_flag_when_sibling_team_shares_key(self):
+        # A project can have another team where the same flag key legitimately exists.
+        # Editing a flag without touching its key must not be blocked by that other team's flag.
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        FeatureFlag.objects.create(team=sibling_team, created_by=self.user, key="shared-key")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="shared-key", name="Original")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"name": "Renamed", "key": "shared-key"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        flag.refresh_from_db()
+        self.assertEqual(flag.name, "Renamed")
+
+    def test_update_flag_translates_concurrent_duplicate_key_integrity_error(self):
+        # Mirrors test_create_flag_translates_concurrent_duplicate_key_integrity_error, but for
+        # the locked update() write: a concurrent rename racing past the unlocked validate_key
+        # pre-check must also surface as a clean 400, not a raw 500.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.FeatureFlag.save",
+            side_effect=IntegrityError('duplicate key value violates unique constraint "unique key for team"'),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"name": "Beta feature", "key": "green_button"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_group_type_index_feature_flag(self, mock_report_user_action):

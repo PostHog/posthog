@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InstanaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instana import (
+    InstanaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import (
     PAGINATION_LIMIT_ERROR,
     RESPONSE_TOO_LARGE_ERROR,

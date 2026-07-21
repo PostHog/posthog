@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.s
     DOCUSEAL_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DocusealSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
+    DocusealSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -152,6 +154,8 @@ Pick the region your DocuSeal account is hosted in. Self-hosted deployments are 
             api_key=config.api_key,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every DocuSeal endpoint is full refresh
         )

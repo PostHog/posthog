@@ -163,8 +163,8 @@ export class CdpApi {
             services.hogFunctionMonitoringService,
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
-            services.recipientsManager,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            services.emailSuppressionService
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(

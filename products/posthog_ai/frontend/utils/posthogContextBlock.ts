@@ -50,11 +50,7 @@ export function formatPosthogContextBlock(items: AttachedContextItem[]): string 
     const blocks: string[] = []
     if (trusted.length > 0) {
         blocks.push(
-            [
-                '<posthog_trusted_context>',
-                ...trusted.map((item) => `- ${defang(item.value ?? '')}`),
-                '</posthog_trusted_context>',
-            ].join('\n')
+            ['<posthog_trusted_context>', ...trusted.map(contextItemLine), '</posthog_trusted_context>'].join('\n')
         )
     }
     if (untrusted.length > 0) {
@@ -62,7 +58,7 @@ export function formatPosthogContextBlock(items: AttachedContextItem[]): string 
             [
                 '<posthog_untrusted_context>',
                 UNTRUSTED_HEADER,
-                ...untrusted.map(formatItem),
+                ...untrusted.map(contextItemLine),
                 UNTRUSTED_REMINDER,
                 '</posthog_untrusted_context>',
             ].join('\n')
@@ -72,15 +68,49 @@ export function formatPosthogContextBlock(items: AttachedContextItem[]): string 
 }
 
 /**
+ * The exact line an item renders as inside its context block. Doubles as the replay-side match key
+ * for the history-derived dedupe: `runStreamLogic` records the lines of blocks found in persisted
+ * user messages (`extractContextBlockLines` → `attachedContextLogic.seenContextLinesByTask`), and
+ * the send paths re-render each candidate item through this same function to decide whether it was
+ * already sent somewhere in the task's resume chain. Sharing the renderer is what makes the match
+ * exact — never parse a block line back into an item (`type` is an arbitrary string, so the
+ * formatted prose is ambiguous).
+ */
+export function contextItemLine(item: AttachedContextItem): string {
+    if (item.type === 'instructions') {
+        return `- ${defang(item.value ?? '')}`
+    }
+    return formatItem(item)
+}
+
+/**
+ * Item lines of a raw context block (tags included, as `splitUserMessageContent` returns them).
+ * Only item lines start with `- ` — the tags, `UNTRUSTED_HEADER`, and `UNTRUSTED_REMINDER` don't —
+ * so the prefix alone separates items from chrome. One physical line is one item because `defang`
+ * escapes newlines out of every interpolated field, which is what keeps this the exact inverse of
+ * `contextItemLine`.
+ */
+export function extractContextBlockLines(block: string): string[] {
+    return block.split('\n').filter((line) => line.startsWith('- '))
+}
+
+/**
  * Invariant: interpolated fields must never contain a literal open/close sequence of the context
  * tags. `unwrapUserMessageContent` cuts each block at the FIRST matching close tag, so a raw close
  * tag inside a value would truncate the strip early and leave block remnants on replay — and a raw
  * `<posthog_trusted_context` inside untrusted data could forge a trusted block. Escapes every
  * open/close variant of the three tag names (including the legacy `posthog_context`, which the
  * deprecated backend `context_wrapper.py` path still emits).
+ *
+ * Newlines are escaped for the same reason one level down: an item renders as exactly one line, so a
+ * value carrying `\n- ` can't forge extra item lines in the block the model reads, and can't split
+ * one item's identity into several entries that `extractContextBlockLines` would then record
+ * separately from what `contextItemLine` re-renders at dedupe time.
  */
 function defang(text: string | number): string {
-    return String(text).replace(/<(\/?)(posthog_(?:(?:un)?trusted_)?context)/g, '<\\$1$2')
+    return String(text)
+        .replace(/<(\/?)(posthog_(?:(?:un)?trusted_)?context)/g, '<\\$1$2')
+        .replace(/\r?\n/g, '\\n')
 }
 
 function formatItem(item: AttachedContextItem): string {
