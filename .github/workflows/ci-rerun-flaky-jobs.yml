@@ -1,0 +1,48 @@
+name: CI Rerun Flaky Jobs
+
+# When a gating workflow fails a PR on its first attempt, rerun just the failed
+# jobs once. Measured on this repo (2026-07): 75-90% of human "re-run failed
+# jobs" clicks go green with no code change, but only ~11% of red runs ever get
+# that click — the rest of the flake tax lands on authors as pointless re-pushes.
+# Real failures simply fail twice and the check stays red, so nothing is masked.
+#
+# The watched list is only workflows with measured retry recovery (23-41% of
+# their reds). Python CI is deliberately absent: its reds are almost entirely
+# deterministic lint/type/format failures where a retry is a pure waste.
+#
+# Cost shape: the job-level `if` means successful completions skip without a
+# runner, and rerun-failed-jobs re-runs only the failed jobs (plus dependents),
+# never the whole matrix. run_attempt == 1 guarantees at most one machine retry.
+
+on:
+    workflow_run:
+        workflows: ['Backend CI', 'Frontend CI', 'Storybook', 'E2E CI Playwright']
+        types: [completed]
+
+permissions:
+    actions: write
+
+concurrency:
+    group: rerun-flaky-${{ github.event.workflow_run.id }}
+    cancel-in-progress: false
+
+jobs:
+    rerun:
+        name: Rerun failed jobs once
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: >
+            github.event.workflow_run.conclusion == 'failure' &&
+            github.event.workflow_run.event == 'pull_request' &&
+            github.event.workflow_run.run_attempt == 1
+        steps:
+            - name: Rerun failed jobs of the triggering run
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RUN_ID: ${{ github.event.workflow_run.id }}
+                  RUN_NAME: ${{ github.event.workflow_run.name }}
+                  RUN_URL: ${{ github.event.workflow_run.html_url }}
+              run: |
+                  echo "Rerunning failed jobs of ${RUN_NAME} run ${RUN_ID}: ${RUN_URL}"
+                  gh api -X POST "repos/${{ github.repository }}/actions/runs/${RUN_ID}/rerun-failed-jobs" \
+                    || echo "::notice::Rerun request rejected (run superseded, already rerunning, or too old) — nothing to do"
