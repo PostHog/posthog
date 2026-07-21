@@ -21,7 +21,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertStateIndicator'
+import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'

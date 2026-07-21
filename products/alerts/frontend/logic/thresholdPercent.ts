@@ -10,9 +10,8 @@ const roundPercent = (value: number): number => Math.round(value * 1e6) / 1e6
 export const fractionToPercentInput = (fraction: number | undefined): number | undefined =>
     typeof fraction === 'number' ? roundPercent(fraction * 100) : undefined
 
-// A half-typed/cleared number input yields NaN; store it as undefined so it doesn't poison the form.
 export const inputToStoredBound = (value: number | undefined, type: InsightThresholdType): number | undefined => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
+    if (value === undefined) {
         return undefined
     }
     return type === InsightThresholdType.PERCENTAGE ? value / 100 : value

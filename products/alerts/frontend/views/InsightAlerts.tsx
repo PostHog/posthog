@@ -16,8 +16,8 @@ import { urls } from 'scenes/urls'
 
 import { AlertState, ProductKey } from '~/queries/schema/schema-general'
 
+import { AlertStateIndicator } from '../components/AlertDefinition'
 import { AlertsFiltersBar } from '../components/AlertsFiltersBar'
-import { AlertStateIndicator } from '../components/AlertStateIndicator'
 import { alertIntervalDisplayLabel } from '../logic/alertIntervalHelpers'
 import { alertLogic } from '../logic/alertLogic'
 import { alertsLogic } from '../logic/alertsLogic'
@@ -199,7 +199,6 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
 
     const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
     const modalAlert = alert ?? alertsSortedByState.find((candidate) => candidate.id === alertId)
-    // TODO: add info here to sign up for alerts early access
     return (
         <>
             {isEmpty && (

@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
-import { AlertStateIndicator } from '../components/AlertStateIndicator'
+import { AlertStateIndicator } from '../components/AlertDefinition'
 import { buildAlertSummary } from '../components/alertSummary'
 import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'

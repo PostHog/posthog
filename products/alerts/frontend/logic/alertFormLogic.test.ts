@@ -210,14 +210,6 @@ describe('alertFormLogic', () => {
             },
         })
         expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
-            alert_id: 'alert-new-id',
-            alert_mode: 'threshold',
-            detector_type: null,
-            config_type: 'TrendsAlertConfig',
-            calculation_interval: AlertCalculationInterval.DAILY,
-            condition_type: AlertConditionType.ABSOLUTE_VALUE,
-            subscribed_users_count: 0,
-            destination_count: 0,
             ui_version: 'redesigned',
         })
 

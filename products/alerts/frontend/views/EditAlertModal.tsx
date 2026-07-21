@@ -299,7 +299,7 @@ function LegacyEditAlertModal({
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
-                <AlertEditorLoading title="Edit alert" onBack={handleClose} variant="legacy" />
+                <AlertEditorLoading title="Edit alert" onBack={handleClose} />
             ) : (
                 <Form
                     logic={alertFormLogic}

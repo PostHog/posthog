@@ -31,7 +31,7 @@ import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
-import { AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertStateIndicator, AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
 import {
     AlertEditor,
@@ -40,7 +40,6 @@ import {
 } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
 import { AlertPreviewCard } from 'products/alerts/frontend/components/AlertPreviewCard'
-import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertStateIndicator'
 import { buildAlertSummary } from 'products/alerts/frontend/components/alertSummary'
 import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/frontend/components/AlertSummaryBanner'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'

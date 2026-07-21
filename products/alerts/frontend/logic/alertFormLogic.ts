@@ -653,14 +653,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
-                        alert_id: updatedAlert.id,
-                        alert_mode: alert.detector_config ? 'detector' : 'threshold',
-                        detector_type: alert.detector_config?.type ?? null,
-                        config_type: alert.config?.type ?? null,
-                        calculation_interval: alert.calculation_interval,
-                        condition_type: alert.condition?.type ?? null,
-                        subscribed_users_count: alert.subscribed_users?.length ?? 0,
-                        destination_count: notifLogic.values.pendingNotifications.length,
                         ui_version: props.uiVersion ?? 'legacy',
                     })
                 }

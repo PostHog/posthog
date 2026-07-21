@@ -8,16 +8,11 @@ import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
-export const THRESHOLD_BOUNDS_ORDER_FORM_ERROR = 'The “Less than” value must be lower than the “More than” value'
-export const RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR = 'Enter zero or a positive change value'
 
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
-function isFiniteThresholdBound(value: number | string | null | undefined): boolean {
-    if (value == null || value === '') {
-        return false
-    }
-    return !Number.isNaN(Number(value))
+function isFiniteThresholdBound(value: number | null | undefined): value is number {
+    return typeof value === 'number' && Number.isFinite(value)
 }
 
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {
@@ -43,8 +38,8 @@ const alertFormSchema = z
                     .object({
                         bounds: z
                             .object({
-                                lower: z.union([z.number(), z.string()]).nullish(),
-                                upper: z.union([z.number(), z.string()]).nullish(),
+                                lower: z.number().finite().nullish(),
+                                upper: z.number().finite().nullish(),
                             })
                             .optional(),
                     })
@@ -81,23 +76,23 @@ const alertFormSchema = z
             !alert.detector_config &&
             isFiniteThresholdBound(bounds?.lower) &&
             isFiniteThresholdBound(bounds?.upper) &&
-            Number(bounds?.lower) > Number(bounds?.upper)
+            bounds.lower > bounds.upper
         ) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['threshold'],
-                message: THRESHOLD_BOUNDS_ORDER_FORM_ERROR,
+                message: 'The “Less than” value must be lower than the “More than” value',
             })
         }
 
         const hasNegativeRelativeBound =
             alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE &&
-            [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && Number(value) < 0)
+            [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && value < 0)
         if (hasNegativeRelativeBound) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['threshold'],
-                message: RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR,
+                message: 'Enter zero or a positive change value',
             })
         }
     })

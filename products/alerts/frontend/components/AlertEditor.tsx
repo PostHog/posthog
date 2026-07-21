@@ -33,17 +33,27 @@ export function AlertEditorHeader({ title, description, onBack }: AlertEditorHea
     )
 }
 
-export function AlertEditorLoading({
-    title,
-    onBack,
-    variant = 'redesigned',
-}: Pick<AlertEditorHeaderProps, 'title' | 'onBack'> & { variant?: 'legacy' | 'redesigned' }): JSX.Element {
+export function AlertEditorLoading({ title, onBack }: Pick<AlertEditorHeaderProps, 'title' | 'onBack'>): JSX.Element {
     return (
         <div className="flex min-h-[600px] flex-col" aria-busy="true" aria-label={`Loading ${title.toLowerCase()}`}>
             <header className="border-b p-4">
                 <AlertEditorHeader title={title} onBack={onBack} />
             </header>
-            {variant === 'redesigned' ? <RedesignedAlertEditorSkeleton /> : <LegacyAlertEditorSkeleton />}
+            <div className="flex-1 space-y-4 p-4">
+                <LemonSkeleton className="h-20 w-full" />
+                <LemonSkeleton className="h-10 w-full" />
+                <LemonSkeleton className="h-4 w-48" />
+                <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                        <LemonSkeleton className="h-10 w-full" />
+                        <LemonSkeleton className="h-5 w-4/5" />
+                    </div>
+                    <div className="space-y-3">
+                        <LemonSkeleton className="h-10 w-full" />
+                        <LemonSkeleton className="h-10 w-3/4" />
+                    </div>
+                </div>
+            </div>
             <footer className="flex items-center justify-between border-t p-4">
                 <div className="flex gap-2">
                     <LemonSkeleton className="h-10 w-28" />
@@ -51,55 +61,6 @@ export function AlertEditorLoading({
                 </div>
                 <LemonSkeleton className="h-10 w-20" />
             </footer>
-        </div>
-    )
-}
-
-function RedesignedAlertEditorSkeleton(): JSX.Element {
-    return (
-        <div className="flex-1 space-y-4 p-4">
-            <LemonSkeleton className="h-20 w-full" />
-            <div className="flex gap-6 border-b pb-3">
-                <LemonSkeleton className="h-7 w-24" />
-                <LemonSkeleton className="h-7 w-24" />
-                <LemonSkeleton className="h-7 w-20" />
-                <LemonSkeleton className="h-7 w-20" />
-            </div>
-            <LemonSkeleton className="h-10 w-full" />
-            <LemonSkeleton className="h-4 w-48" />
-            <LemonSkeleton className="h-28 w-full" />
-            <div className="grid grid-cols-2 gap-8">
-                <div className="space-y-3">
-                    <LemonSkeleton className="h-10 w-full" />
-                    <LemonSkeleton className="h-5 w-4/5" />
-                    <LemonSkeleton className="h-5 w-3/4" />
-                </div>
-                <div className="space-y-3">
-                    <LemonSkeleton className="h-10 w-full" />
-                    <LemonSkeleton className="h-10 w-3/4" />
-                    <LemonSkeleton className="h-10 w-3/4" />
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function LegacyAlertEditorSkeleton(): JSX.Element {
-    return (
-        <div className="flex-1 space-y-6 p-4">
-            <LemonSkeleton className="h-10 w-full" />
-            <LemonSkeleton className="h-4 w-48" />
-            <div className="space-y-3">
-                <LemonSkeleton className="h-5 w-28" />
-                <LemonSkeleton className="h-10 w-2/3" />
-                <LemonSkeleton className="h-10 w-1/2" />
-                <LemonSkeleton className="h-10 w-1/2" />
-            </div>
-            <div className="space-y-3">
-                <LemonSkeleton className="h-5 w-32" />
-                <LemonSkeleton className="h-10 w-full" />
-                <LemonSkeleton className="h-16 w-full" />
-            </div>
         </div>
     )
 }

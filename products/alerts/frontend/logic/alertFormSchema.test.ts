@@ -2,13 +2,7 @@ import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } fr
 import { initKeaTests } from '~/test/init'
 
 import type { AlertFormType } from './alertFormLogic'
-import {
-    getAlertFormValidationErrors,
-    RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR,
-    THRESHOLD_BOUNDS_FORM_ERROR,
-    THRESHOLD_BOUNDS_ORDER_FORM_ERROR,
-    thresholdAlertHasBounds,
-} from './alertFormSchema'
+import { getAlertFormValidationErrors, THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
 const baseAlert: AlertFormType = {
     name: 'My alert',
@@ -79,7 +73,7 @@ describe('alertFormSchema', () => {
             },
         })
 
-        expect(errors.threshold).toBe(THRESHOLD_BOUNDS_ORDER_FORM_ERROR)
+        expect(errors.threshold).toBe('The “Less than” value must be lower than the “More than” value')
     })
 
     it('rejects negative thresholds for relative conditions', () => {
@@ -94,7 +88,7 @@ describe('alertFormSchema', () => {
             },
         })
 
-        expect(errors.threshold).toBe(RELATIVE_THRESHOLD_NEGATIVE_FORM_ERROR)
+        expect(errors.threshold).toBe('Enter zero or a positive change value')
     })
 
     it('treats cleared threshold inputs as missing bounds', () => {
