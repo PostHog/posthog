@@ -366,6 +366,7 @@ intents:
                 celery_workers,
                 temporal_workflows,
                 nodejs_cdp_workflows,
+                nodejs_integration_gateway,
                 cyclotron,
             ]
 
@@ -401,6 +402,7 @@ intents:
                 property_values,
                 temporal_workflows,
                 nodejs_cdp_workflows,
+                nodejs_integration_gateway,
                 cyclotron,
             ]
 
