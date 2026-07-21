@@ -63,7 +63,7 @@ OAuth source (Intercom, HubSpot, Salesforce, …) is the same one-registry-entry
 credential source — route its `DataSourceSetup` case to `DynamicSourceSetup`.
 
 Only two field types still lack a generic renderer (disable submit): `ssh-tunnel` and
-`file-upload`. Route those to a bespoke form. Resource pickers that must run *after* OAuth
+`file-upload`. Route those to a bespoke form. Resource pickers that must run _after_ OAuth
 (GitHub's repo picker) are handled by `oauth-account-select`; the old `GitHubSetup`/`ZendeskSetup`
 /`PgAnalyzeSetup` hardcoded forms remain only for historical reasons — leave them or migrate to
 `DynamicSourceSetup` opportunistically; don't add new ones.
