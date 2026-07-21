@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
@@ -15,6 +16,29 @@ logger = structlog.get_logger(__name__)
 PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "sourcebatchduckgresstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
+
+# CREATE/DROP of a partition takes ACCESS EXCLUSIVE on the parent table, and a
+# *waiting* ACCESS EXCLUSIVE blocks every query that arrives after it — so an
+# unbounded lock wait behind one long-running query stalls all queue traffic
+# (consumers, producers, temporal workers) until the blocker finishes.
+# lock_timeout caps each wait; on timeout we back off so queued traffic drains,
+# then retry.
+DDL_LOCK_TIMEOUT = "5s"
+DDL_LOCK_MAX_ATTEMPTS = 6
+DDL_LOCK_RETRY_PAUSE_SECONDS = 10.0
+
+
+async def _execute_ddl_with_lock_retry(conn: psycopg.Connection, sql: str) -> None:
+    for attempt in range(1, DDL_LOCK_MAX_ATTEMPTS + 1):
+        try:
+            conn.execute(sql)
+            return
+        except psycopg.errors.LockNotAvailable:
+            if attempt == DDL_LOCK_MAX_ATTEMPTS:
+                raise
+            logger.warning("partition_ddl_lock_timeout", sql=sql, attempt=attempt)
+            await asyncio.sleep(DDL_LOCK_RETRY_PAUSE_SECONDS)
+
 
 # The duckgres apply-marker table is unpartitioned (small rows, UNIQUE-constrained),
 # so retention is DELETE-based. Must comfortably exceed the consumers' eligibility
@@ -43,7 +67,9 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     dropped: list[str] = []
     errors: list[str] = []
 
-    with psycopg.Connection.connect(database_url, autocommit=True) as conn:
+    with psycopg.Connection.connect(
+        database_url, autocommit=True, options=f"-c lock_timeout={DDL_LOCK_TIMEOUT}"
+    ) as conn:
         today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:
@@ -51,10 +77,11 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                 d = today + timedelta(days=offset)
                 partition_name = f"{table}_{d.strftime('%Y%m%d')}"
                 try:
-                    conn.execute(
+                    await _execute_ddl_with_lock_retry(
+                        conn,
                         f"CREATE TABLE IF NOT EXISTS {partition_name} "
                         f"PARTITION OF {table} "
-                        f"FOR VALUES FROM ('{d.isoformat()}') TO ('{(d + timedelta(days=1)).isoformat()}')"
+                        f"FOR VALUES FROM ('{d.isoformat()}') TO ('{(d + timedelta(days=1)).isoformat()}')",
                     )
                     ensured.append(partition_name)
                 except Exception as e:
@@ -82,7 +109,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                     continue
                 if partition_date < cutoff:
                     try:
-                        conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
+                        await _execute_ddl_with_lock_retry(conn, f"DROP TABLE IF EXISTS {partition_name}")
                         dropped.append(partition_name)
                     except Exception as e:
                         errors.append(f"Failed to drop {partition_name}: {e}")
