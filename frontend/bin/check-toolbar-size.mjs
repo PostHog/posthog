@@ -82,6 +82,7 @@ function main() {
     // make the owning feature import its styles statically (or hoist the style import).
     // Note: with code splitting, every dynamically-imported module also carries an entryPoint
     // in the metafile — findEntryOutput matches the real toolbar entry specifically.
+    const cssIncomplete = []
     const entryCss = outputs[findEntryOutput(outputs)]?.cssBundle
     if (entryCss) {
         const entryCssInputs = new Set(Object.keys(outputs[entryCss].inputs || {}))
@@ -91,6 +92,7 @@ function main() {
             }
             const missing = Object.keys(output.inputs || {}).filter((inp) => !entryCssInputs.has(inp))
             if (missing.length) {
+                cssIncomplete.push({ file, missing })
                 fail(
                     `${file} contains styles missing from the entry stylesheet (${missing.join(', ')}) — ` +
                         'they would never load into the shadow root. Import them statically.'
@@ -113,7 +115,16 @@ function main() {
     }
 
     if (reportOnly) {
-        writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles: lazyJs.length, oversizeFiles, outputs })
+        writeReport({
+            loaderBytes,
+            eagerBytes,
+            eagerJs,
+            lazyBytes,
+            lazyFiles: lazyJs.length,
+            oversizeFiles,
+            cssIncomplete,
+            outputs,
+        })
         // Never fail in report-only mode: the shared CI comment surfaces the numbers and the
         // enforcing run (no flag) is a separate CI step that hard-fails.
         return
@@ -134,7 +145,16 @@ function main() {
 // Written for the shared CI comment (post-toolbar-size-comment.mjs). Mirrors the eager-graph
 // report shape: numbers plus the built tree's HEAD sha so the PR build's report is found by sha
 // and the plain file (last write = base build) doubles as the vs-base baseline.
-function writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles, oversizeFiles, outputs }) {
+function writeReport({
+    loaderBytes,
+    eagerBytes,
+    eagerJs,
+    lazyBytes,
+    lazyFiles,
+    oversizeFiles,
+    cssIncomplete,
+    outputs,
+}) {
     const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
     const largest = eagerJs
         .map((o) => ({ file: o, bytes: outputs[o].bytes }))
@@ -143,6 +163,7 @@ function writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles, o
     const report = {
         loaderBytes,
         loaderBudget: MAX_LOADER_BYTES,
+        loaderOverBudget: loaderBytes !== null && loaderBytes > MAX_LOADER_BYTES,
         eagerBytes,
         eagerFiles: eagerJs.length,
         budgetBytes: MAX_EAGER_BYTES,
@@ -151,6 +172,7 @@ function writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles, o
         lazyFiles,
         maxFileBytes: MAX_FILE_BYTES,
         oversizeFiles,
+        cssIncomplete,
         largest,
     }
     try {
@@ -163,7 +185,9 @@ function writeReport({ loaderBytes, eagerBytes, eagerJs, lazyBytes, lazyFiles, o
     if (report.sha) {
         fs.writeFileSync(path.join(frontendDir, `toolbar-size-report-${report.sha}.json`), serialized)
     }
-    console.info(`Wrote toolbar-size-report.json (eager ${humanBytes(eagerBytes)} / budget ${humanBytes(MAX_EAGER_BYTES)}).`)
+    console.info(
+        `Wrote toolbar-size-report.json (eager ${humanBytes(eagerBytes)} / budget ${humanBytes(MAX_EAGER_BYTES)}).`
+    )
 }
 
 main()

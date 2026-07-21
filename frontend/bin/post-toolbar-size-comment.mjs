@@ -17,12 +17,18 @@ function budgetBar(bytes, budgetBytes) {
 }
 
 const oversizeCount = report.oversizeFiles?.length ?? 0
-const anyFailure = Boolean(report.overBudget || oversizeCount)
+const cssIncompleteCount = report.cssIncomplete?.length ?? 0
+const loaderOverBudget = Boolean(report.loaderOverBudget)
+const anyFailure = Boolean(report.overBudget || oversizeCount || loaderOverBudget || cssIncompleteCount)
 const summary = report.overBudget
     ? `eager ${formatBytes(report.eagerBytes)} over budget`
-    : oversizeCount
-      ? `${oversizeCount} file(s) over the CloudFront gzip limit`
-      : `eager ${formatBytes(report.eagerBytes)} within budget`
+    : loaderOverBudget
+      ? `loader ${formatBytes(report.loaderBytes)} over budget`
+      : oversizeCount
+        ? `${oversizeCount} file(s) over the CloudFront gzip limit`
+        : cssIncompleteCount
+          ? `${cssIncompleteCount} chunk stylesheet(s) missing from the entry`
+          : `eager ${formatBytes(report.eagerBytes)} within budget`
 
 const lines = [
     'What the toolbar ships to customer pages, measured from the esbuild *output* (minified, post-tree-shake). ' +
@@ -34,7 +40,7 @@ const lines = [
     '| --- | --- | --- | --- |',
     `| ${report.overBudget ? '🟡 ' : ''}**Eager (shipped)**<br/>entry + static imports | ${formatBytes(report.eagerBytes)} · ${report.eagerFiles.toLocaleString()} files | ${formatDelta(report.eagerBytes, baseReport?.eagerBytes, { noBaseline: '_(no base measurement)_' })} | ${budgetBar(report.eagerBytes, report.budgetBytes)} |`,
     `| **Deferred (lazy)** | ${formatBytes(report.lazyBytes)} · ${report.lazyFiles.toLocaleString()} files | ${formatDelta(report.lazyBytes, baseReport?.lazyBytes, { noBaseline: '_(no base measurement)_' })} | _n/a — loads on demand_ |`,
-    `| **Loader** \`dist/toolbar.js\` | ${formatBytes(report.loaderBytes)} | ${formatDelta(report.loaderBytes, baseReport?.loaderBytes, { noBaseline: '_(no base measurement)_' })} | ${budgetBar(report.loaderBytes, report.loaderBudget)} |`,
+    `| ${loaderOverBudget ? '🟡 ' : ''}**Loader** \`dist/toolbar.js\` | ${formatBytes(report.loaderBytes)} | ${formatDelta(report.loaderBytes, baseReport?.loaderBytes, { noBaseline: '_(no base measurement)_' })} | ${budgetBar(report.loaderBytes, report.loaderBudget)} |`,
 ]
 lines.push('')
 
@@ -45,8 +51,25 @@ if (report.overBudget) {
         ''
     )
 }
+if (loaderOverBudget) {
+    lines.push(
+        `🟡 Loader \`dist/toolbar.js\` is ${formatBytes(report.loaderBytes)}, over the ${formatBytes(report.loaderBudget)} budget. ` +
+            'It ships on every toolbar load before anything runs — app code belongs in the ESM entry.',
+        ''
+    )
+}
 for (const { file, bytes } of report.oversizeFiles ?? []) {
-    lines.push(`🟡 \`${file}\` is ${formatBytes(bytes)}, over the ${formatBytes(report.maxFileBytes)} CloudFront gzip limit — split it further.`, '')
+    lines.push(
+        `🟡 \`${file}\` is ${formatBytes(bytes)}, over the ${formatBytes(report.maxFileBytes)} CloudFront gzip limit — split it further.`,
+        ''
+    )
+}
+for (const { file, missing } of report.cssIncomplete ?? []) {
+    lines.push(
+        `🟡 \`${file}\` contains styles missing from the entry stylesheet (${missing.join(', ')}) — ` +
+            'they would never load into the shadow root. Import them statically.',
+        ''
+    )
 }
 
 lines.push('<details><summary>Largest eagerly-shipped chunks</summary>', '')
