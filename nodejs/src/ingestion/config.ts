@@ -219,6 +219,7 @@ export type IngestionConsumerConfig = {
     AI_BLOB_S3_TIMEOUT_MS: number
     AI_BLOB_OFFLOAD_TEAMS: string
     AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
+    AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
     AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 
     // Cookieless server hash mode config
@@ -345,6 +346,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
         AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 8192,
+        AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
         AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
 
         // Cookieless server hash mode config

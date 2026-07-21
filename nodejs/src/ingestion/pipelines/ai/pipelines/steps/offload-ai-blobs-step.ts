@@ -18,6 +18,7 @@ import { Team, ValueMatcher } from '~/types'
 export interface OffloadAiBlobsConfig {
     isTeamEnabled: ValueMatcher<number>
     minBase64Length: number
+    maxBlobsPerEvent: number
 }
 
 type OffloadAiBlobsInput = {
@@ -92,6 +93,14 @@ export function createOffloadAiBlobsStep<T extends OffloadAiBlobsInput>(
         if (blobsByHash.size === 0) {
             recordBelowFloor()
             aiBlobOffloadEventsCounter.labels('no_blobs').inc()
+            return ok(input)
+        }
+
+        // Skipping entirely (rather than offloading a subset) keeps the conservative
+        // posture: the event passes through exactly as if detection had missed.
+        if (blobsByHash.size > config.maxBlobsPerEvent) {
+            recordBelowFloor()
+            aiBlobOffloadEventsCounter.labels('blob_limit_exceeded').inc()
             return ok(input)
         }
 

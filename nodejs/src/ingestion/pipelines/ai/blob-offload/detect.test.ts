@@ -114,6 +114,11 @@ describe('extractBlobs', () => {
             'padding-misaligned base64 charset string',
             { inline_data: { mime_type: 'text/plain', data: 'A'.repeat(8193) } },
         ],
+        [
+            'oversized mime in a provider shape',
+            { source: { type: 'base64', media_type: `image/${'x'.repeat(300)}`, data: PNG_B64 } },
+        ],
+        ['oversized mime in a data URI', { image_url: { url: `data:image/${'x'.repeat(300)};base64,${PNG_B64}` } }],
     ])('passes through untouched: %s', (_name, input) => {
         const result = extractBlobs(input, OPTS)
         expect(result.blobs).toHaveLength(0)

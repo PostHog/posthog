@@ -167,6 +167,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
+        maxBlobsPerEvent: config.AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT,
     }
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>

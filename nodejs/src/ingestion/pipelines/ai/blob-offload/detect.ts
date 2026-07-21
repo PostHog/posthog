@@ -21,7 +21,9 @@ export interface ExtractionResult {
 }
 
 const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/
-const MIME = /^[\w.+-]+\/[\w.+-]+$/
+// Length-capped (RFC 4288 gives each of type/subtype 127 chars): the mime flows into the
+// S3 Content-Type header and the pointer URI, so an unbounded value is a poison pill.
+const MIME = /^(?=.{1,255}$)[\w.+-]+\/[\w.+-]+$/
 // Canonical base64 only (padding only terminal, length % 4 === 0): Buffer.from decodes
 // leniently (stops at the first mid-string `=`), so a looser check would silently replace
 // a payload with a pointer to its truncated decode. Provider `data` fields must match
@@ -58,7 +60,7 @@ function extractFromString(state: Extraction, value: string): string {
         return value
     }
     const match = DATA_URI.exec(value)
-    if (!match) {
+    if (!match || !MIME.test(match[1])) {
         return value
     }
     const compact = match[2].replace(/\s+/g, '')

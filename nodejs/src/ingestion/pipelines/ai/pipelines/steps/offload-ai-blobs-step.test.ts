@@ -33,7 +33,7 @@ function makeInput(properties: Record<string, unknown>): { normalizedEvent: Plug
     }
 }
 
-const CONFIG = { isTeamEnabled: (teamId: number): boolean => teamId === 2, minBase64Length: 8192 }
+const CONFIG = { isTeamEnabled: (teamId: number): boolean => teamId === 2, minBase64Length: 8192, maxBlobsPerEvent: 50 }
 
 describe('offloadAiBlobsStep', () => {
     it('offloads binary from heavy props and rewrites them with pointers', async () => {
@@ -61,7 +61,11 @@ describe('offloadAiBlobsStep', () => {
     })
 
     it.each([
-        ['team not enabled', new FakeBlobStore(), { isTeamEnabled: (): boolean => false, minBase64Length: 8192 }],
+        [
+            'team not enabled',
+            new FakeBlobStore(),
+            { isTeamEnabled: (): boolean => false, minBase64Length: 8192, maxBlobsPerEvent: 50 },
+        ],
         ['store not configured', null, CONFIG],
     ])('passes through untouched when %s', async (_name, store, config) => {
         const step = createOffloadAiBlobsStep(store, config)
@@ -97,6 +101,26 @@ describe('offloadAiBlobsStep', () => {
         expect((input.normalizedEvent.properties!.$ai_input as ImageParts)[0].image_url.url.startsWith('data:')).toBe(
             true
         )
+    })
+
+    it.each([
+        ['at the limit', 2, 2],
+        ['over the limit', 3, 0],
+    ])('enforces the per-event distinct blob limit (%s)', async (_name, blobCount, expectedStored) => {
+        const store = new FakeBlobStore()
+        const step = createOffloadAiBlobsStep(store, { ...CONFIG, maxBlobsPerEvent: 2 })
+        const parts = Array.from({ length: blobCount }, (_, i) => ({
+            image_url: { url: `data:image/png;base64,${Buffer.alloc(8192, i).toString('base64')}` },
+        }))
+        const input = makeInput({ $ai_input: parts })
+        const result = await step(input)
+        if (!isOkResult(result)) {
+            throw new Error('expected ok result')
+        }
+        expect(store.stored).toHaveLength(expectedStored)
+        if (expectedStored === 0) {
+            expect(result.value).toBe(input)
+        }
     })
 
     it('caps concurrent blob uploads while still storing every blob', async () => {
