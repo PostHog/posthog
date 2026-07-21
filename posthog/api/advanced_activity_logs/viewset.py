@@ -55,10 +55,21 @@ def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) 
 
 def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
     """Org-wide equivalent of `restrict_loop_activity`. The org route has no single `team_id`, so it
-    can't build a per-team allowlist; instead deny the personal loops of other users across the org
-    per-row (by `item_id`), keeping every team loop and the caller's own personal loops.
-    """
+    can't build a per-team allowlist; instead deny other users' personal-loop rows across the org.
+
+    Two filters, both required. The persisted per-row context (`detail.context.visibility` /
+    `created_by_user_id`, snapshotted at log time) is the primary one: `ActivityLog` outlives its
+    loop (project deletion cascades `Loop` rows away while the log keeps plain `team_id` /
+    `organization_id`), so a live-row denylist alone would open another user's deleted personal-loop
+    history to org admins. The live-row denylist stays on top so a currently-personal loop hides ALL
+    its rows, including ones logged back when it was team-visible."""
     from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
+
+    user_id = getattr(user, "id", None)
+    persisted_personal = Q(scope="Loop") & Q(detail__context__visibility="personal")
+    if user_id is not None:
+        persisted_personal &= ~Q(detail__context__created_by_user_id=str(user_id))
+    queryset = queryset.exclude(persisted_personal)
 
     hidden_ids = loops_facade.hidden_personal_loop_ids_for_org(organization_id, user)
     if not hidden_ids:
