@@ -175,6 +175,7 @@ impl fmt::Display for ArrivalError {
 impl std::error::Error for ArrivalError {}
 
 fn sample_interval_nanos(rng: &mut impl Rng, rate: RatePerSecond) -> u64 {
+    // Inverse exponential CDF; 1 - U keeps ln's input in (0, 1].
     let open_unit_interval = 1.0 - rng.gen::<f64>();
     let nanos = -open_unit_interval.ln() / rate.get() * NANOS_PER_SECOND;
     if !nanos.is_finite() || nanos >= u64::MAX as f64 {

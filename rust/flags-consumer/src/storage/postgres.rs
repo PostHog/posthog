@@ -116,8 +116,7 @@ impl PostgresStorage {
 
         let team_ids: Vec<i32> = updates.iter().map(|u| u.team_id).collect();
         let person_uuids: Vec<Uuid> = updates.iter().map(|u| u.person_uuid).collect();
-        let properties: Vec<serde_json::Value> =
-            updates.iter().map(|u| u.properties.clone()).collect();
+        let properties: Vec<&serde_json::Value> = updates.iter().map(|u| &u.properties).collect();
         let versions: Vec<i64> = updates.iter().map(|u| u.version).collect();
 
         let result = sqlx::query(PERSON_UPSERT_SQL)

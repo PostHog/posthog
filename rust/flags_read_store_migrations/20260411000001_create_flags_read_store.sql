@@ -34,9 +34,7 @@ BEGIN
     END LOOP;
 END $$;
 
--- Heartbeat / lag-monitoring table. The CDC consumer will write one row per (source, partition) with
--- the last Kafka offset / event timestamp it processed; the shadow read path will
--- join against this for staleness checks. Table-only in Step 1; no writes yet.
+-- The CDC consumer records the latest observed Kafka offset per source partition.
 CREATE TABLE IF NOT EXISTS flags_read_store_heartbeat (
     source         TEXT        NOT NULL,
     partition      INTEGER     NOT NULL,

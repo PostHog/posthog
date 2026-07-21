@@ -8,8 +8,6 @@ use sqlx::PgPool;
 
 use super::ops::{PhaseId, PhaseMismatch};
 
-pub const DEFAULT_SAMPLE_INTERVAL: Duration = Duration::from_secs(10);
-
 const TABLE_STATS_SQL: &str = r#"
     WITH target(parent_name) AS (
         VALUES ('flags_person'::text), ('flags_distinct_id_map'::text)
@@ -124,7 +122,6 @@ pub struct PgDeltaRecord {
 pub struct PgSampler {
     pool: PgPool,
     phase_id: PhaseId,
-    interval: Duration,
     previous: Option<PgSnapshot>,
 }
 
@@ -140,22 +137,8 @@ impl PgSampler {
         Ok(Self {
             pool,
             phase_id,
-            interval: DEFAULT_SAMPLE_INTERVAL,
             previous: None,
         })
-    }
-
-    pub const fn interval(&self) -> Duration {
-        self.interval
-    }
-
-    pub const fn phase_id(&self) -> PhaseId {
-        self.phase_id
-    }
-
-    pub fn reset_phase(&mut self, phase_id: PhaseId) {
-        self.phase_id = phase_id;
-        self.previous = None;
     }
 
     pub async fn sample(&self) -> anyhow::Result<PgSnapshot> {
