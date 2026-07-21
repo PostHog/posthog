@@ -342,6 +342,7 @@ the row lists both.
 | matomo                           | HTTP                        | requests                                                        | ✅                          |
 | maxio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
+| mercury                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | meta_ads                         | HTTP                        | requests                                                        | ✅                          |
 | metabase                         | HTTP                        | requests                                                        | ✅                          |
 | metaplane                        | HTTP                        | requests                                                        | ✅                          |
@@ -800,7 +801,6 @@ doesn't conflict with concurrent PRs.
 - marketo
 - mendeley
 - mercado_ads
-- mercury
 - merge
 - metricool
 - metriport
