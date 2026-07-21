@@ -205,9 +205,12 @@ class TestEmitSignalAnalytics:
                 extra=GITHUB_ISSUE_EXTRA,
             )
 
-        # Both the "started" marker and the final "emitted" event fire
+        # Both the "started" marker and the final "emitted" event fire, exactly once each
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "signal_emission_started",
+            "signal_emitted",
+        ]
         events = {call.kwargs["event"]: call for call in capture.call_args_list}
-        assert list(events) == ["signal_emission_started", "signal_emitted"]
         # Only top-level scalar `extra` values are flattened onto the event (the `labels`
         # list is dropped); the core `source_*` keys win on conflict.
         expected_properties = {
