@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -243,7 +245,7 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
         assert flatten_property_leaves([{"type": "AND", "values": [prop]}]) == [prop]
 
     def test_deeply_nested_group_does_not_recurse_past_depth_cap(self):
-        nested = {"key": "$browser", "value": "Chrome", "type": "event"}
+        nested: dict[str, Any] = {"key": "$browser", "value": "Chrome", "type": "event"}
         for _ in range(100):
             nested = {"type": "AND", "values": [nested]}
         with self.assertRaisesRegex(ValueError, "Property group nesting exceeds the supported depth"):
