@@ -4,8 +4,8 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { tracingOperationSceneLogic } from './tracingOperationSceneLogic'
 import { DEFAULT_DATE_RANGE } from './tracingFiltersLogic'
+import { tracingOperationSceneLogic } from './tracingOperationSceneLogic'
 import type { Span } from './types'
 
 const createMockSample = (n: number): Span => ({
