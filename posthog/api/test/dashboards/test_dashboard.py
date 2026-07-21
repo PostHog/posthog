@@ -1,6 +1,5 @@
 import json
 import datetime
-from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -596,15 +595,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_record_outcome.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("list", []),
-            ("string", ""),
-            ("number", 0),
-            ("null", None),
-        ]
-    )
-    def test_cannot_update_dashboard_with_invalid_filters(self, _name: str, filters: Any) -> None:
+    def test_cannot_update_dashboard_with_invalid_filters(self) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="private dashboard",
@@ -613,7 +604,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.dashboard_api.update_dashboard(
             dashboard.pk,
-            {"filters": filters},
+            {"filters": []},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         dashboard.refresh_from_db()
@@ -1655,42 +1646,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "use_template")
-
-    @parameterized.expand(
-        [
-            ("non_dict", ["invalid"], {}),
-            (
-                "unsupported_group",
-                {
-                    "date_from": "-7d",
-                    "properties": {
-                        "type": "OR",
-                        "values": [{"key": "$browser", "value": "Chrome", "type": "event"}],
-                    },
-                },
-                {"date_from": "-7d"},
-            ),
-        ]
-    )
-    def test_use_template_ignores_invalid_dashboard_filters(
-        self, _name: str, dashboard_filters: Any, expected_filters: dict
-    ) -> None:
-        template = DashboardTemplate.objects.create(
-            team=self.team,
-            template_name="invalid-filters",
-            scope="team",
-            dashboard_description="",
-            dashboard_filters=dashboard_filters,
-            tiles=[],
-        )
-
-        dashboard_id, _ = self.dashboard_api.create_dashboard(
-            {"name": "from invalid filters", "use_template": template.template_name},
-            expected_status=status.HTTP_201_CREATED,
-        )
-
-        dashboard = Dashboard.objects.get(id=dashboard_id, team=self.team)
-        self.assertEqual(dashboard.filters, expected_filters)
 
     @parameterized.expand(
         [

@@ -1761,15 +1761,6 @@ def filters_override_requested_by_client(
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
     if not isinstance(request_filters, dict):
         raise serializers.ValidationError({"filters_override": "Filters override must be a dictionary"})
-    try:
-        from posthog.hogql_queries.apply_dashboard_filters import (  # noqa: PLC0415 - avoids a django.setup import cycle
-            flatten_property_leaves,
-        )
-
-        if request_filters.get("properties") is not None:
-            flatten_property_leaves(request_filters["properties"])
-    except ValueError as error:
-        raise serializers.ValidationError({"filters_override": str(error)}) from error
 
     return {**dashboard_filters, **request_filters}
 
@@ -1840,15 +1831,6 @@ def tile_filters_override_requested_by_client(
         )
     if not isinstance(request_filters, dict):
         raise serializers.ValidationError({"tile_filters_override": "Tile filters override must be a dictionary"})
-    try:
-        from posthog.hogql_queries.apply_dashboard_filters import (  # noqa: PLC0415 - avoids a django.setup import cycle
-            flatten_property_leaves,
-        )
-
-        if request_filters.get("properties") is not None:
-            flatten_property_leaves(request_filters["properties"])
-    except ValueError as error:
-        raise serializers.ValidationError({"tile_filters_override": str(error)}) from error
 
     return {**tile_filters, **request_filters}
 

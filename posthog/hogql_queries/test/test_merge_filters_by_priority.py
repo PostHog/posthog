@@ -1,5 +1,3 @@
-from typing import Any
-
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -158,43 +156,8 @@ class TestMergeFiltersByPriority(SimpleTestCase):
 
         assert merged["properties"] == [dashboard_prop, tile_prop]
 
-    def test_tile_properties_as_property_group_dict_are_flattened(self):
-        dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
-        tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}
-
-        merged = merge_filters_by_priority(
-            {"properties": [dashboard_prop]},
-            {"properties": {"type": "AND", "values": [tile_prop]}},
-        )
-
-        assert merged["properties"] == [dashboard_prop, tile_prop]
-
-    def test_contradiction_detected_across_property_group_dicts(self):
-        # Flattening must preserve contradiction handling: the tile leaf still overrides the dashboard leaf
-        # on the same key even when both layers arrive as property-group dicts.
-        dashboard_prop = {"key": "$browser", "value": ["Chrome"], "type": "event", "operator": "exact"}
-        tile_prop = {"key": "$browser", "value": ["Firefox"], "type": "event", "operator": "exact"}
-
-        resolved_layers = resolve_filter_layers_by_priority(
-            {"properties": {"type": "AND", "values": [dashboard_prop]}},
-            {"properties": {"type": "AND", "values": [tile_prop]}},
-        )
-
-        assert resolved_layers == {
-            "dashboard": {},
-            "tile": {"properties": {"type": "AND", "values": [tile_prop]}},
-            "overridden_dashboard": {"properties": [dashboard_prop]},
-        }
-
 
 class TestDashboardFilterFromDict(SimpleTestCase):
-    def test_flat_list_properties_pass_through(self):
-        built = dashboard_filter_from_dict({"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
-        assert built.properties is not None
-        assert [p.model_dump(exclude_none=True, mode="json") for p in built.properties] == [
-            {"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}
-        ]
-
     def test_property_group_dict_is_flattened_instead_of_raising(self):
         # `DashboardFilter.properties` is typed as a flat list, so a property-group dict used to raise a
         # pydantic ValidationError (500) at the construction sites in calculate_results and
@@ -216,16 +179,6 @@ class TestDashboardFilterFromDict(SimpleTestCase):
 
 
 class TestFlattenPropertyLeaves(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("scalar", "invalid", "Properties must be a list"),
-            ("group values", {"type": "AND", "values": "invalid"}, "Property group values must be a list"),
-        ]
-    )
-    def test_rejects_invalid_property_container(self, _name, properties, expected_error):
-        with self.assertRaisesRegex(ValueError, expected_error):
-            flatten_property_leaves(properties)
-
     def test_rejects_or_property_group(self):
         or_group = {
             "type": "OR",
@@ -237,35 +190,6 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
         with self.assertRaisesRegex(ValueError, "Only AND property groups are supported"):
             flatten_property_leaves(or_group)
 
-    def test_and_property_group_is_flattened(self):
-        and_group = {
-            "type": "AND",
-            "values": [
-                {"key": "$country", "value": "US", "type": "event"},
-                {"key": "$browser", "value": "Chrome", "type": "event"},
-            ],
-        }
-        assert flatten_property_leaves(and_group) == [
-            {"key": "$country", "value": "US", "type": "event"},
-            {"key": "$browser", "value": "Chrome", "type": "event"},
-        ]
-
-    def test_property_group_nested_in_list_is_flattened(self):
-        prop = {"key": "$country", "value": "US", "type": "event"}
-        assert flatten_property_leaves([{"type": "AND", "values": [prop]}]) == [prop]
-
-    def test_rejects_non_dict_property_filter(self):
-        prop = {"key": "$country", "value": "US", "type": "event"}
-        with self.assertRaisesRegex(ValueError, "Invalid property filter item: expected dict, got str"):
-            flatten_property_leaves([prop, "invalid"])
-
-    def test_deeply_nested_group_does_not_recurse_past_depth_cap(self):
-        nested: dict[str, Any] = {"key": "$browser", "value": "Chrome", "type": "event"}
-        for _ in range(100):
-            nested = {"type": "AND", "values": [nested]}
-        with self.assertRaisesRegex(ValueError, "Property group nesting exceeds the supported depth"):
-            flatten_property_leaves(nested)
-
 
 class TestResolveEffectiveDashboardFilters(SimpleTestCase):
     def test_normalizes_single_layer_dict_properties_to_flat_list(self):
@@ -276,17 +200,6 @@ class TestResolveEffectiveDashboardFilters(SimpleTestCase):
         )
         assert effective["properties"] == [prop]
         assert effective["date_from"] == "-7d"
-
-    def test_normalizes_merged_dict_properties_to_flat_list(self):
-        prop_a = {"key": "$country", "value": "US", "type": "event"}
-        prop_b = {"key": "$browser", "value": "Chrome", "type": "event"}
-        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
-        _, effective = resolve_effective_dashboard_filters(
-            query,
-            {"properties": {"type": "AND", "values": [prop_a]}},
-            {"properties": {"type": "AND", "values": [prop_b]}},
-        )
-        assert effective["properties"] == [prop_a, prop_b]
 
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):

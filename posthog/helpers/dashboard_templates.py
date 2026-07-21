@@ -507,10 +507,7 @@ def create_from_template(
     from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties  # noqa: PLC0415
 
     raw_filters = template.dashboard_filters
-    try:
-        dashboard.filters = normalize_dashboard_filters_properties(raw_filters) if isinstance(raw_filters, dict) else {}
-    except ValueError:
-        dashboard.filters = {key: value for key, value in raw_filters.items() if key != "properties"}
+    dashboard.filters = normalize_dashboard_filters_properties(raw_filters) if isinstance(raw_filters, dict) else {}
     dashboard.description = template.dashboard_description or ""
 
     for template_tag in template.tags or []:

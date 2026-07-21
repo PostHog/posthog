@@ -116,19 +116,8 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
     return merged
 
 
-_MAX_PROPERTY_GROUP_DEPTH = 32
-
-
-def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
-    """Flatten a `properties` value into a flat list of leaf property-filter dicts. The value is either a
-    flat list of leaves or a (possibly nested) `PropertyGroupFilter` dict (`{"type": ..., "values": [...]}`),
-    since dashboard/tile filter layers can be stored in either form. Unsupported groups raise rather than
-    being dropped because running without a requested filter would expose broader results.
-
-    `properties` can arrive from untrusted JSON (`?filters_override=`), so recursion is depth-capped at
-    `_MAX_PROPERTY_GROUP_DEPTH` to prevent a deeply-nested payload from stack-overflowing the request."""
-    if _depth >= _MAX_PROPERTY_GROUP_DEPTH:
-        raise ValueError("Property group nesting exceeds the supported depth")
+def flatten_property_leaves(properties: Any) -> list[dict]:
+    """Flatten AND property groups to the leaf-list shape expected by dashboard filters."""
     if properties is None:
         return []
     if isinstance(properties, dict):
@@ -142,7 +131,7 @@ def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
     leaves: list[dict] = []
     for item in properties:
         if isinstance(item, dict) and "values" in item:
-            leaves.extend(flatten_property_leaves(item, _depth + 1))
+            leaves.extend(flatten_property_leaves(item))
         elif isinstance(item, dict):
             leaves.append(item)
         else:
@@ -151,11 +140,7 @@ def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
 
 
 def normalize_dashboard_filters_properties(filters: dict) -> dict:
-    """Return a copy of `filters` whose `properties` is a flat list of leaf filter dicts. Dashboard filters
-    can be persisted (or supplied via `?filters_override=`) with `properties` as a `PropertyGroupFilter`
-    dict, but the contract (`DashboardFilter.properties`) is a flat list — normalize on write so the stored
-    shape matches, rather than leaving every reader to tolerate both forms. A non-list, non-group-dict
-    `properties` is dropped as malformed. Only touches `properties`; other fields pass through."""
+    """Return filters with grouped properties normalized to the dashboard leaf-list contract."""
     properties = filters.get("properties")
     if properties is None:
         return filters
@@ -255,10 +240,7 @@ def resolve_effective_dashboard_filters(
 
 
 def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:
-    """Build a `DashboardFilter` from a raw dashboard/tile filters dict, tolerating a `properties` value
-    stored as a property-group dict. `DashboardFilter.properties` is typed as a flat list, so passing a
-    `{"type": ..., "values": [...]}` dict straight in raises a pydantic ValidationError — flatten it to the
-    list the schema expects first. Filters are AND-combined, so flattening preserves their meaning."""
+    """Build a dashboard filter while tolerating legacy grouped properties."""
     if isinstance(filters.get("properties"), dict):
         filters = {**filters, "properties": flatten_property_leaves(filters["properties"])}
     return DashboardFilter(**filters)
