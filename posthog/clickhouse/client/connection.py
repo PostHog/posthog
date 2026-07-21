@@ -242,7 +242,7 @@ def get_kwargs_for_client(
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return {**base_kwargs, "host": settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, "verify": False}
 
-    if workload == Workload.ENDPOINTS:
+    if workload == Workload.ENDPOINTS or workload == Workload.MATERIALIZED_VIEWS:
         return {**base_kwargs, "host": settings.CLICKHOUSE_ENDPOINTS_HOST}
 
     return base_kwargs

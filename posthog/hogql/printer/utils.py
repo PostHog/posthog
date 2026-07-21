@@ -311,10 +311,12 @@ def prepare_ast_for_printing(
         with context.timings.measure("simplify_argmax_over_non_nullable"):
             node = simplify_argmax_over_non_nullable(node, context)
 
-    # Route reads that touch only materialized-view S3 tables to the dedicated endpoints cluster — the
-    # same isolated S3-delta read path materialized endpoints use. Runs after lazy-table resolution so
-    # a lazy join to persons/events (which lives on another cluster) disqualifies the query. Only fires
-    # when no earlier table already pinned a workload (e.g. logs), for the ClickHouse dialect.
+    # Route reads that touch only materialized-view S3 tables to the endpoints cluster — the same
+    # isolated S3-delta read path materialized endpoints use. Uses a distinct MATERIALIZED_VIEWS
+    # workload that shares the endpoints host but keeps these queries separable from Endpoints-product
+    # traffic in query_log/metrics and out of endpoints-specific rate limiting. Runs after lazy-table
+    # resolution so a lazy join to persons/events (which lives on another cluster) disqualifies the
+    # query. Only fires when no earlier table already pinned a workload (e.g. logs), ClickHouse dialect.
     if (
         dialect == "clickhouse"
         and context.workload in (None, Workload.DEFAULT)
@@ -324,7 +326,7 @@ def prepare_ast_for_printing(
             mv_collector = MaterializedViewOnlyCollector()
             mv_collector.visit(node)
             if mv_collector.is_materialized_view_only:
-                context.workload = Workload.ENDPOINTS
+                context.workload = Workload.MATERIALIZED_VIEWS
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
