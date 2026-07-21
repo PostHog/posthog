@@ -447,15 +447,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             raise
         finally:
             # Save fields modified during calculation, but exclude is_calculating to prevent race
-            # condition. Persist resiliently: a Postgres connection dropped mid-recalculation would
+            # condition. `groups` is included because accessing self.properties during calculation
+            # normalizes deprecated inline group properties in place, and that normalization must be
+            # persisted. Persist resiliently: a Postgres connection dropped mid-recalculation would
             # otherwise make this save fail with "connection is closed", masking the real error and
             # leaving the cohort stuck calculating (the reconnect also lets the is_calculating reset
-            # below succeed). `groups` is deliberately omitted: calculation never changes it, and
-            # being a cohort-definition field it would otherwise fire the definition-change signal
-            # (an extra query, plus a flag-version bump risk) on every recalculation bookkeeping save.
+            # below succeed).
             save_recovery_bookkeeping(
                 lambda: self.save(
-                    update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type"]
+                    update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"]
                 ),
                 cohort_id=self.pk,
                 team_id=self.team_id,
