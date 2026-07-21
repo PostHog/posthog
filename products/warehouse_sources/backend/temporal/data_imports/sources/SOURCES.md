@@ -323,6 +323,7 @@ the row lists both.
 | kustomer                         | HTTP                        | requests                                                        | ✅                          |
 | lattice                          | HTTP                        | requests                                                        | ✅                          |
 | leadfeeder                       | HTTP                        | requests                                                        | ✅                          |
+| leexi                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lemlist                          | HTTP                        | requests                                                        | ✅                          |
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
@@ -805,7 +806,6 @@ doesn't conflict with concurrent PRs.
 - koyeb
 - kyve
 - lambda_labs
-- leexi
 - lemon_squeezy
 - lever
 - liana
