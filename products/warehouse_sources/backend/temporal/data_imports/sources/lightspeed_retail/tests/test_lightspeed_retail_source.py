@@ -136,6 +136,8 @@ class TestLightspeedRetailSource:
         assert kwargs["domain_prefix"] == "mystore"
         assert kwargs["api_token"] == "api-token"
         assert kwargs["endpoint"] == "sales"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 999

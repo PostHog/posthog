@@ -150,6 +150,7 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
             api_key=config.api_key,
             company_id=config.company_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

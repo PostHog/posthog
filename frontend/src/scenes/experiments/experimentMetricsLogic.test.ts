@@ -39,7 +39,9 @@ const baseRecalculation = {
     failed_metrics: 0,
     metric_errors: {},
     trigger: 'manual',
-    created_at: '2026-06-10T00:00:00Z',
+    // Recent, not a fixed date: polling anchors its staleness cap to created_at/started_at, and a
+    // months-old fixture would make every multi-tick poll test trip the zombie-run cutoff.
+    created_at: new Date().toISOString(),
     started_at: null,
     completed_at: null,
     query_to: null,
@@ -377,6 +379,72 @@ describe('experimentMetricsLogic', () => {
             // afterMount → loadLatestRecalculation → 404 → triggerRecalculation → create.
             await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
+        })
+
+        it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
+            const createMock = jest.fn(() => [201, pendingRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadLatestRecalculation', 'setCurrentRecalculation', 'pollRecalculation'])
+                .toNotHaveDispatchedActions(['triggerRecalculation'])
+
+            // The terminal run's results are on screen immediately, dimmed while the active run refreshes them.
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+
+            // The next poll tick finds the active run completed and applies its fresh results.
+            await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            expect(logic.values.currentRecalculation?.id).toBe('recalc-2')
+            expect(logic.values.currentRecalculation?.status).toBe('completed')
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            // Resuming must not create a new run — that was the bug (progress frozen until manual refresh).
+            expect(createMock).not.toHaveBeenCalled()
+            jest.useRealTimers()
+        })
+
+        it('stops polling a run older than the staleness window instead of polling it forever', async () => {
+            // A worker that dies mid-run leaves the row in_progress permanently; the poll loop must give up
+            // once the run passes the backend's staleness threshold rather than hitting the by-id endpoint
+            // (and its live-progress query) every tick until the tab closes.
+            const retrieveMock = jest.fn(() => [200, { ...pendingRecalculation, status: 'in_progress' }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': retrieveMock,
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['loadLatestRecalculation', 'pollRecalculation'])
+            await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            expect(retrieveMock).toHaveBeenCalled()
+
+            // Age the run past the cap: polling must stop and the in-flight tags must clear.
+            logic.cache.recalcStartMs = Date.now() - 31 * 60 * 1000
+            await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            retrieveMock.mockClear()
+            await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 5)
+            expect(retrieveMock).not.toHaveBeenCalled()
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            jest.useRealTimers()
         })
 
         it('does not auto-trigger when the latest completed run is healthy', async () => {
@@ -770,6 +838,48 @@ describe('experimentMetricsLogic', () => {
 
             logic.actions.setCurrentRecalculation(asRecalc({ ...inProgressRecalculation, id: 'recalc-3' }))
             expect(logic.values.liveRowsProgress).toBeNull()
+        })
+
+        it('metricRetries drops resolved entries and nextRetryAt picks the soonest', () => {
+            // Server-side the terminal write clears entries, but a crash between the result write and the
+            // clear can leave one behind; the outcome must win over the stale "retrying" state.
+            const draft = { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment
+            logic = experimentMetricsLogic({ experiment: draft })
+            logic.mount()
+
+            logic.actions.setCurrentRecalculation(
+                asRecalc({
+                    ...inProgressRecalculation,
+                    metric_retries: {
+                        [PRIMARY_METRIC_UUID]: {
+                            attempt: 2,
+                            max_attempts: 8,
+                            error_type: 'rate_limited',
+                            next_retry_at: '2026-06-10T00:01:00Z',
+                        },
+                        [SECONDARY_METRIC_UUID]: { attempt: 1, max_attempts: 8, error_type: 'server_error' },
+                        'resolved-uuid': {
+                            attempt: 1,
+                            max_attempts: 8,
+                            error_type: 'server_error',
+                            next_retry_at: '2026-06-10T00:00:30Z',
+                        },
+                    },
+                    results: [
+                        {
+                            metric_uuid: 'resolved-uuid',
+                            status: 'completed',
+                            result: primaryResult,
+                            error_message: null,
+                        },
+                    ],
+                })
+            )
+            expect(Object.keys(logic.values.metricRetries).sort()).toEqual(
+                [PRIMARY_METRIC_UUID, SECONDARY_METRIC_UUID].sort()
+            )
+            // The resolved metric's earlier next_retry_at must not win; entries without one are skipped.
+            expect(logic.values.nextRetryAt).toEqual('2026-06-10T00:01:00Z')
         })
     })
 
