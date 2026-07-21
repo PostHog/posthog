@@ -1,5 +1,3 @@
-import { expectLogic } from 'kea-test-utils'
-
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -7,6 +5,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
+import { expectLogic } from '~/test/keaTestUtils'
 import type { OrganizationType } from '~/types'
 
 import {
