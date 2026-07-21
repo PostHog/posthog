@@ -29,31 +29,37 @@ class EngineeringAnalyticsViewSet(
 ):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
+    # Grouped by mixin; TestScopeEnrollment asserts this stays in lockstep with the actions.
     scope_object_read_actions = [
+        # sources
         "sources",
+        # pull_requests
         "ci_cards",
         "pull_requests",
-        "workflow_health",
         "pr_lifecycle",
         "resolve_branch",
-        "quarantine",
         "pr_runs",
         "ci_failure_logs",
         "pr_cost",
+        "author_workflow_costs",
+        # workflows
+        "workflow_health",
         "workflow_run",
         "workflow_runs",
         "workflow_run_activity",
         "workflow_runner_costs",
-        "author_workflow_costs",
         "workflow_jobs",
-        "flaky_tests",
-        "broken_tests",
         "repo_overview",
-        "repo_run_activity",
         "current_branch_health",
+        "repo_run_activity",
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
+        # test_health
+        "flaky_tests",
+        "broken_tests",
+        "quarantine",
+        # teams
         "team_ci_health",
         "team_ci_activity",
         "team_merge_trend",
