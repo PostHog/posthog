@@ -68,7 +68,7 @@ def proto_person_to_model(
 
     obj = PersonModel(
         id=person.id,
-        uuid=uuid_mod.UUID(person.uuid) if person.uuid else None,  # type: ignore[misc]
+        uuid=uuid_mod.UUID(person.uuid) if person.uuid else None,
         team_id=person.team_id,
         properties=json.loads(person.properties) if person.properties else {},
         is_identified=person.is_identified,
