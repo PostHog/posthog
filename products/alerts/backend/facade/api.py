@@ -38,6 +38,10 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
     — to find its workspace integration, and for region-ownership routing — without importing
     the model directly.
     """
+    # Slack webhook: no team context available yet — this lookup only resolves the team so the
+    # caller can find the workspace integration; authorization is derived from the alert row in
+    # snooze_alert_from_slack below, not from this lookup.
+    # nosemgrep: idor-lookup-without-team
     return AlertConfiguration.objects.filter(id=alert_id).values_list("team_id", flat=True).first()
 
 
@@ -51,6 +55,10 @@ def snooze_alert_from_slack(alert_id: uuid.UUID, *, duration: str, user: User) -
     caller.
     """
     try:
+        # Slack webhook: no team context, and alert_id/duration come from an untrusted Slack
+        # button value. Authorization is derived below from the alert row itself (project
+        # membership + insight viewer access), never taken on trust from the caller.
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
         alert = AlertConfiguration.objects.select_related("insight", "team").get(id=alert_id)
     except AlertConfiguration.DoesNotExist:
         return "not_found"
