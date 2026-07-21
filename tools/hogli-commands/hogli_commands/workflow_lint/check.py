@@ -44,11 +44,13 @@ class WorkflowCheck(ABC):
     - ``id``: stable, machine-friendly identifier (used by ``--check`` filter).
     - ``label``: short human-readable name shown in CLI output and GH annotations.
     - ``description``: one-line summary; shown by ``--list``.
+    - ``blocking``: whether reported issues make the command exit nonzero.
     """
 
     id: str
     label: str
     description: str
+    blocking: bool = True
 
     @abstractmethod
     def run(self, workflows: list[Workflow]) -> CheckResult: ...
