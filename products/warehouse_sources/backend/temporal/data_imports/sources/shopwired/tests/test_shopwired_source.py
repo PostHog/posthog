@@ -118,6 +118,8 @@ class TestShopWiredSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = 1700000000
         manager = mock.MagicMock()
@@ -129,6 +131,8 @@ class TestShopWiredSource:
         assert kwargs["api_key"] == "sw-key"
         assert kwargs["api_secret"] == "sw-secret"
         assert kwargs["endpoint"] == "orders"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000

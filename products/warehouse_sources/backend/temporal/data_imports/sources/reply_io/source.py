@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ReplyIoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import (
     ReplyIoResumeConfig,
@@ -29,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.r
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     REPLY_IO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -95,20 +99,9 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Reply's v3 list endpoints expose no server-side
-        # created/updated timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # created/updated timestamp filter, so there is no incremental cursor to advance
+        # (INCREMENTAL_FIELDS is empty, so every schema is full-refresh).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: ReplyIoSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -139,6 +132,7 @@ You can create an API key under **Settings → API Keys** in [Reply](https://run
         return reply_io_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
