@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("replay_vision", "0049_replayscannerpromptsuggestion_base_config_and_more")
-    ]
+    dependencies = [("replay_vision", "0049_replayscannerpromptsuggestion_base_config_and_more")]
 
     operations = [
         migrations.AddField(
