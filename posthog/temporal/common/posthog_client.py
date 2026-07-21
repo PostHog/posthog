@@ -21,6 +21,16 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+def _is_benign_application_error(e: BaseException) -> bool:
+    """An ApplicationError the raiser explicitly marked benign — an expected terminal outcome, not a defect
+    (e.g. an LLM step that failed validation after its own retries). Skipped like cancellations so it doesn't
+    spam error tracking. Backward compatible: nothing is benign unless it opts in via ApplicationErrorCategory.BENIGN."""
+    return (
+        isinstance(e, temporalio.exceptions.ApplicationError)
+        and e.category == temporalio.exceptions.ApplicationErrorCategory.BENIGN
+    )
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -70,7 +80,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
             # rate limiter already records via record_outbound_decision) are expected control flow,
             # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or _is_benign_application_error(e)
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
@@ -106,6 +120,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if _is_benign_application_error(e):
+                raise  # Raiser marked it an expected terminal outcome, not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
