@@ -98,6 +98,42 @@ function toDisplayText(value: unknown, kind: DiffableField['kind']): string {
     }
 }
 
+/** A mapping's own inputs carry secrets exactly like top-level inputs do; redact each in place. */
+function redactMappingSecrets(value: unknown): unknown {
+    if (!Array.isArray(value)) {
+        return value
+    }
+    return value.map((mapping) => {
+        if (!mapping || typeof mapping !== 'object') {
+            return mapping
+        }
+        const { inputs, inputs_schema } = mapping as {
+            inputs?: Record<string, CyclotronJobInputType>
+            inputs_schema?: CyclotronJobInputSchemaType[]
+        }
+        return inputs ? { ...mapping, inputs: redactSecretHogFunctionInputs(inputs, inputs_schema ?? []) } : mapping
+    })
+}
+
+/**
+ * Only the current side can hold user secrets (a freshly typed secret is cleartext in form state);
+ * redact it by schema before the value ever reaches the rendered card. The proposed side is
+ * agent-authored, so showing it is not a leak, and redacting it would hide a real change to a
+ * secret input. Secrets live in top-level `inputs` and in each mapping's own `inputs`.
+ */
+function redactCurrentValue(field: string, current: Record<string, unknown>): unknown {
+    if (field === 'inputs') {
+        return redactSecretHogFunctionInputs(
+            (current.inputs ?? {}) as Record<string, CyclotronJobInputType>,
+            (current.inputs_schema ?? []) as CyclotronJobInputSchemaType[]
+        )
+    }
+    if (field === 'mappings') {
+        return redactMappingSecrets(current.mappings)
+    }
+    return current[field]
+}
+
 /**
  * Builds a field-level diff of a proposed `cdp-functions-partial-update` against the current hog function
  * config. Only fields present in `proposed` are considered (a partial update leaves the rest untouched);
@@ -112,17 +148,7 @@ export function buildHogFunctionConfigDiff(
         if (!(field in proposed)) {
             continue
         }
-        // Only the current side can hold user secrets (a freshly typed secret is cleartext in form
-        // state); redact it by schema before the value ever reaches the rendered card. The proposed
-        // side is agent-authored, so showing it is not a leak, and redacting it would hide a real
-        // change to a secret input.
-        const rawCurrent =
-            field === 'inputs'
-                ? redactSecretHogFunctionInputs(
-                      (current.inputs ?? {}) as Record<string, CyclotronJobInputType>,
-                      (current.inputs_schema ?? []) as CyclotronJobInputSchemaType[]
-                  )
-                : current[field]
+        const rawCurrent = redactCurrentValue(field, current)
         const currentValue = normalize ? normalize(rawCurrent) : rawCurrent
         const proposedValue = normalize ? normalize(proposed[field]) : proposed[field]
         const currentText = toDisplayText(currentValue, kind)

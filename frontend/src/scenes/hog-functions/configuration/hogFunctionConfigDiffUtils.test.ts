@@ -43,4 +43,22 @@ describe('buildHogFunctionConfigDiff', () => {
         expect(diffs[0].currentText).toContain('[secret]')
         expect(diffs[0].proposedText).toContain('sk-live-agent-proposed')
     })
+
+    it('redacts per-mapping secret inputs on the current side of a mappings diff', () => {
+        const current = {
+            mappings: [
+                {
+                    name: 'Slack channel',
+                    inputs: { webhook_token: { value: 'xoxb-mapping-secret' } },
+                    inputs_schema: [{ key: 'webhook_token', type: 'string', secret: true }],
+                },
+            ],
+        }
+        const proposed = { mappings: [] }
+        const diffs = buildHogFunctionConfigDiff(current, proposed)
+        expect(diffs).toHaveLength(1)
+        expect(diffs[0].status).toBe('removed')
+        expect(diffs[0].currentText).not.toContain('xoxb-mapping-secret')
+        expect(diffs[0].currentText).toContain('[secret]')
+    })
 })
