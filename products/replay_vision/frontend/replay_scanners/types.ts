@@ -134,7 +134,7 @@ export function ineligibleKindDescription(kind: IneligibleKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
+export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini36Flash
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
@@ -144,15 +144,13 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 // Mirrors the backend `OBSERVATION_CREDITS_BY_MODEL` table (the scanner/estimate API responses are authoritative);
 // the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
-    [ScannerModelEnumApi.Gemini25Flash]: 2,
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
-    [ScannerModelEnumApi.Gemini35Flash]: 15,
+    [ScannerModelEnumApi.Gemini35FlashLite]: 2,
+    [ScannerModelEnumApi.Gemini36Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
-    [ScannerModelEnumApi.Gemini25Flash]: 'Gemini 2.5 Flash',
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
-    [ScannerModelEnumApi.Gemini35Flash]: 'Gemini 3.5 Flash',
+    [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
+    [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
@@ -162,6 +160,7 @@ export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Ob
     })
 )
 
+// Falls back to the raw id for retired models frozen in old observation snapshots.
 export function modelLabel(model: string | null | undefined): string {
     if (!model) {
         return '—'
