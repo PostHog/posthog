@@ -234,26 +234,40 @@ def test_property_group_multi_level_json_parsing():
 
 
 @pytest.mark.parametrize(
-    "invalid_property,expected_fields",
+    "invalid_property,expected_fields,expected_exception",
     [
         # Behavioral leaf missing its required event_type: fails Property.__init__'s own
         # attr-presence checks (PropertyValidationError, raised directly).
         pytest.param(
             {"key": "$pageview", "type": "behavioral", "value": "performed_event"},
             ["key", "type", "value"],
+            PropertyValidationError,
             id="missing_event_type",
         ),
+        # Behavioral leaf with a value that doesn't match any known BehavioralPropertyType
+        # (and has no alias): Property.__init__ used to KeyError here, which _parse_properties
+        # didn't catch, crashing the whole parse instead of dropping-and-reporting this leaf.
+        pytest.param(
+            {"key": "$pageview", "type": "behavioral", "value": "not_a_real_behavior", "event_type": "events"},
+            ["event_type", "key", "type", "value"],
+            PropertyValidationError,
+            id="unknown_behavioral_value",
+        ),
         # "group" property with an out-of-range group_type_index: fails via
-        # validate_group_type_index (rest_framework ValidationError), which
-        # Property.__init__ wraps into the same PropertyValidationError.
+        # validate_group_type_index, left as its native rest_framework ValidationError so
+        # callers that construct Property() directly during serializer validation still get
+        # a 400 for it.
         pytest.param(
             {"key": "industry", "value": "tech", "type": "group", "group_type_index": 99},
             ["group_type_index", "key", "type", "value"],
+            ValidationError,
             id="invalid_group_type_index",
         ),
     ],
 )
-def test_property_group_parsing_reports_and_skips_unparsable_property(invalid_property, expected_fields):
+def test_property_group_parsing_reports_and_skips_unparsable_property(
+    invalid_property, expected_fields, expected_exception
+):
     # A property that fails to construct used to be dropped by a bare `except: continue`
     # with no visibility at all. It must still be dropped (callers across the codebase
     # rely on best-effort parsing of legacy/malformed data), but the failure must now be
@@ -276,8 +290,28 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(invalid_pr
 
     mock_capture_exception.assert_called_once()
     args, kwargs = mock_capture_exception.call_args
-    assert isinstance(args[0], PropertyValidationError)
+    assert isinstance(args[0], expected_exception)
     assert kwargs["additional_properties"] == {
         "property_type": invalid_property["type"],
         "property_fields": expected_fields,
     }
+
+
+def test_property_group_parsing_reports_non_mapping_property():
+    # Old-style flat-list path: a non-mapping element (e.g. a bare string) fails at
+    # `Property(**prop_params)` unpacking with TypeError, before __init__ even runs. The
+    # grouped-properties path can't reach this: a non-mapping element trips the "cannot
+    # contain both PropertyGroup and Property objects" check first.
+    filter = Filter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+
+    with patch("posthog.models.filters.mixins.property.capture_exception") as mock_capture_exception:
+        properties = filter.property_groups.values
+
+    assert len(properties) == 1
+    assert isinstance(properties[0], Property)
+    assert properties[0].key == "attr"
+
+    mock_capture_exception.assert_called_once()
+    args, kwargs = mock_capture_exception.call_args
+    assert isinstance(args[0], TypeError)
+    assert kwargs["additional_properties"] == {"property_type": None, "property_fields": None}

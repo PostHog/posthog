@@ -3,8 +3,6 @@ import math
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, cast
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
@@ -305,10 +303,12 @@ class Property:
         self.key = key
         self.operator = operator
         self.type = type if type else "event"
-        try:
-            self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
-        except ValidationError as e:
-            raise PropertyValidationError(str(e)) from e
+        # Left unwrapped (a DRF ValidationError, not PropertyValidationError): callers that
+        # construct Property() directly inside serializer validation (e.g. feature_flag.py's
+        # validate_filters) rely on DRF recognizing this exception type to turn it into a 400.
+        # _parse_properties, the one caller that needs report-and-skip for this, catches it
+        # explicitly alongside PropertyValidationError.
+        self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.event_type = event_type
         self.operator_value = operator_value
         self.time_value = time_value

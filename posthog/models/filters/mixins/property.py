@@ -73,22 +73,24 @@ class PropertyMixin(BaseParamMixin):
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
-                    except (PropertyValidationError, TypeError) as e:
+                    except (PropertyValidationError, ValidationError, TypeError) as e:
                         # PropertyValidationError covers every failure Property.__init__ itself
-                        # raises; TypeError covers `Property(**prop_params)` failing to unpack
-                        # prop_params as a mapping before __init__ even runs. Dropping an
-                        # unparsable property changes validation behavior for every caller
-                        # (e.g. cohort.properties.flat missing a behavioral leaf lets
+                        # raises; ValidationError covers validate_group_type_index's own DRF
+                        # error, which Property.__init__ leaves unwrapped so it still reaches
+                        # direct callers as a 400; TypeError covers `Property(**prop_params)`
+                        # failing to unpack prop_params as a mapping before __init__ even runs.
+                        # Dropping an unparsable property changes validation behavior for every
+                        # caller (e.g. cohort.properties.flat missing a behavioral leaf lets
                         # behavioral-cohort checks pass silently), so this must stay visible
                         # instead of failing silent. Report structure only — never the
                         # property's own value/event_filters — since those can carry real user
                         # data (e.g. an exact-match email filter).
-                        prop_fields = prop_params if isinstance(prop_params, dict) else {}
+                        prop_dict = prop_params if isinstance(prop_params, dict) else {}
                         capture_exception(
                             e,
                             additional_properties={
-                                "property_type": prop_fields.get("type"),
-                                "property_fields": sorted(prop_fields.keys()) or None,
+                                "property_type": prop_dict.get("type"),
+                                "property_fields": sorted(prop_dict.keys()) or None,
                             },
                         )
                         continue
