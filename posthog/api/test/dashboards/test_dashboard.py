@@ -604,17 +604,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.dashboard_api.update_dashboard(
             dashboard.pk,
-            {"filters": []},
+            {
+                "filters": [
+                    {
+                        "key": "brand",
+                        "value": ["1"],
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ]
+            },
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
-
-    def test_cannot_create_dashboard_with_invalid_falsy_filters(self) -> None:
-        self.dashboard_api.create_dashboard(
-            {"name": "invalid filters", "filters": []},
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
 
     def test_cannot_update_dashboard_with_invalid_variables(self):
         dashboard = Dashboard.objects.create(

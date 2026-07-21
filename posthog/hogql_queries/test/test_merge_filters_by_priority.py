@@ -143,7 +143,7 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
         assert len(merged["properties"]) == 2
 
-    def test_property_group_dicts_are_flattened_for_conflict_resolution(self):
+    def test_and_property_group_dicts_are_flattened_for_conflict_resolution(self):
         country_prop = {"key": "$country", "value": "US", "type": "event"}
         dashboard_browser_prop = {
             "key": "$browser",
@@ -160,7 +160,7 @@ class TestMergeFiltersByPriority(SimpleTestCase):
 
         merged = merge_filters_by_priority(
             {"properties": {"type": "AND", "values": [country_prop, dashboard_browser_prop]}},
-            {"properties": {"type": "OR", "values": [tile_browser_prop]}},
+            {"properties": {"type": "AND", "values": [tile_browser_prop]}},
         )
 
         assert merged["properties"] == [country_prop, tile_browser_prop]

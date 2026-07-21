@@ -1358,8 +1358,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if not user_access_control.check_access_level_for_object(existing_dashboard, "viewer"):
                 raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
 
-        if "filters" in request.data:
-            filters = self._validated_filters(request.data["filters"])
+        request_filters = request.data.get("filters")
+        if request_filters:
+            filters = self._validated_filters(request_filters)
         elif existing_dashboard:
             filters = existing_dashboard.filters
         else:
@@ -1601,8 +1602,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
             )
 
-        if "filters" in initial_data:
-            instance.filters = self._validated_filters(initial_data["filters"])
+        request_filters = initial_data.get("filters")
+        if request_filters:
+            instance.filters = self._validated_filters(request_filters)
 
         request_variables = initial_data.get("variables")
         if request_variables:

@@ -500,14 +500,7 @@ def create_from_template(
 ) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
-    # `template.dashboard_filters` is unvalidated JSON; normalize `properties` to the flat-list contract
-    # so a group-dict stored on a template doesn't propagate to (and crash) dashboards created from it.
-    # Imported lazily to avoid pulling the query_runner import graph into posthog.helpers at module load,
-    # which trips the posthog.models.property circular import during django.setup().
-    from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties  # noqa: PLC0415
-
-    raw_filters = template.dashboard_filters
-    dashboard.filters = normalize_dashboard_filters_properties(raw_filters) if isinstance(raw_filters, dict) else {}
+    dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description or ""
 
     for template_tag in template.tags or []:
