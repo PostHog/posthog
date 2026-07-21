@@ -2114,6 +2114,7 @@ export interface CredentialApi {
  * * `Tally` - Tally
  * * `Nuntly` - Nuntly
  * * `FusionAuth` - FusionAuth
+ * * `Vturb` - Vturb
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2985,6 +2986,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Tally: 'Tally',
     Nuntly: 'Nuntly',
     FusionAuth: 'FusionAuth',
+    Vturb: 'Vturb',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
