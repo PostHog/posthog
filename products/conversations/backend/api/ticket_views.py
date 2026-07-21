@@ -55,16 +55,18 @@ class TicketViewSerializer(serializers.ModelSerializer):
     def _set_favorited(self, instance: TicketView, favorited: bool) -> None:
         user = self.context["request"].user
         if favorited:
-            TicketViewFavorite.objects.get_or_create(ticket_view=instance, user=user, defaults={"team": instance.team})
+            TicketViewFavorite.objects.get_or_create(team=instance.team, ticket_view=instance, user=user)
         else:
-            TicketViewFavorite.objects.filter(ticket_view=instance, user=user).delete()
+            TicketViewFavorite.objects.filter(team=instance.team, ticket_view=instance, user=user).delete()
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> TicketView:
-        validated_data.pop("is_favorited", None)
+        is_favorited = validated_data.pop("is_favorited", False)
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
-        instance.is_favorited = False
+        if is_favorited:
+            self._set_favorited(instance, True)
+        instance.is_favorited = bool(is_favorited)
         return instance
 
     def update(self, instance: TicketView, validated_data: dict[str, Any]) -> TicketView:
