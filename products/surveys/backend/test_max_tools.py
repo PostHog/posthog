@@ -346,6 +346,54 @@ class TestSurveyCreatorTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_create_external_survey(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Hosted Feedback",
+            questions=[SimpleSurveyQuestion(type="open", question="How was your experience?")],
+            survey_type="external_survey",
+        )
+
+        assert "successfully" in content
+        assert "shareable link" in content
+        assert artifact["survey_type"] == "external_survey"
+
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.type == "external_survey"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_external_survey_ignores_in_app_targeting(self):
+        tool = self._setup_tool()
+
+        # Targeting is invalid for external surveys server-side; the tool must drop it rather than
+        # pass it through and trigger a validation error.
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="hosted-flag",
+            name="Hosted Flag",
+            created_by=self.user,
+        )
+
+        content, artifact = await tool._arun_impl(
+            name="Hosted Feedback",
+            questions=[SimpleSurveyQuestion(type="open", question="How was your experience?")],
+            survey_type="external_survey",
+            target_url="/pricing",
+            target_url_match="contains",
+            linked_flag_id=flag.id,
+            wait_period_days=7,
+        )
+
+        assert "successfully" in content
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.type == "external_survey"
+        assert survey.linked_flag_id is None
+        assert not survey.conditions
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_create_survey_sanitizes_question_html(self):
         tool = self._setup_tool()
 

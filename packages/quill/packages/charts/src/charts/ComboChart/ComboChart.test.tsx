@@ -154,6 +154,30 @@ describe('ComboChart', () => {
             expect(tooltip.series.b.value).toBe(15)
             expect(tooltip.series.l.value).toBe(60)
         })
+
+        it('divergingStack keeps negative bar values signed in the tooltip', async () => {
+            // Without divergingStack the negative series is clamped to 0 (no bar, tooltip 0);
+            // with it, the bar stacks below zero and the tooltip must show the raw negative —
+            // not the positive segment height.
+            const series: Series[] = [
+                { key: 'pos', label: 'Pos', data: [40, 60, 50], type: 'bar' },
+                { key: 'neg', label: 'Neg', data: [-20, -30, -10], type: 'bar' },
+                { key: 'l', label: 'L', data: [5, 10, 15], type: 'line' },
+            ]
+            const { chart } = renderHogChart(
+                <ComboChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', divergingStack: true }}
+                />
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.series.pos.value).toBe(60)
+            expect(tooltip.series.neg.value).toBe(-30)
+            expect(tooltip.series.l.value).toBe(10)
+        })
     })
 
     describe('children & error boundary', () => {

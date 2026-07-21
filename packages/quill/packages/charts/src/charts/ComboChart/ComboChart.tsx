@@ -30,6 +30,7 @@ import {
     buildSegmentResolveValue,
     buildStackedBottomValue,
     buildStackedPositionValue,
+    computeDivergingStackData,
     computePercentStackData,
     computeStackData,
     computeTopStackedKeyByAxis,
@@ -94,6 +95,7 @@ function ComboChartInner<Meta = unknown>({
         showGrid = false,
         showAxisLines = false,
         barLayout = 'stacked',
+        divergingStack = false,
         barCornerRadius = DEFAULT_BAR_CORNER_RADIUS,
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
@@ -120,10 +122,13 @@ function ComboChartInner<Meta = unknown>({
         if (barSeries.length === 0) {
             return undefined
         }
-        return barLayout === 'percent'
-            ? computePercentStackData(barSeries, labels)
+        if (barLayout === 'percent') {
+            return computePercentStackData(barSeries, labels)
+        }
+        return divergingStack
+            ? computeDivergingStackData(barSeries, labels)
             : computeStackData(barSeries, labels)
-    }, [barLayout, series, labels, seriesTypeOf])
+    }, [barLayout, divergingStack, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are
     // skipped so lines/areas don't take part in bar stacking. Shares BarChart's helper.

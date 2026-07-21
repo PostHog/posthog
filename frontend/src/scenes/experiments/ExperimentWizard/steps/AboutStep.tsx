@@ -13,6 +13,7 @@ import type { FeatureFlagType } from '~/types'
 import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
+import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AboutStep(): JSX.Element {
@@ -52,7 +53,7 @@ export function AboutStep(): JSX.Element {
         clearFeatureFlagKeyValidation()
         setFeatureFlagConfig({
             feature_flag_key: flag.key,
-            variants: flag.filters?.multivariate?.variants || [],
+            variants: getFlagVariants(flag),
         })
     }
 

@@ -11,6 +11,7 @@ import {
     ConversationsTicketsReplyCreateBody,
     ConversationsTicketsReplyCreateParams,
     ConversationsTicketsRetrieveParams,
+    ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -203,10 +204,37 @@ const conversationsTicketsUpdate = (): ToolBase<
     },
 })
 
+const ConversationsViewsListSchema = ConversationsViewsListQueryParams
+
+const conversationsViewsList = (): ToolBase<
+    typeof ConversationsViewsListSchema,
+    WithPostHogUrl<Schemas.PaginatedTicketViewList>
+> => ({
+    name: 'conversations-views-list',
+    schema: ConversationsViewsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsViewsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTicketViewList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/views/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['short_id', 'name'])),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/conversations/tickets')
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,
+    'conversations-views-list': conversationsViewsList,
 }

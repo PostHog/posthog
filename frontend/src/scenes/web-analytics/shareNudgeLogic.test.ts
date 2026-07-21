@@ -86,6 +86,17 @@ describe('shareNudgeLogic', () => {
         expect(logic.values.promptVisible).toBe(false)
     })
 
+    it.each([
+        { variant: 'control', expected: false },
+        { variant: 'control_b', expected: false },
+        { variant: 'banner', expected: true },
+        { variant: 'export', expected: false },
+    ])('shows the banner only for the "$variant" variant', ({ variant, expected }) => {
+        mount(variant)
+
+        expect(logic.values.showBanner).toBe(expected)
+    })
+
     it('does not show the prompt for a solo org even on the "export" variant', () => {
         randomSpy.mockReturnValue(0)
         setMemberCount(1)
@@ -129,13 +140,16 @@ describe('shareNudgeLogic', () => {
         }).toMatchValues({ promptVisible: false, sessionDismissed: true })
     })
 
-    it('captures the exposure event once for the "export" variant', () => {
-        setVariant('export')
-        logic = shareNudgeLogic()
-        logic.mount()
+    it.each(['control', 'control_b', 'banner', 'export'])(
+        'captures the exposure event once for the "%s" variant',
+        (variant) => {
+            setVariant(variant)
+            logic = shareNudgeLogic()
+            logic.mount()
 
-        expect(capturesOf('web analytics share nudge exposed')).toEqual([
-            ['web analytics share nudge exposed', { variant: 'export' }],
-        ])
-    })
+            expect(capturesOf('web analytics share nudge exposed')).toEqual([
+                ['web analytics share nudge exposed', { variant }],
+            ])
+        }
+    )
 })

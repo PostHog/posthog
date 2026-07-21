@@ -5,6 +5,8 @@ from posthog.schema_enums import InCohortVia, PropertyGroupsMode
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
+    from posthog.models.team import Team
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
@@ -24,6 +26,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
+from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
@@ -45,7 +48,6 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
@@ -56,13 +58,14 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "duckdb": DuckDBPrinter,
     "mysql": MySQLPrinter,
     "snowflake": SnowflakePrinter,
+    "redshift": RedshiftPrinter,
     "hogql": HogQLPrinter,
 }
 
 
 def to_printed_hogql(
     query: ast.Expr,
-    team: Team,
+    team: "Team",
     modifiers: "HogQLQueryModifiers | None" = None,
     *,
     bypass_warehouse_access_control: bool = False,

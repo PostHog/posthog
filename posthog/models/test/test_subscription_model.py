@@ -101,6 +101,25 @@ class TestSubscription(BaseTest):
         with self.assertRaises(ValueError):
             _ = subscription.resource_type
 
+    def test_analytics_metadata_includes_insight_query_kind(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+        )
+        metadata = self._create_subscription(insight=insight).get_analytics_metadata()
+
+        assert metadata["query_kind"] == "InsightVizNode"
+        assert metadata["query_source_kind"] == "TrendsQuery"
+
+    def test_analytics_metadata_omits_query_kind_for_non_insight_subscription(self):
+        # Query-kind attribution is insight-only; dashboard/prompt subs must not carry stale keys.
+        metadata = self._create_subscription(
+            dashboard=Dashboard.objects.create(team=self.team)
+        ).get_analytics_metadata()
+
+        assert "query_kind" not in metadata
+        assert "query_source_kind" not in metadata
+
     @parameterized.expand(
         [
             ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),

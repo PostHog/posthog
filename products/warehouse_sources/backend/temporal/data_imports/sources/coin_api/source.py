@@ -30,13 +30,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoinApiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
+    CoinApiSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.coinapi.io/market-data/rest-api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinAPI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your CoinAPI key to pull cryptocurrency market data into the PostHog Data warehouse.
 
 Create a key in the [CoinAPI customer portal](https://customer.coinapi.io/). CoinAPI uses a credit/quota-based (pay-as-you-go) model with a daily credit limit, so large time-series tables can consume significant credits.

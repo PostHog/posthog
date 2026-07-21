@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PartnerStackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerstack import (
+    PartnerStackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.partnerstack import (
     PartnerStackResumeConfig,
     partnerstack_source,
@@ -35,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PartnerStackSource(ResumableSource[PartnerStackSourceConfig, PartnerStackResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.partnerstack.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -136,6 +142,8 @@ You can find your **public key** and **private key** under **Settings → Integr
             public_key=config.public_key,
             private_key=config.private_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every PartnerStack endpoint is full refresh
         )

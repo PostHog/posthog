@@ -16,6 +16,7 @@ pub mod flag_property_group;
 pub mod flag_request;
 pub mod flag_service;
 pub mod property_filter;
+pub mod warm_run_status;
 
 #[cfg(test)]
 mod test_flag_matching;

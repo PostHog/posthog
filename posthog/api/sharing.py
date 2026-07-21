@@ -28,6 +28,7 @@ from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
+from posthog.api.sharing_publish_gate import blocked_access_for_publisher
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
@@ -43,11 +44,13 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetSerializer
@@ -484,6 +487,24 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
+        # Publishing is the access decision for shared links (queries on the public page execute
+        # without warehouse access control), so gate the enable transition: the publisher must have
+        # access to everything the artifact queries, or sharing becomes an escalation channel.
+        if (
+            request.data.get("enabled")
+            and not instance.enabled
+            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster enable
+            and not self.user_access_control.is_organization_admin
+        ):
+            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+            if blocked_names:
+                blocked = ", ".join(f"`{name}`" for name in blocked_names)
+                raise ValidationError(
+                    f"Can't enable sharing: you don't have access to {blocked}, "
+                    "which the shared queries use. Ask an admin for access, or remove those queries first."
+                )
+
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -702,13 +723,15 @@ def custom_404_response(request):
     return render(request, "shared_resource_404.html", status=404)
 
 
-def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: Team) -> dict[str, Any]:
+def _compute_inline_query_results_for_shared_notebook(
+    notebook: Notebook, team: Team, user: Optional[User]
+) -> dict[str, Any]:
     """Pre-compute results for every inline (non-saved-insight) ``ph-query`` node in a notebook.
 
     Mirrors the shared-insight path (`InsightSerializer.insight_result`) but for queries that
     live inline in node attrs rather than as a `SavedInsightNode`. Each query is executed under
     `shared_insights_execution_mode`, which uses the cache aggressively and refreshes async if
-    stale — the same throttle dashboards use.
+    stale — the same throttle dashboards use. Queries run as the shared-link user (anonymous).
 
     Returns a map of ``nodeId -> serialized result dict``. Nodes whose query fails to execute
     are silently omitted; the frontend renders ``UnsupportedNodePlaceholder`` for any inline
@@ -719,7 +742,11 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
     if not inline_nodes:
         return results_by_node_id
 
-    execution_mode = shared_insights_execution_mode(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    # cache_age_seconds is deliberately unused: blocking-if-stale passes through the whitelist
+    # without a throttle override, so there is nothing to thread into process_query_dict here.
+    execution_mode = shared_insights_execution_mode(
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    ).execution_mode
     for node_id, query in inline_nodes:
         serialized: dict | None = None
         try:
@@ -727,7 +754,7 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
                 team,
                 query,
                 execution_mode=execution_mode,
-                user=None,
+                user=user,
             )
             if isinstance(result, BaseModel):
                 serialized = result.model_dump(mode="json")
@@ -928,6 +955,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     message="Failed to parse cache_keys parameter - continuing without it",
                 )
 
+        # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
+        # is a bare AnonymousUser. Shared queries execute without warehouse access control.
+        shared_link_user = (
+            cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
+        )
+
         context = {
             "view": self,
             "request": request,
@@ -936,6 +969,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
+            "shared_link_user": shared_link_user,
+            # exported_data is embedded into the page with stdlib json.dumps, which cannot
+            # serialize raw cached result bytes (orjson.Fragment)
+            "require_parsed_results": True,
+            "dashboard_access_method": dashboard_access_method(request, is_shared=True, is_embedded=embedded),
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -1043,8 +1081,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            resource.dashboard.last_accessed_at = now()
-            resource.dashboard.save(update_fields=["last_accessed_at"])
+            record_dashboard_view(resource.dashboard, context["dashboard_access_method"])
 
             with task_chain_context():
                 dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
@@ -1173,18 +1210,30 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
+            from products.user_interviews.backend.facade.api import (
+                has_replied,
+                is_shared_interviewee_context,
+                parse_interviewee_identifier,
+            )
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
-            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
-            already_replied = has_replied(
-                team_id=topic.team_id,
-                topic_id=topic.id,
-                interviewee_identifier=ic.interviewee_identifier,
-            )
+            # A shared link's IntervieweeContext carries a sentinel identifier: every visitor is a new
+            # anonymous respondent, so there's no fixed name and no "already replied" gate — the
+            # viewer prompts for a name before starting.
+            shared = is_shared_interviewee_context(ic.interviewee_identifier)
+            if shared:
+                user_name = ""
+                already_replied = False
+            else:
+                user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+                already_replied = has_replied(
+                    team_id=topic.team_id,
+                    topic_id=topic.id,
+                    interviewee_identifier=ic.interviewee_identifier,
+                )
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1193,10 +1242,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "type": "interview",
                     "interview": {
                         "topic_id": str(topic.id),
-                        "interviewee_identifier": ic.interviewee_identifier,
+                        "interviewee_identifier": "" if shared else ic.interviewee_identifier,
                         "user_name": user_name,
                         "topic": topic.topic,
                         "already_replied": already_replied,
+                        "shared": shared,
                     },
                 }
             )
@@ -1245,7 +1295,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update(
                 {
                     "inline_query_results": _compute_inline_query_results_for_shared_notebook(
-                        resource.notebook, resource.team
+                        resource.notebook, resource.team, shared_link_user
                     )
                 }
             )

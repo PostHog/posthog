@@ -278,6 +278,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
+export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
@@ -295,6 +296,13 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('\* `account` - account\n\* `person` - person')
+            .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -347,6 +355,7 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsUpdateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsUpdateBodyOptionsItemLabelMax = 400
 
@@ -364,6 +373,13 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('\* `account` - account\n\* `person` - person')
+            .default(customPropertyDefinitionsUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -416,6 +432,7 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
@@ -435,6 +452,13 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('\* `account` - account\n\* `person` - person')
+            .default(customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -498,15 +522,33 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .describe('UUID of the custom property definition this source feeds. One source per definition.'),
         saved_query: zod
             .uuid()
-            .describe('UUID of the data-warehouse saved query (materialized view) to read values from.'),
+            .nullish()
+            .describe(
+                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+            ),
+        external_data_schema: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+            ),
         source_column: zod
             .string()
             .max(customPropertySourcesCreateBodySourceColumnMax)
-            .describe('Column in the view whose value is written to the property.'),
+            .nullish()
+            .describe('Account sources only: column in the view whose value is written to the property.'),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+            ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
-            .describe("Column in the view whose value matches an account's external_id."),
+            .describe(
+                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+            ),
         is_enabled: zod
             .boolean()
             .default(customPropertySourcesCreateBodyIsEnabledDefault)

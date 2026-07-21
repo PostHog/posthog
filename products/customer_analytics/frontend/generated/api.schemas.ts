@@ -7,6 +7,57 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface ExternalAccountListAssignmentApi {
+    /** PostHog user id of the assigned user. */
+    user_id: number
+    /** Current email address of the assigned user. */
+    email: string
+    /**
+     * Current display name of the assigned user, or null when the user has no name set.
+     * @nullable
+     */
+    name: string | null
+}
+
+/**
+ * Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted.
+ */
+export type ExternalAccountListItemApiRelationships = { [key: string]: ExternalAccountListAssignmentApi[] }
+
+export interface ExternalAccountListItemApi {
+    /** External account key used by downstream systems. */
+    external_id: string
+    /** Human-readable account name. */
+    name: string
+    /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
+    relationships: ExternalAccountListItemApiRelationships
+}
+
+export interface ExternalAccountListPageApi {
+    /** Accounts in this page, ordered by account id. */
+    results: ExternalAccountListItemApi[]
+    /**
+     * Account UUID to pass as `cursor` for the next page, or null when the list is exhausted.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+/**
+ * Validation errors keyed by query parameter.
+ */
+export type ExternalAccountListValidationErrorApiError = { [key: string]: string[] }
+
+export interface ExternalAccountListValidationErrorApi {
+    /** Validation errors keyed by query parameter. */
+    error: ExternalAccountListValidationErrorApiError
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -411,6 +462,18 @@ export const CustomPropertyDisplayTypeEnumApi = {
 } as const
 
 /**
+ * * `account` - account
+ * * `person` - person
+ */
+export type CustomPropertyDefinitionTargetTypeApi =
+    (typeof CustomPropertyDefinitionTargetTypeApi)[keyof typeof CustomPropertyDefinitionTargetTypeApi]
+
+export const CustomPropertyDefinitionTargetTypeApi = {
+    Account: 'account',
+    Person: 'person',
+} as const
+
+/**
  * * `preset-1` - preset-1
  * * `preset-2` - preset-2
  * * `preset-3` - preset-3
@@ -475,15 +538,26 @@ export interface CustomPropertySourceApi {
     readonly id: string
     /** UUID of the custom property definition this source feeds. One source per definition. */
     definition: string
-    /** UUID of the data-warehouse saved query (materialized view) to read values from. */
-    saved_query: string
     /**
-     * Column in the view whose value is written to the property.
-     * @maxLength 400
+     * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+     * @nullable
      */
-    source_column: string
+    saved_query?: string | null
     /**
-     * Column in the view whose value matches an account's external_id.
+     * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+     * @nullable
+     */
+    external_data_schema?: string | null
+    /**
+     * Account sources only: column in the view whose value is written to the property.
+     * @maxLength 400
+     * @nullable
+     */
+    source_column?: string | null
+    /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+    column_property_map?: unknown
+    /**
+     * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
      * @maxLength 400
      */
     key_column: string
@@ -551,6 +625,11 @@ export interface CustomPropertyDefinitionApi {
      * * `boolean` - boolean
      * * `select` - select */
     display_type: CustomPropertyDisplayTypeEnumApi
+    /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+     *
+     * * `account` - account
+     * * `person` - person */
+    target_type?: CustomPropertyDefinitionTargetTypeApi
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
     /**
@@ -607,6 +686,11 @@ export interface PatchedCustomPropertyDefinitionApi {
      * * `boolean` - boolean
      * * `select` - select */
     display_type?: CustomPropertyDisplayTypeEnumApi
+    /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+     *
+     * * `account` - account
+     * * `person` - person */
+    target_type?: CustomPropertyDefinitionTargetTypeApi
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
     /**
@@ -915,6 +999,21 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+export type CustomerAnalyticsExternalAccountsRetrieveParams = {
+    /**
+     * When true, return only accounts with at least one active relationship assignment to a current member of the project's organization.
+     */
+    assigned_only?: boolean
+    /**
+     * Account UUID from `next_cursor` to continue listing from. Omit for the first page.
+     */
+    cursor?: string
+    /**
+     * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
+     */
+    limit?: number
 }
 
 export type AccountNotesListParams = {

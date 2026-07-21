@@ -37,6 +37,26 @@ export interface GroupReadRepository {
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 }
 
+/** Identity of a single group row: (team_id, group_type_index, group_key). */
+export interface GroupKey {
+    teamId: TeamId
+    groupTypeIndex: GroupTypeIndex
+    groupKey: string
+}
+
+/**
+ * A batched, merge-semantics group update: `propertiesToSet` is applied on top
+ * of the stored `group_properties` server-side (jsonb `||`), so concurrent
+ * writers can't lose each other's keys and no version assertion is needed.
+ */
+export interface GroupPropertiesToSetUpdate {
+    teamId: TeamId
+    groupTypeIndex: GroupTypeIndex
+    groupKey: string
+    propertiesToSet: Properties
+    createdAt: DateTime
+}
+
 /**
  * Full group repository with read and write operations. Used by the
  * ingestion pipeline which creates, updates, and manages groups.
@@ -51,9 +71,7 @@ export interface GroupRepository {
     ): Promise<Group | undefined>
 
     fetchGroupsByKeys(
-        teamIds: TeamId[],
-        groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[],
+        keys: GroupKey[],
         callerTag?: string
     ): Promise<
         {
@@ -61,8 +79,17 @@ export interface GroupRepository {
             group_type_index: GroupTypeIndex
             group_key: string
             group_properties: Record<string, any>
+            created_at: DateTime
+            version: number
         }[]
     >
+
+    /**
+     * Applies all updates in a single statement and returns the updated rows.
+     * Rows whose group doesn't exist are absent from the result — callers
+     * handle those individually (typically by creating the group).
+     */
+    updateGroupsBatch(updates: GroupPropertiesToSetUpdate[]): Promise<Group[]>
 
     insertGroup(
         teamId: TeamId,

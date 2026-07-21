@@ -72,6 +72,14 @@ for the wider dev flow before non-trivial changes.
    | PostHog backend → ingress server-to-server                         | `posthog_internal` | The platform itself                                       |
    | Genuinely public surface (docs embed, marketing)                   | `public`           | Anonymous — opt-in via `acknowledge_public_exposure`      |
 
+   `shared_secret` accepts two possession proofs, picked by `scheme`:
+   omitted/`plain` compares the header value to the secret verbatim
+   (incident.io, Grafana — anything that can echo a configured header);
+   `scheme: 'hmac_sha256'` expects hex `HMAC-SHA256(raw body, secret)`
+   in the header (`signature_prefix` default `sha256=`) for signers that
+   never transmit the secret itself — GitHub's `X-Hub-Signature-256` and
+   most webhook providers. Same single-principal trust model either way.
+
    **`shared_secret` is single-principal by design.** Holders of the
    agent's secret share a session space; `x-external-key` is a routing
    tag, not a credential, and `principalsMatch` discriminates only on

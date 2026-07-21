@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.a
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.source import AgileCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AgileCRMSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
+    AgileCRMSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -28,8 +30,6 @@ class TestSourceConfig:
         assert config.category == DataWarehouseSourceCategory.CRM
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/agilecrm"
-        # Ships hidden behind unreleasedSource for now, labelled alpha.
-        assert config.unreleasedSource is True
 
     def test_fields_are_domain_email_api_key(self) -> None:
         fields = AgileCRMSource().get_source_config.fields

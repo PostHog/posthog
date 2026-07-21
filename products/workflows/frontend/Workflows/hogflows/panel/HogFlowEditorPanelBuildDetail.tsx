@@ -18,6 +18,8 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -116,7 +118,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                     )}
                 </div>
                 <LemonDivider className="my-2" />
-                {Step?.renderConfiguration(selectedNode)}
+                <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
+                    {Step?.renderConfiguration(selectedNode)}
+                </ErrorBoundary>
             </ScrollableShadows>
 
             {isOptOutEligibleAction(action) && (

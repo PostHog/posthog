@@ -837,6 +837,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -877,6 +886,7 @@ export interface DashboardFilterApi {
               | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -944,6 +954,8 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
+    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
     id: string

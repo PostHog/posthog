@@ -6,7 +6,7 @@ jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: false }),
 }))
 
-jest.mock('~/layout/navigation-3000/themeLogic', () => ({
+jest.mock('lib/logic/themeLogic', () => ({
     themeLogic: { values: {} },
 }))
 
@@ -42,6 +42,22 @@ describe('MermaidDiagram', () => {
         const container = await screen.findByTestId('mermaid-rendered')
         expect(container.innerHTML).toContain('<svg')
         expect(container.innerHTML).toContain('rendered')
+    })
+
+    it('promotes the inline max-width to a fixed width when naturalWidth is set', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg style="max-width: 1200px;"><g/></svg>' })
+        render(<MermaidDiagram code="flowchart LR; A-->B" naturalWidth />)
+        const container = await screen.findByTestId('mermaid-rendered')
+        const svgElement = container.querySelector('svg')
+        expect(svgElement?.style.width).toBe('1200px')
+        expect(svgElement?.style.maxWidth).toBe('')
+    })
+
+    it('keeps mermaid sizing untouched without naturalWidth', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg style="max-width: 1200px;"><g/></svg>' })
+        render(<MermaidDiagram code="flowchart LR; A-->B" />)
+        const container = await screen.findByTestId('mermaid-rendered')
+        expect(container.querySelector('svg')?.style.maxWidth).toBe('1200px')
     })
 
     it('falls back to the source and an error message when mermaid throws', async () => {

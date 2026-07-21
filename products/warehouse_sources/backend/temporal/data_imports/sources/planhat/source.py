@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlanhatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planhat import (
+    PlanhatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.planhat import (
     PlanhatResumeConfig,
     planhat_source,
@@ -28,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.pl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     PLANHAT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -35,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlanhatSource(ResumableSource[PlanhatSourceConfig, PlanhatResumeConfig]):
+    api_docs_url = "https://docs.planhat.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,19 +100,8 @@ You can create an API access token from a Private App under **Settings → Servi
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Planhat's list endpoints expose no reliably
         # ordered server-side timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # INCREMENTAL_FIELDS is empty, so build_endpoint_schemas yields full-refresh-only schemas.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: PlanhatSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -127,6 +124,8 @@ You can create an API access token from a Private App under **Settings → Servi
         return planhat_source(
             api_token=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Planhat endpoint is full refresh
         )

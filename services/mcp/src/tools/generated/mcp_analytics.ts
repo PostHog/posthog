@@ -236,6 +236,14 @@ const DateRange = z.object({
             'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
         )
         .optional(),
+    excludeIncompletePeriods: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.'
+        )
+        .default(false)
+        .optional(),
     explicitDate: z.coerce
         .boolean()
         .nullable()
@@ -473,6 +481,17 @@ const RevenueAnalyticsPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const AccountCustomPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('account_custom_property')
+        .describe('Customer analytics account custom property — the key is the property definition id')
+        .default('account_custom_property'),
+    value: PropertyFilterValue.optional(),
+})
+
 const WorkflowVariablePropertyFilter = z.object({
     key: z.string(),
     label: z.string().optional(),
@@ -503,6 +522,7 @@ const AnyPropertyFilter = z.union([
     MetricPropertyFilter,
     SpanPropertyFilter,
     RevenueAnalyticsPropertyFilter,
+    AccountCustomPropertyFilter,
     WorkflowVariablePropertyFilter,
 ])
 
@@ -525,8 +545,13 @@ const MCPToolStatsQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
+const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+
 const MCPToolDailyStatsQuery = z.object({
     dateRange: DateRange.optional(),
+    interval: IntervalType.describe(
+        'Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day.'
+    ).optional(),
     kind: z.literal('MCPToolDailyStatsQuery').default('MCPToolDailyStatsQuery'),
     toolName: z
         .string()
@@ -536,7 +561,9 @@ const MCPToolDailyStatsQuery = z.object({
 const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
-    toolName: z.string().describe('The raw $mcp_tool_name to scope $exception events to.'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
 const MCPToolTopUsersQuery = z.object({

@@ -28,8 +28,9 @@ permissions:
     packages: read
 
 env:
-    # Pinned chschema build (not :latest) for reproducibility. Override via repo variable.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-0409212' }}
+    # The chschema build is pinned in posthog/clickhouse/hcl/bin/image.txt; the repo
+    # variable overrides it when set (empty = use the pin).
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE }}
 
 jobs:
     hcl-guard:
@@ -50,8 +51,8 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Pull hclexp image
-              run: docker pull "$HCLEXP_IMAGE"
+            - name: Install hclexp
+              run: bash posthog/clickhouse/hcl/bin/install-hclexp
 
             - name: HCL schema guard (validate + drift)
               run: bash posthog/clickhouse/hcl/check.sh

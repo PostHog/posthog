@@ -43,14 +43,14 @@ Sandbox (Modal / Docker container)
 
 Same server, same port, same HMAC command-token auth as today (`sql_v2.mint_command_token` / `_verify_command_token`), extended:
 
-| Route                  | Sync? | Purpose                                                                                                                                                                                                             |
-| ---------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`          | sync  | liveness + `{version, kernel_alive}` — version drives the redeploy handshake                                                                                                                                        |
-| `POST /run`            | 202   | enqueue a node run; result arrives via callback                                                                                                                                                                     |
-| `POST /interrupt`      | sync  | `KernelManager.interrupt_kernel()` (SIGINT) for the active run                                                                                                                                                      |
-| `POST /page`           | sync  | one result page — bounded, no callback. Today (pure-HogQL nodes) it re-queries the data plane with the run’s code + LIMIT/OFFSET; materialized results will slice from `/data/results` once the result store exists |
-| `GET /state`           | sync  | list materialized frames, kernel variables, DuckDB tables (Journey 7)                                                                                                                                               |
-| `POST /kernel/restart` | sync  | recycle the ipykernel child; frames on disk survive, namespace does not                                                                                                                                             |
+| Route                  | Sync? | Purpose                                                                                                                                                                                                                                                                        |
+| ---------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /health`          | sync  | liveness + `{version, kernel_alive}` — version drives the redeploy handshake                                                                                                                                                                                                   |
+| `POST /run`            | 202   | enqueue a node run; result arrives via callback                                                                                                                                                                                                                                |
+| `POST /interrupt`      | sync  | run-scoped stop (Journey 9): sets the run's cancel event (aborts a queued run and its data-plane waits) and SIGINTs the kernel only when that run is the executing cell. Responds `{interrupted, known}`; `known: false` = already finished or never arrived (idempotent noop) |
+| `POST /page`           | sync  | one result page — bounded, no callback. A hogql run re-queries the data plane with the run’s code + LIMIT/OFFSET; a kernel run (python/duckdb) sends `result_id` and slices its `/data/results/<result_id>.arrow` frame in the server process                                  |
+| `GET /state`           | sync  | list materialized frames, kernel variables, DuckDB tables (Journey 7)                                                                                                                                                                                                          |
+| `POST /kernel/restart` | sync  | recycle the ipykernel child; frames on disk survive, namespace does not                                                                                                                                                                                                        |
 
 The command token grows a **scope** claim: `run:<run_id>` (authorizes `/run`, `/interrupt` for that run) or `kernel:<runtime_id>` (authorizes `/page`, `/state`, `/kernel/restart`). Same HMAC scheme, signed payload becomes `{scope}.{exp}`.
 
@@ -117,10 +117,10 @@ Python node execution uses `get_ipython().run_cell(code)` inside a capture conte
 
 A DuckDB node is then just: register any not-yet-registered file-backed inputs, `_ph.duck.sql(code)`, bind the result relation to `output_name` (as a registered DuckDB view + lazily-materializable frame), envelope with a capped preview. The result stays lazy in DuckDB until a downstream Python node calls for pandas.
 
-The routing rule the server applies per run (from the walkthrough, now concrete):
+The routing rule (from the walkthrough, now concrete) — applied by the **backend at dispatch**, not by the server:
 
-- `node.type == hogql` and **all** inputs are `hogql` → push to CH: data-plane page fetch only, kernel untouched.
-- anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel.
+- `node.type == hogql` and **all** inputs are `hogql` → the **direct lane** (`sql_v2_direct.py`): the backend enqueues the inlined query on the async query manager and the run never reaches the sandbox at all — no kernel required, results land on the run row via the result poll. This amends walkthrough decision 4 ("the sandbox drives execution"): the backend routes, and the sandbox drives only kernel-lane runs. The server's own hogql handling (capped fetch, result cache, `/page` re-query) remains only for runs dispatched before the direct lane and is slated for removal.
+- anything else (Python node, DuckDB node, or a HogQL node would go here if we ever allow HogQL over local frames — we don't; that's what DuckDB syntax is for) → materialize `hogql` inputs to frame files, run in the kernel. Dispatch provisions the kernel itself when none is running (the run is the user's ask for compute; the panel is presentation, not a prerequisite).
 
 ## Result store and paging
 

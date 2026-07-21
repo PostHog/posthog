@@ -19,14 +19,23 @@ import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
+function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
+    useMountedLogic(dashboardSubscribeNudgeLogic({ dashboardId }))
+    return null
+}
 
 interface DashboardProps {
     id?: string
@@ -35,6 +44,7 @@ interface DashboardProps {
     themes?: DataColorThemeModel[]
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
+    showCreateAnomalyAlertButton?: boolean
 }
 
 const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
@@ -52,17 +62,30 @@ export const scene: SceneExport<DashboardLogicProps> = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function Dashboard({ id, dashboard, placement, themes, backTo }: DashboardProps): JSX.Element {
+export function Dashboard({
+    id,
+    dashboard,
+    placement,
+    themes,
+    backTo,
+    showCreateAnomalyAlertButton,
+}: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
-            <DashboardScene backTo={backTo} />
+            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
         </BindLogic>
     )
 }
 
-function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }): JSX.Element {
+function DashboardScene({
+    backTo,
+    showCreateAnomalyAlertButton,
+}: {
+    backTo?: { url: string; name: string }
+    showCreateAnomalyAlertButton?: boolean
+}): JSX.Element {
     const {
         placement,
         dashboard,
@@ -77,6 +100,10 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+
+    useAttachedContext(
+        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
+    )
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -102,6 +129,9 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
+            )}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
@@ -130,7 +160,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                             )}
                     </SceneStickyBar>
 
-                    <DashboardItems />
+                    <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
                 </div>
             )}
         </SceneContent>

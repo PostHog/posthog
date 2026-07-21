@@ -12,7 +12,7 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
-import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
+import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
@@ -299,6 +299,14 @@ describe('type mapping round-trip', () => {
 
         const backToPropertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicType)
         expect(backToPropertyType).toEqual(propertyType)
+    })
+
+    it('MCPProperties maps one-way to the Event property filter type', () => {
+        // The rebuild menu commits with the tab's own group type, so without this
+        // mapping an MCP-tab selection would produce a filter with no type.
+        expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.MCPProperties)).toEqual(
+            PropertyFilterType.Event
+        )
     })
 
     it('Group type round-trips with group_type_index preserved', () => {

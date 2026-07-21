@@ -268,14 +268,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
-    @property
-    def caching_state(self):
-        # uses .all and not .first so that prefetching can be used
-        for state in self.caching_states.all():
-            if state.dashboard_tile_id is None:
-                return state
-        return None
-
     @cached_property
     def query_from_filters(self):
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -422,9 +414,13 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         from posthog.schema import NodeKind  # noqa: PLC0415
 
         kind = self._unwrapped_query_kind()
-        return (
-            NodeKind(kind) if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY, NodeKind.FUNNELS_QUERY) else None
+        alertable_kinds = (
+            NodeKind.TRENDS_QUERY,
+            NodeKind.HOG_QL_QUERY,
+            NodeKind.FUNNELS_QUERY,
+            NodeKind.METRICS_QUERY,
         )
+        return NodeKind(kind) if kind in alertable_kinds else None
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

@@ -31,7 +31,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
     const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
-    const { resetSendSupportRequest, setSendSupportRequestValue, submitSendSupportRequest } = useActions(supportLogic)
+    const { resetSendSupportRequest, setSendSupportRequestValue } = useActions(supportLogic)
 
     // Track when we're waiting for ticket submission to complete
     const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
@@ -112,15 +112,26 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         return message ? `${message}\n\n----\n${metadataLines.join('\n')}` : metadataLines.join('\n')
     }
 
-    function handleSupportFormSubmit(): void {
+    async function handleSupportFormSubmit(): Promise<void> {
         setTicketMessageText(sendSupportRequest.message)
         const finalMessage = appendMetadataToMessage(sendSupportRequest.message)
 
         setSendSupportRequestValue('message', finalMessage)
-        setTicketIdBeforeSubmission(lastSubmittedTicketId)
+        const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
+        setTicketIdBeforeSubmission(ticketIdBefore)
         setPendingTicketSubmission(true)
         recordFeedbackShown()
-        submitSendSupportRequest()
+        try {
+            await supportLogic.asyncActions.submitSendSupportRequest()
+        } catch {
+            // Failure is detected below via the unchanged ticket id
+        }
+        // Success closes the modal via the effect watching lastSubmittedTicketId. If no ticket was
+        // created, the submit failed — clear the pending state so the modal doesn't hang (the error
+        // toast already showed and the text stays for a retry).
+        if (supportLogic.values.lastSubmittedTicketId === ticketIdBefore) {
+            setPendingTicketSubmission(false)
+        }
     }
 
     function handleSupportModalCancel(): void {
@@ -138,7 +149,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
                     <LemonButton type="secondary" onClick={handleSupportModalCancel}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" data-attr="submit" onClick={handleSupportFormSubmit}>
+                    <LemonButton type="primary" data-attr="submit" onClick={() => void handleSupportFormSubmit()}>
                         Submit
                     </LemonButton>
                 </div>

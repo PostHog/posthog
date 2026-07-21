@@ -1,4 +1,5 @@
 import os
+import time
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,6 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from hogli_commands.doctor import (
+    FLOX_LOG_MAX_AGE_DAYS,
+    FLOX_LOG_MAX_TOTAL_BYTES,
     _binary_arches,
     _collect_import_targets,
     _config_procs,
@@ -18,8 +21,51 @@ from hogli_commands.doctor import (
     _phrocs_runtime_pairs,
     _phrocs_socket_path,
     _probe_command_imports,
+    _select_flox_logs_to_remove,
     _tail,
 )
+
+_QUARTER_BUDGET = FLOX_LOG_MAX_TOTAL_BYTES // 4
+_TWO_FIFTHS_BUDGET = int(FLOX_LOG_MAX_TOTAL_BYTES * 0.4)
+
+
+@pytest.mark.parametrize(
+    "specs, expected_doomed, expected_retained",
+    [
+        pytest.param(
+            [("old.log", 1, FLOX_LOG_MAX_AGE_DAYS + 1), ("recent.log", FLOX_LOG_MAX_TOTAL_BYTES // 2, 0)],
+            ["old.log"],
+            float(FLOX_LOG_MAX_TOTAL_BYTES // 2),
+            id="age-cutoff-removes-old-keeps-large-recent",
+        ),
+        pytest.param(
+            [
+                ("newest.log", _TWO_FIFTHS_BUDGET, 1),
+                ("middle.log", _TWO_FIFTHS_BUDGET, 2),
+                ("oldest.log", _TWO_FIFTHS_BUDGET, 3),
+            ],
+            ["oldest.log"],
+            float(2 * _TWO_FIFTHS_BUDGET),
+            id="budget-trims-oldest-survivor-first",
+        ),
+        pytest.param(
+            [("a.log", _QUARTER_BUDGET, 1), ("b.log", _QUARTER_BUDGET, 2)],
+            [],
+            float(2 * _QUARTER_BUDGET),
+            id="within-age-and-budget-keeps-all",
+        ),
+    ],
+)
+def test_select_flox_logs_to_remove(
+    specs: list[tuple[str, int, int]],
+    expected_doomed: list[str],
+    expected_retained: float,
+) -> None:
+    now = time.time()
+    logs = [(Path(name), size, now - age_days * 86400) for name, size, age_days in specs]
+    doomed, retained = _select_flox_logs_to_remove(logs)
+    assert sorted(item.path.name for item in doomed) == sorted(expected_doomed)
+    assert retained == expected_retained
 
 
 @pytest.mark.parametrize(
