@@ -43,7 +43,7 @@
     "expected": "https://example.com/#section"
   },
   {
-    "name": "userinfo is stripped; host and port pass through",
+    "name": "userinfo is stripped and the port masked; the host passes through",
     "allow": {
       "text": [],
       "url": [
@@ -52,7 +52,25 @@
       ]
     },
     "input": "https://user:pw@us.example.org:8080/path",
-    "expected": "https://us.example.org:8080/path"
+    "expected": "https://us.example.org:[port]/path"
+  },
+  {
+    "name": "ipv4 host is masked",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "http://192.168.0.1/admin",
+    "expected": "http://[ip_address]/[redacted]"
+  },
+  {
+    "name": "bracketed ipv6 host and port are masked",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "https://[2001:db8::1]:8443/status",
+    "expected": "https://[ip_address]:[port]/[redacted]"
   },
   {
     "name": "query param with an allow-listed key and empty value survives",

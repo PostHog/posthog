@@ -1,11 +1,12 @@
 //! URL scrub. `None` means "unchanged".
 //!
-//! Hosts identify the customer (the business running PostHog), not an individual user, so they
-//! pass through intact; the user-identifying URL parts (path, query, fragment, userinfo) are
+//! Hostnames identify the customer (the business running PostHog), not an individual user, so
+//! they pass through intact; the parts of a URL that can identify a user or a machine are
 //! scrubbed:
 //!
 //! - Numbers (a bare run of digits) are masked to `$` per digit (length-preserving; `$` rather than
 //!   `#` so it doesn't clash with the fragment separator).
+//! - Host: an IP-address host -> `[ip_address]`; a port -> `:[port]`; domain names are kept.
 //! - Path: keep allow-listed segments; a number -> `$$`; anything else -> `[redacted]`.
 //! - Query: a param survives only if its key or value is an allow-listed alphanumeric token.
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
@@ -46,7 +47,7 @@ pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
             out.push_str("[redacted]");
             changed = true;
         } else {
-            out.push_str(host_port);
+            changed |= push_host_port(host_port, &mut out);
         }
     }
 
@@ -266,6 +267,41 @@ fn split_url(s: &str) -> (&str, &str, &str) {
         None => (scheme, rest, ""),
         Some(path_off) => (scheme, &rest[..path_off], &rest[path_off..]),
     }
+}
+
+// A domain name passes through, but an IP address identifies a machine (possibly an end user's)
+// and a port is infrastructure detail, so both are masked. Returns whether anything was masked.
+// `host_port` has already passed `is_valid_host_port`, so a colon outside brackets can only
+// introduce a port.
+fn push_host_port(host_port: &str, out: &mut String) -> bool {
+    let (host, port) = match host_port.split_once(']') {
+        Some((bracketed, rest)) => (&host_port[..bracketed.len() + 1], rest.strip_prefix(':')),
+        None => match host_port.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (host_port, None),
+        },
+    };
+    let mut changed = false;
+    if is_ip_host(host) {
+        out.push_str("[ip_address]");
+        changed = true;
+    } else {
+        out.push_str(host);
+    }
+    if port.is_some() {
+        out.push_str(":[port]");
+        changed = true;
+    }
+    changed
+}
+
+// Bracketed IPv6, or a host made only of digits and dots (IPv4 dotted-quads and lookalikes,
+// which are masked too rather than risking a pass-through on a malformed-but-routable form).
+fn is_ip_host(host: &str) -> bool {
+    if host.starts_with('[') {
+        return true;
+    }
+    !host.is_empty() && host.bytes().all(|b| b.is_ascii_digit() || b == b'.')
 }
 
 // Host or `[ipv6]`, with an optional `:digits` port.
