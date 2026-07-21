@@ -398,9 +398,13 @@ export interface supportTicketSceneLogicMeta {
             tags: string[],
             snoozedUntil: string | null,
             ticket: Ticket | null,
-            resolveAssignee: any
+            resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
         ) => string[]
-        hasUnsavedChanges: (status: TicketStatus | null, ticket: Ticket | null, unsavedTicketChanges: any) => boolean
+        hasUnsavedChanges: (
+            status: TicketStatus | null,
+            ticket: Ticket | null,
+            unsavedTicketChanges: string[]
+        ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean) => boolean
         chatMessages: (messages: CommentType[], ticket: Ticket | null) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
