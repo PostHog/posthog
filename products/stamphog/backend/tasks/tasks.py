@@ -75,6 +75,17 @@ PR_BODY_EXCERPT_MAX_CHARS = 2000
 # PRs to burn sandbox + LLM credits. (GitHub's association vocabulary; the trusted subset.)
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
+# CONTRIBUTOR additionally passes the payload gate — not because it is trusted, but because the field
+# is unreliable in App-delivered payloads: GitHub computes author_association with less context than a
+# user-token API call, and org members on private repos arrive downgraded to CONTRIBUTOR (observed on
+# real deliveries with members:read granted and public org membership). Hard-dropping it silently
+# disables reviews for legitimate authors, so CONTRIBUTOR falls through to
+# _author_lacks_write_permission — the authoritative installation-token gate every run must pass
+# anyway. The associations still dropped here (NONE, FIRST_TIME_CONTRIBUTOR, ...) are fork drive-bys
+# with no repo relationship at all; a fall-through would cost only a cached permission lookup, but
+# there is no legitimate case to admit.
+PAYLOAD_GATE_AUTHOR_ASSOCIATIONS = TRUSTED_AUTHOR_ASSOCIATIONS | {"CONTRIBUTOR"}
+
 # The association gate above is necessary but not sufficient: MEMBER says nothing about repo-level
 # access, and COLLABORATOR covers read/triage-only invites. Auto-approval must also require that the
 # author can push — otherwise an under-privileged user gets an approval that satisfies branch
@@ -103,7 +114,7 @@ def _review_skip_reason(pr: dict[str, Any]) -> str | None:
     if user.get("type") == "Bot" or "[bot]" in (user.get("login") or ""):
         # Bot authors (dependabot, renovate, ...) always need a human.
         return "bot_author"
-    if pr.get("author_association") not in TRUSTED_AUTHOR_ASSOCIATIONS:
+    if pr.get("author_association") not in PAYLOAD_GATE_AUTHOR_ASSOCIATIONS:
         return "untrusted_author_association"
     return None
 

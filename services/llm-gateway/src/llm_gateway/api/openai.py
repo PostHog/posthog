@@ -5,23 +5,15 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
-    CLOUDFLARE_OPENAI_CONFIG,
-    CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
     handle_llm_request,
     normalize_litellm_model_name,
 )
-from llm_gateway.cloudflare import (
-    ensure_cloudflare_configured,
-    ensure_cloudflare_model_allowed,
-    is_cloudflare_model,
-    make_cloudflare_completion_call,
-    make_cloudflare_responses_call,
-)
-from llm_gateway.config import get_settings
+from llm_gateway.cloudflare import is_cloudflare_model
 from llm_gateway.dependencies import RateLimitedUser
+from llm_gateway.glm_routing import send_glm_chat_completions, send_glm_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import apply_posthog_context_from_headers
@@ -45,18 +37,7 @@ async def _handle_chat_completions(
     data = body.model_dump(exclude_none=True)
 
     if is_cloudflare_model(body.model):
-        ensure_cloudflare_model_allowed(body.model)
-        settings = get_settings()
-        api_base, api_key = ensure_cloudflare_configured(settings)
-        return await handle_llm_request(
-            request_data=data,
-            user=user,
-            model=body.model,
-            is_streaming=body.stream or False,
-            provider_config=CLOUDFLARE_OPENAI_CONFIG,
-            llm_call=make_cloudflare_completion_call(api_base, api_key),
-            product=product,
-        )
+        return await send_glm_chat_completions(data, user, body.stream or False, product)
 
     return await handle_llm_request(
         request_data=data,
@@ -82,9 +63,10 @@ async def _handle_responses(
     data = body.model_dump(exclude_none=True)
 
     if is_cloudflare_model(body.model):
-        # CF-served models (`@cf/...`) can't use the native OpenAI Responses path below: it would
-        # prefix `openai/` and call the real OpenAI Responses API. Route through CF's endpoint via
-        # litellm's Responses->chat/completions bridge instead (see make_cloudflare_responses_call).
+        # `@cf/`-served models can't use the native OpenAI Responses path below: it would prefix
+        # `openai/` and call the real OpenAI Responses API. Route through the GLM backend's endpoint
+        # via litellm's Responses->chat/completions bridge instead (see make_cloudflare_responses_call
+        # / make_modal_responses_call).
         if body.previous_response_id is not None:
             # The bridge rebuilds prior turns from litellm proxy spend logs; we run litellm as an
             # SDK (no proxy DB), so it would silently resolve to empty history and drop the
@@ -96,22 +78,11 @@ async def _handle_responses(
             # `tools` arrives as an extra field (ResponsesRequest allows extras). The
             # Responses->chat/completions bridge doesn't faithfully translate Responses-shaped
             # tools: Responses-only types (`shell`, `custom`) pass through unchanged and
-            # chat-completions-shaped function tools lose their name, so CF's chat/completions
-            # endpoint rejects the payload. Reject up front rather than hand CF a request that
-            # will fail once tools are advertised.
+            # chat-completions-shaped function tools lose their name, so the backend's
+            # chat/completions endpoint rejects the payload. Reject up front rather than hand it a
+            # request that will fail once tools are advertised.
             raise _invalid_request_error("tools are not yet supported for Cloudflare models on the Responses API")
-        ensure_cloudflare_model_allowed(body.model)
-        settings = get_settings()
-        api_base, api_key = ensure_cloudflare_configured(settings)
-        return await handle_llm_request(
-            request_data=data,
-            user=user,
-            model=body.model,
-            is_streaming=body.stream or False,
-            provider_config=CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
-            llm_call=make_cloudflare_responses_call(api_base, api_key),
-            product=product,
-        )
+        return await send_glm_responses(data, user, body.stream or False, product)
 
     original_model = body.model
     normalized_model = normalize_litellm_model_name(original_model, OPENAI_RESPONSES_CONFIG.name)

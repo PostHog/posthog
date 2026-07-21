@@ -212,6 +212,15 @@ pub struct Config {
     pub stash_drain_concurrency: usize,
 
     // ── coordinator (leader election among router-leader pods) ───
+    /// Whether this leader-mode router campaigns for the coordinator
+    /// election. Disabled, the router still registers in the routing
+    /// table, serves traffic, and acks freezes — it just never
+    /// coordinates. Production leaves this on everywhere; the test
+    /// harness disables it on its traffic router so chaos targeting
+    /// "the coordinator" can never land on the traffic path.
+    #[envconfig(default = "true")]
+    pub coordinator_enabled: bool,
+
     /// Lease TTL for the coordinator leader election. A crashed leader
     /// blocks every handoff until this expires and a survivor's campaign
     /// fires, so the worst-case coordinator outage is roughly this plus

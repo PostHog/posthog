@@ -1,6 +1,7 @@
 import shlex
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
 
@@ -10,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -26,9 +27,13 @@ from products.tasks.backend.temporal.metrics import (
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
+from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    replace_sandbox_credentials,
+    set_git_remote_token,
+)
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
+    get_readonly_github_token,
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
@@ -167,6 +172,60 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
         seen.add(domain)
         result.append(domain)
     return result
+
+
+def _resolve_sandbox_github_token(
+    ctx: TaskProcessingContext,
+    *,
+    task: Task,
+    actor_user: Any,
+    repository: str | None,
+    has_repo: bool,
+) -> str:
+    """Decide which GitHub credential (if any) a fresh sandbox gets.
+
+    A repo-less run that requested read-only access is resolved FIRST: _build_task attaches the
+    team's GitHub integration to every task, so has_github_credentials is true whenever the team
+    has GitHub connected at all — resolved the other way around, the write-capable installation
+    token would reach a run that asked for read-only. The read-only mint is best-effort (empty
+    string on failure, never the full token); the full credential path keeps its raise-on-failure
+    contract for repo-backed runs that can't work without credentials.
+    """
+    if ctx.github_read_access and not has_repo:
+        github_token = get_readonly_github_token(ctx.team_id) or ""
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            "Read-only GitHub token minted for evidence gathering"
+            if github_token
+            else "Read-only GitHub token unavailable, continuing without GitHub access",
+        )
+        return github_token
+
+    should_inject_github_token = ctx.has_github_credentials and (
+        has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
+    )
+    if not should_inject_github_token:
+        return ""
+    try:
+        return (
+            get_sandbox_github_token(
+                ctx.github_integration_id,
+                run_id=ctx.run_id,
+                state=ctx.state,
+                task=task,
+                actor_user=actor_user,
+                github_user_integration_id=ctx.github_user_integration_id,
+                repository=repository,
+            )
+            or ""
+        )
+    except Exception as e:
+        raise GitHubAuthenticationError(
+            f"Failed to get GitHub token for integration {ctx.github_integration_id}",
+            {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
+            cause=e,
+        )
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -364,30 +423,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         actor_user = get_task_run_credential_user(task, ctx.state)
-        github_token = ""
-        should_inject_github_token = ctx.has_github_credentials and (
-            has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
+        github_token = _resolve_sandbox_github_token(
+            ctx, task=task, actor_user=actor_user, repository=repository, has_repo=has_repo
         )
-        if should_inject_github_token:
-            try:
-                github_token = (
-                    get_sandbox_github_token(
-                        ctx.github_integration_id,
-                        run_id=ctx.run_id,
-                        state=ctx.state,
-                        task=task,
-                        actor_user=actor_user,
-                        github_user_integration_id=ctx.github_user_integration_id,
-                        repository=repository,
-                    )
-                    or ""
-                )
-            except Exception as e:
-                raise GitHubAuthenticationError(
-                    f"Failed to get GitHub token for integration {ctx.github_integration_id}",
-                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
-                    cause=e,
-                )
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
@@ -590,11 +628,15 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
+        state = ctx.state or {}
+        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+
         with StepTimer("repository_clone", used_snapshot=False) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
                 github_token=input.github_token,
                 shallow=input.shallow_clone,
+                branch=ctx.branch if is_resume else None,
             )
 
         if clone_result.exit_code != 0:
@@ -676,7 +718,12 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
-        if ctx.has_github_credentials:
+        if ctx.github_read_access and input.repository is None:
+            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a repo-less
+            # read-only run must never regain the write-capable token on resume. Best-effort — an
+            # empty token just leaves the sandbox without GitHub access.
+            github_token = get_readonly_github_token(ctx.team_id) or ""
+        elif ctx.has_github_credentials:
             try:
                 github_token = (
                     get_sandbox_github_token(
@@ -712,33 +759,13 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        if github_token and input.repository:
-            set_git_remote_token(sandbox, input.repository, github_token)
+        if input.repository:
+            set_git_remote_token(sandbox, input.repository, github_token or None)
 
-        # Pre-seed the agentsh env file so any wrapped command that runs between
-        # resume and start_agent_server (diagnostics, branch checkout) sees the
-        # fresh tokens instead of the stale snapshot values. start_agent_server
-        # re-dumps the full process env over this, so a partial overwrite is fine
-        # here (unlike the mid-run refresh, which must preserve the live env).
-        fresh_env_vars: dict[str, str] = {}
-        if github_token:
-            fresh_env_vars["GITHUB_TOKEN"] = github_token
-            fresh_env_vars["GH_TOKEN"] = github_token
-        if access_token:
-            fresh_env_vars["POSTHOG_PERSONAL_API_KEY"] = access_token
-
-        if fresh_env_vars:
-            env_payload = b"".join(f"{k}={v}\x00".encode() for k, v in fresh_env_vars.items())
-            overwrite_result = sandbox.write_file(ENV_FILE, env_payload)
-            if overwrite_result.exit_code != 0:
-                logger.warning(
-                    "Failed to refresh agentsh env file on resume",
-                    extra={
-                        "sandbox_id": input.sandbox_id,
-                        "env_file": ENV_FILE,
-                        "stderr": overwrite_result.stderr,
-                    },
-                )
+        # Replace both credential domains even when resolution returns no token,
+        # so revoked credentials cannot survive in a resumed filesystem snapshot.
+        if not replace_sandbox_credentials(sandbox, github_token or None, access_token or None):
+            raise RuntimeError("Failed to replace resumed sandbox credentials")
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")
 

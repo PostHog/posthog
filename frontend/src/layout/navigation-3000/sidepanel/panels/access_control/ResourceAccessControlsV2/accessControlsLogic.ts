@@ -316,6 +316,7 @@ export interface accessControlsLogicActions {
             | 'approvals'
             | 'batch_export'
             | 'batch_import'
+            | 'batch_import_support'
             | 'business_knowledge'
             | 'clickhouse_test_cluster_perf'
             | 'cohort'
@@ -396,6 +397,7 @@ export interface accessControlsLogicActions {
             | 'tagger'
             | 'task'
             | 'ticket'
+            | 'toolbar'
             | 'tracing'
             | 'uploaded_media'
             | 'usage_metric'
@@ -431,7 +433,7 @@ export interface accessControlsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allMembers: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
         canUseRoles: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         canEdit: (defaults: AccessControlDefaultsResponse | null) => boolean
         availableProjectLevels: (defaults: AccessControlDefaultsResponse | null) => AccessControlLevel[]
@@ -450,6 +452,7 @@ export interface accessControlsLogicMeta {
                 | 'approvals'
                 | 'batch_export'
                 | 'batch_import'
+                | 'batch_import_support'
                 | 'business_knowledge'
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
@@ -530,6 +533,7 @@ export interface accessControlsLogicMeta {
                 | 'tagger'
                 | 'task'
                 | 'ticket'
+                | 'toolbar'
                 | 'tracing'
                 | 'uploaded_media'
                 | 'usage_metric'
@@ -588,6 +592,7 @@ export interface accessControlsLogicMeta {
                 | 'approvals'
                 | 'batch_export'
                 | 'batch_import'
+                | 'batch_import_support'
                 | 'business_knowledge'
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
@@ -668,6 +673,7 @@ export interface accessControlsLogicMeta {
                 | 'tagger'
                 | 'task'
                 | 'ticket'
+                | 'toolbar'
                 | 'tracing'
                 | 'uploaded_media'
                 | 'usage_metric'
@@ -699,6 +705,7 @@ export interface accessControlsLogicMeta {
                 | 'approvals'
                 | 'batch_export'
                 | 'batch_import'
+                | 'batch_import_support'
                 | 'business_knowledge'
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
@@ -779,6 +786,7 @@ export interface accessControlsLogicMeta {
                 | 'tagger'
                 | 'task'
                 | 'ticket'
+                | 'toolbar'
                 | 'tracing'
                 | 'uploaded_media'
                 | 'usage_metric'

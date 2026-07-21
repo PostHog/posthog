@@ -58,6 +58,13 @@ export interface CheckDatabaseNameResponseApi {
     available: boolean
 }
 
+export interface CheckSchemaNameResponseApi {
+    /** The schema name that was checked */
+    name: string
+    /** Whether the schema name is free within the organization's warehouse */
+    available: boolean
+}
+
 export interface DeleteWarehouseOrgResponseApi {
     /** Deletion lifecycle message from the provisioner */
     status?: string
@@ -72,26 +79,12 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
-export interface EnableWarehouseBackfillRequestApi {
-    /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
-    table_name: string
-}
-
-export interface EnableWarehouseBackfillResponseApi {
-    /** Whether warehouse backfill is now enabled */
-    enabled: boolean
-    /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
-    table_suffix: string
-}
-
 /**
  * * `not_configured` - not_configured
  * * `waiting` - waiting
  * * `backfilling` - backfilling
- * * `catching_up` - catching_up
  * * `up_to_date` - up_to_date
  * * `needs_attention` - needs_attention
- * * `unknown` - unknown
  * * `sync_paused` - sync_paused
  */
 export type ManagedWarehouseReadinessStateEnumApi =
@@ -101,10 +94,8 @@ export const ManagedWarehouseReadinessStateEnumApi = {
     NotConfigured: 'not_configured',
     Waiting: 'waiting',
     Backfilling: 'backfilling',
-    CatchingUp: 'catching_up',
     UpToDate: 'up_to_date',
     NeedsAttention: 'needs_attention',
-    Unknown: 'unknown',
     SyncPaused: 'sync_paused',
 } as const
 
@@ -130,10 +121,8 @@ export interface ManagedWarehouseDatasetStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the current readiness state. */
@@ -169,10 +158,8 @@ export interface ManagedWarehouseSourceSummaryApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of this source's readiness state. */
@@ -182,10 +169,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     /** Number of schemas whose one-time historical copy into the warehouse has completed. */
     backfilled_schemas: number
     /**
-     * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
      * @nullable
      */
-    pending_batches: number | null
+    last_applied_at: string | null
     /**
      * Most recent upstream source import completion across this source's schemas.
      * @nullable
@@ -199,10 +186,8 @@ export interface ManagedWarehouseSourcesStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
@@ -217,10 +202,8 @@ export interface ManagedWarehouseDataStatusResponseApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused */
     overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Events backfill readiness. */
@@ -249,10 +232,8 @@ export interface ManagedWarehouseSourceTableStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
-     * * `unknown` - unknown
      * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
@@ -267,17 +248,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
      */
     total_chunks: number | null
     /**
-     * Imported batches waiting to be applied, or null when queue status is unavailable.
-     * @nullable
-     */
-    pending_batches: number | null
-    /**
-     * Creation time of the oldest unapplied imported batch.
-     * @nullable
-     */
-    oldest_pending_at: string | null
-    /**
-     * When an imported batch was most recently applied to the warehouse.
+     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
      * @nullable
      */
     last_applied_at: string | null
@@ -293,11 +264,23 @@ export interface ManagedWarehouseSourceSchemasResponseApi {
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
+export interface OnboardWarehouseTeamRequestApi {
+    /** Schema name for this project's data in the organization's warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Must be unique within the organization and cannot be changed later. */
+    schema_name: string
+}
+
+export interface OnboardWarehouseTeamResponseApi {
+    /** Whether this project is now onboarded onto the managed warehouse */
+    onboarded: boolean
+    /** Schema this project's data lands in */
+    schema_name: string
+}
+
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
-    /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
-    table_name: string
+    /** Schema name for the provisioning project's data in the warehouse. Lowercase letters, numbers, and underscores only, max 63 characters. Cannot be changed later. Required — the first project gets its own schema, and other projects pick theirs when they join. */
+    schema_name: string
 }
 
 export interface ProvisionWarehouseResponseApi {
@@ -387,6 +370,13 @@ export interface WarehouseStatusResponseApi {
      * @nullable
      */
     table_suffix: string | null
+    /** Whether this project is onboarded onto the managed warehouse. False when the warehouse exists but this project has not picked a schema yet — show the onboarding screen in that case. */
+    team_onboarded: boolean
+    /**
+     * Schema this project's data lands in. Null when the project is not onboarded.
+     * @nullable
+     */
+    schema_name: string | null
 }
 
 /**
@@ -2115,6 +2105,13 @@ export interface CredentialApi {
  * * `Shopware` - Shopware
  * * `Dubsado` - Dubsado
  * * `Campfire` - Campfire
+ * * `PromptWatch` - PromptWatch
+ * * `Crisp` - Crisp
+ * * `Kommo` - Kommo
+ * * `Axiom` - Axiom
+ * * `Plivo` - Plivo
+ * * `DataForSEO` - DataForSEO
+ * * `Sleekplan` - Sleekplan
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2977,6 +2974,13 @@ export const ExternalDataSourceTypeEnumApi = {
     Shopware: 'Shopware',
     Dubsado: 'Dubsado',
     Campfire: 'Campfire',
+    PromptWatch: 'PromptWatch',
+    Crisp: 'Crisp',
+    Kommo: 'Kommo',
+    Axiom: 'Axiom',
+    Plivo: 'Plivo',
+    DataForSEO: 'DataForSEO',
+    Sleekplan: 'Sleekplan',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3006,6 +3010,8 @@ export interface TableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name: string
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -3051,6 +3057,8 @@ export interface PatchedTableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name?: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name?: string
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -3142,6 +3150,14 @@ export type DataModelingJobsListParams = {
 export type DataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
+     * @minLength 1
+     */
+    name: string
+}
+
+export type DataWarehouseCheckSchemaNameRetrieveParams = {
+    /**
+     * Schema name to check
      * @minLength 1
      */
     name: string

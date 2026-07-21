@@ -9,6 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AffectedCohortRequestApi,
+    AffectedCohortResponseApi,
+    ApplyPromptSuggestionRequestApi,
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
@@ -29,6 +32,7 @@ import type {
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
+    ScannerImpactApi,
     ScannerStatsResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
@@ -39,6 +43,7 @@ import type {
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionQuotaApi,
+    VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsRetrieveParams,
@@ -462,6 +467,62 @@ export const visionScannersDestroy = async (projectId: string, id: string, optio
     })
 }
 
+export const getVisionScannersAffectedCohortCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/affected_cohort/`
+}
+
+/**
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
+ */
+export const visionScannersAffectedCohortCreate = async (
+    projectId: string,
+    id: string,
+    affectedCohortRequestApi?: AffectedCohortRequestApi,
+    options?: RequestInit
+): Promise<AffectedCohortResponseApi> => {
+    return apiMutator<AffectedCohortResponseApi>(getVisionScannersAffectedCohortCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(affectedCohortRequestApi),
+    })
+}
+
+export const getVisionScannersImpactRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionScannersImpactRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${id}/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${id}/impact/`
+}
+
+/**
+ * Affected sessions and users for this scanner over the trailing window.
+ */
+export const visionScannersImpactRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionScannersImpactRetrieveParams,
+    options?: RequestInit
+): Promise<ScannerImpactApi> => {
+    return apiMutator<ScannerImpactApi>(getVisionScannersImpactRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersObserveCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${id}/observe/`
 }
@@ -705,12 +766,13 @@ export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: stri
 }
 
 /**
- * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Only the current pending suggestion can be applied. Requires session recording edit access.
+ * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsApplyCreate = async (
     projectId: string,
     scannerId: string,
     id: string,
+    applyPromptSuggestionRequestApi?: ApplyPromptSuggestionRequestApi,
     options?: RequestInit
 ): Promise<ReplayScannerPromptSuggestionApi> => {
     return apiMutator<ReplayScannerPromptSuggestionApi>(
@@ -718,6 +780,8 @@ export const visionScannersPromptSuggestionsApplyCreate = async (
         {
             ...options,
             method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(applyPromptSuggestionRequestApi),
         }
     )
 }
@@ -757,7 +821,7 @@ export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
 }
 
 /**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsEvaluateCreate = async (
     projectId: string,

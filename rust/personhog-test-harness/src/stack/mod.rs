@@ -53,6 +53,7 @@ pub struct StackConfig {
     /// Leader in-memory cache capacity (entries). Lower it below the seeded
     /// person count to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
     pub leader_lease_ttl: i64,
@@ -159,15 +160,20 @@ impl Stack {
             &log_dir,
         )?);
 
-        // The first router must win the coordinator election so chaos that
-        // targets "the coordinator" is deterministic: spawn it alone, wait
-        // for it to acquire leadership, then bring up the rest.
+        // The first router must win the coordinator election so bring-up
+        // is deterministic: spawn it alone, wait for it to acquire
+        // leadership, then bring up the rest. With two or more routers,
+        // traffic targets the LAST one and that router opts out of
+        // election candidacy entirely — so no matter how leadership
+        // migrates later, coordinator chaos can never be forced to choose
+        // between killing the traffic path and killing a standby.
         let mut routers = Vec::new();
         for i in 0..config.routers {
             if i == 1 {
                 etcd::wait_for_leader(&store, "harness-router-0", Duration::from_secs(15)).await?;
             }
             let name = format!("harness-router-{i}");
+            let is_traffic_router = config.routers >= 2 && i == config.routers - 1;
             let proc = ServiceProcess::spawn(
                 &name,
                 &config.bin_dir.join("personhog-router"),
@@ -185,6 +191,7 @@ impl Stack {
                     ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                     ("BACKEND_TIMEOUT_MS", "5000".to_string()),
                     ("POD_NAME", name.clone()),
+                    ("COORDINATOR_ENABLED", (!is_traffic_router).to_string()),
                     (
                         "METRICS_PORT",
                         (ROUTER_METRICS_BASE_PORT + i as u16).to_string(),
@@ -195,9 +202,6 @@ impl Stack {
             routers.push((name, proc));
         }
 
-        // Traffic targets the last router: the first spawned usually wins
-        // the coordinator election, so a coordinator kill (which targets
-        // the first) leaves the traffic path intact.
         let traffic_router_port = ROUTER_GRPC_BASE_PORT + (config.routers - 1) as u16;
         let router_url = format!("http://127.0.0.1:{traffic_router_port}");
 
@@ -250,6 +254,10 @@ impl Stack {
                 (
                     "CACHE_MEMORY_CAPACITY",
                     self.config.cache_memory_capacity.to_string(),
+                ),
+                (
+                    "RECOVERY_POOL_SIZE",
+                    self.config.recovery_pool_size.to_string(),
                 ),
                 ("ETCD_ENDPOINTS", self.config.etcd_endpoints.clone()),
                 ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
@@ -350,18 +358,56 @@ impl Stack {
         Ok(pod_name)
     }
 
-    /// SIGKILL the first-spawned router — the coordinator, since bring-up
-    /// waits for it to win the election — and revoke both its registration
-    /// lease (so freeze quorums stop counting it) and its election lease
-    /// (so a surviving router takes over immediately instead of waiting
-    /// out the election TTL). Handoffs created after this run under the
-    /// new coordinator. With `fast` false, neither lease is revoked — a
-    /// true crash whose failover waits out both TTLs.
-    pub async fn kill_coordinator_router(&mut self, fast: bool) -> Result<String> {
-        if self.routers.len() < 2 {
-            bail!("coordinator kill requires at least 2 routers");
+    /// Index of the router currently holding the coordinator election,
+    /// resolved live from etcd so chaos targets the actual coordinator
+    /// even if leadership migrated after bring-up. Never guesses: lookup
+    /// errors propagate (steering a kill off a failed read could target a
+    /// standby and pass the gate vacuously), and a vacant election is
+    /// polled until a winner emerges — with the 1s campaign retry, well
+    /// inside the deadline. Bails if the holder is the traffic router:
+    /// candidacy is disabled there, so this can only mean the opt-out
+    /// broke — a loud failure here is the regression signal for that
+    /// wiring.
+    async fn coordinator_router_index(&self) -> Result<usize> {
+        let traffic_router = format!("harness-router-{}", self.config.routers - 1);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let holder = loop {
+            if let Some(leader) = self.store.get_leader().await? {
+                break leader.holder;
+            }
+            if std::time::Instant::now() >= deadline {
+                bail!("no coordinator elected within 5s; cannot target coordinator chaos");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        if holder == traffic_router {
+            bail!(
+                "election held by the traffic router {traffic_router}, which must never \
+                 campaign (COORDINATOR_ENABLED=false) — candidacy opt-out is broken"
+            );
         }
-        let (name, mut proc) = self.routers.remove(0);
+        self.routers
+            .iter()
+            .position(|(name, _)| *name == holder)
+            .with_context(|| format!("election holder {holder} is not a live router"))
+    }
+
+    /// SIGKILL the router holding the coordinator election and revoke
+    /// both its registration lease (so freeze quorums stop counting it)
+    /// and its election lease (so a surviving candidate takes over
+    /// immediately instead of waiting out the election TTL). Handoffs
+    /// created after this run under the new coordinator. With `fast`
+    /// false, neither lease is revoked — a true crash whose failover
+    /// waits out both TTLs.
+    pub async fn kill_coordinator_router(&mut self, fast: bool) -> Result<String> {
+        if self.routers.len() < 3 {
+            bail!(
+                "coordinator kill requires at least 3 routers: the traffic router never \
+                 campaigns, so 2 leaves no standby to win the failover election"
+            );
+        }
+        let index = self.coordinator_router_index().await?;
+        let (name, mut proc) = self.routers.remove(index);
         proc.kill_now().await;
         if fast {
             etcd::revoke_router_lease(&self.store, &name).await?;
@@ -378,14 +424,18 @@ impl Stack {
         Ok(name)
     }
 
-    /// SIGTERM the first router (the presumed coordinator) — a graceful
+    /// SIGTERM the router holding the coordinator election — a graceful
     /// exit whose election handover must come from the revoke-on-exit
     /// path, immediately, never from waiting out the lease TTL.
-    pub fn shutdown_coordinator_router(&mut self) -> Result<String> {
-        if self.routers.len() < 2 {
-            bail!("coordinator shutdown requires at least 2 routers");
+    pub async fn shutdown_coordinator_router(&mut self) -> Result<String> {
+        if self.routers.len() < 3 {
+            bail!(
+                "coordinator shutdown requires at least 3 routers: the traffic router never \
+                 campaigns, so 2 leaves no standby to win the failover election"
+            );
         }
-        let (name, proc) = self.routers.remove(0);
+        let index = self.coordinator_router_index().await?;
+        let (name, proc) = self.routers.remove(index);
         proc.sigterm();
         tracing::info!(router = %name, "requested graceful shutdown of coordinator router");
         self.retired.push(proc);
