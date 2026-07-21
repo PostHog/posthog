@@ -28,6 +28,7 @@ from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
+from posthog.api.sharing_publish_gate import blocked_access_for_publisher
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
@@ -485,6 +486,24 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             recording = cast(SessionRecording, context.get("recording"))
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
+
+        # Publishing is the access decision for shared links (queries on the public page execute
+        # without warehouse access control), so gate the enable transition: the publisher must have
+        # access to everything the artifact queries, or sharing becomes an escalation channel.
+        if (
+            request.data.get("enabled")
+            and not instance.enabled
+            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster enable
+            and not self.user_access_control.is_organization_admin
+        ):
+            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+            if blocked_names:
+                blocked = ", ".join(f"`{name}`" for name in blocked_names)
+                raise ValidationError(
+                    f"Can't enable sharing: you don't have access to {blocked}, "
+                    "which the shared queries use. Ask an admin for access, or remove those queries first."
+                )
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)

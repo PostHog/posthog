@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -5,43 +6,89 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-import requests
 from parameterized import parameterized
+from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana import katana
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.katana import (
-    KatanaRateLimitError,
+    PAGE_SIZE,
     KatanaResumeConfig,
-    KatanaRetryableError,
-    _build_base_params,
     _clamp_future_value_to_now,
     _format_incremental_value,
-    _request_page,
-    _wait_katana,
-    get_rows,
     katana_source,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import KATANA_ENDPOINTS
 
 # A stand-in API key long enough to be caught by the transport's value-based redaction.
 _SECRET_KEY = "katana-secret-key-abcdef123456"
 
-
-def _fake_response(status_code: int = 200, body: Any = None, headers: dict[str, str] | None = None) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.headers = headers or {}
-    response.json.return_value = body if body is not None else {}
-    response.text = "" if body is None else str(body)
-    return response
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the katana module.
+KATANA_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.katana.katana.make_tracked_session"
+)
 
 
-def _fake_manager(resume: KatanaResumeConfig | None = None) -> MagicMock:
+def _response(
+    items: list[dict[str, Any]] | None = None,
+    *,
+    status: int = 200,
+    drop_data: bool = False,
+    body: Any = None,
+    url: str = "https://api.katanamrp.com/v1/customers",
+    reason: str = "OK",
+    headers: dict[str, str] | None = None,
+) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp.reason = reason
+    if headers:
+        resp.headers.update(headers)
+    if body is not None:
+        payload: Any = body
+    elif drop_data:
+        payload = {"items": items or []}
+    else:
+        payload = {"data": items if items is not None else []}
+    resp._content = json.dumps(payload).encode()
+    return resp
+
+
+def _make_manager(resume: KatanaResumeConfig | None = None) -> MagicMock:
     manager = MagicMock()
     manager.can_resume.return_value = resume is not None
     manager.load_state.return_value = resume
     return manager
+
+
+def _wire(session: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each request
+    is prepared rather than inspecting the final state.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(session_factory: MagicMock, **kwargs: Any) -> Any:
+    defaults: dict[str, Any] = {"api_key": "k", "endpoint": "customers", "team_id": 1, "job_id": "j"}
+    defaults.update(kwargs)
+    defaults.setdefault("resumable_source_manager", _make_manager())
+    return katana_source(**defaults)
 
 
 class TestFormatIncrementalValue:
@@ -72,207 +119,225 @@ class TestClampFutureValue:
         assert _clamp_future_value_to_now(past) == past
 
 
-class TestBuildBaseParams:
-    def test_incremental_filter_uses_min_suffix(self) -> None:
-        params = _build_base_params(
-            KATANA_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params == {"updated_at_min": "2026-03-04T02:58:14.000Z"}
+class TestPagination:
+    @patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_short_page(self, MockSession: MagicMock) -> None:
+        # Two full pages then a short (non-empty) page terminates pagination WITHOUT an extra request —
+        # Katana has no next-page cursor, so a page below PAGE_SIZE is the last one.
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        short_page = [{"id": 9001}]
+        params = _wire(session, [_response(full_page), _response(full_page), _response(short_page)])
 
-    def test_respects_user_chosen_incremental_field(self) -> None:
-        params = _build_base_params(
-            KATANA_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="created_at",
-        )
-        assert "created_at_min" in params
-        assert "updated_at_min" not in params
+        rows = _rows(_source(MockSession))
 
-    def test_falls_back_to_default_incremental_field(self) -> None:
-        params = _build_base_params(
-            KATANA_ENDPOINTS["inventory_movements"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert "created_at_min" in params
+        assert len(rows) == 2 * PAGE_SIZE + 1
+        assert session.send.call_count == 3
+        assert [p["page"] for p in params] == [1, 2, 3]
+        assert all(p["limit"] == PAGE_SIZE for p in params)
 
-    def test_first_sync_has_no_filter(self) -> None:
-        params = _build_base_params(
-            KATANA_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updated_at",
-        )
-        assert params == {}
+    @patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+        manager = _make_manager()
 
-    def test_full_refresh_endpoint_never_filters(self) -> None:
-        params = _build_base_params(
-            KATANA_ENDPOINTS["inventory"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params == {}
+        rows = _rows(_source(MockSession, resumable_source_manager=manager))
 
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_future_cursor_clamped(self) -> None:
-        params = _build_base_params(
-            KATANA_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2027, 1, 1, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params == {"updated_at_min": "2026-06-15T12:00:00.000Z"}
+        assert rows == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
+    @patch(CLIENT_SESSION_PATCH)
+    def test_checkpoint_saved_after_full_page(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        _wire(session, [_response(full_page), _response([{"id": 1}])])
+        manager = _make_manager()
 
-class TestRequestPage:
-    def test_429_raises_rate_limit_with_retry_after(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _fake_response(429, headers={"Retry-After": "12"})
-        with pytest.raises(KatanaRateLimitError) as exc:
-            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
-        assert exc.value.retry_after == 12.0
+        _rows(_source(MockSession, resumable_source_manager=manager))
 
-    def test_5xx_raises_retryable(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _fake_response(503)
-        with pytest.raises(KatanaRetryableError):
-            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
+        # Checkpoint saved after the first full page (points at the next page); the short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == KatanaResumeConfig(page=2)
 
-    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
-    def test_4xx_raises_matchable_http_error_without_leaking_key(self, _name: str, status: int, reason: str) -> None:
-        # A credential-bearing final URL (redirect echoing the key) must never reach the exception text,
-        # but the stable `<status> Client Error: <reason> for url: https://api.katanamrp.com...` prefix
-        # that `KatanaSource.get_non_retryable_errors()` matches on must survive scrubbing.
-        response = _fake_response(status)
-        response.reason = reason
-        response.url = f"https://api.katanamrp.com/v1/customers?token={_SECRET_KEY}"
-        session = MagicMock()
-        session.get.return_value = response
-        with pytest.raises(requests.HTTPError) as exc:
-            _request_page(session, "https://api.katanamrp.com/v1/customers", {}, {}, MagicMock(), MagicMock())
-        message = str(exc.value)
-        assert _SECRET_KEY not in message
-        assert message.startswith(f"{status} Client Error: {reason} for url: https://api.katanamrp.com/v1/customers")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
 
-    def test_200_returns_body(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _fake_response(200, {"data": [{"id": 1}]})
-        result = _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
-        assert result == {"data": [{"id": 1}]}
+        _rows(_source(MockSession, resumable_source_manager=_make_manager(KatanaResumeConfig(page=4))))
 
-    def test_empty_data_list_is_accepted(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _fake_response(200, {"data": []})
-        assert _request_page(session, "url", {}, {}, MagicMock(), MagicMock()) == {"data": []}
-
-    @parameterized.expand([("missing_data_key", {"items": []}), ("not_a_dict", [1, 2, 3])])
-    def test_malformed_envelope_is_retryable(self, _name: str, body: Any) -> None:
-        # A 2xx body without a `data` key must fail loudly (retryable), not silently end the sync.
-        session = MagicMock()
-        session.get.return_value = _fake_response(200, body)
-        with pytest.raises(KatanaRetryableError):
-            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
-
-
-class TestWaitKatana:
-    def test_honours_retry_after(self) -> None:
-        state = MagicMock()
-        state.outcome.exception.return_value = KatanaRateLimitError(retry_after=7.0)
-        assert _wait_katana(state) == 7.0
-
-    def test_backoff_when_no_retry_after(self) -> None:
-        state = MagicMock()
-        state.outcome.exception.return_value = KatanaRetryableError("boom")
-        state.attempt_number = 3
-        assert _wait_katana(state) == 8.0
-
-
-class TestGetRows:
-    @patch.object(katana.time, "sleep", lambda *_: None)
-    @patch.object(katana, "make_tracked_session")
-    def test_paginates_until_short_page(self, mock_session_factory: MagicMock) -> None:
-        # Two full pages then a short page terminates pagination.
-        full_page = {"data": [{"id": i} for i in range(katana.PAGE_SIZE)]}
-        short_page = {"data": [{"id": 9001}]}
-        session = MagicMock()
-        session.get.side_effect = [
-            _fake_response(200, full_page),
-            _fake_response(200, full_page),
-            _fake_response(200, short_page),
-        ]
-        mock_session_factory.return_value = session
-
-        tables = list(
-            get_rows(api_key="k", endpoint="customers", logger=MagicMock(), resumable_source_manager=_fake_manager())
-        )
-        rows = [row for table in tables for row in table.to_pylist()]
-        assert len(rows) == 2 * katana.PAGE_SIZE + 1
-        assert session.get.call_count == 3
-        # The key must be registered with the tracked transport so it's masked in logged URLs / samples.
-        mock_session_factory.assert_called_once_with(redact_values=("k",))
-
-    @patch.object(katana.time, "sleep", lambda *_: None)
-    @patch.object(katana, "make_tracked_session")
-    def test_empty_first_page_yields_nothing(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.return_value = _fake_response(200, {"data": []})
-        mock_session_factory.return_value = session
-
-        tables = list(
-            get_rows(api_key="k", endpoint="customers", logger=MagicMock(), resumable_source_manager=_fake_manager())
-        )
-        assert tables == []
-        assert session.get.call_count == 1
-
-    @patch.object(katana.time, "sleep", lambda *_: None)
-    @patch.object(katana, "make_tracked_session")
-    def test_resumes_from_saved_page(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.return_value = _fake_response(200, {"data": [{"id": 1}]})
-        mock_session_factory.return_value = session
-
-        list(
-            get_rows(
-                api_key="k",
-                endpoint="customers",
-                logger=MagicMock(),
-                resumable_source_manager=_fake_manager(KatanaResumeConfig(page=4)),
-            )
-        )
         # The first (and only) request must start at the resumed page, not page 1.
-        _, kwargs = session.get.call_args_list[0]
-        assert kwargs["params"]["page"] == 4
+        assert params[0]["page"] == 4
 
-    @patch.object(katana.time, "sleep", lambda *_: None)
-    @patch.object(katana, "make_tracked_session")
-    def test_incremental_filter_sent_on_every_page(self, mock_session_factory: MagicMock) -> None:
-        full_page = {"data": [{"id": i} for i in range(katana.PAGE_SIZE)]}
-        session = MagicMock()
-        session.get.side_effect = [_fake_response(200, full_page), _fake_response(200, {"data": []})]
-        mock_session_factory.return_value = session
 
-        list(
-            get_rows(
-                api_key="k",
-                endpoint="customers",
-                logger=MagicMock(),
-                resumable_source_manager=_fake_manager(),
+class TestIncrementalFilter:
+    @patch(CLIENT_SESSION_PATCH)
+    def test_filter_sent_on_every_page(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        params = _wire(session, [_response(full_page), _response([])])
+
+        _rows(
+            _source(
+                MockSession,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="updated_at",
             )
         )
-        for call in session.get.call_args_list:
-            assert call.kwargs["params"]["updated_at_min"] == "2026-01-01T00:00:00.000Z"
+
+        assert len(params) == 2
+        for p in params:
+            assert p["updated_at_min"] == "2026-01-01T00:00:00.000Z"
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_respects_user_chosen_incremental_field(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        _rows(
+            _source(
+                MockSession,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+                incremental_field="created_at",
+            )
+        )
+
+        assert "created_at_min" in params[0]
+        assert "updated_at_min" not in params[0]
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_falls_back_to_default_incremental_field(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        _rows(
+            _source(
+                MockSession,
+                endpoint="inventory_movements",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+                incremental_field=None,
+            )
+        )
+
+        assert "created_at_min" in params[0]
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_first_sync_has_no_filter(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        _rows(
+            _source(
+                MockSession,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                incremental_field="updated_at",
+            )
+        )
+
+        assert "updated_at_min" not in params[0]
+
+    @patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_endpoint_never_filters(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"variant_id": 1, "location_id": 2}])])
+
+        _rows(
+            _source(
+                MockSession,
+                endpoint="inventory",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+                incremental_field="updated_at",
+            )
+        )
+
+        assert params[0] == {"page": 1, "limit": PAGE_SIZE}
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_future_cursor_clamped(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        _rows(
+            _source(
+                MockSession,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2027, 1, 1, tzinfo=UTC),
+                incremental_field="updated_at",
+            )
+        )
+
+        assert params[0]["updated_at_min"] == "2026-06-15T12:00:00.000Z"
 
 
-class TestKatanaSource:
+class TestErrorHandling:
+    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
+    @patch(CLIENT_SESSION_PATCH)
+    def test_4xx_raises_matchable_http_error_without_leaking_key(
+        self, _name: str, status: int, reason: str, MockSession: MagicMock
+    ) -> None:
+        # A credential-bearing final URL (a redirect echoing the key into the URL) must never reach the
+        # exception text, but the stable `<status> Client Error: <reason> for url: https://api.katanamrp.com...`
+        # prefix that KatanaSource.get_non_retryable_errors() matches on must survive redaction.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    status=status,
+                    reason=reason,
+                    url=f"https://api.katanamrp.com/v1/customers?token={_SECRET_KEY}",
+                )
+            ],
+        )
+
+        with pytest.raises(HTTPError) as exc:
+            _rows(_source(MockSession, api_key=_SECRET_KEY))
+
+        message = str(exc.value)
+        assert _SECRET_KEY not in message
+        assert message.startswith(f"{status} Client Error: {reason} for url: https://api.katanamrp.com/v1/customers")
+
+    @parameterized.expand([("missing_data_key", {"items": []}), ("not_a_dict", [1, 2, 3])])
+    @patch("time.sleep")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_malformed_2xx_envelope_is_retried(
+        self, _name: str, body: Any, MockSession: MagicMock, _sleep: MagicMock
+    ) -> None:
+        # A 200 body without a list `data` key must NOT silently end the sync as an empty page — it's
+        # reissued (retryable), then the valid page is read.
+        session = MockSession.return_value
+        _wire(session, [_response(body=body), _response([{"id": 7}])])
+
+        rows = _rows(_source(MockSession))
+
+        assert [r["id"] for r in rows] == [7]
+        assert session.send.call_count == 2
+
+    @parameterized.expand([("server_error", 503), ("rate_limited", 429)])
+    @patch("time.sleep")
+    @patch(CLIENT_SESSION_PATCH)
+    def test_transient_status_is_retried(
+        self, _name: str, status: int, MockSession: MagicMock, _sleep: MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        headers = {"Retry-After": "1"} if status == 429 else None
+        _wire(session, [_response(status=status, reason="err", headers=headers), _response([{"id": 5}])])
+
+        rows = _rows(_source(MockSession))
+
+        assert [r["id"] for r in rows] == [5]
+        assert session.send.call_count == 2
+
+
+class TestKatanaSourceResponse:
     @parameterized.expand(
         [
             ("customers", ["id"], "created_at"),
@@ -283,7 +348,7 @@ class TestKatanaSource:
     )
     def test_source_response_shape(self, endpoint: str, expected_pk: list[str], partition_key: str | None) -> None:
         response = katana_source(
-            api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
+            api_key="k", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_pk
@@ -297,26 +362,29 @@ class TestKatanaSource:
 
 
 class TestValidateCredentials:
-    @patch.object(katana, "make_tracked_session")
+    @patch(KATANA_SESSION_PATCH)
     def test_valid_key(self, mock_session_factory: MagicMock) -> None:
         session = MagicMock()
-        session.get.return_value = _fake_response(200)
+        session.get.return_value = MagicMock(status_code=200)
         mock_session_factory.return_value = session
-        assert katana.validate_credentials("good-key") is True
+
+        assert validate_credentials("good-key") is True
         # The key must be registered with the tracked transport so it's masked in logged URLs / samples.
         mock_session_factory.assert_called_once_with(redact_values=("good-key",))
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    @patch.object(katana, "make_tracked_session")
+    @patch(KATANA_SESSION_PATCH)
     def test_invalid_key(self, _name: str, status: int, mock_session_factory: MagicMock) -> None:
         session = MagicMock()
-        session.get.return_value = _fake_response(status)
+        session.get.return_value = MagicMock(status_code=status)
         mock_session_factory.return_value = session
-        assert katana.validate_credentials("bad-key") is False
 
-    @patch.object(katana, "make_tracked_session")
+        assert validate_credentials("bad-key") is False
+
+    @patch(KATANA_SESSION_PATCH)
     def test_network_error_is_false(self, mock_session_factory: MagicMock) -> None:
         session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("no network")
+        session.get.side_effect = ConnectionError("no network")
         mock_session_factory.return_value = session
-        assert katana.validate_credentials("key") is False
+
+        assert validate_credentials("key") is False

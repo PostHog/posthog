@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.se
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.source import BitriseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BitriseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitrise import (
+    BitriseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

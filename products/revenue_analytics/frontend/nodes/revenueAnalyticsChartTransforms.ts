@@ -28,7 +28,7 @@ export function buildRevenueAnalyticsSeries(
             fill: kind === 'area' ? {} : undefined,
             stroke: dashFromIndex !== undefined ? { partial: { fromIndex: dashFromIndex } } : undefined,
             meta: {
-                action: dataset.action,
+                action: dataset.action ?? undefined,
                 breakdown_value: dataset.breakdown_value,
                 days: dataset.days,
                 order: dataset.action?.order ?? index,

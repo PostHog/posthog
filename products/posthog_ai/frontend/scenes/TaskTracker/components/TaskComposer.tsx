@@ -81,7 +81,7 @@ export function TaskComposer(): JSX.Element {
                                         data-attr="task-composer-input"
                                     />
                                 </Composer.Field>
-                                <Composer.Footer className="flex items-center gap-1 pl-2">
+                                <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}

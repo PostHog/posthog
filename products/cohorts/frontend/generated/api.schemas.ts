@@ -7,6 +7,115 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface StaffCohortApi {
+    /** Cohort id. */
+    id: number
+    /**
+     * Cohort name.
+     * @nullable
+     */
+    name: string | null
+    /** Id of the team the cohort belongs to. */
+    team_id: number
+    /** Name of the team the cohort belongs to. */
+    team_name: string
+    /** Project id the cohort's team belongs to, for building /project/<id>/cohorts/<id> links. */
+    project_id: number
+    /** Whether the cohort is soft-deleted. */
+    deleted: boolean
+    /** Whether the cohort is static (populated once from a source rather than recalculated). */
+    is_static: boolean
+    /** Whether a calculation is currently marked as in flight. */
+    is_calculating: boolean
+    /**
+     * When the last calculation completed, or null if never calculated.
+     * @nullable
+     */
+    last_calculation: string | null
+    /**
+     * Duration of the last completed calculation in milliseconds.
+     * @nullable
+     */
+    last_calculation_duration_ms: number | null
+    /** Consecutive calculation failures; above 20 the cohort is excluded from periodic recalculation. */
+    errors_calculating: number
+    /**
+     * When the last calculation error was recorded.
+     * @nullable
+     */
+    last_error_at: string | null
+    /**
+     * Version of the last completed calculation.
+     * @nullable
+     */
+    version: number | null
+    /**
+     * Version most recently requested; greater than `version` while a calculation is pending or stuck.
+     * @nullable
+     */
+    pending_version: number | null
+    /**
+     * Number of persons in the cohort as of the last completed calculation.
+     * @nullable
+     */
+    count: number | null
+    /**
+     * When the cohort was created.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+export interface StaffCohortLookupResponseApi {
+    /** Requested cohorts, in request order. */
+    results: StaffCohortApi[]
+    /** Requested cohort ids that do not exist. */
+    not_found_cohort_ids: number[]
+}
+
+export interface StaffCohortRecalculateApi {
+    /**
+     * Cohort ids to force-recalculate (max 10 per request).
+     * @minItems 1
+     * @maxItems 10
+     */
+    cohort_ids: number[]
+}
+
+export interface StaffCohortFailedApi {
+    /** Cohort id that raised while being enqueued. */
+    cohort_id: number
+    /** Error message from the failed enqueue attempt. */
+    error: string
+}
+
+export interface StaffCohortSkippedApi {
+    /** Cohort id that was skipped. */
+    cohort_id: number
+    /** Why the cohort was not enqueued for recalculation. */
+    reason: string
+}
+
+export interface StaffCohortRecalculateResponseApi {
+    /** Cohort ids for which a recalculation was enqueued (including their dependency chains). */
+    queued_cohort_ids: number[]
+    /** Subset of queued_cohort_ids whose dependency chain failed to resolve, so only the cohort itself (not its dependents/dependencies) was enqueued. Those related cohorts are still stale; re-request recalculation for them explicitly once the dependency issue is fixed. */
+    partial_cohort_ids: number[]
+    /** Cohort ids that raised while being enqueued and were not queued at all. Cohorts listed elsewhere in this response already had their enqueue attempted; retry only these ids rather than the whole batch. */
+    failed_cohort_ids: StaffCohortFailedApi[]
+    /** Cohorts that exist but were not enqueued, with the reason. */
+    skipped: StaffCohortSkippedApi[]
+    /** Requested cohort ids that do not exist. */
+    not_found_cohort_ids: number[]
+}
+
+export interface StaffStuckCohortsResponseApi {
+    /** Stuck cohorts, oldest last_calculation first (max 100). */
+    results: StaffCohortApi[]
+    /** Total number of stuck cohorts instance-wide. */
+    total_count: number
+}
+
 export type PropertyGroupOperatorApi = (typeof PropertyGroupOperatorApi)[keyof typeof PropertyGroupOperatorApi]
 
 export const PropertyGroupOperatorApi = {
@@ -413,6 +522,15 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+}
+
+export type CohortsStaffListParams = {
+    /**
+     * Cohort ids to look up (max 50 per request). Repeat the param (?cohort_ids=1&cohort_ids=2) or pass one comma-separated value (?cohort_ids=1,2).
+     * @minItems 1
+     * @maxItems 50
+     */
+    cohort_ids: number[]
 }
 
 export type CohortsListParams = {

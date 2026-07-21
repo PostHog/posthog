@@ -307,6 +307,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    Toolbar = 'toolbar',
 }
 
 interface UserBaseType {
@@ -3392,7 +3393,8 @@ export interface TrendAPIResponse<ResultType = TrendResult[]> {
 }
 
 export interface TrendResult {
-    action: ActionFilter
+    /** Series entity. `null` for formula results, which aren't backed by a single entity. */
+    action: ActionFilter | null
     actions?: ActionFilter[]
     count: number
     data: number[]
@@ -5768,6 +5770,7 @@ export const API_SCOPE_OBJECTS = [
     'tagger',
     'ticket',
     'task',
+    'toolbar',
     'tracing',
     'field_note',
     'uploaded_media',

@@ -2,7 +2,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.source import PlainSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
