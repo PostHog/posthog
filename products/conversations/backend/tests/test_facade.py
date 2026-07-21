@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from products.conversations.backend.facade.api import post_support_message
-from products.conversations.backend.facade.contracts import SupportMessageSendError
+from products.conversations.backend.facade.api import SupportMessageSendError, post_support_message
 
 CLIENT = "products.conversations.backend.facade.api.get_slack_client"
 
@@ -30,17 +30,37 @@ class TestPostSupportMessage(BaseTest):
         assert kwargs["username"] == "SupportBot"
         assert kwargs["icon_url"] == "https://example.com/icon.png"
 
+    @parameterized.expand(
+        [
+            (
+                "slack_rate_limited",
+                SlackApiError(message="x", response={"error": "rate_limited", "headers": {"Retry-After": "7"}}),
+                None,
+                "rate_limited",
+                7.0,
+            ),
+            ("transport_error", ConnectionError("boom"), None, "transport_error", None),
+            ("missing_ts", None, {"ok": True}, "missing_ts", None),
+        ]
+    )
     @patch(CLIENT)
-    def test_translates_slack_errors_with_rate_limit_wait(self, mock_get_client: MagicMock):
+    def test_translates_send_failures(
+        self,
+        _name: str,
+        side_effect: Exception | None,
+        return_value: dict | None,
+        expected_code: str,
+        expected_retry_after: float | None,
+        mock_get_client: MagicMock,
+    ):
         client = MagicMock()
-        client.chat_postMessage.side_effect = SlackApiError(
-            message="x", response={"error": "rate_limited", "headers": {"Retry-After": "7"}}
-        )
+        if side_effect is not None:
+            client.chat_postMessage.side_effect = side_effect
+        else:
+            client.chat_postMessage.return_value = return_value
         mock_get_client.return_value = client
 
-        try:
+        with self.assertRaises(SupportMessageSendError) as ctx:
             post_support_message(self.team.pk, "C1", "hi")
-            raise AssertionError("expected SupportMessageSendError")
-        except SupportMessageSendError as e:
-            assert e.code == "rate_limited"
-            assert e.retry_after == 7.0
+        assert ctx.exception.code == expected_code
+        assert ctx.exception.retry_after == expected_retry_after
