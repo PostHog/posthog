@@ -31,7 +31,9 @@ describe('IntegrationGatewayService', () => {
         it('returns null when disabled or unconfigured', () => {
             expect(createIntegrationGatewayService(config(''))).toBeNull()
             expect(createIntegrationGatewayService({ ...config('*'), CDP_INTEGRATION_GATEWAY_URL: '' })).toBeNull()
-            expect(createIntegrationGatewayService({ ...config('*'), CDP_INTEGRATION_GATEWAY_JWT_SECRET: '' })).toBeNull()
+            expect(
+                createIntegrationGatewayService({ ...config('*'), CDP_INTEGRATION_GATEWAY_JWT_SECRET: '' })
+            ).toBeNull()
         })
 
         it('builds a service when url + secret + rollout are set', () => {
@@ -54,7 +56,13 @@ describe('IntegrationGatewayService', () => {
                 status: 200,
                 json: async () => ({
                     integrations: {
-                        '1': { id: 1, team_id: 42, kind: 'slack', config: {}, sensitive_config: { access_token: 'tok' } },
+                        '1': {
+                            id: 1,
+                            team_id: 42,
+                            kind: 'slack',
+                            config: {},
+                            sensitive_config: { access_token: 'tok' },
+                        },
                     },
                 }),
                 dump: async () => {},
@@ -71,6 +79,7 @@ describe('IntegrationGatewayService', () => {
             expect(JSON.parse(opts.body)).toEqual({ integration_ids: [1, 2] })
 
             const token = (opts.headers.Authorization as string).replace('Bearer ', '')
+            // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
             const decoded = jwt.verify(token, 'test-secret', {
                 audience: PosthogJwtAudience.INTEGRATION_GATEWAY,
             }) as jwt.JwtPayload
