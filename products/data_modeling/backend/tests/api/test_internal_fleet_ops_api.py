@@ -83,7 +83,7 @@ class TestFleetTeams(FleetOpsAPITestCase):
 
 
 class TestMigrationMatrix(FleetOpsAPITestCase):
-    @patch(f"{VIEWS}._is_v2_backend_enabled_for_team", return_value=False)
+    @patch(f"{VIEWS}._is_v2_backend_enabled", return_value=False)
     @patch(f"{VIEWS}.describe_schedules")
     def test_matrix_surfaces_v2_scheduled_flag_excluded_cohort(self, mock_describe, _mock_flag):
         dag = DAG.objects.create(team=self.team, name="Default")
@@ -106,7 +106,7 @@ class TestMigrationMatrix(FleetOpsAPITestCase):
         self.assertEqual(row["switch_c_sync_frequencies_remaining"], 1)
         self.assertEqual(row["classification"], "v2_scheduled_flag_excluded")
 
-    @patch(f"{VIEWS}._is_v2_backend_enabled_for_team", return_value=True)
+    @patch(f"{VIEWS}._is_v2_backend_enabled", return_value=True)
     @patch(f"{VIEWS}.describe_schedules", side_effect=RuntimeError("temporal down"))
     def test_matrix_leaves_classification_null_when_temporal_unreachable(self, _mock_describe, _mock_flag):
         DAG.objects.create(team=self.team, name="Default")

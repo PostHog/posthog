@@ -547,9 +547,9 @@ urlpatterns = [
         "api/internal/data_modeling_ops/endpoints/<str:endpoint_id>",
         csrf_exempt(InternalEndpointsOpsViewSet.as_view({"get": "internal_endpoint_detail"})),
     ),
-    # Cross-team (fleet) routes for the modeling-ops admin app. Same OIDC auth as the
-    # team-scoped routes; the api/internal/data_modeling_ops prefix must be 403'd by
-    # Contour at the edge before these deploy.
+    # Fleet views for the same app: aggregates and cross-team searches that answer a
+    # question about the estate rather than about one entity. Same namespace and OIDC
+    # auth as the routes above.
     path(
         "api/internal/data_modeling_ops/teams",
         csrf_exempt(InternalDataModelingOpsFleetViewSet.as_view({"get": "internal_teams"})),

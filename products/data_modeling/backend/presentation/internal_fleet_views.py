@@ -41,7 +41,7 @@ from products.data_modeling.backend.presentation.internal_serializers import (
     InternalOrphanedScheduleSerializer,
     InternalUnscheduledEntitySerializer,
 )
-from products.data_modeling.backend.presentation.internal_views import _is_v2_backend_enabled_for_team
+from products.data_modeling.backend.presentation.internal_views import _is_v2_backend_enabled
 
 DEFAULT_PAGE_LIMIT = 50
 MAX_PAGE_LIMIT = 100
@@ -121,7 +121,7 @@ class InternalDataModelingOpsFleetViewSet(
         results = []
         for team_id in page_ids:
             team = teams.get(team_id)
-            switch_a = _is_v2_backend_enabled_for_team(team) if team else False
+            switch_a = _is_v2_backend_enabled(team.id, str(team.organization_id)) if team else False
             switch_b: bool | None = (
                 None if temporal_error else any(dag_id in v2_scheduled_dag_ids for dag_id in dag_ids[team_id])
             )
