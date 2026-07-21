@@ -81,10 +81,10 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
 def dispatch_signup_enrichment(inputs: SignupEnrichmentInputs) -> None:
     """Synchronous dispatch for operational re-runs (management commands).
 
-    Skips the signup-path guards on purpose: the operator has already selected the orgs,
-    so the kill switch, region gate, and bounded pool don't apply. Unlike the
-    fire-and-forget signup path, dispatch errors propagate so the operator sees them;
-    a still-running workflow for the org counts as dispatched.
+    Applies no guards itself — callers own the kill switch and region gate (the backfill
+    command enforces both before dispatching). Unlike the fire-and-forget signup path,
+    dispatch errors propagate so the operator sees them; a still-running workflow for
+    the org counts as dispatched.
     """
     try:
         _start_workflow(inputs)

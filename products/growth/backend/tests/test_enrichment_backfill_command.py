@@ -3,7 +3,8 @@ import datetime as dt
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
+from django.test import override_settings
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -20,6 +21,7 @@ def _window() -> dict[str, str]:
     }
 
 
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
 class TestBackfillSignupEnrichment(BaseTest):
     def _org(
         self,
@@ -60,6 +62,26 @@ class TestBackfillSignupEnrichment(BaseTest):
         assert inputs.organization_id == str(target.id)
         assert inputs.domain == "stripe.com"
         assert inputs.distinct_id == target.memberships.get().user.distinct_id
+
+    def test_refuses_when_kill_switch_off(self):
+        with override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False):
+            with self.assertRaises(CommandError):
+                call_command("backfill_signup_enrichment", **_window())
+
+    def test_continues_past_a_failed_dispatch(self):
+        self._org(email="a@stripe.com")
+        second = self._org(email="b@vercel.com")
+
+        with (
+            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(
+                f"{_COMMAND_MODULE}.dispatch_signup_enrichment", side_effect=[RuntimeError("temporal down"), None]
+            ) as dispatch,
+        ):
+            call_command("backfill_signup_enrichment", "--delay=0", **_window())
+
+        assert dispatch.call_count == 2
+        assert dispatch.call_args.args[0].organization_id == str(second.id)
 
     def test_dry_run_dispatches_nothing(self):
         self._org(email="a@stripe.com")

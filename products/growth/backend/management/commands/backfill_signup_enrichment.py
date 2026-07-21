@@ -10,6 +10,7 @@ import time
 import datetime as dt
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -39,6 +40,10 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="List the orgs without dispatching")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        # The kill switch is the master control for sending org data to the provider; a backfill
+        # must not defeat it if it was turned off for a compliance, cost, or vendor reason.
+        if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+            raise CommandError("Signup enrichment is disabled (GROWTH_SIGNUP_ENRICHMENT_ENABLED); refusing to dispatch")
         # Enrichment is US-only for v0 (mirrors the signup-path region gate).
         if get_instance_region() != "US":
             raise CommandError("Signup enrichment is US-only; refusing to dispatch in this region")
@@ -63,7 +68,7 @@ class Command(BaseCommand):
             .iterator()
         )
 
-        dispatched = skipped = 0
+        dispatched = skipped = errored = 0
         for org in orgs:
             if limit is not None and dispatched >= limit:
                 break
@@ -90,13 +95,21 @@ class Command(BaseCommand):
             if options["dry_run"]:
                 self.stdout.write(f"would dispatch {org.id} ({org.created_at:%Y-%m-%d %H:%M}) domain={domain}")
             else:
-                dispatch_signup_enrichment(inputs)
+                try:
+                    dispatch_signup_enrichment(inputs)
+                except Exception as e:
+                    errored += 1
+                    self.stderr.write(f"error {org.id} ({org.created_at:%Y-%m-%d %H:%M}): {e}")
+                    continue
                 self.stdout.write(f"dispatched {org.id} ({org.created_at:%Y-%m-%d %H:%M}) domain={domain}")
                 time.sleep(options["delay"])
             dispatched += 1
 
         verb = "would dispatch" if options["dry_run"] else "dispatched"
-        self.stdout.write(self.style.SUCCESS(f"{verb} {dispatched}, skipped {skipped}"))
+        summary = f"{verb} {dispatched}, skipped {skipped}, errored {errored}"
+        self.stdout.write(self.style.SUCCESS(summary) if errored == 0 else self.style.WARNING(summary))
+        if errored:
+            self.stderr.write("re-run the same window to retry errored orgs; completed orgs are excluded")
 
     @staticmethod
     def _parse_datetime(value: str) -> dt.datetime:
