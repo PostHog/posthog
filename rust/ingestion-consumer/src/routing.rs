@@ -52,6 +52,17 @@ impl FromStr for RoutingStrategy {
     }
 }
 
+impl RoutingStrategy {
+    /// Canonical config-string form, as accepted by [`FromStr`].
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RoutingStrategy::BinPack => "binpack",
+            RoutingStrategy::P2c => "p2c",
+            RoutingStrategy::Aperture => "aperture",
+        }
+    }
+}
+
 /// Per-worker load for a single routing decision, keyed by worker id. A missing
 /// entry counts as zero load.
 pub type WorkerLoad = HashMap<WorkerId, usize>;
