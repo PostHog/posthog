@@ -28,13 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     ENDPOINTS,
     FINNWORLDS_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnworldsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
+    FinnworldsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://finnworlds.com/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

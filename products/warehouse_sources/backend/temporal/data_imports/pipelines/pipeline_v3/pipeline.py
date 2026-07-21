@@ -69,7 +69,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     observe_and_project_table,
     source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -516,9 +515,7 @@ class PipelineV3(Generic[ResumableData]):
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
-        if not self._schema.initial_sync_complete:
-            await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")
-            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
+        # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 
         await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",

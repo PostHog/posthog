@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -20,6 +20,12 @@ export const EngineeringAnalyticsBrokenTestsParams = /* @__PURE__ */ zod.object(
 })
 
 export const EngineeringAnalyticsBrokenTestsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -81,6 +87,12 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .optional()
         .describe(
             'A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+        ),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
         ),
     source_id: zod
         .string()
@@ -148,6 +160,12 @@ export const EngineeringAnalyticsPullRequestsParams = /* @__PURE__ */ zod.object
 export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.object({
     author: zod.string().optional().describe("Optional GitHub login to scope the list to one author's pull requests."),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -168,6 +186,12 @@ export const EngineeringAnalyticsRunFailureLogsParams = /* @__PURE__ */ zod.obje
 })
 
 export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_id: zod.number().describe('Workflow run id whose failure logs to fetch.'),
     source_id: zod
         .string()
@@ -178,13 +202,53 @@ export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod
 })
 
 /**
- * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas."
+        ),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    limit: zod.number().optional().describe('Maximum number of teams to return (1-200). Defaults to 100.'),
+    min_failed_prs: zod
+        .number()
+        .optional()
+        .describe(
+            'A test counts as flaky once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
+        ),
+    min_rerun_passes: zod
+        .number()
+        .optional()
+        .describe(
+            'A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+        ),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
         ),
 })
 
@@ -208,6 +272,12 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_scope: zod
         .enum(['all', 'pull_request'])
         .optional()
@@ -234,6 +304,12 @@ export const EngineeringAnalyticsWorkflowJobsParams = /* @__PURE__ */ zod.object
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_attempt: zod
         .number()
         .optional()

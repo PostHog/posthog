@@ -402,6 +402,8 @@ export interface VisionActionRunListApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
 }
@@ -463,6 +465,8 @@ export interface VisionActionRunApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
     /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -636,6 +640,14 @@ export interface PaginatedReplayObservationListApi {
 }
 
 /**
+ * The PostHog Task created from an observation.
+ */
+export interface CreateTaskFromObservationResponseApi {
+    /** ID of the PostHog Task holding this observation's finding, created now (201) or by an earlier call (200). */
+    task_id: string
+}
+
+/**
  * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
  */
 export interface RetryResponseApi {
@@ -791,6 +803,8 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
+    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    readonly credits_this_month: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -873,6 +887,8 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
+    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    readonly credits_this_month?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -881,6 +897,62 @@ export interface PatchedReplayScannerApi {
     readonly updated_at?: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes?: FeedbackThemesApi | null
+}
+
+/**
+ * Body of POST /vision/scanners/:id/affected_cohort/. Same qualifiers as the impact GET.
+ */
+export interface AffectedCohortRequestApi {
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null
+}
+
+/**
+ * The static cohort created from the scanner's affected users.
+ */
+export interface AffectedCohortResponseApi {
+    /** ID of the created static cohort; usable anywhere cohorts are (funnels, surveys, experiments). */
+    readonly cohort_id: number
+    /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
+    readonly name: string
+    /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+    readonly users_in_cohort: number
+    /** Trailing window the cohort was drawn from, in days. */
+    readonly window_days: number
+}
+
+/**
+ * Who this scanner's findings affected in the window; counted from observations, not estimated.
+ */
+export interface ScannerImpactApi {
+    /** Distinct sessions with an affected observation in the window. For monitors only verdict-yes observations count; for other scanner types every succeeded observation counts. */
+    readonly affected_sessions: number
+    /** Distinct users behind the affected sessions, by distinct ID. May include anonymous device IDs when the recorded sessions were not identified. */
+    readonly affected_users: number
+    /** Affected sessions whose recording carried no distinct ID at all. */
+    readonly sessions_without_user: number
+    /** Trailing window the counts cover, in days. */
+    readonly window_days: number
 }
 
 /**
@@ -945,6 +1017,8 @@ export interface ObservationVersionMarkerApi {
     version: number
     /** The prompt text this version ran with, taken from the observation run snapshots. */
     prompt: string
+    /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
+    scanner_config: unknown
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
@@ -1074,7 +1148,7 @@ export interface PromptEvaluationResultApi {
      * @nullable
      */
     after: string | null
-    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
     outcome: string
     /**
      * Why this session's re-run failed, when it did.
@@ -1130,6 +1204,12 @@ export interface ReplayScannerPromptSuggestionApi {
     readonly suggested_prompt: string
     /** The scanner prompt this suggestion was generated against, for diffing. */
     readonly base_prompt: string
+    /** The scanner config this suggestion was generated against. */
+    readonly base_config: unknown
+    /** The full proposed scanner config, ready to apply. */
+    readonly suggested_config: unknown
+    /** Typed per-field diff entries driving the change cards. */
+    readonly changes: unknown
     /** What the rewrite changed and why, grounded in the ratings. */
     readonly rationale: string
     /** Thumbs-up ratings the suggestion was based on. */
@@ -1158,6 +1238,11 @@ export interface PaginatedReplayScannerPromptSuggestionListApi {
     results: ReplayScannerPromptSuggestionApi[]
 }
 
+export interface ApplyPromptSuggestionRequestApi {
+    /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
+    config?: unknown
+}
+
 export interface EvaluatePromptSuggestionRequestApi {
     /**
      * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
@@ -1165,6 +1250,8 @@ export interface EvaluatePromptSuggestionRequestApi {
      * @maximum 100
      */
     session_limit?: number
+    /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
+    config?: unknown
 }
 
 export interface CurrentPromptSuggestionApi {
@@ -1379,6 +1466,14 @@ export type VisionObservationsListParams = {
 
 export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1387,7 +1482,7 @@ export type VisionObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1434,7 +1529,7 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
      */
     order_by?: string
     /**
@@ -1447,7 +1542,40 @@ export type VisionScannersListParams = {
     search?: string
 }
 
+export type VisionScannersImpactRetrieveParams = {
+    /**
+     * Scorer scanners only: count sessions scoring at or below this value.
+     * @nullable
+     */
+    max_score?: number | null
+    /**
+     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
+     * @nullable
+     */
+    min_score?: number | null
+    /**
+     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
+     * @maxLength 100
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Trailing window of observations to count. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
+}
+
 export type VisionScannersObservationsListParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
@@ -1465,7 +1593,7 @@ export type VisionScannersObservationsListParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1492,6 +1620,14 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1500,7 +1636,7 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1527,6 +1663,14 @@ export type VisionScannersObservationsRetrieveParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1535,7 +1679,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     recent_days?: number
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**

@@ -68,6 +68,7 @@ from .aviationstack.source import AviationstackSource
 from .aviator.source import AviatorSource
 from .awin.source import AwinSource
 from .aws_cloudtrail.source import AwsCloudTrailSource
+from .axiom.source import AxiomSource
 from .azure_blob.source import AzureBlobSource
 from .azure_devops.source import AzureDevOpsSource
 from .azure_table_storage.source import AzureTableStorageSource
@@ -114,6 +115,7 @@ from .callrail.source import CallRailSource
 from .campaign_manager_360.source import CampaignManager360Source
 from .campaign_monitor.source import CampaignMonitorSource
 from .campayn.source import CampaynSource
+from .campfire.source import CampfireSource
 from .canny.source import CannySource
 from .capsule_crm.source import CapsuleCRMSource
 from .captain_data.source import CaptainDataSource
@@ -176,6 +178,7 @@ from .couchbase.source import CouchbaseSource
 from .coupa.source import CoupaSource
 from .coveralls.source import CoverallsSource
 from .crates_io.source import CratesIOSource
+from .crisp.source import CrispSource
 from .criteo.source import CriteoSource
 from .cronitor.source import CronitorSource
 from .crunchbase.source import CrunchbaseSource
@@ -188,6 +191,7 @@ from .customerly.source import CustomerlySource
 from .dagster_cloud.source import DagsterCloudSource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
+from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
 from .datorama.source import DatoramaSource
@@ -197,7 +201,6 @@ from .decagon.source import DecagonSource
 from .deel.source import DeelSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
-from .delighted.source import DelightedSource
 from .deno_deploy.source import DenoDeploySource
 from .deputy.source import DeputySource
 from .devin_ai.source import DevinAISource
@@ -218,6 +221,7 @@ from .drip.source import DripSource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
+from .dubsado.source import DubsadoSource
 from .dwolla.source import DwollaSource
 from .dynamics365.source import Dynamics365Source
 from .dynamodb.source import DynamoDBSource
@@ -387,6 +391,7 @@ from .justcall.source import JustCallSource
 from .justsift.source import JustSiftSource
 from .k6_cloud.source import K6CloudSource
 from .kafka.source import KafkaSource
+from .kajabi.source import KajabiSource
 from .kandji.source import KandjiSource
 from .kapa_ai.source import KapaAISource
 from .katana.source import KatanaSource
@@ -399,6 +404,7 @@ from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
 from .knock.source import KnockSource
+from .kommo.source import KommoSource
 from .kong_konnect.source import KongKonnectSource
 from .koyeb.source import KoyebSource
 from .kubecost.source import KubecostSource
@@ -576,6 +582,7 @@ from .planetscale.source import PlanetScaleSource
 from .planhat.source import PlanhatSource
 from .platform_sh.source import PlatformShSource
 from .plausible.source import PlausibleSource
+from .plivo.source import PlivoSource
 from .plunk.source import PlunkSource
 from .pocket.source import PocketSource
 from .podium.source import PodiumSource
@@ -592,6 +599,7 @@ from .printify.source import PrintifySource
 from .productboard.source import ProductboardSource
 from .productive.source import ProductiveSource
 from .prompting_company.source import PromptingCompanySource
+from .promptwatch.source import PromptWatchSource
 from .pulumi_cloud.source import PulumiCloudSource
 from .pylon.source import PylonSource
 from .pypi.source import PyPISource
@@ -680,6 +688,7 @@ from .sharetribe.source import SharetribeSource
 from .shippo.source import ShippoSource
 from .shipstation.source import ShipStationSource
 from .shopify.source import ShopifySource
+from .shopware.source import ShopwareSource
 from .shopwired.source import ShopWiredSource
 from .shortcut.source import ShortcutSource
 from .shortio.source import ShortioSource
@@ -695,6 +704,7 @@ from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
+from .sleekplan.source import SleekplanSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
 from .smartreach.source import SmartreachSource

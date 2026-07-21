@@ -24,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlatformShSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.platformsh import (
+    PlatformShSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.platform_sh import (
     AUTH_FAILED_MESSAGE,
     PlatformShResumeConfig,
@@ -44,6 +46,7 @@ logger = structlog.get_logger(__name__)
 @SourceRegistry.register
 class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://api.platform.sh/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

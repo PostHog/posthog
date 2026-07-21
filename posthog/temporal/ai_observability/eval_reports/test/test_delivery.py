@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.delivery import (
+    _build_citation_map,
     _format_period_for_display,
     _inline_email_styles,
     _linkify_citations,
@@ -23,10 +24,14 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 
 
+def _generation_citation_map(generation_id: str, trace_id: str) -> dict[str, tuple[str, str | None]]:
+    return _build_citation_map([Citation(generation_id=generation_id, trace_id=trace_id, reason="example")])
+
+
 class TestLinkifyCitations(SimpleTestCase):
     def test_links_cited_generation_id_in_backticks(self):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=42, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
         self.assertIn(
@@ -36,14 +41,14 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_links_cited_generation_id_in_double_backticks(self):
         text = "See `` `12345678-1234-1234-1234-123456789abc` `` here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
         self.assertNotIn("``", result)
 
     def test_links_cited_generation_id_bare(self):
         text = "See 12345678-1234-1234-1234-123456789abc here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
 
@@ -54,13 +59,13 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_leaves_non_id_backticks_alone(self):
         text = "Use `some_function()` here."
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertEqual(text, result)
 
     def test_no_double_replacement_when_id_appears_multiple_times(self):
         gen_id = "639a38ba-6cc6-4e0c-b5ff-ad269f6f9cf6"
-        citation_map = {gen_id: "trace-abc"}
+        citation_map = _generation_citation_map(gen_id, "trace-abc")
         text = f"- `{gen_id}`: satisfied\n1. {gen_id} — reason"
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertNotIn(f"?event=[", result)
@@ -69,8 +74,8 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_multiple_citations_no_cross_contamination(self):
         citation_map = {
-            "aaaa1111-1111-1111-1111-111111111111": "trace-a",
-            "bbbb2222-2222-2222-2222-222222222222": "trace-b",
+            **_generation_citation_map("aaaa1111-1111-1111-1111-111111111111", "trace-a"),
+            **_generation_citation_map("bbbb2222-2222-2222-2222-222222222222", "trace-b"),
         }
         text = "First: `aaaa1111-1111-1111-1111-111111111111`, second: `bbbb2222-2222-2222-2222-222222222222`."
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
@@ -80,9 +85,68 @@ class TestLinkifyCitations(SimpleTestCase):
 
     def test_handles_non_uuid_trace_id(self):
         text = "See `gen-123` here."
-        citation_map = {"gen-123": "my-custom-trace-id"}
+        citation_map = _generation_citation_map("gen-123", "my-custom-trace-id")
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertIn("/traces/my-custom-trace-id?event=gen-123", result)
+
+    @parameterized.expand(
+        [
+            (
+                "generation",
+                Citation(generation_id="generation/id ?#", trace_id="trace/id ?#", reason="example"),
+                "generation/id ?#",
+                "/traces/trace%252Fid%2520%253F%2523?event=generation%2Fid+%3F%23",
+                True,
+            ),
+            (
+                "trace",
+                Citation(generation_id="", trace_id="trace/id ?#", reason="example"),
+                "trace/id ?#",
+                "/traces/trace%252Fid%2520%253F%2523",
+                False,
+            ),
+        ]
+    )
+    def test_links_structured_citation_for_target(
+        self,
+        _name: str,
+        citation: Citation,
+        cited_id: str,
+        expected_url: str,
+        expects_event_focus: bool,
+    ) -> None:
+        result = _linkify_citations(
+            f"See `{cited_id}` here.",
+            project_id=1,
+            citation_map=_build_citation_map([citation]),
+        )
+
+        self.assertIn(expected_url, result)
+        self.assertEqual("?event=" in result, expects_event_focus)
+
+    def test_trace_citation_does_not_link_bare_common_id(self) -> None:
+        citation = Citation(generation_id="", trace_id="foo", reason="example")
+
+        result = _linkify_citations(
+            "See `foo`, but foobar and foo stay plain.",
+            project_id=1,
+            citation_map=_build_citation_map([citation]),
+        )
+
+        self.assertEqual(result.count("[foo...]"), 1)
+        self.assertIn("foobar and foo stay plain", result)
+
+    def test_opaque_trace_id_cannot_break_markdown_link(self) -> None:
+        citation = Citation(generation_id="", trace_id="trace](id", reason="example")
+
+        result = _linkify_citations(
+            "See `trace](id`.",
+            project_id=1,
+            citation_map=_build_citation_map([citation]),
+        )
+
+        self.assertIn("[trace](", result)
+        self.assertIn("/traces/trace%255D%2528id", result)
 
 
 class TestRenderSectionHtml(SimpleTestCase):
@@ -101,7 +165,7 @@ class TestRenderSectionHtml(SimpleTestCase):
         self.assertIn("<strong>Pass rate</strong>", html)
 
     def test_converts_cited_id_to_link(self):
-        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
         html = _render_section_html(
             "Failures",
             "Failed: `12345678-1234-1234-1234-123456789abc`",

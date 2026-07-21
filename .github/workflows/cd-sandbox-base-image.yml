@@ -204,6 +204,16 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
+            - name: Resolve published agent version
+              id: agent-version
+              run: |
+                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
+                  if [[ -z "$version" || "$version" == "null" ]]; then
+                    echo "Could not resolve the latest @posthog/agent version" >&2
+                    exit 1
+                  fi
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
             - name: Build and push container image (base)
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -214,7 +224,9 @@ jobs:
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
+                  build-args: |
+                      AGENT_VERSION=${{ steps.agent-version.outputs.version }}
+                      COMMIT_HASH=${{ github.sha }}
 
             - name: Build and push container image (notebook)
               id: build-notebook

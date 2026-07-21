@@ -188,6 +188,8 @@ function DetailsSection({
     onConfigureSyncMethod: () => void
     onViewSyncHistory: () => void
 }): JSX.Element {
+    const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
+
     return (
         <div>
             <SectionHeader
@@ -280,20 +282,21 @@ function DetailsSection({
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Synced table</span>
-                    {schema.table ? (
+                    {schema.table && syncedTableName ? (
                         <Link
                             to={urls.sqlEditor({
-                                query: defaultQuery(schema.table.name, schema.table.columns).source.query,
+                                query: defaultQuery(syncedTableName, schema.table.columns).source.query,
                             })}
                             onClick={(event) => {
                                 event.preventDefault()
-                                const table = schema.table!
                                 newInternalTab(
-                                    urls.sqlEditor({ query: defaultQuery(table.name, table.columns).source.query })
+                                    urls.sqlEditor({
+                                        query: defaultQuery(syncedTableName, schema.table!.columns).source.query,
+                                    })
                                 )
                             }}
                         >
-                            <code>{schema.table.name}</code>
+                            <code>{syncedTableName}</code>
                         </Link>
                     ) : (
                         <span className="text-muted">Not yet synced</span>
@@ -999,7 +1002,12 @@ function AnchorTimeField({
         <div className="flex flex-col gap-1">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex flex-col">
-                    <span>Anchor time</span>
+                    <span>
+                        Anchor time
+                        {(currentTeam?.timezone === 'UTC' || currentTeam?.timezone === 'GMT') && (
+                            <span className="text-muted"> (UTC)</span>
+                        )}
+                    </span>
                     <span className="text-xs text-muted max-w-md">
                         Pin the sync schedule so runs start at a predictable time each day (useful for coordinating with
                         downstream jobs). Only applies to intervals longer than one hour.

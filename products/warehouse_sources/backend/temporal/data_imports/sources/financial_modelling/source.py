@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     ENDPOINTS,
     FINANCIAL_MODELLING_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.financialmodelling import (
     FinancialModellingSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
+    supported_versions = ("stable",)
+    default_version = "stable"
+    api_docs_url = "https://site.financialmodelingprep.com/developer/docs/stable"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZepSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ENDPOINTS, ZEP_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep import (
     ZepResumeConfig,
@@ -33,6 +33,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ZepSource(ResumableSource[ZepSourceConfig, ZepResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://help.getzep.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
