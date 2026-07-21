@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
@@ -22,7 +23,9 @@ UUID_V4 = "a1b2c3d4-e5f6-4711-8899-aabbccddeeff"
 
 
 class TestUuidTimestampBounds(BaseTest):
-    def _print(self, select: str, modifiers: HogQLQueryModifiers | None = None, dialect: str = "clickhouse") -> str:
+    def _print(
+        self, select: str, modifiers: HogQLQueryModifiers | None = None, dialect: HogQLDialect = "clickhouse"
+    ) -> str:
         query, _ = prepare_and_print_ast(
             parse_select(select),
             HogQLContext(
