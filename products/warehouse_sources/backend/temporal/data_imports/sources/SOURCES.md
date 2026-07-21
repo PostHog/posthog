@@ -526,6 +526,7 @@ the row lists both.
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
 | stockdata                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| streamelements                   | HTTP                        | requests                                                        | ✅                          |
 | stripe                           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | stytch                           | HTTP                        | requests                                                        | ✅                          |
 | sumo_logic                       | HTTP                        | requests                                                        | ✅                          |
@@ -954,7 +955,6 @@ doesn't conflict with concurrent PRs.
 - spotify_ads
 - statsig
 - strava
-- streamelements
 - streamlabs
 - sumsub
 - superwall
