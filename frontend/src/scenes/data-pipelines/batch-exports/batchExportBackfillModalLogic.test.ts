@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BatchExportConfiguration } from '~/types'
+import { BatchExportConfiguration, BatchExportInterval } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportDataLogic } from './batchExportDataLogic'
@@ -95,7 +95,7 @@ describe('batchExportBackfillModalLogic', () => {
     describe('submitBackfillForm', () => {
         const submitCases: {
             name: string
-            interval: string
+            interval: BatchExportInterval
             timezone: string | null
             values: {
                 earliest_backfill: boolean
