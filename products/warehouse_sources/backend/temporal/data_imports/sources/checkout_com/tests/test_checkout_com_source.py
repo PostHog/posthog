@@ -7,6 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     CheckoutComResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CheckoutComSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -52,8 +55,9 @@ class TestCheckoutComSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://access.checkout.com/connect/token",
-            "400 Client Error: Bad Request for url: https://access.sandbox.checkout.com/connect/token",
+            # Permanent token-exchange failures carry the framework's stable marker.
+            f"HTTP 401 from the OAuth2 token endpoint: invalid_client {OAUTH2_PERMANENT_ERROR_MARKER}",
+            f"HTTP 400 from the OAuth2 token endpoint {OAUTH2_PERMANENT_ERROR_MARKER}",
             "403 Client Error: Forbidden for url: https://api.checkout.com/disputes?limit=250",
         ],
     )
@@ -67,6 +71,8 @@ class TestCheckoutComSource:
             "500 Server Error for url: https://api.checkout.com/disputes",
             # Mid-sync 401s on the API host are handled by token re-mint.
             "401 Client Error: Unauthorized for url: https://api.checkout.com/disputes",
+            # Transient token-endpoint errors (429/5xx) carry no marker and stay retryable.
+            "HTTP 429 from the OAuth2 token endpoint",
         ],
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
@@ -127,6 +133,8 @@ class TestCheckoutComSource:
         assert kwargs["client_id"] == "ack_id"
         assert kwargs["client_secret"] == "secret"
         assert kwargs["endpoint"] == "disputes"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
