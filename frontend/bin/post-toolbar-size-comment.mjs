@@ -46,7 +46,7 @@ lines.push('')
 
 if (report.overBudget) {
     lines.push(
-        `🟡 Eager toolbar JS is ${formatBytes(report.eagerBytes)}, over the ${formatBytes(report.budgetBytes)} budget. ` +
+        `🟡 Eager toolbar output is ${formatBytes(report.eagerBytes)}, over the ${formatBytes(report.budgetBytes)} budget. ` +
             'Something newly reachable through static imports — lazy-load it (`import()`) or cut the import edge.',
         ''
     )

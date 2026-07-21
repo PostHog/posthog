@@ -103,12 +103,13 @@ function main() {
 
     // Eager-set budget.
     const eagerJs = [...eagerOutputs(outputs)].filter((o) => o.endsWith('.js'))
-    const eagerBytes = eagerJs.reduce((sum, o) => sum + outputs[o].bytes, 0)
+    const eagerFiles = entryCss ? [...eagerJs, entryCss] : eagerJs
+    const eagerBytes = eagerFiles.reduce((sum, o) => sum + outputs[o].bytes, 0)
     const lazyJs = jsOutputs(outputs).filter((o) => !eagerJs.includes(o))
     const lazyBytes = lazyJs.reduce((sum, o) => sum + outputs[o].bytes, 0)
     if (eagerBytes > MAX_EAGER_BYTES) {
         fail(
-            `Eager toolbar JS is ${humanBytes(eagerBytes)} across ${eagerJs.length} files, over the ` +
+            `Eager toolbar output is ${humanBytes(eagerBytes)} across ${eagerFiles.length} files, over the ` +
                 `${humanBytes(MAX_EAGER_BYTES)} budget. Something newly reachable through static imports — ` +
                 'lazy-load it (import()) or cut the import edge.'
         )
@@ -118,7 +119,7 @@ function main() {
         writeReport({
             loaderBytes,
             eagerBytes,
-            eagerJs,
+            eagerFiles,
             lazyBytes,
             lazyFiles: lazyJs.length,
             oversizeFiles,
@@ -136,7 +137,7 @@ function main() {
 
     console.info(
         `✓ Toolbar sizes OK: loader ${humanBytes(loaderBytes)} (max ${humanBytes(MAX_LOADER_BYTES)}), ` +
-            `eager JS ${humanBytes(eagerBytes)} in ${eagerJs.length} files (budget ${humanBytes(MAX_EAGER_BYTES)}), ` +
+            `eager output ${humanBytes(eagerBytes)} in ${eagerFiles.length} files (budget ${humanBytes(MAX_EAGER_BYTES)}), ` +
             `deferred JS ${humanBytes(lazyBytes)} in ${lazyJs.length} files, ` +
             `every file under the ${humanBytes(MAX_FILE_BYTES)} CloudFront gzip limit.`
     )
@@ -148,7 +149,7 @@ function main() {
 function writeReport({
     loaderBytes,
     eagerBytes,
-    eagerJs,
+    eagerFiles,
     lazyBytes,
     lazyFiles,
     oversizeFiles,
@@ -156,7 +157,7 @@ function writeReport({
     outputs,
 }) {
     const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-    const largest = eagerJs
+    const largest = eagerFiles
         .map((o) => ({ file: o, bytes: outputs[o].bytes }))
         .sort((a, b) => b.bytes - a.bytes)
         .slice(0, 10)
@@ -165,7 +166,7 @@ function writeReport({
         loaderBudget: MAX_LOADER_BYTES,
         loaderOverBudget: loaderBytes !== null && loaderBytes > MAX_LOADER_BYTES,
         eagerBytes,
-        eagerFiles: eagerJs.length,
+        eagerFiles: eagerFiles.length,
         budgetBytes: MAX_EAGER_BYTES,
         overBudget: eagerBytes > MAX_EAGER_BYTES,
         lazyBytes,
