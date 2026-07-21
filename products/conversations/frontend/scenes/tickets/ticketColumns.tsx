@@ -101,7 +101,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                     {ticket.last_message_text ? (
                         <TicketPreviewPopover ticketId={ticket.id}>
                             <span
-                                className={clsx('text-xs truncate max-w-md', {
+                                className={clsx('inline-block text-xs truncate max-w-md', {
                                     'text-muted-alt': ticket.unread_team_count === 0,
                                     'font-medium': ticket.unread_team_count > 0,
                                 })}

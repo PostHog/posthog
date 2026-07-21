@@ -23938,7 +23938,6 @@
                 "Dixa",
                 "Gladly",
                 "Qualtrics",
-                "Delighted",
                 "AzureDevOps",
                 "Rollbar",
                 "Opsgenie",
@@ -24615,7 +24614,10 @@
                 "Axiom",
                 "Plivo",
                 "DataForSEO",
-                "Sleekplan"
+                "Sleekplan",
+                "Tally",
+                "Nuntly",
+                "FusionAuth"
             ],
             "type": "string"
         },

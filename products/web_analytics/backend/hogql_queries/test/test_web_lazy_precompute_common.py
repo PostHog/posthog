@@ -77,6 +77,15 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
 
     @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    @mock.patch(f"{_COMMON}.is_background_warming_request", return_value=True)
+    def test_background_warming_bypasses_org_flag(self, _warming, flag) -> None:
+        # Without this bypass, the Dagster warmers (where flag evaluation is
+        # unreliable) silently warm the raw path instead of building buckets.
+        assert is_precompute_enabled_for_team(self.team) is True
+        flag.assert_not_called()
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
     def test_unrestricted_team_is_enrolled_without_being_in_enrollment_list(self, flag) -> None:
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
             assert is_precompute_enabled_for_team(self.team) is True

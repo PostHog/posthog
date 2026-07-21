@@ -1155,6 +1155,34 @@ describe('exec tool', () => {
         })
     })
 
+    describe('unavailable tool recovery', () => {
+        it.each(['info endpoint-create', 'schema endpoint-create', 'call endpoint-create {}'])(
+            'explains how to recover when %s is scope-gated',
+            async (command) => {
+                const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                    {
+                        name: 'endpoint-create',
+                        title: 'Create endpoint',
+                        description: 'Create a new endpoint',
+                        missingScopes: ['endpoint:write'],
+                    },
+                ])
+
+                await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                    /exists[\s\S]*endpoint:write[\s\S]*reauthorize[\s\S]*browser does not update MCP permissions/i
+                )
+            }
+        )
+
+        it('directs unknown tool names back to catalog search', async () => {
+            const exec = createExec()
+
+            await expect(exec.handler(mockContext, { command: 'call endpoint-make {}' })).rejects.toThrow(
+                /search endpoint-make[\s\S]*before claiming the capability is unavailable/i
+            )
+        })
+    })
+
     describe('parseExecCallInnerToolName', () => {
         it.each([
             ['call my-tool {}', 'my-tool'],
