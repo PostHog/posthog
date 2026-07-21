@@ -374,12 +374,12 @@ function useQuestionSections(): QuestionSection[] {
     const sections: { title: string; description: string; cards: (PickerCardSpec | undefined)[] }[] = [
         {
             title: 'How does it change over time?',
-            description: 'Follow a metric across days, weeks, or months to spot trends and dips.',
+            description: 'Follow a metric over time to spot trends and dips.',
             cards: [byType[InsightType.TRENDS], byType[InsightType.STICKINESS], byType[InsightType.LIFECYCLE]],
         },
         {
             title: 'What are the totals?',
-            description: 'Add up a metric for a period and see what it is made of, or where it comes from.',
+            description: 'Add up a metric and see what it is made of.',
             cards: [
                 SUB_INSIGHT_CARDS.number,
                 SUB_INSIGHT_CARDS.table,
@@ -389,12 +389,12 @@ function useQuestionSections(): QuestionSection[] {
         },
         {
             title: 'How do users behave?',
-            description: 'Follow users through conversion funnels, retention, and journeys in your product.',
+            description: 'Funnels, retention, and journeys through your product.',
             cards: [byType[InsightType.FUNNELS], byType[InsightType.RETENTION], byType[InsightType.PATHS]],
         },
         {
             title: 'Build your own',
-            description: 'Write SQL against your data, or ask AI to build the insight for you.',
+            description: 'Write SQL against your data, or let AI build it.',
             cards: [byType[InsightType.SQL], byType[InsightType.HOG], ai],
         },
     ]
@@ -447,9 +447,10 @@ const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
 function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.Element {
     return (
         <div className="flex flex-col gap-2.5">
+            {/* single-line title + description keep header heights equal, so card rows align across columns */}
             <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-semibold text-default">{section.title}</span>
-                <span className="text-xs text-secondary">{section.description}</span>
+                <span className="truncate text-sm font-semibold text-default">{section.title}</span>
+                <span className="truncate text-xs text-secondary">{section.description}</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
                 {section.cards.map((spec) => (
