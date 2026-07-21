@@ -545,3 +545,43 @@ class TestLiveSandboxRegistry:
             (str(live_run.id), "sb-live", "org/live"),
             (str(eligible_loop_run.id), "sb-loop", "org/loop"),
         }
+
+    @pytest.mark.parametrize("marker,included", [("none", True), ("owner", True), ("other", False)])
+    def test_actor_transition_gates_owner_token_propagation(self, marker, included):
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        from products.tasks.backend.models import Task, TaskRun
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+            _live_sandboxes_for_user_integration,
+        )
+        from products.tasks.backend.temporal.process_task.utils import mark_sandbox_github_identity
+
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        owner = User.objects.create(email="owner@test.com")
+        other = User.objects.create(email="other@test.com")
+        integration = UserIntegration.objects.create(
+            user=owner, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="i1", config={}, sensitive_config={}
+        )
+        task = Task.objects.create(
+            team=team, created_by=owner, repository="org/repo", github_user_integration=integration
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-x", "pr_authorship_mode": "user"},
+        )
+        # An unset marker (no transition yet) and one bound to the owner both propagate; a marker
+        # bound to a different per-message actor means the sandbox was logged out / rebound, so the
+        # owner's rotating token must not overwrite it.
+        if marker == "owner":
+            mark_sandbox_github_identity("sb-x", owner.id)
+        elif marker == "other":
+            mark_sandbox_github_identity("sb-x", other.id)
+
+        result = _live_sandboxes_for_user_integration(integration.id)
+
+        assert (result == [(str(run.id), "sb-x", "org/repo")]) is included
