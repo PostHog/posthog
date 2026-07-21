@@ -1,9 +1,8 @@
-"""Search-noise control for governed-metric discovery.
+"""Catalog-noise control for governed-metric discovery.
 
-Governed metrics surface in single-exec ``search`` output when the catalog flag is on.
-This control guards the other direction: metric matches in discovery must not derail an
-ordinary tool task whose keywords collide with the seeded metric names. The agent should
-create the flag with the feature-flag tool and never detour through the metrics catalog.
+Catalog-first steering must not overcorrect: a seeded catalog whose metric names share
+keywords with an ordinary tool task must not derail that task. The agent should create
+the flag with the feature-flag tool and never detour through the metrics catalog.
 
 To run::
 
@@ -25,8 +24,8 @@ async def eval_search_discovery(ctx: EvalContext) -> None:
     """Do governed metrics in search results leave ordinary tool tasks undisturbed?"""
     cases = [
         # The seeded catalog holds revenue metrics whose names share tokens with this
-        # prompt, so a keyword search surfaces them — the flag must still get created,
-        # with no SQL detour through the metrics catalog.
+        # prompt — the flag must still get created, with no SQL detour through the
+        # metrics catalog.
         SandboxedEvalCase(
             name="tool_task_undistracted_by_metrics",
             prompt=f"Create a feature flag called {CONTROL_FLAG_KEY} rolled out to 25% of users.",

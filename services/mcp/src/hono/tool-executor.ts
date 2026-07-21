@@ -18,9 +18,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
-import { createGovernedMetricsSearcher } from '@/tools/metric-search'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -28,13 +26,7 @@ import type { Context, ZodObjectAny } from '@/tools/types'
 import { trackExecuteSqlGeneration, trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
-import {
-    governedMetricSearchDurationSeconds,
-    governedMetricSearchFailuresTotal,
-    toolCallDurationSeconds,
-    toolCallsTotal,
-    toolErrorsTotal,
-} from './metrics'
+import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -411,26 +403,6 @@ export class ToolExecutor {
                 : tool
         )
 
-        // Flag-off orgs get a structurally absent hook, so search output stays
-        // byte-identical to today's — no metrics fetch, no runtime branch. The
-        // CLI harness performs no flag evaluation and is deliberately unwired.
-        const searchGovernedMetrics =
-            state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
-                ? createGovernedMetricsSearcher(state.context, {
-                      onOutcome: (outcome) => {
-                          governedMetricSearchDurationSeconds.observe(
-                              { status: outcome.status },
-                              outcome.durationMs / 1000
-                          )
-                          if (outcome.status !== 'ok') {
-                              governedMetricSearchFailuresTotal.inc({
-                                  failure_class: outcome.failureClass ?? outcome.status,
-                              })
-                          }
-                      },
-                  })
-                : undefined
-
         const execTool = createExecTool(
             execTools,
             state.context,
@@ -442,7 +414,6 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
-                ...(searchGovernedMetrics ? { searchGovernedMetrics } : {}),
             }
         )
 

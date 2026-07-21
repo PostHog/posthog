@@ -214,7 +214,6 @@ export class ApiClient {
         query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
-        signal?: AbortSignal
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -240,7 +239,6 @@ export class ApiClient {
             method: opts.method,
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
             ...(opts.headers ? { headers: opts.headers } : {}),
-            ...(opts.signal ? { signal: opts.signal } : {}),
         }
 
         if (opts.responseType === 'text') {

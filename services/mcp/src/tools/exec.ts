@@ -8,7 +8,6 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
-import type { GovernedMetricMatch, GovernedMetricsSearcher } from './metric-search'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -28,14 +27,6 @@ const MAX_SEARCH_PATTERN_LENGTH = 400
 /** Ranked (plain-word) search can match loosely on a common token like
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
-
-/** Static on purpose: catalog metric text is tenant-authored free text and must
- *  only ever appear as structured field values, never spliced into hint prose. */
-const GOVERNED_METRICS_HINT =
-    'Governed data catalog metrics matching this query. Only status "approved" with is_drifted false is canonical — treat proposed or drifted metrics as unreviewed leads, not answers. Run one with: call data-catalog-metric-run {"name": "<name>"}. Inspect definitions via execute-sql on system.information_schema.metrics.'
-
-const EMPTY_SEARCH_CATALOG_POINTER =
-    ' Governed catalog metrics may still exist — query system.information_schema.metrics via execute-sql.'
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -72,13 +63,6 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
-    /**
-     * Flag-gated governed-metrics lookup (data catalog). When present, `search`
-     * additionally surfaces matching catalog metrics in a separate
-     * `governed_metrics` section; absence or failure leaves the tools-only
-     * output byte-identical to today's.
-     */
-    searchGovernedMetrics?: GovernedMetricsSearcher
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -387,25 +371,9 @@ export function createExecTool(
                             .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
 
-                    const governedMetrics: GovernedMetricMatch[] = options.searchGovernedMetrics
-                        ? await options.searchGovernedMetrics(rest).catch((): GovernedMetricMatch[] => [])
-                        : []
-                    // Single assembly point: every object-shaped return goes through this,
-                    // so a future branch can't silently drop the metrics section.
-                    const withMetrics = (payload: Record<string, unknown>): string =>
-                        JSON.stringify(
-                            governedMetrics.length > 0
-                                ? {
-                                      ...payload,
-                                      governed_metrics: governedMetrics,
-                                      governed_metrics_hint: GOVERNED_METRICS_HINT,
-                                  }
-                                : payload
-                        )
-
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
-                        return withMetrics({
+                        return JSON.stringify({
                             matches,
                             scope_gated_matches: gatedMatches.map((t) => ({
                                 name: t.name,
@@ -417,24 +385,17 @@ export function createExecTool(
                         })
                     }
                     if (matches.length === 0) {
-                        const catalogPointer =
-                            options.searchGovernedMetrics && governedMetrics.length === 0
-                                ? EMPTY_SEARCH_CATALOG_POINTER
-                                : ''
-                        return withMetrics({
+                        return JSON.stringify({
                             matches: [],
-                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.${catalogPointer}`,
+                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
                         })
                     }
                     if (truncatedFrom > 0) {
-                        return withMetrics({
+                        return JSON.stringify({
                             matches,
                             truncated: true,
                             hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
                         })
-                    }
-                    if (governedMetrics.length > 0) {
-                        return withMetrics({ matches })
                     }
                     return JSON.stringify(matches)
                 }

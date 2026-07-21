@@ -57,22 +57,6 @@ export const toolErrorsTotal = new Counter({
     labelNames: ['tool', 'error_type'] as const,
 })
 
-// The catalog lookup degrades to tools-only search on any failure by design, so
-// without these a broken credential or hung endpoint is indistinguishable from
-// an empty catalog.
-export const governedMetricSearchDurationSeconds = new Histogram({
-    name: 'mcp_governed_metric_search_duration_seconds',
-    help: 'Governed-metric catalog lookup duration during exec search, by outcome.',
-    labelNames: ['status'] as const,
-    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
-})
-
-export const governedMetricSearchFailuresTotal = new Counter({
-    name: 'mcp_governed_metric_search_failures_total',
-    help: 'Governed-metric catalog lookup failures by value-free class (timeout, http_<status>, error name).',
-    labelNames: ['failure_class'] as const,
-})
-
 export const redisOperationsTotal = new Counter({
     name: 'mcp_redis_operations_total',
     help: 'Redis cache and connection operations by outcome.',

@@ -15,7 +15,6 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -154,54 +153,6 @@ describe('ToolExecutor', () => {
             expect(text).toContain('execute-sql')
             expect(text).toContain('organization-get')
             expect(text).not.toContain('feature-flag-get-all')
-        })
-    })
-
-    describe('governed metric search wiring', () => {
-        const metricRow = {
-            name: 'top_customers_mrr',
-            display_name: 'Top customers by MRR',
-            description: 'Ranks customers by monthly recurring revenue',
-            status: 'approved',
-            is_drifted: false,
-        }
-
-        function makeCatalogState(flagOn: boolean, request: ReturnType<typeof vi.fn>): ResolvedState {
-            const state = makeState([], {
-                toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: flagOn },
-            })
-            state.context = {
-                ...state.context,
-                api: { request },
-                stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
-            } as any
-            return state
-        }
-
-        it('fetches and surfaces governed metrics when the catalog flag is on', async () => {
-            const request = vi.fn().mockResolvedValue({ count: 1, next: null, previous: null, results: [metricRow] })
-
-            const result = await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'search revenue customers' } },
-                makeCatalogState(true, request)
-            )
-
-            expect(request).toHaveBeenCalledOnce()
-            const serialized = JSON.stringify(result)
-            expect(serialized).toContain('governed_metrics')
-            expect(serialized).toContain('top_customers_mrr')
-        })
-
-        it('performs no catalog fetch and emits no metrics section when the flag is off', async () => {
-            const request = vi.fn()
-
-            const result = await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'search revenue customers' } },
-                makeCatalogState(false, request)
-            )
-
-            expect(request).not.toHaveBeenCalled()
-            expect(JSON.stringify(result)).not.toContain('governed_metrics')
         })
     })
 
