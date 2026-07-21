@@ -436,6 +436,7 @@ the row lists both.
 | ramp                             | HTTP                        | requests                                                        | ✅                          |
 | rapid7_insightvm                 | HTTP                        | requests                                                        | ✅                          |
 | raygun                           | HTTP                        | requests                                                        | ✅                          |
+| razorpay                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge                         | HTTP                        | requests                                                        | ✅                          |
 | recruitee                        | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -875,7 +876,6 @@ doesn't conflict with concurrent PRs.
 - railz
 - rapid7_insightvm
 - raygun
-- razorpay
 - rb2b
 - rd_station_marketing
 - recreation
