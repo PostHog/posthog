@@ -7,11 +7,13 @@ from datetime import date
 from typing import Any, Literal
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
+    RETENTION_STRANDED_ERROR,
     _cleanup_old_s3_extractions,
+    _terminalize_stranded_runs,
     manage_warehouse_sources_queue_partitions,
 )
 
@@ -297,7 +299,16 @@ def test_uses_configured_bucket_prefix() -> None:
 
 
 class _FakePgConn:
-    """Minimal psycopg.Connection stand-in: context manager + .execute returning a cursor."""
+    """Minimal psycopg.Connection stand-in: context manager + .execute returning a cursor.
+
+    ``partitions`` (parent table -> partition names) feeds the pg_inherits
+    listing so the drop loop has something to drop; executed DROPs are recorded
+    in ``dropped``.
+    """
+
+    def __init__(self, partitions: dict[str, list[str]] | None = None) -> None:
+        self.partitions = partitions or {}
+        self.dropped: list[str] = []
 
     def __enter__(self) -> _FakePgConn:
         return self
@@ -305,22 +316,27 @@ class _FakePgConn:
     def __exit__(self, *args: Any) -> Literal[False]:
         return False
 
-    def execute(self, _sql: Any, _params: Any = None) -> MagicMock:
+    def execute(self, sql: Any, params: Any = None) -> MagicMock:
         cursor = MagicMock()
         cursor.fetchall.return_value = []
+        if "pg_inherits" in sql and params:
+            cursor.fetchall.return_value = [(name,) for name in self.partitions.get(params[0], [])]
+        elif sql.startswith("DROP TABLE IF EXISTS "):
+            self.dropped.append(sql.removeprefix("DROP TABLE IF EXISTS "))
         return cursor
 
 
 @contextmanager
-def _patched_pg():
+def _patched_pg(partitions: dict[str, list[str]] | None = None):
     # _verify_partitions is stubbed because the fake connection returns no rows, which would
     # otherwise flood `errors` with bogus "partition missing" messages — orthogonal to the
     # S3-cleanup wiring these integration tests cover.
+    conn = _FakePgConn(partitions)
     with (
-        patch.object(activities_module.psycopg.Connection, "connect", return_value=_FakePgConn()) as connect,
+        patch.object(activities_module.psycopg.Connection, "connect", return_value=conn),
         patch.object(activities_module, "_verify_partitions"),
     ):
-        yield connect
+        yield conn
 
 
 @pytest.mark.asyncio
@@ -357,6 +373,128 @@ async def test_activity_s3_failure_marks_success_false_and_triggers_slack(activi
     assert result["errors"] == ["Failed to delete S3 partition dt=2000-01-01: kaboom"]
     assert result["s3_deleted"] == []
     post.assert_called_once()
+
+
+# Terminalizing stranded runs before partition drops
+
+
+class _StrandedQueryConn:
+    """Stand-in for the queue-DB connection inside _terminalize_stranded_runs."""
+
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.rows = rows
+
+    def execute(self, _sql: Any, _params: Any = None) -> MagicMock:
+        cursor = MagicMock()
+        cursor.fetchall.return_value = self.rows
+        return cursor
+
+
+@contextmanager
+def _patched_terminalize_collaborators():
+    with (
+        patch("products.warehouse_sources.backend.facade.pipelines.BatchQueue") as batch_queue,
+        patch("products.warehouse_sources.backend.facade.pipelines.mark_job_failed_if_not_terminal") as mark_failed,
+        patch("products.warehouse_sources.backend.facade.pipelines.release_v3_pipeline_lock") as release_lock,
+    ):
+        batch_queue.fail_batches_for_job_sync.return_value = 2
+        yield batch_queue, mark_failed, release_lock
+
+
+def test_terminalize_fails_each_stranded_run_and_releases_its_lock() -> None:
+    conn = _StrandedQueryConn(
+        [
+            ("run-1", 1, "schema-a", "job-1", "wf-run-1", 3),
+            ("run-2", 2, "schema-b", "job-2", None, 1),
+        ]
+    )
+
+    with _patched_terminalize_collaborators() as (batch_queue, mark_failed, release_lock):
+        _terminalize_stranded_runs(conn, "sourcebatch_20000101")  # type: ignore[arg-type]
+
+    assert batch_queue.fail_batches_for_job_sync.call_args_list == [
+        call(conn, job_id="job-1", reason=RETENTION_STRANDED_ERROR),
+        call(conn, job_id="job-2", reason=RETENTION_STRANDED_ERROR),
+    ]
+    assert mark_failed.call_args_list == [
+        call(job_id="job-1", team_id=1, error=RETENTION_STRANDED_ERROR),
+        call(job_id="job-2", team_id=2, error=RETENTION_STRANDED_ERROR),
+    ]
+    # Only run-1 recorded a workflow_run_id; releasing without the holder's token must not happen.
+    release_lock.assert_called_once_with(1, "schema-a", "wf-run-1")
+
+
+def test_terminalize_keeps_batches_non_terminal_when_job_fail_write_errors() -> None:
+    # The queue-batch fail must come last: it flips the very state the sweep uses
+    # to rediscover a stranded run, so committing it before a failed app-DB write
+    # would make tomorrow's retry see an all-terminal partition and drop the
+    # evidence with the job still RUNNING.
+    conn = _StrandedQueryConn([("run-1", 1, "schema-a", "job-1", "wf-run-1", 3)])
+
+    with _patched_terminalize_collaborators() as (batch_queue, mark_failed, _release_lock):
+        mark_failed.side_effect = RuntimeError("app db unavailable")
+        with pytest.raises(RuntimeError):
+            _terminalize_stranded_runs(conn, "sourcebatch_20000101")  # type: ignore[arg-type]
+
+    batch_queue.fail_batches_for_job_sync.assert_not_called()
+
+
+def test_terminalize_makes_no_writes_for_all_terminal_partition() -> None:
+    with _patched_terminalize_collaborators() as (batch_queue, mark_failed, release_lock):
+        _terminalize_stranded_runs(_StrandedQueryConn([]), "sourcebatch_20000101")  # type: ignore[arg-type]
+
+    batch_queue.fail_batches_for_job_sync.assert_not_called()
+    mark_failed.assert_not_called()
+    release_lock.assert_not_called()
+
+
+OLD_BATCH_PART = "sourcebatch_20000101"
+OLD_BATCH_PART_2 = "sourcebatch_20000102"
+OLD_STATUS_PART = "sourcebatchstatus_20000101"
+
+
+@pytest.mark.asyncio
+async def test_activity_terminalizes_only_sourcebatch_partitions_then_drops(activity_environment) -> None:
+    partitions = {"sourcebatch": [OLD_BATCH_PART], "sourcebatchstatus": [OLD_STATUS_PART]}
+
+    with (
+        _patched_pg(partitions) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    # Status partitions carry no run state, so only the sourcebatch partition terminalizes.
+    terminalize.assert_called_once_with(conn, OLD_BATCH_PART)
+    assert OLD_BATCH_PART in result["dropped"]
+    assert OLD_STATUS_PART in result["dropped"]
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_activity_keeps_partition_when_terminalization_fails(activity_environment) -> None:
+    partitions = {
+        "sourcebatch": [OLD_BATCH_PART, OLD_BATCH_PART_2],
+        "sourcebatchstatus": [OLD_STATUS_PART],
+    }
+
+    def _boom(_conn: Any, partition_name: str) -> None:
+        if partition_name == OLD_BATCH_PART:
+            raise RuntimeError("app-db unavailable")
+
+    with (
+        _patched_pg(partitions) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs", side_effect=_boom),
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    # The failed partition is preserved as evidence (no DROP even attempted); everything else proceeds.
+    assert OLD_BATCH_PART not in conn.dropped
+    assert OLD_BATCH_PART_2 in result["dropped"]
+    assert OLD_STATUS_PART in result["dropped"]
+    assert result["success"] is False
+    assert any(OLD_BATCH_PART in e for e in result["errors"])
 
 
 @pytest.mark.asyncio

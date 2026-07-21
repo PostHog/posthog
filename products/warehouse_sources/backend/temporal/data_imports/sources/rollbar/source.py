@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RollbarSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rollbar import (
+    RollbarSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar import (
     RollbarResumeConfig,
     rollbar_source,

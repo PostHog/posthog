@@ -9,7 +9,8 @@
         "kea-router": "catalog:"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:"
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
