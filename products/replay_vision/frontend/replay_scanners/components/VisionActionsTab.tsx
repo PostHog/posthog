@@ -82,25 +82,43 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
-    if (!visionActionsLoading && visionActions.length === 0) {
+    // The scanner's built-in daily digest lives on the Observations tab (ScannerDigestCard), not this
+    // table — so this table lists only the summaries and alerts a user created, and its empty state is
+    // meaningful again. Filtered here, not in visionActionsLogic, so the digest stays in the shared
+    // list the card reads from.
+    const rows = visionActions.filter((a) => !a.is_scanner_digest)
+
+    if (!visionActionsLoading && rows.length === 0) {
         return (
             <ProductIntroduction
                 productName="Summaries and alerts"
-                thingName="group summary or alert"
+                thingName="summary or alert"
                 isEmpty
                 customHog={HedgehogXRay}
-                description="Get scheduled group summaries of this scanner's observations — synthesized by AI on the cadence you choose — or alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                description="Get scheduled summaries of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
-                    <EditorGate>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            to={urls.replayVisionActionNew(scannerId)}
-                            data-attr="vision-action-new-empty"
-                        >
-                            New group summary or alert
-                        </LemonButton>
-                    </EditorGate>
+                    <div className="flex gap-2">
+                        <EditorGate>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                                data-attr="vision-action-new-empty"
+                            >
+                                New summary
+                            </LemonButton>
+                        </EditorGate>
+                        <EditorGate>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionActionNew(scannerId, 'alert')}
+                                data-attr="vision-action-new-alert-empty"
+                            >
+                                New alert
+                            </LemonButton>
+                        </EditorGate>
+                    </div>
                 }
             />
         )
@@ -119,7 +137,6 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                     >
                         {action.name}
                     </Link>
-                    {action.is_scanner_digest && <LemonTag type="highlight">Default</LemonTag>}
                     {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),
@@ -218,25 +235,35 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
                 <EditorGate>
                     <LemonButton
-                        type="primary"
+                        type="secondary"
                         icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId)}
+                        to={urls.replayVisionActionNew(scannerId, 'group_summary')}
                         data-attr="vision-action-new"
                     >
-                        New group summary or alert
+                        New summary
+                    </LemonButton>
+                </EditorGate>
+                <EditorGate>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        to={urls.replayVisionActionNew(scannerId, 'alert')}
+                        data-attr="vision-action-new-alert"
+                    >
+                        New alert
                     </LemonButton>
                 </EditorGate>
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={visionActions}
+                dataSource={rows}
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No group summaries or alerts set up for this scanner yet."
+                emptyState="No summaries or alerts set up for this scanner yet."
             />
         </div>
     )

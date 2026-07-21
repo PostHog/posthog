@@ -81,6 +81,7 @@ the row lists both.
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
+| baserow                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | baseten                          | HTTP                        | requests                                                        | ✅                          |
 | beamer                           | HTTP                        | requests                                                        | ✅                          |
 | better_stack                     | HTTP                        | requests                                                        | ✅                          |
@@ -188,6 +189,7 @@ the row lists both.
 | drata                            | HTTP                        | requests                                                        | ✅                          |
 | dropbox_sign                     | HTTP                        | requests                                                        | ✅                          |
 | drip                             | HTTP                        | requests                                                        | ✅                          |
+| dub                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
 | e2b                              | HTTP                        | requests                                                        | ✅                          |
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
@@ -431,6 +433,7 @@ the row lists both.
 | platform_sh                      | HTTP                        | requests                                                        | ✅                          |
 | plausible                        | HTTP                        | requests                                                        | ✅                          |
 | plivo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| plunk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | polar                            | HTTP                        | requests                                                        | ✅                          |
 | plaid                            | HTTP                        | requests                                                        | ✅                          |
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
@@ -587,6 +590,7 @@ the row lists both.
 | watchmode                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                          | HTTP                        | requests                                                        | ✅                          |
 | weights_and_biases               | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| wikipedia_pageviews              | HTTP                        | requests                                                        | ✅                          |
 | windmill                         | HTTP                        | requests                                                        | ✅                          |
 | woocommerce                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress                        | HTTP                        | requests                                                        | ✅                          |
@@ -726,7 +730,6 @@ doesn't conflict with concurrent PRs.
 - drata
 - dremio
 - dropbox
-- dub
 - dubsado
 - dwolla
 - dynamics365
@@ -755,6 +758,7 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshservice
 - fulcrum
+- fusionauth
 - gerrit
 - getstream
 - gitea
@@ -849,6 +853,7 @@ doesn't conflict with concurrent PRs.
 - ninjaone_rmm
 - nocrm
 - northpass_lms
+- nuntly
 - nutshell
 - nylas
 - octolens
@@ -878,7 +883,6 @@ doesn't conflict with concurrent PRs.
 - pivotal_tracker
 - piwik
 - planetscale
-- plunk
 - pocket
 - podium
 - polygon
@@ -966,6 +970,7 @@ doesn't conflict with concurrent PRs.
 - swonkie
 - synthesia
 - systeme
+- tally
 - telli
 - tempo
 - terra_api
@@ -993,7 +998,6 @@ doesn't conflict with concurrent PRs.
 - wasabi
 - watchmode
 - when_i_work
-- wikipedia_pageviews
 - workday
 - workflowmax
 - workramp
