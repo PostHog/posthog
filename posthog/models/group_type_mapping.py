@@ -371,29 +371,35 @@ def _reconfirm_emptied_projects_against_primary(
     The batch fetch reads at eventual consistency (the replica pool), which can return
     an empty mapping for a project that authoritatively has group types. That silent
     empty is what makes the downstream flag-cache write try to erase a populated
-    mapping. When a project reads empty but has a populated last-known-good (stale key),
-    re-read just those projects from the primary at strong consistency and trust that
-    answer — the primary is authoritative for both "was dropped" and "genuinely empty
-    now" (e.g. the last group type was deleted).
+    mapping. Every project that reads empty is re-confirmed against the primary at strong
+    consistency — unless it carries a "confirmed empty" marker from a recent primary read
+    — and we trust that answer: the primary is authoritative for both "was dropped" and
+    "genuinely empty now" (e.g. the last group type was deleted).
 
-    Projects that read empty with no last-known-good are treated as genuinely having no
-    group types (the common case). They are not re-confirmed, so this adds no primary
-    load on the hot path unless a real drop is detected. The write-side guard remains the
-    backstop for that cold-cache edge. When the primary confirms a project is genuinely
-    empty, its stale key is cleared so a later outage can't resurrect the deleted data
-    and so the project stops being flagged as a suspect on every subsequent read.
+    Reconfirming every empty (not only those with a populated last-known-good) closes the
+    cold-cache edge — empty replica read, no stale key, project actually populated — that
+    otherwise slipped past to the write-side guard and fired its exception. The
+    confirmed-empty marker bounds the cost: a project with genuinely no group types (the
+    common case) is probed at most once per marker TTL rather than on every rebuild, and
+    the same marker short-circuits the write-side project_has_group_types_authoritatively
+    check, so this moves that primary read earlier rather than adding new load.
+
+    When the primary confirms a project is genuinely empty, its stale key is cleared so a
+    later outage can't resurrect the deleted data, and the confirmed-empty marker is set
+    so subsequent reads skip the primary probe.
     """
-    suspect_stale: dict[int, list[dict[str, Any]]] = {}
+    # pid -> last-known-good (None when no stale key exists — the cold-cache edge).
+    suspects: dict[int, list[dict[str, Any]] | None] = {}
     for pid in project_ids:
         if result.get(pid):
             continue
-        stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
-        if stale is not None:
-            suspect_stale[pid] = stale
-    if not suspect_stale:
+        if get_safe_cache(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{pid}"):
+            continue
+        suspects[pid] = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+    if not suspects:
         return result
 
-    suspect_ids = list(suspect_stale.keys())
+    suspect_ids = list(suspects.keys())
 
     try:
         client = require_personhog_client()
@@ -405,9 +411,12 @@ def _reconfirm_emptied_projects_against_primary(
         )
     except DatabaseError:
         # Primary confirmation failed. Serve each project's last-known-good rather than
-        # the replica's unconfirmed empty, so we never hand back a silent [] over data
-        # we know was populated.
-        for pid, stale in suspect_stale.items():
+        # the replica's unconfirmed empty, so we never hand back a silent [] over data we
+        # know was populated. Projects with no last-known-good keep the replica's empty —
+        # there is nothing to restore and it can't be confirmed either way.
+        for pid, stale in suspects.items():
+            if stale is None:
+                continue
             result[pid] = stale
             GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
                 operation="get_group_types_for_projects", outcome="primary_unavailable_used_stale"
@@ -428,6 +437,9 @@ def _reconfirm_emptied_projects_against_primary(
             )
         else:
             safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+            safe_cache_set(
+                f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{pid}", True, GROUP_TYPES_CONFIRMED_EMPTY_CACHE_TTL
+            )
             GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
                 operation="get_group_types_for_projects", outcome="confirmed_empty"
             ).inc()
@@ -440,9 +452,10 @@ def get_group_types_for_projects(
     """Batch fetch group types for multiple projects via personhog, falling back to
     the per-project stale cache on failure.
 
-    The batch read is at eventual consistency; any project that reads empty despite a
-    populated last-known-good is re-confirmed against the primary so a lagging replica
-    cannot silently return an empty mapping for a project that has group types.
+    The batch read is at eventual consistency; any project that reads empty is
+    re-confirmed against the primary (unless a recent primary read already marked it
+    confirmed-empty) so a lagging replica cannot silently return an empty mapping for a
+    project that has group types.
 
     Raises GroupTypesUnavailable if personhog is unavailable and any requested
     project has no cached last-known-good, rather than returning an all-empty
