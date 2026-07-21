@@ -244,6 +244,11 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
         prop = {"key": "$country", "value": "US", "type": "event"}
         assert flatten_property_leaves([{"type": "AND", "values": [prop]}]) == [prop]
 
+    def test_rejects_non_dict_property_filter(self):
+        prop = {"key": "$country", "value": "US", "type": "event"}
+        with self.assertRaisesRegex(ValueError, "Invalid property filter item: expected dict, got str"):
+            flatten_property_leaves([prop, "invalid"])
+
     def test_deeply_nested_group_does_not_recurse_past_depth_cap(self):
         nested: dict[str, Any] = {"key": "$browser", "value": "Chrome", "type": "event"}
         for _ in range(100):

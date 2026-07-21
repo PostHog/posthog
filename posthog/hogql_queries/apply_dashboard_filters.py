@@ -141,6 +141,8 @@ def flatten_property_leaves(properties: Any, _depth: int = 0) -> list[dict]:
             leaves.extend(flatten_property_leaves(item, _depth + 1))
         elif isinstance(item, dict):
             leaves.append(item)
+        else:
+            raise ValueError(f"Invalid property filter item: expected dict, got {type(item).__name__}")
     return leaves
 
 
