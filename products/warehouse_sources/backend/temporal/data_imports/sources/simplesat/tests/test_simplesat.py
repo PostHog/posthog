@@ -1,12 +1,16 @@
+import json
 from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat import simplesat
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.settings import (
     ENDPOINTS,
     SIMPLESAT_ENDPOINTS,
@@ -14,225 +18,297 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat import (
     SIMPLESAT_BASE_URL,
     SimplesatResumeConfig,
-    SimplesatRetryableError,
-    check_access,
-    get_rows,
     simplesat_source,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = simplesat._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the simplesat module.
+SIMPLESAT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat.make_tracked_session"
+)
+# tenacity sleeps between retries; patch it so retry-exhaustion paths don't slow the suite.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SimplesatResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SimplesatResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SimplesatResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SimplesatResumeConfig) -> None:
-        self.saved.append(data)
-
-
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[Optional[str], tuple[list[dict], Optional[str]]],
-        endpoint: str = "surveys",
-    ) -> list[dict]:
-        # Keyed by `next_url` (None for the first request), value is (items, next_url) for that page.
-        seen_urls: list[str] = []
-
-        def fake_fetch(
-            session: Any,
-            method: str,
-            url: str,
-            list_key: str,
-            params: Any,
-            json_body: Any,
-            logger: Any,
-        ) -> tuple[list[dict], Optional[str]]:
-            seen_urls.append(url)
-            # On the first request `params` is set; on cursor follow-ups it is None.
-            key = url if url in pages else None
-            return pages[key]
-
-        monkeypatch.setattr(simplesat, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(simplesat, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="ss-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_single_page_with_null_next_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([{"id": 1}, {"id": 2}], None)})
-        assert rows == [{"id": 1}, {"id": 2}]
-        # `next` is null, so we stop without persisting resume state.
-        assert manager.saved == []
-
-    def test_follows_next_url_until_null(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2&page_size=100"
-        pages: dict[Optional[str], tuple[list[dict], Optional[str]]] = {
-            None: ([{"id": 1}], next_url),
-            next_url: ([{"id": 2}], None),
-        }
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": 1}, {"id": 2}]
-        # State is saved with the cursor after the first page, then we stop on the null `next`.
-        assert [s.next_url for s in manager.saved] == [next_url]
-
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2&page_size=100"
-        manager = _FakeResumableManager(SimplesatResumeConfig(next_url=next_url))
-        # The first page URL must never be fetched on resume.
-        pages: dict[Optional[str], tuple[list[dict], Optional[str]]] = {next_url: ([{"id": 5}], None)}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": 5}]
-
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([], None)})
-        assert rows == []
-        assert manager.saved == []
-
-    def test_off_origin_next_url_raises(self, monkeypatch: Any) -> None:
-        # A pagination cursor pointing off the Simplesat API origin must not be followed — it would
-        # leak the customer's API key to another host.
-        manager = _FakeResumableManager()
-        evil = "https://evil.example.com/api/v1/surveys?page=2"
-        with pytest.raises(SimplesatRetryableError):
-            self._collect(manager, monkeypatch, {None: ([{"id": 1}], evil)})
-
-    def test_off_origin_resume_url_raises(self, monkeypatch: Any) -> None:
-        # A tampered saved cursor is rejected before any request is made.
-        evil = "https://evil.example.com/api/v1/surveys?page=2"
-        manager = _FakeResumableManager(SimplesatResumeConfig(next_url=evil))
-        with pytest.raises(SimplesatRetryableError):
-            self._collect(manager, monkeypatch, {evil: ([{"id": 5}], None)})
+def _response(
+    list_key: str,
+    items: Any,
+    *,
+    next_url: Optional[str] = None,
+    include_key: bool = True,
+    status: int = 200,
+    url: str = f"{SIMPLESAT_BASE_URL}/surveys",
+) -> Response:
+    body: dict[str, Any] = {"count": 0, "next": next_url, "previous": None}
+    if include_key:
+        body[list_key] = items
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"surveys": []}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
+def _raw_response(payload: Any, *, status: int = 200) -> Response:
+    """A response whose top-level body is exactly ``payload`` (e.g. a bare list)."""
+    resp = Response()
+    resp.status_code = status
+    resp.url = f"{SIMPLESAT_BASE_URL}/surveys"
+    resp._content = json.dumps(payload).encode()
+    return resp
+
+
+def _make_manager(resume_state: SimplesatResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: Any) -> list[dict[str, Any]]:
+    """Wire a mock session; return a list capturing each request's method/url/params/json AT SEND TIME.
+
+    ``request`` fields are mutated in place across pages, so snapshot a copy when each request is
+    prepared. ``prepared.url`` mirrors ``request.url`` so the client's host-pinning check sees the
+    real (possibly off-host) URL. ``responses`` may be a list (consumed in order) or a callable.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append(
+            {
+                "method": request.method,
+                "url": request.url,
+                "params": dict(request.params or {}),
+                "json": request.json,
+            }
         )
-        session = MagicMock()
-        session.get.return_value = response
-        session.post.return_value = response
-        return session
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock) -> Any:
+    return simplesat_source(
+        api_key="ss-key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager
+    )
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_with_null_next_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("surveys", [{"id": 1}, {"id": 2}], next_url=None)])
+
+        manager = _make_manager()
+        rows = _rows(_source("surveys", manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        assert session.send.call_count == 1
+        # `next` is null, so we stop without persisting resume state.
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_next_url_until_null_and_checkpoints(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2&page_size=100"
+        snapshots = _wire(
+            session,
+            [
+                _response("surveys", [{"id": 1}], next_url=next_url),
+                _response("surveys", [{"id": 2}], next_url=None, url=next_url),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("surveys", manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        # First request carries page_size; the follow-up targets the self-contained next URL with no
+        # re-appended params.
+        assert snapshots[0]["params"] == {"page_size": 100}
+        assert snapshots[1]["url"] == next_url
+        assert snapshots[1]["params"] == {}
+        # State is saved with the cursor after the first page, then we stop on the null `next`.
+        manager.save_state.assert_called_once_with(SimplesatResumeConfig(next_url=next_url))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor_without_refetching_first_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2&page_size=100"
+        snapshots = _wire(session, [_response("surveys", [{"id": 5}], next_url=None, url=next_url)])
+
+        manager = _make_manager(SimplesatResumeConfig(next_url=next_url))
+        rows = _rows(_source("surveys", manager))
+
+        assert rows == [{"id": 5}]
+        # The one and only request goes straight to the saved cursor — the first page is never fetched.
+        assert session.send.call_count == 1
+        assert snapshots[0]["url"] == next_url
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("surveys", [], next_url=None)])
+
+        manager = _make_manager()
+        assert _rows(_source("surveys", manager)) == []
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_post_endpoint_uses_post_with_empty_json_body(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response("answers", [{"id": 1}], next_url=None)])
+
+        rows = _rows(_source("answers", _make_manager()))
+
+        assert rows == [{"id": 1}]
+        assert snapshots[0]["method"] == "POST"
+        assert snapshots[0]["json"] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_get_endpoint_sends_no_json_body(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response("surveys", [{"id": 1}], next_url=None)])
+
+        _rows(_source("surveys", _make_manager()))
+
+        assert snapshots[0]["method"] == "GET"
+        assert snapshots[0]["json"] is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_api_key_rides_header_auth_not_client_headers(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("surveys", [{"id": 1}], next_url=None)])
+
+        _rows(_source("surveys", _make_manager()))
+
+        # The secret is injected via framework api_key auth (redacted), so it must not sit in the
+        # non-secret client headers copied onto the session.
+        assert "X-Simplesat-Token" not in session.headers
+        assert session.headers.get("Accept") == "application/json"
+
+
+class TestHostPinning:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_origin_next_url_is_rejected_before_it_is_fetched(self, MockSession) -> None:
+        session = MockSession.return_value
+        evil = "https://evil.example.com/api/v1/surveys?page=2"
+        _wire(session, [_response("surveys", [{"id": 1}], next_url=evil)])
+
+        # A pagination cursor pointing off the Simplesat host must not be followed — it would leak the
+        # customer's API key to another origin.
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("surveys", _make_manager()))
+        # Only the first (on-host) page was actually sent; the off-host URL never left the process.
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_origin_resume_url_is_rejected(self, MockSession) -> None:
+        session = MockSession.return_value
+        evil = "https://evil.example.com/api/v1/surveys?page=2"
+        _wire(session, [_response("surveys", [{"id": 5}], next_url=None, url=evil)])
+
+        manager = _make_manager(SimplesatResumeConfig(next_url=evil))
+        # A tampered saved cursor is rejected before any request is made.
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("surveys", manager))
+        session.send.assert_not_called()
+
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_redirect_is_rejected(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        redirect = Response()
+        redirect.status_code = 302
+        redirect.url = f"{SIMPLESAT_BASE_URL}/surveys"
+        redirect.headers["Location"] = "https://evil.example.com/steal"
+        _wire(session, [redirect])
+
+        # Redirects are disabled, so a 3xx can't smuggle the request (and API key) to another origin.
+        with pytest.raises(ValueError, match="[Rr]edirect"):
+            _rows(_source("surveys", _make_manager()))
+
+
+class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SimplesatRetryableError):
-            _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_retry_then_reraise(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, lambda *a, **k: _response("surveys", [], status=status))
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("surveys", _make_manager()))
+        # Retried up to the client's attempt cap before giving up.
+        assert session.send.call_count == 5
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_immediately(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("surveys", [], status=status)])
+
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
+            _rows(_source("surveys", _make_manager()))
+        # A 4xx is permanent — no retry.
+        assert session.send.call_count == 1
 
-    def test_success_extracts_list_and_next(self) -> None:
-        body = {"surveys": [{"id": 1}], "count": 1, "next": None, "previous": None}
-        session = self._session_returning(200, body)
-        items, next_url = _fetch_page_unwrapped(
-            session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock()
-        )
-        assert items == [{"id": 1}]
-        assert next_url is None
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_dict_body_is_retried(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, lambda *a, **k: _raw_response([{"id": 1}]))
 
-    def test_success_returns_next_url(self) -> None:
-        next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2"
-        body = {"surveys": [{"id": 1}], "next": next_url}
-        session = self._session_returning(200, body)
-        _items, returned = _fetch_page_unwrapped(
-            session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock()
-        )
-        assert returned == next_url
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("surveys", _make_manager()))
+        assert session.send.call_count == 5
 
-    def test_non_dict_body_is_retryable(self) -> None:
-        session = self._session_returning(200, [{"id": 1}])
-        with pytest.raises(SimplesatRetryableError):
-            _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_resource_key_is_retried(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, lambda *a, **k: _response("surveys", {"nope": 1}, next_url=None))
 
-    def test_non_list_resource_key_is_retryable(self) -> None:
-        session = self._session_returning(200, {"surveys": {"nope": 1}})
-        with pytest.raises(SimplesatRetryableError):
-            _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("surveys", _make_manager()))
+        assert session.send.call_count == 5
 
-    def test_missing_resource_key_is_retryable(self) -> None:
-        # A response envelope without the resource key must fail loudly rather than sync zero rows.
-        session = self._session_returning(200, {"count": 0, "next": None})
-        with pytest.raises(SimplesatRetryableError):
-            _fetch_page_unwrapped(session, "GET", f"{SIMPLESAT_BASE_URL}/surveys", "surveys", {}, None, MagicMock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_resource_key_is_retried(self, MockSession, _sleep) -> None:
+        # A response envelope without the resource key must not silently sync zero rows.
+        session = MockSession.return_value
+        _wire(session, lambda *a, **k: _response("surveys", None, include_key=False, next_url=None))
 
-    def test_post_endpoint_uses_post_with_json_body(self) -> None:
-        body = {"answers": [{"id": 1}], "next": None}
-        session = self._session_returning(200, body)
-        url = f"{SIMPLESAT_BASE_URL}/answers/search"
-        items, _next = _fetch_page_unwrapped(session, "POST", url, "answers", {"page_size": 100}, {}, MagicMock())
-        assert items == [{"id": 1}]
-        session.post.assert_called_once()
-        _, kwargs = session.post.call_args
-        assert kwargs["json"] == {}
-        session.get.assert_not_called()
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("surveys", _make_manager()))
+        assert session.send.call_count == 5
 
 
-class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
-        session = MagicMock()
+class TestValidateCredentials:
+    def _patch_session(self, monkeypatch: Any, response: Any) -> mock.MagicMock:
+        session = mock.MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
-        monkeypatch.setattr(simplesat, "make_tracked_session", lambda **kwargs: session)
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat.make_tracked_session",
+            lambda **kwargs: session,
+        )
         return session
-
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
-        [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Simplesat returned HTTP 500"),
-        ],
-    )
-    def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("ss-key") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("ss-key")
-        assert status == 0
-        assert message is not None and "boom" in message
 
     @pytest.mark.parametrize(
         "status, expected_valid, expected_message",
@@ -243,25 +319,34 @@ class TestCheckAccess:
             (500, False, "Simplesat returned HTTP 500"),
         ],
     )
-    def test_validate_credentials(
+    def test_status_mapping(
         self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
+        response = mock.MagicMock(status_code=status)
         self._patch_session(monkeypatch, response)
         assert validate_credentials("ss-key") == (expected_valid, expected_message)
+
+    def test_connection_error_is_not_validated(self, monkeypatch: Any) -> None:
+        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
+        assert validate_credentials("ss-key") == (False, "Could not validate Simplesat API key")
+
+    def test_probe_disables_redirects_to_protect_api_key(self) -> None:
+        # The X-Simplesat-Token header rides on the probe; the session must be built with redirects
+        # pinned off so a redirect can't replay the key to the redirect target during validation.
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.simplesat.make_tracked_session",
+            return_value=session,
+        ) as make_session:
+            validate_credentials("ss-key")
+        assert make_session.call_args.kwargs["allow_redirects"] is False
 
 
 class TestSimplesatSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = simplesat_source(
-            api_key="ss-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # No stable creation timestamp is guaranteed across every object, so we don't partition.

@@ -1135,6 +1135,8 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    /** Customer analytics account custom property — the key is the property definition id */
+    AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
@@ -1170,6 +1172,11 @@ export interface EventMetadataPropertyFilter extends BasePropertyFilter {
 
 export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.RevenueAnalytics
+    operator: PropertyOperator
+}
+
+export interface AccountCustomPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.AccountCustomProperty
     operator: PropertyOperator
 }
 
@@ -1308,6 +1315,7 @@ export type AnyPropertyFilter =
     | MetricPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | AccountCustomPropertyFilter
     | WorkflowVariablePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
@@ -3388,7 +3396,8 @@ export interface TrendAPIResponse<ResultType = TrendResult[]> {
 }
 
 export interface TrendResult {
-    action: ActionFilter
+    /** Series entity. `null` for formula results, which aren't backed by a single entity. */
+    action: ActionFilter | null
     actions?: ActionFilter[]
     count: number
     data: number[]
@@ -4701,6 +4710,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
+    AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
     Group = 'group',

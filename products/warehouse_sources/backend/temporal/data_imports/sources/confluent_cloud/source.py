@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_
     INCREMENTAL_FIELDS,
     ConfluentCloudEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluentcloud import (
     ConfluentCloudSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

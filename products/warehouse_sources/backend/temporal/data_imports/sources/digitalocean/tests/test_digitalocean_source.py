@@ -7,7 +7,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DigitalOceanSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
+    DigitalOceanSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

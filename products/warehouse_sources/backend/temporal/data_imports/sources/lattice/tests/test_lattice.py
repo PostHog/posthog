@@ -1,16 +1,17 @@
+import json
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 import pytest
 from unittest import mock
 
 import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice import (
     PAGE_SIZE,
     LatticeResumeConfig,
     _base_url,
-    get_rows,
     lattice_source,
     validate_credentials,
 )
@@ -18,6 +19,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.se
     ENDPOINTS,
     LATTICE_ENDPOINTS,
 )
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the lattice module.
+LATTICE_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session"
+)
+
+
+def _response(
+    items: list[dict[str, Any]] | None, *, has_more: bool = False, ending_cursor: str | None = None
+) -> Response:
+    body: dict[str, Any] = {"data": items or [], "hasMore": has_more, "endingCursor": ending_cursor}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
 def _make_manager(resume_state: LatticeResumeConfig | None = None) -> mock.MagicMock:
@@ -27,12 +45,37 @@ def _make_manager(resume_state: LatticeResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _response(items: list[dict[str, Any]], has_more: bool = False, ending_cursor: str | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = {"data": items, "hasMore": has_more, "endingCursor": ending_cursor}
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's (url, params) AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so inspect it when each request
+    is prepared instead of after the run.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(region: str, endpoint: str, manager: mock.MagicMock):
+    return lattice_source(
+        region=region,
+        api_key="key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
 
 
 class TestBaseUrl:
@@ -56,7 +99,7 @@ class TestValidateCredentials:
             (401, False, "Invalid Lattice API key"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
+    @mock.patch(LATTICE_SESSION_PATCH)
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
         response = mock.MagicMock()
         response.status_code = status_code
@@ -64,14 +107,14 @@ class TestValidateCredentials:
 
         assert validate_credentials("us", "key") == (expected_valid, expected_message)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
+    @mock.patch(LATTICE_SESSION_PATCH)
     def test_validate_credentials_rejects_bad_region_without_request(self, mock_session):
         is_valid, error = validate_credentials("evil", "key")
         assert is_valid is False
         assert error is not None
         mock_session.return_value.get.assert_not_called()
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
+    @mock.patch(LATTICE_SESSION_PATCH)
     def test_validate_credentials_transport_error_is_not_invalid_key(self, mock_session):
         # A transient connectivity failure must not be reported as a bad key.
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
@@ -82,82 +125,89 @@ class TestValidateCredentials:
         assert "Invalid Lattice API key" not in error
 
 
-class TestGetRows:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_paginates_via_ending_cursor(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc"),
-            _response([{"id": "2"}], has_more=False),
-        ]
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_ending_cursor(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response([{"id": "1"}], has_more=True, ending_cursor="cur_abc"),
+                _response([{"id": "2"}], has_more=False),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("us", "key", "users", mock.MagicMock(), manager))
+        rows = _rows(_source("us", "users", manager))
 
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2"]
+        assert [r["id"] for r in rows] == ["1", "2"]
+        # Checkpoint saved after the first page (points at the next cursor); the second page ends it.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].starting_after == "cur_abc"
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert parse_qs(urlparse(second_url).query)["startingAfter"] == ["cur_abc"]
+        assert snaps[1]["params"]["startingAfter"] == "cur_abc"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_first_request_uses_max_page_size(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_request_uses_max_page_size(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([])])
 
-        manager = _make_manager()
-        list(get_rows("us", "key", "goals", mock.MagicMock(), manager))
+        list(_source("us", "goals", _make_manager()).items())
 
-        url = mock_session.return_value.get.call_args.args[0]
-        parsed = urlparse(url)
-        assert parsed.path == "/v1/goals"
-        assert parse_qs(parsed.query)["limit"] == [str(PAGE_SIZE)]
-        assert "startingAfter" not in parse_qs(parsed.query)
+        assert urlparse(snaps[0]["url"]).path == "/v1/goals"
+        assert snaps[0]["params"]["limit"] == PAGE_SIZE
+        assert "startingAfter" not in snaps[0]["params"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_emea_region_uses_emea_host(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_emea_region_uses_emea_host(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([])])
 
-        manager = _make_manager()
-        list(get_rows("emea", "key", "users", mock.MagicMock(), manager))
+        list(_source("emea", "users", _make_manager()).items())
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(url).netloc == "api.emea.latticehq.com"
+        assert urlparse(snaps[0]["url"]).netloc == "api.emea.latticehq.com"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_resumes_from_saved_cursor(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([])])
 
         manager = _make_manager(LatticeResumeConfig(starting_after="cur_resume"))
-        list(get_rows("us", "key", "users", mock.MagicMock(), manager))
+        list(_source("us", "users", manager).items())
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["startingAfter"] == ["cur_resume"]
+        assert snaps[0]["params"]["startingAfter"] == "cur_resume"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_has_more_without_cursor_stops(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "1"}], has_more=True, ending_cursor=None)
-
-        manager = _make_manager()
-        batches = list(get_rows("us", "key", "users", mock.MagicMock(), manager))
-
-        assert len(batches) == 1
-        assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_empty_response_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.get.return_value = _response([], has_more=True, ending_cursor="cur_loop")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_has_more_without_cursor_stops(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1"}], has_more=True, ending_cursor=None)])
 
         manager = _make_manager()
-        batches = list(get_rows("us", "key", "users", mock.MagicMock(), manager))
+        rows = _rows(_source("us", "users", manager))
 
-        assert batches == []
+        assert [r["id"] for r in rows] == ["1"]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_stops_without_saving_state(self, MockSession):
+        # A server that keeps advertising hasMore with an empty page must not loop forever.
+        session = MockSession.return_value
+        _wire(session, [_response([], has_more=True, ending_cursor="cur_loop")])
+
+        manager = _make_manager()
+        rows = _rows(_source("us", "users", manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
 
 class TestLatticeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
         config = LATTICE_ENDPOINTS[endpoint]
-        response = lattice_source("us", "key", endpoint, mock.MagicMock(), _make_manager())
+        response = _source("us", endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

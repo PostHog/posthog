@@ -1,16 +1,25 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
+    Endpoint,
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import (
     TRELLO_ENDPOINTS,
@@ -20,17 +29,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trello.set
 TRELLO_BASE_URL = "https://api.trello.com/1"
 
 
-class TrelloRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class TrelloResumeConfig:
-    # Number of boards fully synced; board-scoped endpoints resume past these.
+    # Legacy resume fields kept (with defaults) so state saved by the old transport still parses via
+    # ``dataclass(**saved)``. A resumed run that only carries these starts the fan-out fresh.
     board_index: int = 0
-    # Oldest action id of the last fetched page within the in-progress board
-    # (actions only) — used as the ``before`` cursor to re-enter pagination.
     before_cursor: str | None = None
+    # Fan-out resume state as produced by the rest_source dependent-resource resume hook:
+    # ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
+    fanout_state: dict | None = None
 
 
 def _get_headers(api_key: str, api_token: str) -> dict[str, str]:
@@ -73,25 +80,52 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-@retry(
-    retry=retry_if_exception_type((TrelloRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch(url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
-    response = make_tracked_session().get(url, headers=headers, timeout=60)
+class TrelloActionsPaginator(BasePaginator):
+    """Pages a board's actions newest-first via the ``before`` cursor.
 
-    # Trello rate-limits aggressively (300 req/10s per key, 100 req/10s per token)
-    # and returns 429 when exceeded; retry those plus transient 5xx with backoff.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise TrelloRetryableError(f"Trello API error (retryable): status={response.status_code}, url={url}")
+    Trello returns actions newest-first and offers no forward cursor, so each page's
+    oldest action id (the last row) becomes the ``before`` bound for the next, older
+    page. Pagination stops on an empty page, a short page (fewer than ``limit`` rows),
+    or a page whose last row carries no id.
+    """
 
-    if not response.ok:
-        logger.error(f"Trello API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+    def __init__(self, limit: int, before: str | None = None) -> None:
+        super().__init__()
+        self.limit = limit
+        self._before = before
 
-    return response
+    def _apply(self, request: Request) -> None:
+        if self._before is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["before"] = self._before
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        last = data[-1]
+        oldest_id = last.get("id") if isinstance(last, dict) else None
+        if oldest_id is None or len(data) < self.limit:
+            self._has_next_page = False
+            return
+        self._before = oldest_id
+        self._has_next_page = True
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"before": self._before} if self._has_next_page and self._before is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        before = state.get("before")
+        if before is not None:
+            self._before = before
+            self._has_next_page = True
 
 
 def validate_credentials(api_key: str, api_token: str) -> tuple[bool, str | None]:
@@ -114,205 +148,147 @@ def validate_credentials(api_key: str, api_token: str) -> tuple[bool, str | None
     return False, response.text or f"Trello API returned status {response.status_code}"
 
 
-def _fetch_board_ids(headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
-    url = f"{TRELLO_BASE_URL}/members/me/boards?{urlencode({'fields': 'id'})}"
-    data = _fetch(url, headers, logger).json()
-    if not isinstance(data, list):
-        return []
-    return [board["id"] for board in data if isinstance(board, dict) and board.get("id")]
+def _client_config(api_key: str, api_token: str) -> ClientConfig:
+    # Framework auth carries the composite OAuth header so its value is redacted from logs and
+    # raised errors; only non-secret headers would go in ``headers`` (Trello needs none).
+    return {
+        "base_url": TRELLO_BASE_URL,
+        "auth": {
+            "type": "api_key",
+            "api_key": _get_headers(api_key, api_token)["Authorization"],
+            "name": "Authorization",
+            "location": "header",
+        },
+    }
 
 
-def _sync_member_endpoint(
+def _member_resource(config: TrelloEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str) -> Resource:
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": config.page_size},
+                    "paginator": SinglePagePaginator(),
+                    # A 200 whose body isn't a list means the response shape changed — fail loud
+                    # instead of wrapping the stray object as a single row.
+                    "data_selector_required": True,
+                },
+                "data_map": _add_created_at,
+            }
+        ],
+    }
+    # Member endpoints are a single request; no resume checkpoints.
+    return rest_api_resource(rest_config, team_id, job_id, None)
+
+
+def _board_resource(
     config: TrelloEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-) -> Iterator[Any]:
-    url = f"{TRELLO_BASE_URL}{config.path}?{urlencode({'limit': config.page_size})}"
-    data = _fetch(url, headers, logger).json()
-    if not isinstance(data, list):
-        return
-
-    if len(data) >= config.page_size:
-        logger.warning(
-            f"Trello {config.name} returned {len(data)} rows at the {config.page_size} page cap; "
-            "results may be truncated."
-        )
-
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        batcher.batch(_add_created_at(item))
-        if batcher.should_yield():
-            yield batcher.get_table()
-
-
-def _sync_board_simple(
-    board_id: str,
-    index: int,
-    config: TrelloEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
     manager: ResumableSourceManager[TrelloResumeConfig],
-) -> Iterator[Any]:
-    url = f"{TRELLO_BASE_URL}/boards/{board_id}/{config.path}?{urlencode({'limit': config.page_size})}"
-    data = _fetch(url, headers, logger).json()
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
+    child_paginator: BasePaginator = (
+        TrelloActionsPaginator(limit=config.page_size) if config.paginated else SinglePagePaginator()
+    )
 
-    if isinstance(data, list):
-        if len(data) >= config.page_size:
-            logger.warning(
-                f"Trello {config.name} for board {board_id} returned {len(data)} rows at the "
-                f"{config.page_size} page cap; results may be truncated."
-            )
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            batcher.batch(_add_created_at(item))
-            if batcher.should_yield():
-                yield batcher.get_table()
-                manager.save_state(TrelloResumeConfig(board_index=index, before_cursor=None))
+    child_endpoint: Endpoint = {
+        "path": f"/boards/{{board_id}}/{config.path}",
+        "params": {
+            "board_id": {"type": "resolve", "resource": "boards", "field": "id"},
+            "limit": config.page_size,
+        },
+        "paginator": child_paginator,
+        "data_selector_required": True,
+    }
+    # Only ``actions`` has a server-side ``since`` filter, and only on an incremental run with a
+    # watermark; a full refresh (last_value is None) omits it.
+    if config.paginated and db_incremental_field_last_value is not None:
+        child_endpoint["incremental"] = {
+            "start_param": "since",
+            "cursor_path": config.default_incremental_field or "date",
+            "convert": _format_incremental_value,
+        }
 
-    # Board complete: the next resume starts at the following board.
-    manager.save_state(TrelloResumeConfig(board_index=index + 1, before_cursor=None))
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": "boards",
+                "endpoint": {
+                    # Only ids are needed to fan out; the full board objects sync via the `boards` schema.
+                    "path": "/members/me/boards",
+                    "params": {"fields": "id"},
+                    "paginator": SinglePagePaginator(),
+                },
+            },
+            {
+                "name": config.name,
+                "endpoint": child_endpoint,
+                "include_from_parent": [],
+                "data_map": _add_created_at,
+            },
+        ],
+    }
 
+    initial_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_state = resume.fanout_state
 
-def _sync_board_actions(
-    board_id: str,
-    index: int,
-    config: TrelloEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[TrelloResumeConfig],
-    since: str | None,
-    before: str | None,
-) -> Iterator[Any]:
-    # Actions come back newest-first. We page backwards with ``before`` (the oldest
-    # id of the previous page) and bound the lower edge with ``since`` for
-    # incremental syncs. Both filters can be combined, so a single run only fetches
-    # actions newer than the watermark.
-    while True:
-        params: dict[str, Any] = {"limit": config.page_size}
-        if since:
-            params["since"] = since
-        if before:
-            params["before"] = before
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # The framework emits fan-out progress after each parent page and parent completion; persist
+        # it into our dataclass. ``None`` only when the whole fan-out is done — nothing left to save.
+        if state is not None:
+            manager.save_state(TrelloResumeConfig(fanout_state=state))
 
-        url = f"{TRELLO_BASE_URL}/boards/{board_id}/actions?{urlencode(params)}"
-        data = _fetch(url, headers, logger).json()
-        if not isinstance(data, list) or not data:
-            break
-
-        oldest_id = data[-1]["id"] if isinstance(data[-1], dict) else None
-
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            batcher.batch(_add_created_at(item))
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Checkpoint the cursor that fetched the current page; on resume we
-                # re-fetch it and rely on primary-key merge semantics to dedupe.
-                manager.save_state(TrelloResumeConfig(board_index=index, before_cursor=before))
-
-        if len(data) < config.page_size or not oldest_id:
-            break
-
-        before = oldest_id
-        manager.save_state(TrelloResumeConfig(board_index=index, before_cursor=before))
-
-    manager.save_state(TrelloResumeConfig(board_index=index + 1, before_cursor=None))
-
-
-def _sync_board_endpoint(
-    config: TrelloEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[TrelloResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Iterator[Any]:
-    board_ids = _fetch_board_ids(headers, logger)
-
-    resume = manager.load_state() if manager.can_resume() else None
-    start_index = resume.board_index if resume else 0
-    resume_before = resume.before_cursor if resume else None
-    if resume is not None:
-        logger.debug(f"Trello: resuming {config.name} from board index {start_index}")
-
-    since: str | None = None
-    if config.paginated and should_use_incremental_field and db_incremental_field_last_value:
-        since = _format_incremental_value(db_incremental_field_last_value)
-
-    for index in range(start_index, len(board_ids)):
-        board_id = board_ids[index]
-        if config.paginated:
-            # Only the board we resumed into carries an in-progress before cursor.
-            before = resume_before if index == start_index else None
-            yield from _sync_board_actions(board_id, index, config, headers, logger, batcher, manager, since, before)
-        else:
-            yield from _sync_board_simple(board_id, index, config, headers, logger, batcher, manager)
-
-
-def get_rows(
-    api_key: str,
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TrelloResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = TRELLO_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key, api_token)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-
-    if config.scope == "member":
-        yield from _sync_member_endpoint(config, headers, logger, batcher)
-    else:
-        yield from _sync_board_endpoint(
-            config,
-            headers,
-            logger,
-            batcher,
-            resumable_source_manager,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+    return next(r for r in resources if r.name == config.name)
 
 
 def trello_source(
     api_key: str,
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[TrelloResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    endpoint_config = TRELLO_ENDPOINTS[endpoint]
+    config = TRELLO_ENDPOINTS[endpoint]
+    client_config = _client_config(api_key, api_token)
 
+    if config.scope == "member":
+        resource = _member_resource(config, client_config, team_id, job_id)
+    else:
+        resource = _board_resource(
+            config, client_config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
+        )
+
+    items: Iterable[Any] = resource
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
-        primary_keys=[endpoint_config.primary_key],
-        sort_mode=endpoint_config.sort_mode,
+        items=lambda: items,
+        primary_keys=[config.primary_key],
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
