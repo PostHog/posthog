@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0048_alter_visionaction_alert_config"),
+        ("replay_vision", "0049_replayscannerpromptsuggestion_base_config_and_more")
     ]
 
     operations = [
