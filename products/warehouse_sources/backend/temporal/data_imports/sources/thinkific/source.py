@@ -19,10 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ThinkificSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkific import (
+    ThinkificSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     THINKIFIC_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.thinkific import (
@@ -102,19 +108,7 @@ You can create an API key under **Settings → Code & analytics → API** in you
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=THINKIFIC_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=THINKIFIC_ENDPOINTS[endpoint].supports_incremental,
-                incremental_fields=THINKIFIC_ENDPOINTS[endpoint].incremental_fields,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -152,7 +146,8 @@ You can create an API key under **Settings → Code & analytics → API** in you
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

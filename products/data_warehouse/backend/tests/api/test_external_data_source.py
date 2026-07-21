@@ -11150,7 +11150,11 @@ class TestResumeCDC(APIBaseTest):
     )
     def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        self._cdc_schema(source)
+        schema = self._cdc_schema(source)
+        # The non-retryable failure that paused the schedule also stamped this marker; a resume
+        # that leaves it behind keeps the schema reading as halted (digest badge, status guard).
+        schema.sync_type_config["cdc_extraction_paused"] = {"reason": "auth_failed", "at": "2026-07-16T05:42:00+00:00"}
+        schema.save()
 
         response = self._resume(source)
         assert response.status_code == 200, response.content
@@ -11160,6 +11164,9 @@ class TestResumeCDC(APIBaseTest):
         assert mock_sync.call_args.args[0].pk == source.pk
         mock_unpause.assert_called_once_with(str(source.pk))
         assert mock_get_status.call_args.args[0].pk == source.pk
+        schema.refresh_from_db()
+        assert "cdc_extraction_paused" not in schema.sync_type_config
+        assert schema.sync_halted is False
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
     @patch(

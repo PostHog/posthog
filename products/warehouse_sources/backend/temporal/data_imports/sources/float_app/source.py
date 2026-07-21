@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     FLOAT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FloatAppSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
+    FloatAppSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -144,6 +146,8 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         return float_app_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Float endpoint is full refresh
         )

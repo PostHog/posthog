@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     MySQLImplementation,
@@ -271,6 +271,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
+            # a value carrying a non-latin-1 character — most often an invisible zero-width space
+            # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is
+            # sent, so the connect fails identically on every retry. Match the codec's stable
+            # range-256 reason, not the volatile character/position: it appears in the raw str(exc)
+            # the sync path classifies and in the " ".join(e.args) form validate_credentials builds
+            # (the formatted "codec can't encode character" text is reconstructed in neither).
+            "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
 
     def reconcile_schema_metadata(

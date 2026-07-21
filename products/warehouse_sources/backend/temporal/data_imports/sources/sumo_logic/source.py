@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SumoLogicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sumologic import (
+    SumoLogicSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import (
     DEFAULT_LOGS_LOOKBACK_DAYS,
     ENDPOINTS,

@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GiteaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitea import GiteaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import (
     GiteaResumeConfig,
     create_repo_webhook,

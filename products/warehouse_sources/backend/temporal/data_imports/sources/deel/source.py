@@ -19,14 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel import (
     DeelResumeConfig,
     deel_source,
     validate_credentials as validate_deel_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deel import DeelSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -92,22 +95,8 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Core Deel objects have no updated-since filter, so every stream is an
-        # honest full refresh.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # honest full refresh (no incremental fields).
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: DeelSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
@@ -126,6 +115,8 @@ Create an organization token in [Deel](https://app.deel.com/developer-center) un
         return deel_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Deel endpoint is full refresh
         )

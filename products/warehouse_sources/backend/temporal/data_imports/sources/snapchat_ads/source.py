@@ -35,7 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnapchatAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snapchatads import (
+    SnapchatAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import SNAPCHAT_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads import (
     SnapchatResumeConfig,

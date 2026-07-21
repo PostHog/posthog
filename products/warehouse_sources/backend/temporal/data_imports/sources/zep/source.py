@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZepSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ENDPOINTS, ZEP_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep import (
     ZepResumeConfig,

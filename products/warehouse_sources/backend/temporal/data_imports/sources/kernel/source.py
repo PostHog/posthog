@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KernelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
     kernel_source,
     validate_credentials as validate_kernel_credentials,

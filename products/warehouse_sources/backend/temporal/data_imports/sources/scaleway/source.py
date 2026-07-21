@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ScalewaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleway import (
+    ScalewaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.scaleway import (
     ScalewayResumeConfig,
     probe_endpoint,

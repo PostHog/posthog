@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TaboolaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.taboola import (
+    TaboolaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

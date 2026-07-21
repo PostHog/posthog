@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drata.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DrataSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -150,7 +150,6 @@ You can create an API key under **Settings → API keys** in [Drata](https://app
             api_key=config.api_key,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

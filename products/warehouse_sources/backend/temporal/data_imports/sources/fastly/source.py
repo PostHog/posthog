@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fas
     validate_credentials as validate_fastly_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import ENDPOINTS, FASTLY_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FastlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fastly import FastlySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

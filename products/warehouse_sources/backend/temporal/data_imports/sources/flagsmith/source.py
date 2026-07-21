@@ -35,7 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.
     FLAGSMITH_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlagsmithSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
+    FlagsmithSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Fan-out endpoints can't be probed without a parent id, so scope checks probe the root

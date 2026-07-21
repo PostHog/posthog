@@ -1370,7 +1370,6 @@ class ExternalDataSourceType(StrEnum):
     DIXA = "Dixa"
     GLADLY = "Gladly"
     QUALTRICS = "Qualtrics"
-    DELIGHTED = "Delighted"
     AZURE_DEV_OPS = "AzureDevOps"
     ROLLBAR = "Rollbar"
     OPSGENIE = "Opsgenie"
@@ -2048,6 +2047,9 @@ class ExternalDataSourceType(StrEnum):
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
     SLEEKPLAN = "Sleekplan"
+    TALLY = "Tally"
+    NUNTLY = "Nuntly"
+    FUSION_AUTH = "FusionAuth"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2830,6 +2832,10 @@ class NodeKind(StrEnum):
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
     MCP_TOOL_STATS_QUERY = "MCPToolStatsQuery"
     MCP_TOOL_DAILY_STATS_QUERY = "MCPToolDailyStatsQuery"
+    MCP_TOOL_QUALITY_ROWS_QUERY = "MCPToolQualityRowsQuery"
+    MCP_TOOL_QUALITY_DAILY_STATS_QUERY = "MCPToolQualityDailyStatsQuery"
+    MCP_TOOL_CATEGORY_COUNTS_QUERY = "MCPToolCategoryCountsQuery"
+    MCP_TOOL_CATEGORIES_QUERY = "MCPToolCategoriesQuery"
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"

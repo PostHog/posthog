@@ -151,10 +151,14 @@ user**: the live echo (`pushHumanMessage`) carries the raw text and `unwrapUserM
 leading block on history replay (including the legacy `<posthog_context>` wrapper still emitted by the
 deprecated backend `context_wrapper.py` path and present in old history) — stripping works on the tags, not
 the body.
-The send paths prune entity refs already sent for the task (`attachedContextLogic.sentContextKeysByTask`,
-keyed by task id so the dedupe survives a terminal-run send re-pointing to a fresh run, matching the
-backend's `prune_repeated_entity_refs`, which dedupes across the task's whole resume chain); `text` items
-are never deduped, repeated text is intentional.
+The send paths prune context already sent anywhere in the task's resume chain, via two task-keyed layers in
+`attachedContextLogic` (task-scoped so the dedupe survives a terminal-run send re-pointing to a fresh run):
+`sentContextKeysByTask`, in-memory keys marked right after each send (covers the send→echo window), and
+`seenContextLinesByTask`, the durable layer — `runStreamLogic.ingestAcpFrame` records the rendered lines
+(`contextItemLine`/`extractContextBlockLines`) of every context block found in a persisted or echoed user
+message, and since the `logs/` snapshot replays the full resume chain this survives reloads, other tabs, and
+other users' sessions (matching the backend's `_collect_seen_entity_refs`/`prune_repeated_entity_refs`);
+`text` items are never deduped, repeated text is intentional.
 
 **User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
 composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Header`, the top-of-frame row above the textarea; already wired into

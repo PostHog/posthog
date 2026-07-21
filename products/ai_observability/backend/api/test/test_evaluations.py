@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -9,6 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, Project, Team, User
 
 from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer
@@ -85,23 +87,29 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_can_create_evaluation_config(self):
-        # Creating enabled+keyless only validates for a grandfathered team; pin the cutoff for determinism.
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/evaluations/",
-                {
-                    "name": "Test Evaluation",
-                    "description": "Test Description",
-                    "enabled": True,
-                    "evaluation_type": "llm_judge",
-                    "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
-                    "evaluation_config": {"prompt": "Test prompt"},
-                    "output_type": "boolean",
-                    "output_config": {},
-                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                },
-            )
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Test Evaluation",
+                "description": "Test Description",
+                "enabled": True,
+                "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Evaluation.objects.count(), 1)
 
@@ -944,27 +952,47 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
+    EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
+
     def _mock_hogql_response(self, count=1):
         from posthog.hogql.query import HogQLQueryResponse
 
+        heavy_property_values = {
+            "$ai_input": json.dumps("What is 2+2?"),
+            "$ai_output": json.dumps("4"),
+        }
+        heavy_values = tuple(
+            heavy_property_values.get(HEAVY_COLUMN_TO_PROPERTY[column_name], "") for column_name in HEAVY_COLUMN_NAMES
+        )
         rows = [
             (
                 str(uuid4()),
                 "$ai_generation",
-                {"$ai_input": "What is 2+2?", "$ai_output": "4"},
+                {"$ai_model": "gpt-5-mini"},
                 "user-1",
+                self.EVENT_TIMESTAMP,
+                *heavy_values,
             )
             for _ in range(count)
         ]
-        return HogQLQueryResponse(results=rows, columns=["uuid", "event", "properties", "distinct_id"])
+        return HogQLQueryResponse(
+            results=rows,
+            columns=["uuid", "event", "properties", "distinct_id", "timestamp", *HEAVY_COLUMN_NAMES],
+        )
 
-    @patch("posthog.hogql.query.execute_hogql_query")
-    def test_test_hog_compiles_and_executes(self, mock_query):
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_test_hog_loads_ai_input_and_output(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(2)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
-            {"source": "return length(output) > 0", "sample_count": 2},
+            {
+                "source": (
+                    "return evaluation_events.1.output_text == '4' "
+                    f"and evaluation_events.1.timestamp == '{self.EVENT_TIMESTAMP}'"
+                ),
+                "sample_count": 2,
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -976,6 +1004,13 @@ class TestTestHogEndpoint(APIBaseTest):
             self.assertIn("error", r)
             self.assertTrue(r["result"])
             self.assertIsNone(r["error"])
+            self.assertEqual(r["input_preview"], "What is 2+2?")
+            self.assertEqual(r["output_preview"], "4")
+
+        query = mock_query.call_args.kwargs["query"]
+        self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
+        self.assertEqual(query.select[4].chain, ["timestamp"])
+        self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
 
     def test_test_hog_compilation_error(self):
         response = self.client.post(
@@ -992,7 +1027,7 @@ class TestTestHogEndpoint(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_test_hog_no_events(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(0)
 
@@ -1004,7 +1039,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(response.json()["results"], [])
         self.assertIn("message", response.json())
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_test_hog_handles_runtime_error(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(1)
 
@@ -1018,7 +1053,7 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertIsNone(results[0]["result"])
         self.assertIn("Must return boolean", results[0]["error"])
 
-    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_test_hog_uses_null_safe_comparisons(self, mock_query):
         mock_query.return_value = self._mock_hogql_response(1)
 
@@ -1035,10 +1070,10 @@ class TestTestHogEndpoint(APIBaseTest):
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
-    """Enabling a keyless llm_judge eval must mirror the runtime funded-inference gate: a config
-    with no pinned key falls back to the team's active key for the same provider, else only
-    grandfathered (mid-trial, pre-cutoff) teams may run it via funded inference. Anything the
-    serializer lets through here would just flap back to disabled on the next Temporal run."""
+    """Enabling a keyless llm_judge eval must mirror the runtime provider-key gate: a config with
+    no pinned key falls back to the team's active key for the same provider, else the eval needs a
+    provider key of its own. Anything the serializer lets through here would just flap back to
+    disabled on the next Temporal run."""
 
     def _create_keyless_eval(self, model_configuration=...):
         if model_configuration is ...:
@@ -1075,13 +1110,11 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("trial_exhausted_explicit_config", 100, True),
-            ("trial_never_started_explicit_config", 0, True),
-            ("trial_never_started_null_config", 0, False),
+            ("explicit_config", True),
+            ("null_config", False),
         ]
     )
-    def test_blocks_enabling_keyless_eval_when_not_grandfathered(self, _name, trial_evals_used, explicit_config):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=trial_evals_used)
+    def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config):
         eval_obj = (
             self._create_keyless_eval() if explicit_config else self._create_keyless_eval(model_configuration=None)
         )
@@ -1093,24 +1126,11 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
 
-    def test_allows_enabling_keyless_eval_while_grandfathered(self):
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-            eval_obj = self._create_keyless_eval()
-
-            response = self._enable(eval_obj)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-
     def test_active_team_key_enables_explicit_keyless_eval(self):
         # An explicit config with no pinned key falls back to the team's active key for the same
-        # provider, so it enables even with the trial exhausted (mirrors runtime resolution).
+        # provider (mirrors runtime resolution).
         key = self._create_active_key()
-        EvaluationConfig.objects.create(
-            team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
-        )
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         eval_obj = self._create_keyless_eval()
 
         response = self._enable(eval_obj)
@@ -1122,9 +1142,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
     def test_active_team_key_enables_null_config_eval(self):
         # Null configs resolve via the active key at runtime — the gate must not over-block them.
         key = self._create_active_key()
-        EvaluationConfig.objects.create(
-            team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
-        )
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         eval_obj = self._create_keyless_eval(model_configuration=None)
 
         response = self._enable(eval_obj)
@@ -1133,25 +1151,21 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
-    def test_unhealthy_active_key_blocks_null_config_eval_even_while_grandfathered(self):
-        # Runtime never falls back to funded inference when an active key exists, even unhealthy.
+    def test_unhealthy_active_key_blocks_null_config_eval(self):
         key = self._create_active_key()
         key.state = LLMProviderKey.State.INVALID
         key.save()
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(
-                team=self.team, trial_eval_limit=100, trial_evals_used=50, active_provider_key=key
-            )
-            eval_obj = self._create_keyless_eval(model_configuration=None)
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+        eval_obj = self._create_keyless_eval(model_configuration=None)
 
-            response = self._enable(eval_obj)
+        response = self._enable(eval_obj)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("working provider API key", str(response.data))
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
 
-    def test_blocks_creating_enabled_keyless_eval_when_not_grandfathered(self):
+    def test_blocks_creating_enabled_keyless_eval_without_key(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -1171,8 +1185,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         self.assertIn("Add a provider API key", str(response.data))
         self.assertEqual(Evaluation.objects.filter(name="Doomed Eval").count(), 0)
 
-    def test_allows_enabling_hog_eval_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+    def test_allows_enabling_hog_eval_without_key(self):
         eval_obj = Evaluation.objects.create(
             team=self.team,
             name="Hog Eval",
@@ -1194,8 +1207,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
-    def test_allows_enabling_byok_eval_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+    def test_allows_enabling_byok_eval(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
@@ -1229,8 +1241,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
-    def test_rejects_enabling_trial_eval_with_unusable_byok_key_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+    def test_rejects_enabling_llm_judge_eval_with_unusable_byok_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
@@ -1287,64 +1298,6 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         eval_obj.set_status("error", status_reason)
         eval_obj.refresh_from_db()
         return eval_obj
-
-    def test_rejects_re_enable_when_model_still_not_allowed(self):
-        # Only a grandfathered team gets past the funded gate to the model-allowlist message.
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-            eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
-
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-                {"enabled": True},
-                format="json",
-            )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not available on the trial plan", str(response.data))
-
-    def test_allows_re_enable_when_byok_key_attached_even_if_model_not_allowed(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-        self.assertEqual(eval_obj.status, "active")
-        self.assertIsNone(eval_obj.status_reason)
-
-    def test_rejects_re_enable_when_model_not_allowed_with_unusable_byok_key(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.INVALID,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9", provider_key=key)
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("working provider API key", str(response.data))
-        eval_obj.refresh_from_db()
-        self.assertFalse(eval_obj.enabled)
 
     def test_rejects_re_enable_when_provider_key_required_and_no_key(self):
         eval_obj = self._create_errored_eval(status_reason="provider_key_required")
@@ -1429,16 +1382,21 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIn("working provider API key", str(response.data))
 
     def test_allows_re_enable_when_model_not_found_with_existing_model_config(self):
-        # Grandfather the team so the funded gate passes — this test is about the model_not_found rule.
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-            eval_obj = self._create_errored_eval(status_reason="model_not_found")
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="model_not_found", provider_key=key)
 
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-                {"enabled": True},
-                format="json",
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()
@@ -1446,22 +1404,28 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIsNone(eval_obj.status_reason)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
-        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
-            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-            eval_obj = self._create_errored_eval(status_reason="model_not_found", model="missing-model")
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="model_not_found", model="missing-model")
 
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-                {
-                    "enabled": True,
-                    "model_configuration": {
-                        "provider": "openai",
-                        "model": "gpt-5-mini",
-                        "provider_key_id": None,
-                    },
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {
+                "enabled": True,
+                "model_configuration": {
+                    "provider": "openai",
+                    "model": "gpt-5-mini",
+                    "provider_key_id": str(key.id),
                 },
-                format="json",
-            )
+            },
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()

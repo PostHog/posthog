@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OptimizelySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
+    OptimizelySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely import (
     optimizely_source,
     validate_credentials as validate_optimizely_credentials,
@@ -122,5 +124,6 @@ An admin can generate a personal access token in Optimizely under Account Settin
         return optimizely_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

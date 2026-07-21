@@ -91,6 +91,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
+    '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -512,6 +513,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Drop events at ingestion time based on event metadata.',
         iconType: 'data_pipeline',
     },
+    CohortsStaffTools: { instanceLevel: true, name: 'Cohorts staff tools' },
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
@@ -947,6 +949,8 @@ export const productUrls = {
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+    cohortsStaffTools: (cohortId?: number): string =>
+        `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
@@ -1283,7 +1287,8 @@ export const productUrls = {
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
     replayVisionActionRun: (actionId: string, runId: string): string =>
         `/replay-vision/actions/${actionId}/runs/${runId}`,
-    replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
+    replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
+        `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     revenueAnalytics: (): string => '/revenue_analytics',
     codeReview: (): string => '/code_review',
@@ -1312,8 +1317,19 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
-    tracingOperation: (serviceName: string, spanName: string): string =>
-        combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
+    tracingOperation: (
+        serviceName: string,
+        spanName: string,
+        dateRange?: {
+            date_from?: string | null
+            date_to?: string | null
+        }
+    ): string =>
+        combineUrl('/tracing/operation', {
+            service: serviceName,
+            name: spanName,
+            ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
+        }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>

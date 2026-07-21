@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InsightlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.insightly import (
+    InsightlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.insightly import (
     InsightlyResumeConfig,
     insightly_source,
@@ -165,7 +167,8 @@ The API key inherits your Insightly user's permissions, so make sure your user c
             pod=normalize_pod(config.pod),
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

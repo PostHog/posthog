@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HeightSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.height import (
     height_source,
     validate_credentials as _height_validate_credentials,
@@ -121,5 +121,6 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         return height_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

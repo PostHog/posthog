@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
+    ZendeskSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,

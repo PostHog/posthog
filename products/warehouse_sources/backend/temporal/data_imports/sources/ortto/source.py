@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OrttoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ortto import OrttoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.ortto import (
     OrttoResumeConfig,
     ortto_source,

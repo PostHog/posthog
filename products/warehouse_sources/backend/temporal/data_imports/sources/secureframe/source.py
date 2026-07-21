@@ -21,8 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SecureframeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secureframe import (
+    SecureframeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe import (
     DEFAULT_REGION,
     SecureframeResumeConfig,
@@ -114,22 +119,8 @@ You can create an API key and secret in the Secureframe Console under **Your Pro
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Secureframe API exposes no server-side timestamp filter, so every endpoint is
-        # full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # full refresh only (INCREMENTAL_FIELDS is empty, so no schema advertises incremental).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -178,6 +169,7 @@ You can create an API key and secret in the Secureframe Console under **Your Pro
             api_secret=config.api_secret,
             region=config.region,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

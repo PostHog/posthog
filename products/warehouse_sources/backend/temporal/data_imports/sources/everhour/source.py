@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.s
     EVERHOUR_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EverhourSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
+    EverhourSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

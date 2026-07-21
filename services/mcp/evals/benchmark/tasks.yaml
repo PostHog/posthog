@@ -157,9 +157,9 @@ tasks:
     - id: flag-rollout-conditions
       category: feature-flags
       intent: 'What are the rollout conditions for our mcp-analytics feature flag?'
-      expected_tools: [feature-flag-get-definition]
-      acceptable_tools: [feature-flag-get-all]
-      success_criteria: "Resolves the flag's numeric id first, then reports its release conditions — does not guess the id."
+      expected_tools: [feature-flag-get-definition-by-key]
+      acceptable_tools: [feature-flag-get-all, feature-flag-get-definition]
+      success_criteria: "Resolves the flag by its key ('mcp-analytics') directly — does not guess a numeric id."
 
     # --- session-replay ----------------------------------------------------------
     - id: replay-rage-clicks

@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JotformSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
+    JotformSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -190,7 +192,8 @@ Supported tables:
             region=config.region,
             enterprise_domain=config.enterprise_domain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

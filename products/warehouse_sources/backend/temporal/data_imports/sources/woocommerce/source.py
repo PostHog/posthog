@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WooCommerceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.woocommerce import (
+    WooCommerceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

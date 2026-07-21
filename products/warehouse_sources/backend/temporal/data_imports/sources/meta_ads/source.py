@@ -37,7 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
+    MetaAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
     MetaAdsAuthError,

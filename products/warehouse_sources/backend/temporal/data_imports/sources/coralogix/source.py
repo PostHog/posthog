@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoralogixSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
+    CoralogixSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

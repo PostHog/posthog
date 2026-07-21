@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     ENDPOINTS,
     FINANCIAL_MODELLING_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.financialmodelling import (
     FinancialModellingSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

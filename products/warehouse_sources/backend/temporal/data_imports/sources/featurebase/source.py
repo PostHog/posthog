@@ -45,7 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.featurebas
     INCREMENTAL_FIELDS,
     RESOURCE_TO_FEATUREBASE_OBJECT_TYPE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FeaturebaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.featurebase import (
+    FeaturebaseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:

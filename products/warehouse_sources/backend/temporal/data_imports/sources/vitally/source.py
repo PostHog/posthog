@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VitallySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
+    VitallySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
     ENDPOINTS as VITALLY_ENDPOINTS,
