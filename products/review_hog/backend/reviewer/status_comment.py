@@ -49,7 +49,7 @@ _STAGE_LABELS = {
     "fetching": "Step 1/6 · Preparing the diff",
     "chunking": "Step 1/6 · Splitting into chunks",
     "selecting": "Step 2/6 · Picking perspectives",
-    "reviewing": "Step 3/6 · Reviewing chunks",
+    "reviewing": "Step 3/6 · Running review passes",
     "deduplicating": "Step 4/6 · Merging overlapping findings",
     "validating": "Step 5/6 · Validating findings",
     "finalizing": "Step 6/6 · Finalizing the review",
@@ -67,6 +67,15 @@ _PRIORITY_LABELS = {
     IssuePriority.SHOULD_FIX: "should fix",
     IssuePriority.CONSIDER: "consider",
 }
+
+# A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
+# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for a calming gif.
+# Self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked, to keep it copyright-clean.
+_NO_ISSUES_GIF_URL = (
+    "https://raw.githubusercontent.com/PostHog/pr-assets/"
+    "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif"
+)
+_NO_ISSUES_GIF_ALT = "Someone relaxing in a sunny garden"
 
 
 def status_marker(report_id: str) -> str:
@@ -90,7 +99,7 @@ def render_in_progress_body(report_id: str, progress: dict[str, Any] | None) -> 
             "",
             f"**{label}{counter}**",
             "",
-            "Specialist review perspectives read the changed code in parallel, a blind-spot sweep "
+            "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
             "catches what they missed, and only validated findings are published back to this pull request.",
             "",
             "<sub>This comment updates as the review progresses.</sub>",
@@ -121,7 +130,13 @@ def render_final_body(
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
-        lines.append("Found no issues worth raising, so no review was posted.")
+        lines.extend(
+            [
+                "Nothing worth raising this time, so here's a calming gif instead:",
+                "",
+                f"![{_NO_ISSUES_GIF_ALT}]({_NO_ISSUES_GIF_URL})",
+            ]
+        )
     else:
         lines.append(found_line + ".")
         lines.append("")
@@ -175,6 +190,10 @@ def _find_marker_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
     ):
+        # Adopt only app-bot comments: anyone can paste the marker on a public repo, and the
+        # returned id gets PATCHed — matching a stranger's comment would overwrite it.
+        if (comment.get("user") or {}).get("type") != "Bot":
+            continue
         if marker in (comment.get("body") or ""):
             return comment.get("id")
     return None

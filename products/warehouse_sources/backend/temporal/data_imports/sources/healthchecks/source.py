@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HealthchecksSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
+    HealthchecksSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.healthchecks import (
     HealthchecksResumeConfig,
     healthchecks_source,
@@ -43,6 +45,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class HealthchecksSource(
     ResumableSource[HealthchecksSourceConfig, HealthchecksResumeConfig], ValidateDatabaseHostMixin
 ):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://healthchecks.io/docs/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

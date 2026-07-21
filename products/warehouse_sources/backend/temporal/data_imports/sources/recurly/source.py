@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RecurlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
+    RecurlySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly import (
     RecurlyResumeConfig,
     recurly_source,
@@ -39,6 +41,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2021-02-25",)
+    default_version = "v2021-02-25"
+    api_docs_url = "https://recurly.com/developers/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -27,6 +27,7 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
+    AlertDirection,
     AlertFrequency,
     AlertMetric,
     TriggerType,
@@ -118,8 +119,18 @@ class AlertConfigSerializer(serializers.Serializer):
     threshold = serializers.FloatField(
         required=False,
         help_text=(
-            "The alert fires when the metric is at or above this value. Required for on_breach; "
-            "ignored for every_match."
+            "The alert fires when the metric is at or above ('above') or at or below ('below') this "
+            "value, per 'direction'. Required for on_breach; ignored for every_match."
+        ),
+    )
+    direction = serializers.ChoiceField(
+        choices=AlertDirection.choices,
+        required=False,
+        default=AlertDirection.ABOVE,
+        help_text=(
+            "Which side of the threshold breaches: 'above' fires when the metric is at or above it, "
+            "'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. "
+            "Defaults to 'above'; ignored for every_match."
         ),
     )
     window_days = serializers.ChoiceField(
@@ -610,6 +621,12 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
     error_reason = serializers.SerializerMethodField(
         help_text="Short human-readable reason a run skipped or failed; null on success.",
     )
+    is_recovery = serializers.SerializerMethodField(
+        help_text=(
+            "True for the run recording an alert's condition clearing after a breach (the recovery "
+            "bookend in run history). False for alert firings and summaries."
+        ),
+    )
 
     class Meta:
         model = VisionActionRun
@@ -619,6 +636,7 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "observation_count",
             "error_reason",
+            "is_recovery",
             "created_at",
             "updated_at",
         ]
@@ -637,6 +655,13 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
         if run.status == VisionActionRunStatus.FAILED:
             return "This run failed while generating the summary."
         return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_recovery(self, run: VisionActionRun) -> bool:
+        # The engine stamps recovery runs with output.recovered (alerts._persist_recovered) — the
+        # marker that distinguishes the bookend from a firing, since both persist a message.
+        output = run.output if isinstance(run.output, dict) else {}
+        return bool(output.get("recovered"))
 
 
 class VisionActionRunSerializer(VisionActionRunListSerializer):

@@ -9,7 +9,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VercelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import VercelResumeConfig
@@ -63,9 +63,9 @@ class TestVercelSource:
         assert fields["team_id"].required is False
         assert fields["team_id"].secret is False
 
-    def test_get_schemas_incremental_only_for_deployments(self) -> None:
+    def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases"}
+        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases", "billing_charges"}
 
         deployments = schemas["deployments"]
         assert deployments.supports_incremental is True
@@ -73,8 +73,18 @@ class TestVercelSource:
         assert [f["field"] for f in deployments.incremental_fields] == ["created"]
         assert deployments.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
 
+        # Billing supports incremental merge but not append (append would duplicate restated charges),
+        # cursors on the charge period, and carries a lookback so restatements get re-read and merged.
+        billing = schemas["billing_charges"]
+        assert billing.supports_incremental is True
+        assert billing.supports_append is False
+        assert [f["field"] for f in billing.incremental_fields] == ["charge_period_start"]
+        assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
+        assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
+
         for full_refresh in ("projects", "teams", "domains", "aliases"):
             assert schemas[full_refresh].supports_incremental is False
+            assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []
 
     def test_get_schemas_filters_by_names(self) -> None:

@@ -1,7 +1,15 @@
 """Wrap a user message with a `<posthog_context>` block built from per-message
 attached context. See `ContextService`.
 
-The template lives only here, in Python — the frontend never builds it.
+DEPRECATED PATH — do not extend. The attached-context wrap here (`wrap_user_message`,
+`prune_repeated_entity_refs`, `_render_posthog_context_block`) serves only the legacy Max
+conversations bridge (`ee/api/conversation.py` open + `message_routing.py`) and is removed with it.
+The live path builds richer `<posthog_trusted_context>` / `<posthog_untrusted_context>` blocks on
+the frontend (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`); do not port that tiering
+here — the frontend replay stripper keeps understanding this legacy `<posthog_context>` tag until
+the bridge is deleted.
+
+NOT deprecated: `abuild_resumed_legacy_context` (the conversation migration service) stays.
 """
 
 import json
@@ -116,6 +124,16 @@ class ContextService:
         lines.append("</posthog_context>")
         return "\n".join(lines)
 
+    @staticmethod
+    def _defang(text: str | int) -> str:
+        """Invariant: interpolated fields must never contain the literal close-tag sequence.
+
+        The frontend replay stripper cuts at the FIRST `</posthog_context>`, so a raw close tag
+        inside the body would truncate the strip early and leave block remnants. Mirrors the
+        frontend `defang` in `posthogContextBlock.ts`.
+        """
+        return str(text).replace("</posthog_context", "<\\/posthog_context")
+
     def _format_item(self, item: AttachedContext) -> str:
         """Render one attachment line.
 
@@ -123,13 +141,13 @@ class ContextService:
         when no human label is present. Free text renders as `- Free text: "{value}"`.
         """
         if item.get("type") == "text":
-            return f'- Free text: "{item.get("value", "")}"'
+            return f'- Free text: "{self._defang(item.get("value", ""))}"'
 
         label = self._TYPE_LABELS.get(item["type"], item["type"])
-        line = f"- {label} #{item['id']}"
+        line = f"- {self._defang(label)} #{self._defang(item['id'])}"
         name = item.get("name")
         if name:
-            line += f' ("{name}")'
+            line += f' ("{self._defang(name)}")'
         return line
 
     async def abuild_resumed_legacy_context(

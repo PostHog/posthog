@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WrikeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wrike import WrikeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike import (
     WrikeResumeConfig,
@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WrikeSource(ResumableSource[WrikeSourceConfig, WrikeResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://developers.wrike.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -130,6 +134,8 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
             access_token=config.access_token,
             host=config.host,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Wrike endpoint is full refresh
         )

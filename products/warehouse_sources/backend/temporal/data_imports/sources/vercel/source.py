@@ -20,11 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VercelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
     VercelResumeConfig,
     validate_credentials as validate_vercel_credentials,
@@ -35,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
+    api_docs_url = "https://vercel.com/docs/rest-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VERCEL
@@ -53,11 +52,11 @@ class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Vercel",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Vercel access token to pull your Vercel deployments, projects, teams, domains, and aliases into the PostHog Data warehouse.
+            caption="""Enter a Vercel access token to pull your Vercel deployments, projects, teams, domains, aliases, and billing usage into the PostHog Data warehouse.
 
 Create an access token in your [Vercel account settings](https://vercel.com/account/tokens). A read-only token is sufficient.
 
-To sync resources owned by a team, also enter the team's ID (found under **Team Settings**). Leave it blank to sync resources owned by the token's user.""",
+To sync resources owned by a team, also enter the team's ID (found under **Team Settings**). Leave it blank to sync resources owned by the token's user. Syncing the **billing_charges** table needs a token whose role can read billing (Owner, Member, Developer, Security, Billing, or Enterprise Viewer).""",
             iconPath="/static/services/vercel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vercel",
             fields=cast(
@@ -109,12 +108,13 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                name=name,
+                supports_incremental=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_append,
+                incremental_fields=endpoint_config.incremental_fields,
+                default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
             )
-            for endpoint in ENDPOINTS
+            for name, endpoint_config in VERCEL_ENDPOINTS.items()
         ]
         if names is not None:
             names_set = set(names)

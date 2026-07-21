@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewYorkTimesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
+    NewYorkTimesSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     NewYorkTimesResumeConfig,
     new_york_times_source,
@@ -37,6 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.nytimes.com/apis"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -29,13 +29,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.s
     ENDPOINTS,
     FLEXMAIL_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlexmailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
+    FlexmailSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FlexmailSource(ResumableSource[FlexmailSourceConfig, FlexmailResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://api.flexmail.eu/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -136,6 +140,7 @@ You can create a personal access token under **Settings → API → Personal acc
             account_id=config.account_id,
             personal_access_token=config.personal_access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

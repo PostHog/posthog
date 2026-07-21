@@ -110,6 +110,10 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
+    class Runtime(models.TextChoices):
+        ACP = "acp", "ACP"
+        PI = "pi", "Pi"
+
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
@@ -225,6 +229,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     # Conversation-level state shared across the task's runs (each resume/follow-up
     # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
     state = models.JSONField(default=dict, null=True, blank=True)
+
+    runtime = models.CharField(
+        max_length=10,
+        choices=Runtime,
+        default=Runtime.ACP,
+        db_default=Runtime.ACP,
+        help_text="Agent protocol/harness driving this task's runs.",
+    )
 
     class Meta:
         db_table = "posthog_task"
@@ -737,6 +749,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        github_read_access: bool = False,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -771,6 +784,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
 
         run_extra_state = dict(extra_state or {})
+        if github_read_access:
+            # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
+            # GitHub token into the (repo-less) sandbox instead of the full credential path.
+            run_extra_state["github_read_access"] = True
         if start_workflow:
             # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
             # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.
@@ -1103,6 +1120,23 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
+    # Local url-based MCP servers imported from the creating client (PostHog Code),
+    # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
+    # header values carry credentials; never exposed through API responses.
+    imported_mcp_servers = EncryptedJSONStringField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Client-imported MCP server configs (type/name/url/headers) to make available in the sandbox",
+    )
+
+    relayed_mcp_servers = models.JSONField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Names of desktop-only MCP servers the creating client relays into this run (docs/cloud-mcp-relay.md). Names only — configuration never crosses the wire.",
+    )
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -1184,6 +1218,7 @@ class TaskRun(models.Model):
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
+        state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
         self.state = state
 
@@ -1976,6 +2011,18 @@ class SandboxCustomImage(TeamScopedRootMixin):
         blank=True,
         default="",
         help_text="Published Modal named-image reference (name:tag) for the latest successful build.",
+    )
+    base_image_reference = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Immutable VM base image reference used for the latest successful build.",
+    )
+    base_image_refresh_reference = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="VM base image reference most recently queued for an automatic refresh.",
     )
     scan_result = models.JSONField(default=dict, blank=True, help_text="Latest security scan verdict and findings.")
     error = models.TextField(blank=True, default="", help_text="Failure detail for scan_failed/build_failed states.")

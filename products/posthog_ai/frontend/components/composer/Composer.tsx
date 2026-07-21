@@ -2,6 +2,7 @@ import {
     createContext,
     forwardRef,
     type HTMLAttributes,
+    type KeyboardEventHandler,
     type ReactNode,
     type RefObject,
     useCallback,
@@ -206,6 +207,18 @@ const ComposerBanner = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>
     )
 })
 
+/** The in-frame top row for context chips / attachments, above the textarea. */
+const ComposerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerHeader(
+    { className, children, ...rest },
+    ref
+): JSX.Element {
+    return (
+        <div data-slot="composer-header" ref={ref} className={cn('pt-2 px-2', className)} {...rest}>
+            {children}
+        </div>
+    )
+})
+
 export interface ComposerFrameProps extends HTMLAttributes<HTMLLabelElement> {
     /** Toggles the AI focus-ring color (off while the agent is streaming, per QuestionInput). */
     ringActive?: boolean
@@ -277,6 +290,8 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
+    /** Extra key handling (e.g. the mode picker's `shift+tab` cycle); runs after Enter handling. */
+    onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>
     'data-attr'?: string
 }
 
@@ -308,7 +323,7 @@ function ComposerTextarea({
     )
 }
 
-/** The in-frame bottom row for context chips / actions. */
+/** The in-frame bottom row for pickers / actions. */
 const ComposerFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerFooter(
     { className, children, ...rest },
     ref
@@ -328,12 +343,19 @@ export interface ComposerSubmitProps {
     'data-attr'?: string
 }
 
-/** The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. */
-function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitProps): JSX.Element {
+/**
+ * The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. `forwardRef`
+ * so callers can anchor a `Popover` to it (Popover clones its child with a ref).
+ */
+const ComposerSubmit = forwardRef<HTMLDivElement, ComposerSubmitProps>(function ComposerSubmit(
+    { icon, tooltip, className, ...rest },
+    ref
+): JSX.Element {
     const { sendDisabledReason, loading, showStop, onStop, isThreadVisible } = useComposerContext()
     return (
         <div
             data-slot="composer-submit"
+            ref={ref}
             className={cn(
                 'absolute flex items-center',
                 isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]',
@@ -366,12 +388,13 @@ function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitPro
             )}
         </div>
     )
-}
+})
 
 export const Composer = Object.assign(ComposerRoot, {
     Root: ComposerRoot,
     Banner: ComposerBanner,
     Frame: ComposerFrame,
+    Header: ComposerHeader,
     Field: ComposerField,
     Placeholder: ComposerPlaceholder,
     Textarea: ComposerTextarea,

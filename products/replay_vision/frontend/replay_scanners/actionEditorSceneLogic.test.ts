@@ -27,7 +27,7 @@ const existingAlert = {
     name: 'alert-a',
     mode: 'alert',
     selection: { tags: ['rage-click'] },
-    alert_config: { frequency: 'on_breach', metric: 'count', operator: 'gte', threshold: 3, window_days: 7 },
+    alert_config: { frequency: 'on_breach', metric: 'count', threshold: 3, direction: 'below', window_days: 7 },
 } as unknown as VisionActionApi
 
 const summarizerAlert = {
@@ -98,6 +98,7 @@ describe('actionEditorSceneLogic', () => {
                     alert_frequency: 'every_match',
                     alert_metric: 'count',
                     alert_threshold: 1,
+                    alert_direction: 'above',
                     alert_window_days: 1,
                 },
             })
@@ -121,6 +122,7 @@ describe('actionEditorSceneLogic', () => {
                     alert_frequency: 'on_breach',
                     alert_metric: 'count',
                     alert_threshold: 3,
+                    alert_direction: 'below',
                     alert_window_days: 7,
                     tags: ['rage-click'],
                 }),

@@ -138,7 +138,6 @@ import {
     ExternalDataJob,
     ExternalDataSchemaWithSource,
     ExternalDataSource,
-    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -254,8 +253,8 @@ import type {
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type {
-    ClaudeTaskRunCreateSchemaApi,
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
@@ -1802,10 +1801,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
-    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
-        return this.externalDataSources(teamId).addPathComponent('connections')
-    }
-
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -2576,9 +2571,6 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().withAction('seed').create()
-        },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
         ): Promise<{ results: UserProductListItem[] }> {
@@ -2909,6 +2901,8 @@ const api = {
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
+                // true omits the per-span attribute maps — use when only scalar span fields are read.
+                excludeAttributes?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2926,12 +2920,14 @@ const api = {
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
                 offset?: number
-            }
+            },
+            signal?: AbortSignal
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
+                    signal,
                     data: {
                         ...query,
                         dateRange: query?.dateRange ?? { date_from: '-24h' },
@@ -2980,17 +2976,39 @@ const api = {
         }> {
             return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
         },
+        async latencyHeatmap(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            // Sparse cells ordered by time then bucket. Every time bucket appears at least once —
+            // empty buckets come back as a {time, bucket_ns: 0, count: 0} sentinel row.
+            results: { time: string; bucket_ns: number; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('latency-heatmap').create({ signal, data: { query } })
+        },
         async aggregate(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 filterGroup?: PropertyGroupFilter
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
+                limit?: number
+                offset?: number
             },
             signal?: AbortSignal
         ): Promise<{
             results: AggregatedSpanRow[]
             compare?: AggregatedSpanRow[] | null
+            has_more?: boolean
+            next_offset?: number | null
         }> {
             return new ApiRequest().tracingSpans().withAction('aggregate').create({ signal, data: { query } })
         },
@@ -4924,6 +4942,9 @@ const api = {
                 media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
+            // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
+            // present while the backend's query result is alive (~20 min).
+            rows?: (string | number | null)[][]
         }> {
             return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
         },
@@ -5342,7 +5363,7 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
+        async run(id: Task['id'], data?: TaskRunCreateRequestSchemaApi): Promise<Task> {
             return await new ApiRequest()
                 .task(id)
                 .withAction('run')
@@ -5650,8 +5671,14 @@ const api = {
     },
 
     dataWarehouseTables: {
-        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
-            return await new ApiRequest().dataWarehouseTables().get()
+        async list(params?: {
+            limit?: number
+            include_columns?: boolean
+        }): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest()
+                .dataWarehouseTables()
+                .withQueryString(params ?? {})
+                .get()
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
@@ -5879,9 +5906,6 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
-        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
-            return await new ApiRequest().externalDataSourceConnections().get(options)
-        },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
         },
@@ -5921,6 +5945,7 @@ const api = {
         async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
             added: number
             deleted: number
+            auto_enabled: number
             total_tables_seen: number
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
@@ -5929,7 +5954,10 @@ const api = {
             sourceId: ExternalDataSource['id'],
             // Callers send a minimal diff — only `id` is required; the backend writes just the fields
             // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
-            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
+            // `apply_sync_defaults` asks the backend to discover and fill in default sync settings
+            // for schemas that have no sync method configured yet.
+            schemas: (Partial<ExternalDataSourceSchema> &
+                Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -6021,6 +6049,7 @@ const api = {
             publication_exists?: boolean
             lag_bytes?: number | null
             published_tables?: string[]
+            schedule_paused?: boolean
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
         },

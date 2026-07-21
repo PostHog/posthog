@@ -26,6 +26,7 @@ import type {
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
     PatchedChannelWriteApi,
+    PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
     PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
@@ -46,6 +47,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
+    TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
     TaskPresenceBeaconRequestApi,
@@ -91,6 +93,7 @@ import type {
     TasksThreadMessagesListParams,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
+    WizardCloudRunDTOApi,
 } from './api.schemas'
 
 export const getCodeInvitesCheckAccessRetrieveUrl = () => {
@@ -199,6 +202,27 @@ export const sandboxCustomImagesRetrieve = async (
     return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * Rename or update the description of a custom image. Only mutable metadata (name, description) is editable; the build spec and status are managed by the build flow.
+ */
+export const sandboxCustomImagesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSandboxCustomImageUpdateApi?: PatchedSandboxCustomImageUpdateApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSandboxCustomImageUpdateApi),
     })
 }
 
@@ -710,14 +734,14 @@ export const getTasksCreateUrl = (projectId: string) => {
  */
 export const tasksCreate = async (
     projectId: string,
-    taskWriteApi?: TaskWriteApi,
+    taskCreateApi?: TaskCreateApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskWriteApi),
+        body: JSON.stringify(taskCreateApi),
     })
 }
 
@@ -1174,7 +1198,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -1602,6 +1626,24 @@ export const tasksThreadMessagesSendToAgentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskThreadMessageDTOApi),
+    })
+}
+
+export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/active_wizard_run/`
+}
+
+/**
+ * Returns the most recent onboarding wizard cloud run for the current project when it is still running (or completed within the last day), so the setup-progress FAB can rehydrate after a drop-flow signup that started the run server-side. Returns 204 when there is none.
+ * @summary Get the team's active onboarding wizard cloud run
+ */
+export const tasksActiveWizardRunRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WizardCloudRunDTOApi | void> => {
+    return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

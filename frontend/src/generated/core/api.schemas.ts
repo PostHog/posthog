@@ -2787,9 +2787,32 @@ export interface PatchedFileSystemApi {
  * Payload for publishing a freeform canvas's React source via the agent.
  */
 export interface PatchedCanvasPublishApi {
+    /** The complete single-file React source for the canvas. */
     code?: string
+    /** Short description of the change, stored on the appended version history entry. */
     prompt?: string
+    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
     name?: string
+    /**
+     * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+}
+
+/**
+ * 409 body for a guarded canvas publish based on a stale version.
+ */
+export interface CanvasPublishConflictApi {
+    /** Human-readable description of the conflict and how to recover. */
+    detail: string
+    /** Always "version_conflict". */
+    code: string
+    /**
+     * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
+     * @nullable
+     */
+    current_version_id: string | null
 }
 
 export interface ContextGenerationApi {

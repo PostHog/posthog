@@ -1,24 +1,21 @@
 import base64
-from collections.abc import Iterator
-from typing import Any, Optional
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from typing import Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import CONFIGCAT_ENDPOINTS
 
 CONFIGCAT_BASE_URL = "https://api.configcat.com"
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap org-level list used to confirm the Public API credential is genuine. The credential is
 # account-wide, so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/v1/organizations"
-
-
-class ConfigCatRetryableError(Exception):
-    pass
 
 
 def _headers(username: str, password: str) -> dict[str, str]:
@@ -28,64 +25,47 @@ def _headers(username: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}", "Accept": "application/json"}
 
 
-@retry(
-    retry=retry_if_exception_type((ConfigCatRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, path: str, logger: FilteringBoundLogger) -> list[dict[str, Any]]:
-    response = session.get(f"{CONFIGCAT_BASE_URL}{path}", timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # 429 (documented ~20 req/sec, ~500 req/min per endpoint) and transient 5xx are retryable.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise ConfigCatRetryableError(f"ConfigCat API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        logger.error(f"ConfigCat API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
-
-    data = response.json()
-    # The Public Management API list endpoints return a bare JSON array of records.
-    if not isinstance(data, list):
-        raise ConfigCatRetryableError(f"ConfigCat returned an unexpected payload for {path}: {type(data).__name__}")
-    return data
-
-
-def get_rows(
-    username: str,
-    password: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CONFIGCAT_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(username, password), redact_values=(username, password))
-
-    # No pagination: the list endpoint returns the full collection in one response.
-    items = _fetch(session, config.path, logger)
-    if items:
-        yield items
-
-
 def configcat_source(
     username: str,
     password: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
     config = CONFIGCAT_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CONFIGCAT_BASE_URL,
+            # Basic auth via the framework so the credential is redacted from logs; the client
+            # retries 429/5xx (documented ~20 req/sec, ~500 req/min per endpoint) on its own.
+            "auth": {"type": "http_basic", "username": username, "password": password},
+            "headers": {"Accept": "application/json"},
+            # The Public Management API list endpoints return the full collection in one response.
+            "paginator": SinglePagePaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    # The body is a bare JSON array; require it to be a list so an unexpected object
+                    # payload fails loud instead of syncing the object as a single row.
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            username=username,
-            password=password,
-            endpoint=endpoint,
-            logger=logger,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        column_hints=resource.column_hints,
     )
 
 

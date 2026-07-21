@@ -26,7 +26,6 @@ from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -58,9 +57,6 @@ _MAX_REVIEWER_MENTIONS = 5
 
 # Deep link opened by the PostHog Code desktop app. Override via env for dev (`posthog-code-dev`).
 POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code")
-
-# Wire contract with products/slack_app/backend/api.py — keep this action_id in sync.
-SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 # Priority ranking — lower index is higher priority. Index used for threshold comparison.
 _PRIORITY_ORDER: tuple[str, ...] = (
@@ -357,8 +353,6 @@ def _build_message_blocks(
     source_products: list[str],
     reviewer_mentions: list[str],
     repository: str | None = None,
-    implementation_pr_url: str | None = None,
-    dismiss_button_value: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
     header_text = (
@@ -405,40 +399,13 @@ def _build_message_blocks(
             }
         )
 
-    action_elements: list[dict] = []
-    if implementation_pr_url:
-        action_elements.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Review PR", "emoji": True},
-                "url": implementation_pr_url,
-            }
-        )
-    action_elements.append(
+    action_elements: list[dict] = [
         {
             "type": "button",
-            "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+            "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
             "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
         }
-    )
-    if dismiss_button_value:
-        action_elements.append(
-            {
-                "type": "button",
-                "action_id": SIGNALS_DISMISS_REPORT_ACTION_ID,
-                "text": {"type": "plain_text", "text": "Dismiss", "emoji": True},
-                "value": dismiss_button_value,
-                "confirm": {
-                    "title": {"type": "plain_text", "text": "Dismiss this report?"},
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "This will dismiss the report for everyone. You can still find it in PostHog.",
-                    },
-                    "confirm": {"type": "plain_text", "text": "Dismiss"},
-                    "deny": {"type": "plain_text", "text": "Cancel"},
-                },
-            }
-        )
+    ]
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
@@ -731,7 +698,6 @@ def dispatch_inbox_item_notifications(
 
     sources = source_products or []
     repository = _report_repository(report)
-    implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
 
     sent = 0
     for route in routes:
@@ -745,21 +711,12 @@ def dispatch_inbox_item_notifications(
         try:
             slack = SlackIntegration(route.integration)
             mentions = _resolve_reviewer_mentions(slack, route.users)
-            dismiss_button_value = json.dumps(
-                {
-                    "integration_id": route.integration.id,
-                    "report_id": str(report.id),
-                    "team_id": team_id,
-                }
-            )
             blocks, text = _build_message_blocks(
                 report,
                 priority=priority,
                 source_products=sources,
                 reviewer_mentions=mentions,
                 repository=repository,
-                implementation_pr_url=implementation_pr_url,
-                dismiss_button_value=dismiss_button_value,
             )
             response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
             sent += 1

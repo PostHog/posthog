@@ -48,10 +48,12 @@ import { GeneralSection } from 'products/conversations/frontend/scenes/settings/
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
+import { WarehousePersonPropertiesSetting } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
@@ -147,6 +149,7 @@ import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonal
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
+import { OrganizationVariables } from './organization/OrgVariables'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -817,6 +820,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
+                id: 'logs-metric-rules',
+                title: 'Metric rules',
+                description:
+                    'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
+                component: <LogsMetricRulesSection />,
+                flag: LogsFeatureFlagKeys.metricRules,
+                keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+            },
+            {
                 id: 'logs-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when log volumes breach thresholds.',
@@ -891,6 +903,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/data/persons',
                 component: <PersonDisplayNameProperties />,
                 keywords: ['name', 'email', 'identity', 'display'],
+            },
+            {
+                id: 'warehouse-person-properties',
+                title: 'Person properties from the warehouse',
+                description:
+                    'Sync columns from a data warehouse table onto matching people as person properties, usable in feature flags, cohorts and insights.',
+                component: <WarehousePersonPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'person', 'properties', 'sync', 'custom property'],
             },
             {
                 id: 'person-last-seen-at',
@@ -1601,6 +1622,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Your organization's name and logo are shown across the PostHog interface. Click the avatar to upload a custom logo.",
                 component: <OrganizationDisplayName />,
                 keywords: ['name', 'rename', 'label', 'organization', 'logo', 'image', 'brand', 'icon', 'avatar'],
+            },
+            {
+                id: 'organization-id',
+                title: 'Organization ID',
+                description: "Your organization's unique identifier, used in the PostHog API.",
+                component: <OrganizationVariables />,
+                keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
             },
             {
                 id: 'organization-ai-consent',

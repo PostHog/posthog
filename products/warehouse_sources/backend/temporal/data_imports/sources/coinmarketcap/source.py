@@ -29,12 +29,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoinMarketCapSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
+    CoinMarketCapSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketCapResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://coinmarketcap.com/api/documentation/v1/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.COINMARKETCAP

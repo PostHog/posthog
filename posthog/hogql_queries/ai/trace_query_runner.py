@@ -2,8 +2,6 @@ from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
-import orjson
-
 from posthog.schema import (
     CachedTraceQueryResponse,
     IntervalType,
@@ -26,7 +24,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import merge_heavy_properties
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, parse_ai_property_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -279,14 +277,14 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
         if sentiment is not None:
             trace_dict["sentiment"] = sentiment
-        for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
+        for raw_key, parsed_key in [
+            ("input_state", "input_state_parsed"),
+            ("output_state", "output_state_parsed"),
+        ]:
             raw = trace_dict.get(raw_key) or None
             trace_dict[raw_key] = raw
             if raw is not None:
-                try:
-                    trace_dict[parsed_key] = orjson.loads(raw)
-                except (TypeError, orjson.JSONDecodeError):
-                    trace_dict[parsed_key] = raw
+                trace_dict[parsed_key] = parse_ai_property_value(raw)
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
         )

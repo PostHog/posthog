@@ -33,12 +33,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.se
     INCREMENTAL_FIELDS,
     LIMITED_RETENTION_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DatadogSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
+    DatadogSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
+    api_docs_url = "https://docs.datadoghq.com/api/latest/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

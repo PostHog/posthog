@@ -1,6 +1,6 @@
 ---
 name: finding-experiments
-description: Resolves a PostHog experiment reference from natural language to a concrete experiment ID by browsing `experiment-list` (not feature-flag tools), with disambiguation when multiple experiments match. Use when the user names or quotes an experiment ("split test demo", "the File engagement boost experiment", "onboarding retention test", "landing page hero experiment", "pricing experiment"), describes it loosely ("the signup experiment", "my pricing test", "the one with the new checkout"), uses a relative reference ("latest", "most recent", "the one I created yesterday"), filters by status (running, draft, stopped, archived), or otherwise refers to an experiment by anything other than its concrete ID.
+description: Resolves a PostHog experiment reference from natural language to a concrete experiment ID by browsing `experiment-list` (not feature-flag tools), with disambiguation when multiple experiments match. Use when the user names or quotes an experiment ("split test demo", "the File engagement boost experiment", "onboarding retention test", "landing page hero experiment", "pricing experiment"), describes it loosely ("the signup experiment", "my pricing test", "the one with the new checkout"), uses a relative reference ("latest", "most recent", "the one I created yesterday"), filters by status (running, draft, paused, exposure frozen, stopped, archived), or otherwise refers to an experiment by anything other than its concrete ID.
 ---
 
 # Finding experiments
@@ -21,7 +21,7 @@ experiment matching the user's reference:
 
 - **By name**: scan the `name` field for matches
 - **By recency**: results are ordered newest first by default
-- **By status**: match the `status` field (draft, running, stopped)
+- **By status**: match the `status` field (draft, running, paused, exposure_frozen, stopped)
 - **By flag key**: match the `feature_flag_key` field
 
 ## After finding matches

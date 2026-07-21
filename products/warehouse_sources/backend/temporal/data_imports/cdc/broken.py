@@ -24,11 +24,15 @@ import posthoganalytics
 
 from posthog.utils import get_machine_id
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    _build_schema_snapshot,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +43,7 @@ def mark_cdc_broken(
     message: str,
     *,
     pause: bool = True,
+    create_visibility_jobs: bool = True,
     **extra: typing.Any,
 ) -> None:
     """Move a CDC source into the broken state.
@@ -47,7 +52,9 @@ def mark_cdc_broken(
     friendly, credential-safe copy shown to the user. ``pause`` controls whether the extraction
     schedule is paused — left on for PostHog-managed breakage (the slot is gone, retrying is futile)
     and turned off for self-managed critical lag, whose customer-owned slot may still recover.
-    ``extra`` keys (e.g. ``lag_mb``) are merged into the persisted ``cdc_broken`` marker.
+    ``create_visibility_jobs`` is turned off by callers inside a run (the extraction activity),
+    which already record their own FAILED job rows. ``extra`` keys (e.g. ``lag_mb``) are merged
+    into the persisted ``cdc_broken`` marker.
     """
     log = logger.bind(source_id=str(source.id), team_id=source.team_id, reason=reason)
 
@@ -62,6 +69,15 @@ def mark_cdc_broken(
             should_sync=True,
         ).exclude(deleted=True)
     )
+    # The sweeper re-marks an unrepaired source on every sweep while the condition persists.
+    # Report once: only schemas newly entering this broken state produce failure-digest
+    # evidence, otherwise an ongoing condition would re-email the team daily and pile a
+    # synthetic FAILED run per sweep onto the Syncs tab.
+    newly_broken = [
+        schema
+        for schema in cdc_schemas
+        if ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") != reason
+    ]
     for schema in cdc_schemas:
         # Locked merge so a concurrent API PATCH of sync_type_config can't clobber the marker.
         update_sync_type_config_keys(
@@ -77,10 +93,53 @@ def mark_cdc_broken(
     if pause:
         _pause_schedule(source, log)
 
+    # Breakage often originates outside a run (the lag sweeper), so no FAILED job row exists.
+    # The failure digest email needs one: its schema query requires a failed job newer than the
+    # last notification, and the daily catch-up selects teams by recent failed jobs.
+    if newly_broken:
+        if create_visibility_jobs:
+            _create_failure_visibility_jobs(source, newly_broken, message, log)
+        _schedule_failure_digest(source, log)
+
     _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
 
-    log.warning("cdc_marked_broken", schemas=len(cdc_schemas), paused=pause)
+    log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
+
+
+def _create_failure_visibility_jobs(
+    source: ExternalDataSource,
+    cdc_schemas: list[ExternalDataSchema],
+    message: str,
+    log: typing.Any,
+) -> None:
+    now = dt.datetime.now(tz=dt.UTC)
+    for schema in cdc_schemas:
+        try:
+            ExternalDataJob.objects.create(
+                team_id=source.team_id,
+                pipeline_id=source.id,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                rows_synced=0,
+                latest_error=message,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                finished_at=now,
+                schema_snapshot=_build_schema_snapshot(schema),
+            )
+        except Exception:
+            log.warning("cdc_broken_visibility_job_failed", schema_id=str(schema.id), exc_info=True)
+
+
+def _schedule_failure_digest(source: ExternalDataSource, log: typing.Any) -> None:
+    try:
+        # Deferred: the tasks module pulls Celery wiring onto the import path.
+        from products.data_warehouse.backend.facade.tasks import schedule_external_data_failure_digest
+
+        schedule_external_data_failure_digest(source.team_id, trigger="cdc")
+    except Exception:
+        # Best-effort: the daily catch-up still delivers via the visibility job rows.
+        log.warning("cdc_broken_digest_schedule_failed", exc_info=True)
 
 
 def _pause_schedule(source: ExternalDataSource, log: typing.Any) -> None:

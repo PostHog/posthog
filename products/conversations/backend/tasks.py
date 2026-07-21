@@ -743,17 +743,21 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     from_email = formataddr((config.from_name or author_name, config.from_email))
 
+    # Tickets created before To/Cc participant filtering may still have the requester
+    # persisted in cc_participants; drop them here so they aren't delivered to twice.
+    cc = [addr for addr in (ticket.cc_participants or []) if addr.lower() != ticket.email_from.lower()]
+
     email_message = mail.EmailMultiAlternatives(
         subject=subject,
         body=txt_body,
         from_email=from_email,
         to=[ticket.email_from],
-        cc=ticket.cc_participants or [],
+        cc=cc,
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
 
-    recipients = [ticket.email_from, *(ticket.cc_participants or [])]
+    recipients = [ticket.email_from, *cc]
     mime_bytes = email_message.message().as_bytes(linesep="\r\n")
 
     try:

@@ -1,17 +1,22 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
 from dateutil import parser as dateutil_parser
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
     PER_PAGE,
     SOLARWINDS_SERVICE_DESK_ENDPOINTS,
@@ -24,15 +29,13 @@ SOLARWINDS_SERVICE_DESK_HOSTS: dict[str, str] = {
     "au": "https://apiau.samanage.com",
 }
 DEFAULT_REGION = "us"
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
+# The versioned Accept header pins the payload format — without it the API may serve legacy shapes.
+ACCEPT_HEADER = "application/vnd.samanage.v2.1+json"
 # Cheap list probe used to confirm a token is genuine. The token inherits its creator's role, so a
 # 403 here can still mean a valid token — the caller decides how to treat it.
 DEFAULT_PROBE_PATH = "/users.json"
-
-
-class SolarwindsServiceDeskRetryableError(Exception):
-    pass
+# SolarWinds reports the page count in this response header, not the body.
+TOTAL_PAGES_HEADER = "X-Total-Pages"
 
 
 @dataclasses.dataclass
@@ -50,11 +53,10 @@ def base_url(region: Optional[str]) -> str:
 
 
 def _headers(api_token: str) -> dict[str, str]:
-    # Auth rides a vendor-specific header, and the versioned Accept header pins the payload format —
-    # without it the API may serve legacy shapes.
+    # Auth rides a vendor-specific header, and the versioned Accept header pins the payload format.
     return {
         "X-Samanage-Authorization": f"Bearer {api_token}",
-        "Accept": "application/vnd.samanage.v2.1+json",
+        "Accept": ACCEPT_HEADER,
     }
 
 
@@ -80,133 +82,117 @@ def _format_updated_from(value: Any) -> Optional[str]:
     return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
 
 
-def _build_url(host: str, path: str, page: int, updated_from: Optional[str]) -> str:
-    params: dict[str, Any] = {"per_page": PER_PAGE, "page": page}
-    if updated_from is not None:
-        params["updated_from"] = updated_from
-    return f"{host}{path}?{urlencode(params)}"
-
-
-def _unwrap_rows(items: list[Any], wrapper_key: str) -> list[dict[str, Any]]:
-    """Normalize list items to bare record dicts.
+def _unwrap_row(item: dict[str, Any], wrapper_key: str) -> dict[str, Any]:
+    """Normalize a list item to a bare record dict.
 
     The official response samples are inconsistent: some list endpoints show bare records while
     others wrap each row under its singular resource name (e.g. ``{"problem": {...}}``). A real
     record is never a single-key dict of its own singular name, so unwrapping is unambiguous.
     """
-    rows: list[dict[str, Any]] = []
-    for item in items:
-        if isinstance(item, dict) and set(item.keys()) == {wrapper_key} and isinstance(item[wrapper_key], dict):
-            rows.append(item[wrapper_key])
-        elif isinstance(item, dict):
-            rows.append(item)
-    return rows
+    if set(item.keys()) == {wrapper_key} and isinstance(item[wrapper_key], dict):
+        return item[wrapper_key]
+    return item
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (SolarwindsServiceDeskRetryableError, requests.ReadTimeout, requests.ConnectionError)
-    ),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    logger: FilteringBoundLogger,
-) -> tuple[list[Any], Optional[int]]:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+class SolarwindsPageNumberPaginator(PageNumberPaginator):
+    """Page-number pagination that stops on the documented ``X-Total-Pages`` header.
 
-    # The API allows 1000 requests/min but sends no rate-limit or Retry-After headers, so back off
-    # blind on 429 and transient 5xx.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SolarwindsServiceDeskRetryableError(
-            f"SolarWinds Service Desk API error (retryable): status={response.status_code}, url={url}"
-        )
+    SolarWinds reports the page count in a response header rather than the body, and may clamp
+    ``per_page`` below the requested size — so a short page must never end the crawl; only an empty
+    page or reaching the header's last page terminates it. Resume is inherited from
+    ``PageNumberPaginator`` (page number in/out).
+    """
 
-    if not response.ok:
-        logger.error(
-            f"SolarWinds Service Desk API error: status={response.status_code}, body={response.text}, url={url}"
-        )
-        response.raise_for_status()
-
-    data = response.json()
-    if not isinstance(data, list):
-        raise SolarwindsServiceDeskRetryableError(
-            f"SolarWinds Service Desk returned an unexpected payload for {url}: {type(data).__name__}"
-        )
-
-    total_pages_header = response.headers.get("X-Total-Pages")
-    total_pages = int(total_pages_header) if total_pages_header and total_pages_header.isdigit() else None
-    return data, total_pages
-
-
-def get_rows(
-    region: Optional[str],
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SolarwindsServiceDeskResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
-    host = base_url(region)
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_page:
-        page = resume.next_page
-        updated_from = resume.updated_from
-        logger.debug(f"SolarWinds Service Desk: resuming {endpoint} from page {page}")
-    else:
-        page = 1
-        updated_from = None
-        if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
-            updated_from = _format_updated_from(db_incremental_field_last_value)
-
-    while True:
-        items, total_pages = _fetch_page(session, _build_url(host, config.path, page, updated_from), logger)
-        rows = _unwrap_rows(items, config.wrapper_key)
-        if rows:
-            yield rows
-
-        # Stop on an empty page, or once the documented X-Total-Pages header says this was the last
-        # one. Never infer the end from a short page — the server may clamp `per_page` below what we
-        # requested, which would silently truncate the sync.
-        if not items or (total_pages is not None and page >= total_pages):
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-fetches the last unpersisted page; merge dedupes on `id`.
-        resumable_source_manager.save_state(
-            SolarwindsServiceDeskResumeConfig(next_page=page, updated_from=updated_from)
-        )
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if not self._has_next_page:
+            return
+        raw_total = response.headers.get(TOTAL_PAGES_HEADER)
+        if raw_total is not None and raw_total.isdigit():
+            # ``self.page`` now points at the NEXT page (super incremented it); base_page is 1, so
+            # the last valid page equals the header's total.
+            if self.page > int(raw_total):
+                self._has_next_page = False
 
 
 def solarwinds_service_desk_source(
     region: Optional[str],
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SolarwindsServiceDeskResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.next_page:
+        initial_paginator_state = {"page": resume.next_page}
+        # A resumed run reuses the persisted window instead of recomputing one from a watermark
+        # that may have moved on.
+        updated_from = resume.updated_from
+    else:
+        updated_from = None
+        if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
+            updated_from = _format_updated_from(db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(region),
+            # Only the non-secret Accept header goes here; auth rides the framework auth config so
+            # its value is redacted from logs and raised error messages.
+            "headers": {"Accept": ACCEPT_HEADER},
+            "auth": {
+                "type": "api_key",
+                "api_key": f"Bearer {api_token}",
+                "name": "X-Samanage-Authorization",
+                "location": "header",
+            },
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"per_page": PER_PAGE, "updated_from": updated_from},
+                    # A 200 body that isn't a list means the response shape changed — retry rather
+                    # than silently ingesting a stray object as a single row.
+                    "data_selector_malformed_retryable": True,
+                    "paginator": SolarwindsPageNumberPaginator(base_page=1),
+                },
+                # Some list endpoints wrap each row under its singular resource name — unwrap to
+                # the bare record before it's written.
+                "data_map": lambda item, _key=config.wrapper_key: _unwrap_row(item, _key),
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the last page (merge dedupes on `id`) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(
+                SolarwindsServiceDeskResumeConfig(next_page=int(state["page"]), updated_from=updated_from)
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        # Incremental is injected as the static `updated_from` param above, so the framework's
+        # cursor machinery is unused.
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            region=region,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # List ordering is undocumented (no sort params, likely newest-first): "desc" makes the
         # pipeline commit the incremental watermark only after a completed sync instead of
@@ -220,38 +206,29 @@ def solarwinds_service_desk_source(
     )
 
 
-def check_access(region: Optional[str], api_token: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
+def validate_credentials(region: Optional[str], api_token: str, path: str | None = None) -> tuple[bool, str | None]:
     """Probe a single list endpoint to validate the API token.
 
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
+    At source-create (``path`` is None) a 403 is a genuine token whose owner's role can't read the
+    probe resource — that must not block connecting the source; a schema-scoped probe fails a 403 so
+    the user sees which table their role can't read.
     """
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
-    url = f"{base_url(region)}{path}?{urlencode({'per_page': 1, 'page': 1})}"
-    try:
-        response = session.get(url, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to SolarWinds Service Desk: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"SolarWinds Service Desk returned HTTP {response.status_code}"
-
-    return 200, None
-
-
-def validate_credentials(region: Optional[str], api_token: str, path: str | None = None) -> tuple[bool, str | None]:
-    status, message = check_access(region, api_token, path or DEFAULT_PROBE_PATH)
+    probe_path = path or DEFAULT_PROBE_PATH
+    url = f"{base_url(region)}{probe_path}?{urlencode({'per_page': 1, 'page': 1})}"
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        url,
+        headers=_headers(api_token),
+        timeout=15,
+    )
     if status == 200:
         return True, None
     if status == 401:
         return False, "Invalid SolarWinds Service Desk API token"
     if status == 403:
-        # The token is genuine but its owner's role can't read this resource. At source-create
-        # (no specific schema requested) that must not block connecting the source.
         if path is None:
             return True, None
         return False, "Your SolarWinds Service Desk token does not have permission to read this resource"
-    return False, message or "Could not validate SolarWinds Service Desk API token"
+    if status is None:
+        return False, "Could not connect to SolarWinds Service Desk"
+    return False, f"SolarWinds Service Desk returned HTTP {status}"

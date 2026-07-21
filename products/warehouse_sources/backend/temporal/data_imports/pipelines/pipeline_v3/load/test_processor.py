@@ -160,23 +160,29 @@ class TestPromoteStagedCursor:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
     )
-    def test_does_not_raise_on_promotion_failure(self, mock_objects: MagicMock) -> None:
+    def test_promotion_failure_propagates(self, mock_objects: MagicMock) -> None:
+        # If the failure is swallowed, the job completes with a stale cursor and
+        # the next run re-extracts the same window — duplicate rows for append syncs.
         schema = MagicMock()
         schema.promote_staged_incremental_values.side_effect = RuntimeError("db error")
         mock_objects.get.return_value = schema
 
         signal = self._make_signal()
-        _promote_staged_cursor(signal)
+        with pytest.raises(RuntimeError):
+            _promote_staged_cursor(signal)
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
     )
-    def test_does_not_raise_when_schema_missing(self, mock_objects: MagicMock) -> None:
+    def test_missing_schema_propagates(self, mock_objects: MagicMock) -> None:
+        # A deleted schema is permanent; the consumer's non-retryable patterns
+        # fail the run fast instead of completing a job for a schema that's gone.
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         mock_objects.get.side_effect = ExternalDataSchema.DoesNotExist()
         signal = self._make_signal()
-        _promote_staged_cursor(signal)
+        with pytest.raises(ExternalDataSchema.DoesNotExist):
+            _promote_staged_cursor(signal)
 
 
 class _LeaseLost(Exception):
@@ -276,6 +282,74 @@ class TestProcessMessageOwnershipGate:
         mock_post_load.assert_not_called()
         mock_mark_completed.assert_not_called()
 
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_ownership_lost_during_post_load_blocks_completion(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_post_load: MagicMock,
+        mock_mark_completed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        # Post-load can run minutes; without the re-check a lease lost mid-post-load
+        # still promotes the cursor and marks the job COMPLETED under a new owner.
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        calls = {"count": 0}
+
+        def verify_ownership() -> None:
+            calls["count"] += 1
+            if calls["count"] > 1:
+                raise _LeaseLost()
+
+        with pytest.raises(_LeaseLost):
+            process_message(_message(is_final_batch=True), verify_ownership=verify_ownership)
+
+        mock_post_load.assert_called_once()
+        mock_mark_completed.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_ownership_loss_is_not_counted_as_load_failure(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        _post_load: MagicMock,
+        mock_analytics: MagicMock,
+    ) -> None:
+        # Fencing abandons are benign; counting them as load failures pollutes the metric.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+            OwnershipLostError,
+        )
+
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        def verify_ownership() -> None:
+            raise OwnershipLostError("group lease lost")
+
+        with pytest.raises(OwnershipLostError):
+            process_message(_message(is_final_batch=True), verify_ownership=verify_ownership)
+
+        mock_analytics.capture.assert_not_called()
+
 
 class TestMarkJobCompleted:
     def _make_signal(self, **overrides: Any) -> MagicMock:
@@ -295,6 +369,7 @@ class TestMarkJobCompleted:
             ("completed_write_absorbed_by_failed", "Failed", False),
         ]
     )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
     )
@@ -321,6 +396,7 @@ class TestMarkJobCompleted:
         mock_finish_row_tracking: AsyncMock,
         mock_job_objects: MagicMock,
         mock_release: MagicMock,
+        mock_transaction: MagicMock,
     ) -> None:
         model = MagicMock()
         model.status = resulting_status
@@ -341,6 +417,44 @@ class TestMarkJobCompleted:
             mock_finish_row_tracking.assert_not_awaited()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.update_external_job_status"
+    )
+    def test_promotion_failure_does_not_finalize_job(
+        self,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_finish_row_tracking: AsyncMock,
+        mock_release: MagicMock,
+        mock_transaction: MagicMock,
+    ) -> None:
+        # Promotion raising must propagate and skip finalization so the batch retries; otherwise the
+        # job stays Completed with a stale cursor and a later append sync re-extracts the same window.
+        model = MagicMock()
+        model.status = "Completed"
+        mock_update.return_value = model
+
+        schema = MagicMock()
+        schema.promote_staged_incremental_values.side_effect = RuntimeError("db error")
+        mock_schema_objects.get.return_value = schema
+
+        with pytest.raises(RuntimeError, match="db error"):
+            _mark_job_completed(self._make_signal())
+
+        mock_finish_row_tracking.assert_not_awaited()
+        mock_release.assert_not_called()
 
 
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
