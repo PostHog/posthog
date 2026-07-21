@@ -1,3 +1,4 @@
+import pytest
 from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
@@ -13,6 +14,12 @@ def _field(name: str) -> SourceFieldInputConfig:
         for field in NeonSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
+
+
+def test_neon_supports_cdc():
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import source_type_supports_cdc
+
+    assert source_type_supports_cdc(ExternalDataSourceType.NEON)
 
 
 def test_neon_source_type_and_name():
@@ -74,3 +81,41 @@ def test_connection_failure_uses_postgres_error():
 
     assert success is False
     assert error == "postgres error"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "ep-cool-darkness-123456-pooler.us-east-2.aws.neon.tech",
+        "  EP-COOL-DARKNESS-123456-POOLER.US-EAST-2.AWS.NEON.TECH  ",
+    ],
+)
+def test_cdc_prerequisites_reject_pooled_host_without_connecting(host):
+    # The pooled endpoint accepts normal connections so the generic checks would pass,
+    # but logical replication doesn't work through it — fail fast, no connection attempt.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "check_cdc_prerequisites") as super_check:
+        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"])
+
+    super_check.assert_not_called()
+    assert len(errors) == 1
+    assert "-pooler" in errors[0]
+    assert "logical replication" in errors[0].lower()
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "ep-cool-darkness-123456.us-east-2.aws.neon.tech",
+        "my-pooler.example.com",  # non-Neon host: '-pooler' label must not trigger the guard
+    ],
+)
+def test_cdc_prerequisites_delegate_for_direct_hosts(host):
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
+        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"])
+
+    super_check.assert_called_once()
+    assert errors == []

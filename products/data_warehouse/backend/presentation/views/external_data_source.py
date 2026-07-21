@@ -3507,7 +3507,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
-        source_impl: PostgresSource = PostgresSource()
+        # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
+        # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        if not isinstance(source_impl, PostgresSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC prerequisite checks are not supported for source type: {source_type}"},
+            )
         is_valid, errors = source_impl.validate_config(request.data)
         if not is_valid:
             return Response(

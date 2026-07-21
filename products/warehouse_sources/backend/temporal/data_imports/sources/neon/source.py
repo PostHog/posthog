@@ -13,6 +13,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -25,6 +28,19 @@ _SourceField = (
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 )
+
+_NEON_POOLED_HOST_CDC_ERROR = (
+    "This is Neon's pooled endpoint, which doesn't support logical replication. For CDC, use the "
+    "direct host instead — remove the '-pooler' suffix (e.g. "
+    "ep-cool-darkness-123456.us-east-2.aws.neon.tech) — and make sure logical replication is "
+    "enabled in your Neon project settings."
+)
+
+
+def _is_neon_pooled_host(host: str) -> bool:
+    bare = (host or "").strip().lower()
+    return bare.endswith(".neon.tech") and bare.split(".", 1)[0].endswith("-pooler")
+
 
 _NEON_HOST_CAPTION = (
     "In the Neon Console, open your project and click **Connect** to see your connection "
@@ -80,4 +96,26 @@ class NeonSource(PostgresSource):
             docsUrl="https://posthog.com/docs/cdp/sources/neon",
             fields=fields,
             releaseStatus=ReleaseStatus.ALPHA,
+        )
+
+    def check_cdc_prerequisites(
+        self,
+        config: PostgresSourceConfig,
+        management_mode: str,
+        tables: list[str],
+        slot_name: str | None = None,
+        publication_name: str | None = None,
+        require_ssl: bool = True,
+    ) -> list[str]:
+        # The pooled endpoint accepts normal connections, so the generic checks would pass —
+        # but logical replication doesn't work through it. Fail fast without connecting.
+        if _is_neon_pooled_host(config.host or ""):
+            return [_NEON_POOLED_HOST_CDC_ERROR]
+        return super().check_cdc_prerequisites(
+            config,
+            management_mode=management_mode,
+            tables=tables,
+            slot_name=slot_name,
+            publication_name=publication_name,
+            require_ssl=require_ssl,
         )
