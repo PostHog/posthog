@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VercelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
+    api_docs_url = "https://vercel.com/docs/rest-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VERCEL
@@ -53,7 +55,6 @@ class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Vercel",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Vercel access token to pull your Vercel deployments, projects, teams, domains, and aliases into the PostHog Data warehouse.
 
 Create an access token in your [Vercel account settings](https://vercel.com/account/tokens). A read-only token is sufficient.

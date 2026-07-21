@@ -6,7 +6,15 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { FlakyTestListApi, GitHubSourceApi, QuarantineFileApi } from '../generated/api.schemas'
+import type {
+    BrokenTestsResultApi,
+    FlakyTestListApi,
+    GitHubSourceApi,
+    QuarantineFileApi,
+} from '../generated/api.schemas'
+
+// A fixed 24-slot hourly sparkline (oldest first) with the given recent tail — mirrors the endpoint's trend_24h.
+const spark = (tail: number[]): number[] => [...new Array(24 - tail.length).fill(0), ...tail]
 
 const FLAKY_TESTS: FlakyTestListApi = {
     items: [
@@ -16,6 +24,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             rerun_passed_count: 6,
             failed_count: 4,
             failed_pr_count: 3,
+            master_failed_count: 2,
             branch_count: 5,
             xfailed_count: 0,
             last_seen_at: '2026-07-01T18:30:00Z',
@@ -26,6 +35,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             rerun_passed_count: 0,
             failed_count: 9,
             failed_pr_count: 4,
+            master_failed_count: 5,
             branch_count: 4,
             xfailed_count: 0,
             last_seen_at: '2026-07-01T09:12:00Z',
@@ -36,6 +46,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             rerun_passed_count: 2,
             failed_count: 1,
             failed_pr_count: 1,
+            master_failed_count: 0,
             branch_count: 3,
             xfailed_count: 3,
             last_seen_at: '2026-06-30T22:45:00Z',
@@ -46,6 +57,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             rerun_passed_count: 1,
             failed_count: 2,
             failed_pr_count: 2,
+            master_failed_count: 1,
             branch_count: 2,
             xfailed_count: 0,
             last_seen_at: '2026-06-29T14:00:00Z',
@@ -79,6 +91,79 @@ const QUARANTINE: QuarantineFileApi = {
     generated_at: '2026-07-02T12:00:00Z',
 }
 
+const BROKEN_TESTS: BrokenTestsResultApi = {
+    rows: [
+        {
+            fingerprint: 'products/checkout/test_flow.py::test_checkout | assert N == N',
+            test_id: 'products/checkout/test_flow.py::test_checkout',
+            error_signature: 'AssertionError: expected 200, got 500',
+            job_name: 'Django tests – Core (12/22)',
+            repo: 'PostHog/posthog',
+            state: 'breaking_master',
+            first_seen: '2026-06-30T08:00:00Z',
+            last_seen: '2026-07-02T11:40:00Z',
+            occurrences: 41,
+            branches: 5,
+            master_hits: 6,
+            latest_run_id: 9001,
+            latest_branch: 'master',
+            trend_24h: spark([1, 3, 6, 8]),
+        },
+        {
+            fingerprint: 'posthog/api/test_serializer.py::test_contract | KeyError: N',
+            test_id: 'posthog/api/test_serializer.py::test_contract',
+            error_signature: 'KeyError: managed_viewset',
+            job_name: 'Django tests – Core (4/22)',
+            repo: 'PostHog/posthog',
+            state: 'novel_burst',
+            first_seen: '2026-07-02T05:00:00Z',
+            last_seen: '2026-07-02T11:50:00Z',
+            occurrences: 9,
+            branches: 4,
+            master_hits: 0,
+            latest_run_id: 9002,
+            latest_branch: 'feat/data-catalog',
+            trend_24h: spark([2, 7]),
+        },
+        {
+            fingerprint: 'posthog/temporal/test_async.py::test_race | ConnectionResetError',
+            test_id: 'posthog/temporal/test_async.py::test_race',
+            error_signature: 'ConnectionResetError',
+            job_name: 'Playwright (2/8)',
+            repo: 'PostHog/posthog',
+            state: 'flaky',
+            first_seen: '2026-06-28T14:00:00Z',
+            last_seen: '2026-07-02T10:00:00Z',
+            occurrences: 7,
+            branches: 3,
+            master_hits: 0,
+            latest_run_id: 9004,
+            latest_branch: 'fix/async-teardown',
+            trend_24h: spark([1, 0, 1, 0, 0, 1]),
+        },
+        {
+            fingerprint: 'posthog/flags/test_rollout.py::test_flag | Timeout',
+            test_id: 'posthog/flags/test_rollout.py::test_flag',
+            error_signature: 'Timeout waiting for flag',
+            job_name: 'Frontend CI (3/6)',
+            repo: 'PostHog/posthog',
+            state: 'potentially_resolved',
+            first_seen: '2026-06-29T09:00:00Z',
+            last_seen: '2026-07-02T04:00:00Z',
+            occurrences: 12,
+            branches: 3,
+            master_hits: 2,
+            latest_run_id: 9003,
+            latest_branch: 'master',
+            trend_24h: spark([]),
+        },
+    ],
+    breaking_master_jobs: ['Django tests – Core (12/22)'],
+    window_days: 2,
+    truncated: false,
+    limit: 200,
+}
+
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
 
 const meta: Meta = {
@@ -98,6 +183,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/flaky_tests/': FLAKY_TESTS,
+                'api/projects/:team_id/engineering_analytics/broken_tests/': BROKEN_TESTS,
                 'api/projects/:team_id/engineering_analytics/quarantine/': QUARANTINE,
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {

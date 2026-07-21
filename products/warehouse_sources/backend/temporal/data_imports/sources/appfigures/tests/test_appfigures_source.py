@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.source import AppfiguresSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AppfiguresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfigures import (
+    AppfiguresSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -33,7 +35,6 @@ class TestAppfiguresSource:
         assert config.label == "Appfigures"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/appfigures.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/appfigures"
 

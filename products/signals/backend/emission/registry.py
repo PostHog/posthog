@@ -3,12 +3,12 @@ from __future__ import annotations
 import enum
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-if TYPE_CHECKING:
-    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.sources import github_split_schema_name
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class InternalSourceType(str, enum.Enum):
@@ -95,30 +95,39 @@ def register_signal_source(
     _SIGNAL_TABLE_CONFIGS[(source_type.value, schema_name)] = config
 
 
+def _registry_key(source_type: str, schema_name: str) -> tuple[str, str]:
+    """GitHub alone qualifies its schema rows (`owner/repo.issues`); emitters register the bare endpoint."""
+    if source_type == ExternalDataSourceType.GITHUB.value:
+        _, endpoint = github_split_schema_name(schema_name)
+        return (source_type, endpoint)
+    return (source_type, schema_name)
+
+
 def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableConfig | None:
-    return _SIGNAL_TABLE_CONFIGS.get((source_type, schema_name))
+    return _SIGNAL_TABLE_CONFIGS.get(_registry_key(source_type, schema_name))
 
 
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
-    return (source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
+    return _registry_key(source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
 
 
 def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str, str] | None:
-    config = _SIGNAL_TABLE_CONFIGS.get((source_type, schema_name))
+    config = get_signal_config(source_type, schema_name)
     return (config.source_product, config.source_type) if config else None
 
 
 def _register_all_emitters() -> None:
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
+    from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
-    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.JIRA, "issues", JIRA_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.PGANALYZE, "issues", PGANALYZE_ISSUES_CONFIG)
     register_signal_source(InternalSourceType.CONVERSATIONS, "tickets", CONVERSATIONS_TICKETS_CONFIG)
 

@@ -15,10 +15,15 @@ from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
     RunState,
+    build_imported_mcp_server_configs,
     get_git_identity_env_vars,
     get_github_credential_source,
+    get_imported_mcp_server_configs,
+    get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
+    get_task_run_actor_user,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_caller_token_run,
 )
@@ -322,7 +327,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     USER_ID = 7
     API_BASE = "https://us.posthog.com"
 
-    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_active_installations"
+    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
     def _make_installation(self, **kwargs) -> ActiveInstallationInfo:
@@ -349,7 +354,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
 
-        mock_facade.assert_called_once_with(self.TEAM_ID, self.USER_ID)
+        mock_facade.assert_called_once_with(self.TEAM_ID, user_id=self.USER_ID, include_personal=True)
         assert configs == [
             McpServerConfig(
                 type="http",
@@ -380,6 +385,17 @@ class TestFetchUserMcpServerConfigs(TestCase):
         )
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
+
+    @parameterized.expand([(True,), (False,)])
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_include_personal_is_forwarded_to_facade(self, include_personal: bool, mock_facade, mock_api_url) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = []
+
+        get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, include_personal=include_personal)
+
+        mock_facade.assert_called_once_with(self.TEAM_ID, user_id=self.USER_ID, include_personal=include_personal)
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
@@ -525,6 +541,62 @@ class TestGetGithubToken(TestCase):
 
         with self.assertRaises(CredentialUnavailableError):
             get_github_token(integration.id)
+
+
+class TestSlackTaskRunActorUser(TestCase):
+    def test_credential_user_grandfathers_legacy_runs_without_actor_state(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-team")
+        creator = User.objects.create(email="creator@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        # Slack runs started before actor tracking carry no slack_actor_user_id at all;
+        # they must keep running on the creator's credentials across the rollout.
+        state = {"interaction_origin": "slack"}
+
+        assert get_task_run_actor_user(task, state) == creator
+        assert get_task_run_credential_user(task, state) == creator
+
+    def test_credential_user_fails_closed_when_slack_actor_invalid(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-invalid-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-invalid-team")
+        creator = User.objects.create(email="creator-invalid@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id + 999_999}
+
+        assert get_task_run_credential_user(task, state) is None
+
+    def test_credential_user_allows_creator_when_slack_actor_is_creator(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="slack-actor-creator-org")
+        team = Team.objects.create(organization=organization, name="slack-actor-creator-team")
+        creator = User.objects.create(email="creator-actor@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Investigate thread",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        state = {"interaction_origin": "slack", "slack_actor_user_id": creator.id}
+
+        assert get_task_run_credential_user(task, state) == creator
 
 
 class TestGetSandboxGitHubToken(TestCase):
@@ -676,6 +748,65 @@ class TestGetSandboxGitHubToken(TestCase):
         mock_get_identity.assert_not_called()
         mock_get_github_token.assert_not_called()
 
+    @patch("products.tasks.backend.temporal.process_task.sandbox_credentials.resolve_coordinated_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    def test_slack_user_authorship_uses_actor_user_integration(
+        self,
+        mock_get_github_token: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_cached: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        actor = MagicMock(name="actor")
+        identity = MagicMock()
+        mock_cached.return_value = None
+        mock_get_identity.return_value = identity
+        mock_resolve.return_value = "ghu_actor"
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
+            actor_user=actor,
+            repository="posthog/posthog",
+        )
+
+        assert result == "ghu_actor"
+        mock_get_identity.assert_called_once_with(
+            actor,
+            github_user_integration_id=None,
+            repository="posthog/posthog",
+            allow_refresh=True,
+        )
+        mock_get_github_token.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.process_task.sandbox_credentials.resolve_coordinated_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value=None)
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    def test_slack_user_authorship_does_not_fall_back_to_team_token(
+        self,
+        mock_get_github_token: MagicMock,
+        mock_get_identity: MagicMock,
+        _mock_cached: MagicMock,
+        _mock_resolve: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_get_identity.return_value = None
+
+        with self.assertRaises(ReauthorizationRequired):
+            get_sandbox_github_token(
+                123,
+                run_id="run-1",
+                state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
+                actor_user=MagicMock(name="actor"),
+            )
+
+        mock_get_github_token.assert_not_called()
+
 
 class TestGitHubCredentialSourceHelpers(TestCase):
     def test_get_github_credential_source_reads_marker(self) -> None:
@@ -760,3 +891,140 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         )
 
         assert result == "ghs_team"
+
+
+class TestBuildImportedMcpServerConfigs(TestCase):
+    def test_returns_empty_for_none_empty_or_non_list(self):
+        assert build_imported_mcp_server_configs(None, set()) == []
+        assert build_imported_mcp_server_configs([], {"posthog"}) == []
+        # The encrypted column is schemaless at read time; drift must not break launches.
+        assert build_imported_mcp_server_configs("junk", set()) == []
+
+    def test_builds_configs_dropping_collisions_and_malformed_entries(self):
+        configs = build_imported_mcp_server_configs(
+            [
+                {
+                    "type": "http",
+                    "name": "grafana",
+                    "url": "https://mcp.grafana.example.com/mcp",
+                    "headers": [{"name": "Authorization", "value": "Bearer x"}],
+                },
+                # collides with an already-resolved server: existing servers win
+                {"type": "sse", "name": "posthog", "url": "https://shadow.example.com/mcp"},
+                # duplicate of an earlier imported entry: first one wins
+                {"type": "http", "name": "grafana", "url": "https://dup.example.com/mcp"},
+                # missing type falls back to http; malformed headers are dropped
+                {"name": "docs", "url": "https://docs.example.com/mcp", "headers": [{"name": "X"}, "junk"]},
+                # unusable entries are skipped
+                {"type": "http", "url": "https://no-name.example.com"},
+                {"type": "http", "name": "no-url"},
+                "garbage",
+            ],
+            existing_names={"posthog"},
+        )
+
+        assert configs == [
+            McpServerConfig(
+                type="http",
+                name="grafana",
+                url="https://mcp.grafana.example.com/mcp",
+                headers=[{"name": "Authorization", "value": "Bearer x"}],
+            ),
+            McpServerConfig(type="http", name="docs", url="https://docs.example.com/mcp", headers=[]),
+        ]
+
+    def test_collision_detection_is_case_insensitive(self):
+        # Matches the serializer's case-insensitive validation: a name differing only in
+        # case from an existing server (or an earlier imported entry) is dropped, and the
+        # surviving entry keeps its original casing.
+        configs = build_imported_mcp_server_configs(
+            [
+                {"type": "http", "name": "Grafana", "url": "https://a.example.com/mcp"},
+                # collides case-insensitively with an already-resolved server
+                {"type": "http", "name": "POSTHOG", "url": "https://b.example.com/mcp"},
+                # collides case-insensitively with the earlier imported "Grafana"
+                {"type": "http", "name": "grafana", "url": "https://c.example.com/mcp"},
+            ],
+            existing_names={"posthog"},
+        )
+
+        assert [c.name for c in configs] == ["Grafana"]
+
+
+class TestGetImportedMcpServerConfigs(TestCase):
+    """The claude-only adapter gate — codex-acp hard-fails a session on any unreachable MCP server
+    and the sandbox does no reachability pruning, so imported servers must not enter a codex run."""
+
+    _SERVERS = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp"}]
+
+    @staticmethod
+    def _task_run(runtime_adapter):
+        state = {} if runtime_adapter is None else {"runtime_adapter": runtime_adapter}
+        return MagicMock(imported_mcp_servers=TestGetImportedMcpServerConfigs._SERVERS, state=state)
+
+    @parameterized.expand([("claude", "claude"), ("unset", None)])
+    def test_resolves_configs_for_claude_or_unset_adapter(self, _name, adapter):
+        configs = get_imported_mcp_server_configs(self._task_run(adapter), set())
+        assert [c.name for c in configs] == ["grafana"]
+
+    def test_returns_empty_for_codex_adapter(self):
+        assert get_imported_mcp_server_configs(self._task_run("codex"), set()) == []
+
+
+class TestGetRelayedMcpServerNames(TestCase):
+    @staticmethod
+    def _task_run(relayed_mcp_servers):
+        return MagicMock(relayed_mcp_servers=relayed_mcp_servers)
+
+    def test_returns_valid_names(self):
+        task_run = self._task_run([{"name": "playwright"}, {"name": "internal-cli"}])
+
+        assert get_relayed_mcp_server_names(task_run, {"posthog"}) == ["playwright", "internal-cli"]
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty_list", []),
+            # The stored column is schemaless at read time; drift must not break launches.
+            ("non_list", "junk"),
+        ]
+    )
+    def test_returns_empty_for_non_list_drift(self, _name, stored):
+        assert get_relayed_mcp_server_names(self._task_run(stored), set()) == []
+
+    def test_skips_malformed_entries(self):
+        task_run = self._task_run(
+            [
+                {"name": "playwright"},
+                "garbage",
+                {"name": ""},
+                {"name": 42},
+                {"url": "https://no-name.example.com"},
+                # duplicate of an earlier relayed entry: first one wins
+                {"name": "playwright"},
+            ]
+        )
+
+        assert get_relayed_mcp_server_names(task_run, set()) == ["playwright"]
+
+    def test_drops_names_colliding_with_resolved_configs(self):
+        task_run = self._task_run([{"name": "posthog"}, {"name": "grafana"}, {"name": "playwright"}])
+
+        # Names taken by already-resolved MCP configs (PostHog MCP, MCP Store, imported) win.
+        assert get_relayed_mcp_server_names(task_run, {"posthog", "grafana"}) == ["playwright"]
+
+    def test_collision_detection_is_case_insensitive(self):
+        # Matches the serializer's case-insensitive validation: names differing only in case
+        # from an existing server or an earlier relayed entry are dropped, original casing kept.
+        task_run = self._task_run(
+            [
+                {"name": "Playwright"},
+                # collides case-insensitively with an already-resolved server
+                {"name": "GRAFANA"},
+                {"name": "internal-cli"},
+                # collides case-insensitively with the earlier relayed "Playwright"
+                {"name": "playwright"},
+            ]
+        )
+
+        assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]

@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -16,6 +16,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -195,23 +196,6 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         return queryset
 
 
-class OptionalBooleanField(serializers.BooleanField):
-    """BooleanField that returns None when missing instead of False."""
-
-    default_empty_html = None
-
-    def __init__(self, **kwargs):
-        kwargs.setdefault("allow_null", True)
-        super().__init__(**kwargs)
-
-
-@extend_schema_field({"type": "string"})
-class JSONStringFilterField(serializers.JSONField):
-    """JSONField exposed as a JSON-encoded string in the schema (for query string clients)."""
-
-    pass
-
-
 _IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
 _IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
@@ -245,31 +229,31 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="Upper bound on `created_at` (inclusive), ISO-8601.",
     )
-    users = serializers.ListField(
+    users = JSONTolerantListField(
         child=serializers.UUIDField(),
         required=False,
         default=[],
         help_text="Filter by users who performed the activity (user UUIDs).",
     )
-    scopes = serializers.ListField(
+    scopes = JSONTolerantListField(
         child=serializers.CharField(),
         required=False,
         default=[],
         help_text='Filter by activity scopes (e.g. "FeatureFlag", "Insight").',
     )
-    activities = serializers.ListField(
+    activities = JSONTolerantListField(
         child=serializers.CharField(),
         required=False,
         default=[],
         help_text='Filter by activity types (e.g. "created", "updated", "deleted").',
     )
-    clients = serializers.ListField(
+    clients = JSONTolerantListField(
         child=serializers.CharField(),
         required=False,
         default=[],
         help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
     )
-    ip_addresses = serializers.ListField(
+    ip_addresses = JSONTolerantListField(
         child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
         required=False,
         default=[],
@@ -278,7 +262,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
             "using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined."
         ),
     )
-    team_ids = serializers.ListField(
+    team_ids = JSONTolerantListField(
         child=serializers.IntegerField(),
         required=False,
         default=[],
@@ -312,7 +296,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="When set, filters rows authored by the system (no user).",
     )
-    item_ids = serializers.ListField(
+    item_ids = JSONTolerantListField(
         child=serializers.CharField(),
         required=False,
         default=[],

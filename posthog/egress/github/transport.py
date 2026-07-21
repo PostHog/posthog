@@ -15,7 +15,7 @@ from typing import Any
 
 import requests
 
-from posthog.egress.github.limiter import consume_github_installation_sync
+from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
@@ -98,8 +98,10 @@ class GitHubClient(EgressClient):
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 
-    def _consume(self, scope: str, priority: Priority, source: str) -> bool:
-        return consume_github_installation_sync(scope, priority=priority, source=source)
+    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
+        return consume_github_installation_sync(
+            scope, resource=classify_github_resource(url), priority=priority, source=source
+        )
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None

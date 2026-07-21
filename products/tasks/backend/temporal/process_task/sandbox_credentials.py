@@ -19,8 +19,11 @@ from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
     get_github_token,
     get_pr_authorship_mode,
+    get_readonly_github_token,
     get_sandbox_github_token,
+    get_task_run_credential_user,
     is_caller_token_run,
+    is_slack_interaction_state,
     resolve_user_github_integration_for_task,
 )
 
@@ -246,16 +249,40 @@ class GitHubSandboxCredential:
     kind: str = "github"
 
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
+        # A repo-less read-only run must stay read-only for its whole lifetime: without this
+        # guard the periodic refresh would resolve the full credential path (the team integration
+        # is attached to every task) and silently swap the downscoped token for the write-capable
+        # one mid-run. Re-mint the same read-only grant instead; best-effort like the original.
+        if ctx.github_read_access and ctx.repository is None:
+            token = get_readonly_github_token(ctx.team_id)
+            if token:
+                apply_github_credentials_to_sandbox(sandbox, None, token)
+            return CredentialRefreshOutcome(
+                self.kind,
+                refreshed=bool(token),
+                next_refresh_seconds=github_refresh_interval_seconds(token)
+                if token
+                else DEFAULT_REFRESH_INTERVAL_SECONDS,
+            )
         if not ctx.has_github_credentials:
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        if is_slack_interaction_state(ctx.state) and actor_user is None:
+            raise ReauthorizationRequired("Slack run requires an acting user before refreshing GitHub credentials.")
+
         integration = None
         if get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER and not is_caller_token_run(
             ctx.run_id, ctx.state
         ):
-            integration = resolve_user_github_integration_for_task(task, repository=ctx.repository, allow_refresh=True)
+            integration = resolve_user_github_integration_for_task(
+                task,
+                actor_user=actor_user,
+                repository=ctx.repository,
+                allow_refresh=True,
+            )
 
         if integration is not None:
             return self._refresh_shared_user_integration(sandbox, ctx, task, integration)
@@ -280,6 +307,7 @@ class GitHubSandboxCredential:
                 run_id=ctx.run_id,
                 state=ctx.state,
                 task=task,
+                actor_user=actor_user,
                 github_user_integration_id=github_user_integration_id,
                 repository=ctx.repository,
             )

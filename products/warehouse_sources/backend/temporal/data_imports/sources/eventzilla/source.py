@@ -30,12 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla
     EVENTZILLA_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventzillaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
+    EventzillaSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.eventzilla.net/docs/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -54,7 +60,6 @@ class EventzillaSource(ResumableSource[EventzillaSourceConfig, EventzillaResumeC
 You can generate an API key in your Eventzilla account under **Settings > App Management**.""",
             iconPath="/static/services/eventzilla.png",
             docsUrl="https://posthog.com/docs/cdp/sources/eventzilla",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -138,6 +143,7 @@ You can generate an API key in your Eventzilla account under **Settings > App Ma
         return eventzilla_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

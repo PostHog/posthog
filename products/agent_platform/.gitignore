@@ -1,0 +1,2 @@
+# Local coherence CLI cache (pre-commit gate; see bin/coherence-install)
+.coherence-tool/

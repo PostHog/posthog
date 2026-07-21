@@ -5,10 +5,10 @@ from posthog.clickhouse.custom_metrics import CUSTOM_METRICS_INGESTION_LAYER_VIE
 operations = [
     run_sql_with_exceptions(
         CUSTOM_METRICS_TEST_VIEW(),
-        node_roles=[NodeRole.INGESTION_EVENTS, NodeRole.SHUFFLEHOG],
+        node_roles=[NodeRole.INGESTION_EVENTS],
     ),
     run_sql_with_exceptions(
         CUSTOM_METRICS_INGESTION_LAYER_VIEW(),
-        node_roles=[NodeRole.INGESTION_EVENTS, NodeRole.SHUFFLEHOG],
+        node_roles=[NodeRole.INGESTION_EVENTS],
     ),
 ]

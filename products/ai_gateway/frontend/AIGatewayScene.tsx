@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ComponentType } from 'react'
 
-import { HedgehogRoboHog } from '@posthog/brand/hoggies'
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
 import { LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,6 +25,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { aiGatewayLogic, EndpointProvider, EndpointTab } from './aiGatewayLogic'
 import { GatewayBalanceCard, GatewayTopUpModal } from './GatewayTopUp'
 import { ModelBreakdownTable, SpendChart, UsageMetrics } from './gatewayUsage'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
 
 const AI_GATEWAY_DESCRIPTION =
     'One endpoint for every major LLM, billed at cost — no markup on tokens. Point your app at the gateway and ' +

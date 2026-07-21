@@ -23,6 +23,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply."
         ),
+    include_all_statuses: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
@@ -118,8 +124,8 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
  * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
  *
  * Body: {
- *     "state": "suppressed" | "potential",
- *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+ *     "state": "suppressed" | "potential" | "resolved",
+ *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
@@ -141,10 +147,10 @@ export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
 export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential'])
-        .describe('* `suppressed` - suppressed\n* `potential` - potential')
+        .enum(['suppressed', 'potential', 'resolved'])
+        .describe('* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved')
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved"
         ),
     dismissal_reason: zod
         .enum([
@@ -160,7 +166,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for \"fixed by something else / might recur\" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -187,7 +193,11 @@ export const SignalsReportArtefactsListParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 export const SignalsReportArtefactsListQueryParams = /* @__PURE__ */ zod.object({
@@ -205,7 +215,11 @@ export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 export const SignalsReportArtefactsCreateHeader = /* @__PURE__ */ zod.object({
@@ -222,7 +236,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -245,7 +259,11 @@ export const SignalsReportArtefactsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 /**
@@ -259,7 +277,11 @@ export const SignalsReportArtefactsPartialUpdateParams = /* @__PURE__ */ zod.obj
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
@@ -284,7 +306,11 @@ export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    report_id: zod.string(),
+    report_id: zod
+        .string()
+        .describe(
+            "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
+        ),
 })
 
 /**
@@ -312,10 +338,10 @@ export const signalsReportsBulkStateCreateBodyIdsMax = 100
 
 export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential'])
-        .describe('* `suppressed` - suppressed\n* `potential` - potential')
+        .enum(['suppressed', 'potential', 'resolved'])
+        .describe('* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved')
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved"
         ),
     dismissal_reason: zod
         .enum([
@@ -331,7 +357,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for \"fixed by something else / might recur\" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -619,6 +645,8 @@ export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
+export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
+
 export const signalsScoutEditReportBodySuggestedReviewersMax = 10
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
@@ -650,13 +678,20 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax)
                             .optional()
                             .describe(
-                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
+                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
                             ),
                         user_uuid: zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEditReportBodySuggestedReviewersItemReasonMax)
+                            .nullish()
+                            .describe(
+                                "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                             ),
                     })
                     .describe(
@@ -718,6 +753,8 @@ export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
+
+export const signalsScoutEmitReportBodySuggestedReviewersItemReasonMax = 500
 
 export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
 
@@ -803,13 +840,20 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax)
                             .optional()
                             .describe(
-                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
+                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
                             ),
                         user_uuid: zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodySuggestedReviewersItemReasonMax)
+                            .nullish()
+                            .describe(
+                                "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                             ),
                     })
                     .describe(
@@ -1103,6 +1147,7 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'llm_analytics',
             'github',
             'linear',
+            'jira',
             'zendesk',
             'conversations',
             'error_tracking',
@@ -1112,9 +1157,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'health_checks',
             'endpoints',
             'replay_vision',
+            'analytics',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
         ),
     source_type: zod
         .enum([
@@ -1132,9 +1178,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'endpoint_execution_failed',
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
+            'anomaly_investigation',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -1165,6 +1212,7 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'llm_analytics',
             'github',
             'linear',
+            'jira',
             'zendesk',
             'conversations',
             'error_tracking',
@@ -1174,9 +1222,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'health_checks',
             'endpoints',
             'replay_vision',
+            'analytics',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
         ),
     source_type: zod
         .enum([
@@ -1194,9 +1243,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'endpoint_execution_failed',
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
+            'anomaly_investigation',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -1218,6 +1268,7 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'llm_analytics',
             'github',
             'linear',
+            'jira',
             'zendesk',
             'conversations',
             'error_tracking',
@@ -1227,10 +1278,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'health_checks',
             'endpoints',
             'replay_vision',
+            'analytics',
         ])
         .optional()
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
         ),
     source_type: zod
         .enum([
@@ -1248,10 +1300,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'endpoint_execution_failed',
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
+            'anomaly_investigation',
         ])
         .optional()
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),

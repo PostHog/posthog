@@ -25,11 +25,15 @@ class TestExperimentActionNameRefresh(APILicensedTest):
                 "description": "Test experiment with action metric",
                 "type": "web",
                 "feature_flag_key": f"test-flag-{metrics_field}",
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
                 },
                 metrics_field: [
                     {
@@ -81,11 +85,15 @@ class TestExperimentActionNameRefresh(APILicensedTest):
                 "description": "Test experiment with action ID type",
                 "type": "web",
                 "feature_flag_key": f"test-flag-{_name}",
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
                 },
                 "metrics": [
                     {
@@ -130,11 +138,15 @@ class TestExperimentActionNameRefresh(APILicensedTest):
                 "description": "Test experiment with deleted action",
                 "type": "web",
                 "feature_flag_key": "test-flag-deleted",
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
                 },
                 "metrics": [
                     {
@@ -187,11 +199,15 @@ class TestExperimentActionNameRefresh(APILicensedTest):
                 "description": "Test experiment with funnel action metrics",
                 "type": "web",
                 "feature_flag_key": f"test-flag-funnel-{metrics_field}",
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
                 },
                 metrics_field: [
                     {
@@ -253,11 +269,15 @@ class TestExperimentActionNameRefresh(APILicensedTest):
                 "description": "Test experiment with ratio action metrics",
                 "type": "web",
                 "feature_flag_key": f"test-flag-ratio-{metrics_field}",
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
                 },
                 metrics_field: [
                     {

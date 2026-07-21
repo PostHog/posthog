@@ -60,10 +60,9 @@ def _annotations(team: Team, sq: DataWarehouseSavedQuery) -> dict[str, DataWareh
     }
 
 
-def _run(team, sq, *, generated, enabled=True, lineage=None, row_sample=None):
+def _run(team, sq, *, generated, lineage=None, row_sample=None):
     """Run the sync enrichment with the LLM + lineage/context boundaries mocked. Returns (result, mock_llm)."""
     with (
-        patch.object(enrich, "enrichment_enabled", return_value=enabled),
         patch.object(enrich, "get_team_business_context", return_value=""),
         patch.object(enrich, "_gather_lineage", return_value=lineage or []),
         patch.object(enrich, "_get_row_sample", return_value=row_sample or []),
@@ -168,7 +167,6 @@ class TestEnrichViewSemanticsSync:
 
     @parameterized.expand(
         [
-            ("flag_disabled", "flag_disabled"),
             ("ai_data_processing_not_approved", "ai_data_processing_not_approved"),
             ("deleted", "deleted"),
             ("is_test", "is_test"),
@@ -179,14 +177,11 @@ class TestEnrichViewSemanticsSync:
     )
     def test_gates_skip_without_calling_llm(self, condition, expected_reason):
         team = _team()
-        enabled = True
         columns = _columns("amount")
         query = "SELECT amount FROM events"
         extra: dict[str, Any] = {}
 
-        if condition == "flag_disabled":
-            enabled = False
-        elif condition == "ai_data_processing_not_approved":
+        if condition == "ai_data_processing_not_approved":
             team.organization.is_ai_data_processing_approved = False
             team.organization.save()
         elif condition == "deleted":
@@ -203,7 +198,7 @@ class TestEnrichViewSemanticsSync:
             columns = {}
 
         sq = _saved_query(team, columns=columns, query=query, **extra)
-        result, mock_llm = _run(team, sq, generated={"view_description": "x", "columns": {}}, enabled=enabled)
+        result, mock_llm = _run(team, sq, generated={"view_description": "x", "columns": {}})
 
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
@@ -307,7 +302,6 @@ class TestMaybeDispatchEnrichment:
         assert compute_enrichment_hash(sq) != sq.semantic_enrichment_hash
 
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch("django.db.transaction.on_commit") as on_commit,
             patch.object(enrich, "_start_enrichment_workflow") as start_workflow,
         ):
@@ -318,19 +312,15 @@ class TestMaybeDispatchEnrichment:
 
         start_workflow.assert_called_once_with(sq.team_id, str(sq.id))
 
-    @parameterized.expand([("flag_disabled", False, True), ("ai_not_approved", True, False)])
-    def test_skips_dispatch_when_gated(self, _name, flag_enabled, approved):
-        # A changed view still must not enqueue a workflow when enrichment is off or AI processing isn't
-        # approved — the same gates the activity enforces.
+    def test_skips_dispatch_when_ai_not_approved(self):
+        # A changed view still must not enqueue a workflow when AI processing isn't approved — the same
+        # gate the activity enforces.
         team = _team()
-        team.organization.is_ai_data_processing_approved = approved
+        team.organization.is_ai_data_processing_approved = False
         team.organization.save()
         sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
 
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=flag_enabled),
-            patch("django.db.transaction.on_commit") as on_commit,
-        ):
+        with patch("django.db.transaction.on_commit") as on_commit:
             maybe_dispatch_enrichment(sq)
 
         on_commit.assert_not_called()
@@ -341,20 +331,14 @@ class TestDispatchOnSave:
 
     def test_creating_view_dispatches_once(self, django_capture_on_commit_callbacks):
         team = _team()
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_start_enrichment_workflow") as mock_start,
-        ):
+        with patch.object(enrich, "_start_enrichment_workflow") as mock_start:
             with django_capture_on_commit_callbacks(execute=True):
                 sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
         mock_start.assert_called_once_with(team.id, str(sq.id))
 
     def test_status_only_save_does_not_dispatch(self, django_capture_on_commit_callbacks):
         team = _team()
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_start_enrichment_workflow") as mock_start,
-        ):
+        with patch.object(enrich, "_start_enrichment_workflow") as mock_start:
             sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
             mock_start.reset_mock()
             with django_capture_on_commit_callbacks(execute=True):
@@ -364,10 +348,7 @@ class TestDispatchOnSave:
 
     def test_unchanged_hash_save_does_not_dispatch(self, django_capture_on_commit_callbacks):
         team = _team()
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_start_enrichment_workflow") as mock_start,
-        ):
+        with patch.object(enrich, "_start_enrichment_workflow") as mock_start:
             sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
             DataWarehouseSavedQuery.objects.filter(id=sq.id).update(
                 semantic_enrichment_hash=compute_enrichment_hash(sq)

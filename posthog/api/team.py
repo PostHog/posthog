@@ -114,10 +114,31 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "your pipeline emits a different attribute."
         ),
     )
+    logs_session_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Ordered list of log attribute keys whose values hold the PostHog session ID. "
+            "Detection checks keys in order; the first key with a value wins. Defaults to "
+            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
+            "auto-attach. Add keys only if your pipeline emits the session ID under "
+            "different attributes."
+        ),
+    )
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key"]
+        fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        # The child CharField already trims whitespace and rejects blanks; only
+        # cross-item uniqueness needs checking here.
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Attribute keys must be unique.")
+        return value
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -733,6 +754,7 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
+    _group_types_cache: list[dict[str, Any]] | None = None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -829,11 +851,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @tracer.start_as_current_span("team_serializer.has_group_types")
     def get_has_group_types(self, team: Team) -> bool:
-        return bool(cached_group_types_for_team(team))
+        return bool(self._get_group_types(team))
 
     @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
-        return cached_group_types_for_team(team)
+        return self._get_group_types(team)
+
+    def _get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        group_types = self._group_types_cache
+        if group_types is None:
+            group_types = cached_group_types_for_team(team)
+            self._group_types_cache = group_types
+        return group_types
 
     @extend_schema_field(serializers.BooleanField())
     @tracer.start_as_current_span("team_serializer.events_retention_enforced")
@@ -1296,7 +1325,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
-        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave"):
+        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
         if "slack_alert_channel_id" in value:
@@ -1629,6 +1658,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
         )
 
+        report_conversations_settings_changes(
+            cast(User, self.context["request"].user),
+            before_update.get("conversations_settings"),
+            updated_team,
+        )
+
         return updated_team
 
     def _update_revenue_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
@@ -1956,6 +1991,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         organization_id = team.organization_id
         team_name = team.name
 
+        # Remove the team from the org's managed warehouse first (no-op for orgs without
+        # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
+        # requires deprovisioning the warehouse (or deleting the organization) instead.
+        # Keep the product API off the core import path.
+        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
+            block_team_deletion,
+        )
+
+        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        if warehouse_block_reason:
+            raise exceptions.ValidationError(warehouse_block_reason)
+
         user = cast(User, self.request.user)
 
         # Hand off all deletion work (bulky postgres, batch exports, team record,
@@ -2082,11 +2129,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="logs_config",
     )
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage logs product configuration for this environment."""
+        """Manage logs product configuration for this environment. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return handle_logs_config(request, self.get_object())
 
     @action(
@@ -2379,6 +2427,26 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         raise exceptions.PermissionDenied(
             "Multiple environments per project are no longer available. Please contact support if you need assistance."
         )
+
+
+def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+    """Fire one "support setting changed" event per changed conversations_settings key.
+
+    Shared by the team and project serializers — both endpoints can PATCH the settings.
+    """
+    old_settings = before_settings or {}
+    new_settings = team.conversations_settings or {}
+    changed_keys = sorted(
+        k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
+    )
+    # One event per changed setting so insights can break down by `setting`.
+    for key in changed_keys:
+        new_value = new_settings.get(key)
+        properties: dict[str, Any] = {"setting": key}
+        # Only non-string values are safe to report — the dict holds free text and the widget token.
+        if isinstance(new_value, (bool, int, float, type(None))):
+            properties["value"] = new_value
+        report_user_action(user, "support setting changed", properties, team=team)
 
 
 def handle_conversations_token_on_update(

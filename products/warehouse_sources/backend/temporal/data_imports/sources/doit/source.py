@@ -20,12 +20,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit 
     doit_list_reports,
     doit_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DoItSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DoItSource(SimpleSource[DoItSourceConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.doit.com"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DOIT

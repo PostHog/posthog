@@ -53,7 +53,9 @@ async def test_started_and_ready_fire_expected_captures(ateam):
             )
         )
 
-    events = [call.kwargs for call in capture.call_args_list]
+    # Model-level signal_report_status_changed labels ride the same analytics client; this test
+    # asserts the pipeline's own telemetry only.
+    events = [call.kwargs for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
     assert [e["event"] for e in events] == ["signal_report_started", "signal_report_completed"]
     for e in events:
         assert e["distinct_id"] == str(ateam.uuid)
@@ -89,8 +91,9 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
             )
         )
 
-    capture.assert_called_once()
-    kwargs = capture.call_args.kwargs
+    pipeline_calls = [call for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
+    assert len(pipeline_calls) == 1
+    kwargs = pipeline_calls[0].kwargs
     assert kwargs["event"] == "signal_report_completed"
     assert kwargs["properties"]["result"] == "failed"
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"

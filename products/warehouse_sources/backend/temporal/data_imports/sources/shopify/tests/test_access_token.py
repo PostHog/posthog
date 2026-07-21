@@ -5,15 +5,18 @@ from requests.exceptions import ChunkedEncodingError, SSLError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_STORE_NOT_FOUND_ERROR,
+    ShopifyRetryableError,
     _get_shopify_access_token,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 
-def _mock_response(status_code: int, ok: bool, json_data: dict | None = None) -> mock.MagicMock:
+def _mock_response(status_code: int, ok: bool, json_data: dict | None = None, reason: str = "") -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
     response.ok = ok
+    response.reason = reason
     response.json.return_value = json_data or {}
     return response
 
@@ -29,7 +32,7 @@ def _patched_token_call(response: mock.MagicMock):
     return _patched_token_post(mock.MagicMock(return_value=response))
 
 
-@pytest.mark.parametrize("status_code", [400, 401, 403, 404])
+@pytest.mark.parametrize("status_code", [400, 401, 403])
 def test_get_access_token_4xx_is_non_retryable(status_code):
     with _patched_token_call(_mock_response(status_code, ok=False)):
         with pytest.raises(Exception) as exc_info:
@@ -43,17 +46,56 @@ def test_get_access_token_4xx_is_non_retryable(status_code):
     )
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503])
-def test_get_access_token_transient_stays_retryable(status_code):
-    with _patched_token_call(_mock_response(status_code, ok=False)):
+def test_get_access_token_404_reports_missing_store():
+    # A 404 means the store subdomain doesn't resolve to a real store — a distinct,
+    # non-retryable failure that reconnecting the app can't fix, so it must surface the
+    # store-not-found message rather than the credentials error.
+    with _patched_token_call(_mock_response(404, ok=False)):
         with pytest.raises(Exception) as exc_info:
             _get_shopify_access_token("store", "client-id", "client-secret")
 
+    error_message = str(exc_info.value)
+    assert SHOPIFY_STORE_NOT_FOUND_ERROR in error_message
+    assert SHOPIFY_ACCESS_TOKEN_AUTH_ERROR not in error_message
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"404 token error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "status_code,reason",
+    [(429, "Too Many Requests"), (500, "Internal Server Error"), (502, "Bad Gateway"), (503, "Service Unavailable")],
+)
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_transient_retries_then_reraises(_mock_sleep, status_code, reason):
+    # A 429/5xx on the token endpoint (e.g. the 502 Bad Gateway seen in production) is transient,
+    # so it must retry locally with backoff and, if it never recovers, reraise a retryable error
+    # rather than a non-retryable one.
+    post = mock.MagicMock(return_value=_mock_response(status_code, ok=False, reason=reason))
+    with _patched_token_post(post):
+        with pytest.raises(ShopifyRetryableError) as exc_info:
+            _get_shopify_access_token("store", "client-id", "client-secret")
+    assert post.call_count == 5
     error_message = str(exc_info.value)
     patterns = ShopifySource().get_non_retryable_errors()
     assert not any(pattern in error_message for pattern in patterns), (
         f"transient token error '{error_message}' should remain retryable"
     )
+
+
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_retries_5xx_then_succeeds(_mock_sleep):
+    # A transient 502 followed by a healthy response should mint the token, not fail the import.
+    post = mock.MagicMock(
+        side_effect=[
+            _mock_response(502, ok=False, reason="Bad Gateway"),
+            _mock_response(200, ok=True, json_data={"access_token": "tok"}),
+        ]
+    )
+    with _patched_token_post(post):
+        assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
+    assert post.call_count == 2
 
 
 def test_get_access_token_success_returns_token():

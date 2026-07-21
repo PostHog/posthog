@@ -652,18 +652,22 @@
     margin: 0 auto;
 }
 
-body:has(.Notebook--markdown-v2),
-.Navigation3000:has(.Notebook--markdown-v2),
-.main-content-container:has(.Notebook--markdown-v2) > main {
+// `.has-markdown-v2-notebook` is toggled on <body> by Notebook.tsx and stands in for
+// `body:has(.Notebook--markdown-v2)`. Do not reintroduce near-root `:has()` anchors here:
+// they make Blink flag the whole document as :has-invalidation-suspect, after which any
+// class change anywhere costs a full-page style recalc (200ms+ per keystroke on large threads).
+body.has-markdown-v2-notebook,
+body.has-markdown-v2-notebook .Navigation3000,
+body.has-markdown-v2-notebook .main-content-container > main {
     --notebook-markdown-v2-page-background: var(--color-bg-primary);
     --scene-layout-background: var(--notebook-markdown-v2-page-background);
 
     background: var(--notebook-markdown-v2-page-background);
 }
 
-[theme='dark']:has(.Notebook--markdown-v2),
-[theme='dark'] .Navigation3000:has(.Notebook--markdown-v2),
-[theme='dark'] .main-content-container:has(.Notebook--markdown-v2) > main {
+body[theme='dark'].has-markdown-v2-notebook,
+body[theme='dark'].has-markdown-v2-notebook .Navigation3000,
+body[theme='dark'].has-markdown-v2-notebook .main-content-container > main {
     --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
 }
 

@@ -20,17 +20,16 @@ use crate::{
     metric_consts::{
         RATE_LIMITING_STAGE, RATE_LIMIT_FAIL_OPEN, RATE_LIMIT_METRIC_EMIT, RATE_LIMIT_OUTCOMES,
     },
-    stages::pipeline::ExceptionEventPipelineItem,
+    stages::pipeline::{LinkedPipelineItem, RateCheckedPipelineItem},
     types::{
         batch::Batch,
+        exception_event::{ExceptionEvent, Linked},
         stage::{Stage, StageResult},
     },
 };
 
 use crate::modes::processing::rules::bypass::BypassRule;
 use crate::modes::processing::rules::rate_limit::RateLimitSettings;
-use crate::modes::processing::types::exception_properties::ExceptionProperties;
-
 pub use limiter::{RateLimitDecision, RedisRateLimiter, ScriptRunner, RATE_LIMIT_LUA};
 
 /// Ceiling on concurrent Redis admits per batch — bounds the pathological tail (many
@@ -91,8 +90,8 @@ impl From<&Arc<AppContext>> for RateLimitingStage {
 }
 
 impl Stage for RateLimitingStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = LinkedPipelineItem;
+    type Output = RateCheckedPipelineItem;
 
     fn name(&self) -> &'static str {
         RATE_LIMITING_STAGE
@@ -100,19 +99,19 @@ impl Stage for RateLimitingStage {
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let Some(limiter) = self.ctx.rate_limiter.clone() else {
-            return Ok(batch); // limiter disabled — pass everything through
+            return Ok(mark_rate_checked(batch));
         };
 
-        let mut items: Vec<ExceptionEventPipelineItem> = batch.into();
+        let mut items: Vec<LinkedPipelineItem> = batch.into();
 
         // Teams of the surviving (Ok) events. Suppressed / failed events are
         // already Err and are never charged.
         let team_ids: HashSet<i32> = items
             .iter()
-            .filter_map(|item| item.as_ref().ok().map(|props| props.team_id))
+            .filter_map(|item| item.as_ref().ok().map(ExceptionEvent::team_id))
             .collect();
         if team_ids.is_empty() {
-            return Ok(Batch::from(items));
+            return Ok(mark_rate_checked(Batch::from(items)));
         }
 
         let settings = self
@@ -139,8 +138,15 @@ impl Stage for RateLimitingStage {
 
         self.emit_metrics(&outcomes).await;
 
-        Ok(Batch::from(items))
+        Ok(mark_rate_checked(Batch::from(items)))
     }
+}
+
+fn mark_rate_checked(batch: Batch<LinkedPipelineItem>) -> Batch<RateCheckedPipelineItem> {
+    batch.map(
+        |item, ()| item.map(ExceptionEvent::into_rate_checked),
+        &mut (),
+    )
 }
 
 /// Core of `process`, split out for unit tests with an in-memory `ScriptRunner`.
@@ -152,19 +158,19 @@ async fn apply_rate_limits(
     limiter: &RedisRateLimiter,
     settings: &HashMap<i32, RateLimitSettings>,
     enabled_teams: Option<&HashSet<i32>>,
-    items: &mut [ExceptionEventPipelineItem],
+    items: &mut [LinkedPipelineItem],
     bypassed: &HashSet<usize>,
 ) -> HashMap<OutcomeKey, u32> {
     // Group surviving (Ok) events by (team_id, issue_id). Vec<usize> stays in input order.
     // Bypassed events are skipped so they never charge a token bucket.
-    let mut groups: HashMap<(i32, Option<Uuid>), Vec<usize>> = HashMap::new();
+    let mut groups: HashMap<(i32, Uuid), Vec<usize>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         if bypassed.contains(&idx) {
             continue;
         }
         if let Ok(props) = item {
             groups
-                .entry((props.team_id, props.issue_id))
+                .entry((props.team_id(), props.issue_id()))
                 .or_default()
                 .push(idx);
         }
@@ -182,7 +188,7 @@ async fn apply_rate_limits(
             // no settings row → team not opted in
             let team_settings = settings.get(&team_id)?;
             // per-issue limit needs an issue to key on
-            let per_issue = issue_id.and(team_settings.per_issue());
+            let per_issue = team_settings.per_issue();
             let project = team_settings.project();
             if per_issue.is_none() && project.is_none() {
                 return None;
@@ -197,7 +203,7 @@ async fn apply_rate_limits(
         |(team_id, issue_id, indices, per_issue, project)| async move {
             let n = indices.len() as u32;
             let decision = limiter
-                .admit(team_id, issue_id, per_issue, project, n)
+                .admit(team_id, Some(issue_id), per_issue, project, n)
                 .await;
             (team_id, issue_id, indices, per_issue, project, decision)
         },
@@ -222,7 +228,7 @@ async fn apply_rate_limits(
 
         let group = classify_group(
             team_id,
-            issue_id,
+            Some(issue_id),
             &indices,
             decision,
             per_issue.is_some(),
@@ -234,7 +240,7 @@ async fn apply_rate_limits(
                 &mut outcomes,
                 team_id,
                 LimitKind::PerIssue,
-                issue_id,
+                Some(issue_id),
                 allowed,
                 limited,
             );
@@ -271,7 +277,7 @@ impl RateLimitingStage {
     async fn apply_bypass(
         &self,
         settings: &HashMap<i32, RateLimitSettings>,
-        items: &[ExceptionEventPipelineItem],
+        items: &[LinkedPipelineItem],
     ) -> (HashSet<usize>, HashMap<OutcomeKey, u32>) {
         let enabled_teams = self.ctx.rate_limiter_enabled_team_ids.as_ref();
 
@@ -289,7 +295,7 @@ impl RateLimitingStage {
         // Load rules once per eligible team present in the batch.
         let eligible_teams: HashSet<i32> = items
             .iter()
-            .filter_map(|item| item.as_ref().ok().map(|p| p.team_id))
+            .filter_map(|item| item.as_ref().ok().map(ExceptionEvent::team_id))
             .filter(|&team_id| is_rate_limited(team_id))
             .collect();
         let mut rules_by_team: HashMap<i32, Vec<BypassRule>> = HashMap::new();
@@ -461,23 +467,23 @@ fn classify_group(
 /// issue id) when the per-issue limit is on, and a project row when the project limit is on.
 fn tally_bypassed(
     outcomes: &mut HashMap<OutcomeKey, u32>,
-    props: &ExceptionProperties,
+    props: &ExceptionEvent<Linked>,
     settings: &HashMap<i32, RateLimitSettings>,
 ) {
-    let Some(team_settings) = settings.get(&props.team_id) else {
+    let Some(team_settings) = settings.get(&props.team_id()) else {
         return;
     };
     if team_settings.project().is_some() {
         *outcomes
-            .entry((props.team_id, LimitKind::Project, None, Outcome::Bypassed))
+            .entry((props.team_id(), LimitKind::Project, None, Outcome::Bypassed))
             .or_insert(0) += 1;
     }
-    if props.issue_id.is_some() && team_settings.per_issue().is_some() {
+    if team_settings.per_issue().is_some() {
         *outcomes
             .entry((
-                props.team_id,
+                props.team_id(),
                 LimitKind::PerIssue,
-                props.issue_id,
+                Some(props.issue_id()),
                 Outcome::Bypassed,
             ))
             .or_insert(0) += 1;
@@ -520,7 +526,7 @@ struct RuleToDisable<'a> {
 /// re-disabled (and its cache re-invalidated) on each match. `match_fn` is [`BypassRule::try_match`]
 /// in production and a fake in tests.
 fn evaluate_bypass_rules<'a>(
-    items: &[ExceptionEventPipelineItem],
+    items: &[LinkedPipelineItem],
     rules_by_team: &'a HashMap<i32, Vec<BypassRule>>,
     settings: &HashMap<i32, RateLimitSettings>,
     match_fn: impl Fn(&BypassRule, &serde_json::Value) -> Result<bool, VmError>,
@@ -536,13 +542,10 @@ fn evaluate_bypass_rules<'a>(
 
     for (idx, item) in items.iter().enumerate() {
         let Ok(props) = item else { continue };
-        let Some(rules) = rules_by_team.get(&props.team_id) else {
+        let Some(rules) = rules_by_team.get(&props.team_id()) else {
             continue;
         };
-        let props_json = match serde_json::to_value(props) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+        let props_json = props.rate_limit_rule_properties();
         for rule in rules {
             if disabled_rules.contains(&rule.id) {
                 continue;
@@ -570,7 +573,7 @@ fn evaluate_bypass_rules<'a>(
                     disabled_rules.insert(rule.id);
                     to_disable.push(RuleToDisable {
                         rule,
-                        team_id: props.team_id,
+                        team_id: props.team_id(),
                         error: err.to_string(),
                         props_json: props_json.clone(),
                     });
@@ -586,8 +589,11 @@ fn evaluate_bypass_rules<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modes::processing::types::exception_properties::ExceptionProperties;
-    use crate::modes::processing::types::ExceptionList;
+    use crate::issue_resolution::{Issue, IssueStatus};
+    use crate::modes::processing::types::{
+        exception_event::{ResolvedMetadata, SelectedFingerprint},
+        ExceptionList,
+    };
     use async_trait::async_trait;
     use common_redis::CustomRedisError;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -648,20 +654,9 @@ mod tests {
         }
     }
 
-    fn event(team_id: i32, issue_id: Option<Uuid>) -> ExceptionEventPipelineItem {
-        Ok(ExceptionProperties {
+    fn event(team_id: i32, issue_id: Option<Uuid>) -> LinkedPipelineItem {
+        Ok(ExceptionEvent {
             exception_list: ExceptionList(vec![]),
-            exception_sources: None,
-            exception_types: None,
-            exception_messages: None,
-            exception_functions: None,
-            exception_handled: None,
-            exception_releases: HashMap::new(),
-            fingerprint: None,
-            fingerprint_version: None,
-            proposed_fingerprint: None,
-            fingerprint_record: None,
-            issue_id,
             proposed_issue_name: None,
             proposed_issue_description: None,
             debug_images: vec![],
@@ -669,7 +664,25 @@ mod tests {
             uuid: Uuid::now_v7(),
             timestamp: String::new(),
             team_id,
-            issue: None,
+            state: Linked {
+                metadata: ResolvedMetadata {
+                    sources: vec![],
+                    types: vec![],
+                    messages: vec![],
+                    functions: vec![],
+                    handled: false,
+                    releases: HashMap::new(),
+                },
+                fingerprint: SelectedFingerprint::manual("test-fingerprint".to_string()),
+                issue: Issue {
+                    id: issue_id.unwrap_or_default(),
+                    team_id,
+                    status: IssueStatus::Active,
+                    name: None,
+                    description: None,
+                    created_at: Utc::now(),
+                },
+            },
         })
     }
 
@@ -678,8 +691,7 @@ mod tests {
         let runner = Arc::new(FakeScriptRunner::failing());
         let limiter = limiter_with(runner.clone());
         let issue = Uuid::now_v7();
-        let mut items: Vec<ExceptionEventPipelineItem> =
-            (0..5).map(|_| event(1, Some(issue))).collect();
+        let mut items: Vec<LinkedPipelineItem> = (0..5).map(|_| event(1, Some(issue))).collect();
         let mut cfg = HashMap::new();
         cfg.insert(1, settings(Some(1), Some(1)));
 
@@ -698,8 +710,7 @@ mod tests {
         let runner = Arc::new(FakeScriptRunner::returning(vec![3, 1]));
         let limiter = limiter_with(runner);
         let issue = Uuid::now_v7();
-        let mut items: Vec<ExceptionEventPipelineItem> =
-            (0..5).map(|_| event(7, Some(issue))).collect();
+        let mut items: Vec<LinkedPipelineItem> = (0..5).map(|_| event(7, Some(issue))).collect();
         let mut cfg = HashMap::new();
         cfg.insert(7, settings(Some(100), Some(100)));
 
@@ -718,7 +729,7 @@ mod tests {
         let runner = Arc::new(FakeScriptRunner::returning(vec![3, 1]));
         let limiter = limiter_with(runner);
         let (issue_a, issue_b) = (Uuid::now_v7(), Uuid::now_v7());
-        let mut items: Vec<ExceptionEventPipelineItem> = (0..5)
+        let mut items: Vec<LinkedPipelineItem> = (0..5)
             .map(|_| event(7, Some(issue_a)))
             .chain((0..5).map(|_| event(7, Some(issue_b))))
             .collect();
@@ -753,7 +764,7 @@ mod tests {
     async fn skips_team_without_settings_without_touching_redis() {
         let runner = Arc::new(FakeScriptRunner::returning(vec![0, 0]));
         let limiter = limiter_with(runner.clone());
-        let mut items: Vec<ExceptionEventPipelineItem> =
+        let mut items: Vec<LinkedPipelineItem> =
             (0..3).map(|_| event(42, Some(Uuid::now_v7()))).collect();
         let cfg = HashMap::new(); // team 42 has no settings row
 
@@ -770,8 +781,7 @@ mod tests {
         let runner = Arc::new(FakeScriptRunner::returning(vec![0, 0]));
         let limiter = limiter_with(runner.clone());
         let issue = Uuid::now_v7();
-        let mut items: Vec<ExceptionEventPipelineItem> =
-            vec![event(1, Some(issue)), event(2, Some(issue))];
+        let mut items: Vec<LinkedPipelineItem> = vec![event(1, Some(issue)), event(2, Some(issue))];
         let mut cfg = HashMap::new();
         cfg.insert(1, settings(Some(1), Some(1)));
         cfg.insert(2, settings(Some(1), Some(1)));
@@ -856,8 +866,7 @@ mod tests {
         let runner = Arc::new(FakeScriptRunner::returning(vec![1, 1]));
         let limiter = limiter_with(runner.clone());
         let issue = Uuid::now_v7();
-        let mut items: Vec<ExceptionEventPipelineItem> =
-            (0..5).map(|_| event(7, Some(issue))).collect();
+        let mut items: Vec<LinkedPipelineItem> = (0..5).map(|_| event(7, Some(issue))).collect();
         let mut cfg = HashMap::new();
         cfg.insert(7, settings(Some(100), Some(100)));
         let bypassed: HashSet<usize> = [0, 1].into_iter().collect();

@@ -14,7 +14,9 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
+    FinnhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -33,7 +35,6 @@ class TestSourceConfig:
         assert config.label == "Finnhub"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finnhub"
 
     def test_fields(self) -> None:

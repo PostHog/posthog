@@ -378,6 +378,28 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
             None,
             "offset_hour is not applicable for non-daily/weekly intervals",
         ),
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "every 5 minutes",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            "Higher frequency batch exports are not enabled for this team.",
+            id="Cannot update to high frequency batch exports without feature flag",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
@@ -439,7 +461,7 @@ def test_can_patch_schedule_configuration(
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     if expected_error:
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_400_BAD_REQUEST or response.status_code == status.HTTP_403_FORBIDDEN
         assert expected_error in response.json()["detail"]
         return
     assert response.status_code == status.HTTP_200_OK, response.json()

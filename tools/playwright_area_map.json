@@ -1,0 +1,121 @@
+{
+    "_comment": [
+        "Path -> Playwright spec map for affected-only E2E selection on ready-PR incremental pushes.",
+        "Consumed by tools/playwright_spec_selection.py; wired into .github/workflows/ci-e2e-playwright.yml.",
+        "The selector is FAIL-CLOSED: any changed file not matched below forces the FULL suite, and a",
+        "selection miss is caught by the post-merge full run on master (the backstop). Start narrow and",
+        "widen `scenes`/`explicit` as recall data comes in. Every target must resolve to >=1 real spec",
+        "(enforced by tools/test_playwright_spec_selection.py) and point only into the two spec roots.",
+        "Glob syntax: `*` matches within a path segment, `**` matches across segments (only at pattern end).",
+        "A target ending in `/` is a directory prefix (all specs beneath it); otherwise it's an exact file.",
+        "Every spec must be reachable by some target OR listed in `full_suite_only` — the test enforces",
+        "this, so adding a spec forces a conscious choice: map it, or accept it only runs in full suites",
+        "(and when directly edited)."
+    ],
+    "force_full": [
+        "playwright/utils/**",
+        "playwright/page-models/**",
+        "playwright/mocks/**",
+        "playwright/*.ts",
+        "playwright/playwright.config.ts",
+        "playwright/snapshots.yml",
+        "playwright/package.json",
+        "tsconfig.json",
+        "tsconfig.*.json",
+        ".github/workflows/ci-e2e-playwright.yml",
+        "tools/playwright_spec_selection.py",
+        "tools/playwright_area_map.json",
+        "frontend/src/lib/**",
+        "frontend/src/queries/**",
+        "frontend/src/models/**",
+        "frontend/src/layout/**",
+        "frontend/src/types.ts",
+        "frontend/src/globals.ts",
+        "posthog/**",
+        "ee/**",
+        "products/*/backend/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "uv.lock",
+        "docker-compose.dev.yml",
+        "docker-compose.base.yml",
+        "docker-compose.profiles.yml",
+        "Dockerfile",
+        ".github/clickhouse-versions.json",
+        "bin/**"
+    ],
+    "products": {
+        "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
+        "replay": ["products/replay/frontend/e2e/"],
+        "surveys": ["products/surveys/frontend/e2e/"]
+    },
+    "scenes": {
+        "surveys": ["products/surveys/frontend/e2e/"],
+        "session-recordings": ["products/replay/frontend/e2e/"],
+        "sessions": ["products/replay/frontend/e2e/"],
+        "billing": ["playwright/e2e/billing/"],
+        "experiments": ["playwright/e2e/experiments/"],
+        "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
+        "dashboard": [
+            "playwright/e2e/product-analytics/dashboards.spec.ts",
+            "playwright/e2e/shared-dashboard-styling.spec.ts",
+            "playwright/e2e/shared-dashboard-unauthenticated.spec.ts"
+        ],
+        "notebooks": [
+            "playwright/e2e/product-analytics/notebooks.spec.ts",
+            "playwright/e2e/shared-notebook-unauthenticated.spec.ts"
+        ],
+        "saved-insights": ["playwright/e2e/product-analytics/insights-list.spec.ts"],
+        "insights": [
+            "playwright/e2e/product-analytics/",
+            "playwright/e2e/api-insight-creation.spec.ts",
+            "playwright/e2e/insight-sharing-password.spec.ts",
+            "playwright/e2e/shared-insight-unauthenticated.spec.ts"
+        ],
+        "funnels": ["playwright/e2e/product-analytics/"],
+        "paths": ["playwright/e2e/product-analytics/"],
+        "paths-v2": ["playwright/e2e/product-analytics/"],
+        "retention": ["playwright/e2e/product-analytics/retention.spec.ts"],
+        "web-analytics": ["playwright/e2e/web-analytics.spec.ts"],
+        "persons": ["playwright/e2e/persons/persons.spec.ts"],
+        "persons-management": ["playwright/e2e/persons/persons.spec.ts"],
+        "authentication": ["playwright/e2e/auth.spec.ts", "playwright/e2e/auth-password-reset.spec.ts"],
+        "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
+        "data-management": [
+            "playwright/e2e/event-definitions.spec.ts",
+            "playwright/e2e/events.spec.ts",
+            "playwright/e2e/annotations.spec.ts"
+        ],
+        "annotations": ["playwright/e2e/annotations.spec.ts"],
+        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"],
+        "project-homepage": ["playwright/e2e/project-home-page.spec.ts"]
+    },
+    "explicit": {
+        "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
+        "products/batch_exports/frontend/**": ["playwright/e2e/batch-exports/"],
+        "products/logs/frontend/**": ["playwright/e2e/logs/"],
+        "products/cdp/frontend/**": ["playwright/e2e/cdp/"],
+        "products/experiments/frontend/**": ["playwright/e2e/experiments/"],
+        "products/web_analytics/frontend/**": ["playwright/e2e/web-analytics.spec.ts"],
+        "products/persons/frontend/**": ["playwright/e2e/persons/persons.spec.ts"],
+        "products/cohorts/frontend/**": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
+        "products/notebooks/frontend/**": [
+            "playwright/e2e/product-analytics/notebooks.spec.ts",
+            "playwright/e2e/shared-notebook-unauthenticated.spec.ts"
+        ],
+        "products/early_access_features/frontend/**": ["playwright/e2e/early-access-management.spec.ts"],
+        "products/event_definitions/frontend/**": ["playwright/e2e/event-definitions.spec.ts"],
+        "products/annotations/frontend/**": ["playwright/e2e/annotations.spec.ts"],
+        "products/data_warehouse/frontend/**": ["playwright/e2e/sql-editor*.spec.ts"],
+        "products/workflows/frontend/**": [
+            "playwright/e2e/workflows-hidden-templates-load.spec.ts",
+            "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"
+        ],
+        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
+    },
+    "full_suite_only": [
+        "playwright/e2e/oauth-mcp-consent.spec.ts",
+        "playwright/e2e/preflight.spec.ts",
+        "playwright/e2e/system-status.spec.ts"
+    ]
+}

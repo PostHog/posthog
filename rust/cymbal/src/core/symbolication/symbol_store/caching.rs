@@ -55,11 +55,8 @@ where
         drop(cache);
 
         // Do the fetch, not holding the lock across it to allow
-        // concurrent fetches to occur (de-duping fetches is
-        // up to the caller of `lookup`, since relying on the
-        // cache to do it means assuming the caching layer is
-        // the outer layer, which is not something the interface
-        // guarentees)
+        // concurrent fetches to occur. De-duping fetches is handled by the
+        // `AtMostOne` provider wrapper in the production catalog.
         let found = self.inner.fetch(team_id, r).await?;
         let parsed = self.inner.parse(found).await?;
         let bytes = parsed.byte_count();
@@ -97,6 +94,9 @@ impl SymbolSetCache {
     where
         T: Any + Send + Sync,
     {
+        if let Some(old) = self.cached.remove(&key) {
+            self.held_bytes = self.held_bytes.saturating_sub(old.bytes);
+        }
         self.held_bytes += bytes;
         self.cached.insert(
             key,
@@ -178,11 +178,10 @@ mod tests {
         sync::Arc,
     };
 
-    use async_trait::async_trait;
-    use reqwest::Url;
-
     use super::*;
     use crate::symbolication::symbol_store::chunk_id::OrChunkId;
+    use async_trait::async_trait;
+    use reqwest::Url;
 
     struct FakeProvider {
         fetches: Arc<AtomicUsize>,
@@ -240,5 +239,16 @@ mod tests {
         assert_eq!(both.as_ref(), b"both");
         assert_eq!(chunk_only.as_ref(), b"chunk-id");
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn replacing_cache_entry_keeps_held_bytes_accurate() {
+        let mut cache = SymbolSetCache::new(10);
+
+        cache.insert("key".to_string(), Arc::new(vec![0; 6]), 6);
+        cache.insert("key".to_string(), Arc::new(vec![0; 6]), 6);
+
+        assert_eq!(cache.held_bytes, 6);
+        assert_eq!(cache.cached.len(), 1);
     }
 }

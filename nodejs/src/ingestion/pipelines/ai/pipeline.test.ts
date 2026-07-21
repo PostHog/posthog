@@ -83,9 +83,8 @@ describe('AiIngestionPipeline', () => {
         await pipeline.feed(batch)
         let result = await pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void promiseScheduler.schedule(sideEffect)
-            }
+            // The pipeline handles its own side effects; none may leak to drivers.
+            expect(result.sideEffects ?? []).toEqual([])
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()
@@ -167,7 +166,7 @@ describe('AiIngestionPipeline', () => {
             hogTransformer: mockHogTransformer as unknown as HogTransformer,
             personRepository: mockPersonRepository,
             groupTypeManager: mockGroupTypeManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             preservePartitionLocality: false,
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),

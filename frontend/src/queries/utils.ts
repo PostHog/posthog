@@ -15,6 +15,7 @@ import {
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DataWarehouseSourceUsage,
     DatabaseSchemaQuery,
     DateRange,
     EndpointsUsageOverviewQuery,
@@ -45,6 +46,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsQuery,
     Node,
     NodeKind,
     NonIntegratedConversionsTableQuery,
@@ -79,7 +81,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -251,6 +253,10 @@ export function isRevenueAnalyticsTopCustomersQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsTopCustomersQuery {
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
+export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
+    return node?.kind === NodeKind.MetricsQuery
 }
 
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
@@ -508,6 +514,67 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
+// Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
+// frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
+const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
+    ChartDisplayType.Auto,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.Metric,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+    ChartDisplayType.TwoDimensionalHeatmap,
+])
+
+type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
+
+function classifyQueryVizCanvas(query?: Node | null): QueryVizCanvasClassification {
+    if (isDataTableNode(query)) {
+        return 'non-canvas'
+    }
+    if (isDataVisualizationNode(query)) {
+        if (!query.display) {
+            return 'non-canvas'
+        }
+        if (query.display === ChartDisplayType.Auto) {
+            return 'unknown'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(query.display) ? 'canvas' : 'non-canvas'
+    }
+    if (isInsightVizNode(query)) {
+        const source = query.source
+        if (isRetentionQuery(source) || isPathsQuery(source)) {
+            return 'non-canvas'
+        }
+        if (isFunnelsQuery(source)) {
+            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
+            const vizType = source.funnelsFilter?.funnelVizType
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert ? 'canvas' : 'non-canvas'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto) ? 'canvas' : 'non-canvas'
+    }
+    return 'unknown'
+}
+
+/**
+ * Whether an insight's viz may paint to a <canvas>. Unknown visualizations count as canvas so resize throttling
+ * remains conservative.
+ */
+export function queryVizRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) !== 'non-canvas'
+}
+
+/** Whether an insight's viz is definitely canvas-backed and safe to unmount when the page is hidden. */
+export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) === 'canvas'
+}
+
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
         return (
@@ -546,6 +613,29 @@ export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWareho
         return query.series
     }
     return undefined
+}
+
+/** Client-side check: does this query have a data-warehouse-backed series (insight surface)?
+ * For raw SQL / HogQL queries the client can't know without the backend — use
+ * `dataWarehouseSourcesFromResponse` on the query response instead. */
+export function queryUsesDataWarehouse(query?: Record<string, any> | null): boolean {
+    if (!query) {
+        return false
+    }
+    const source = isInsightVizNode(query) ? query.source : query
+    if (isInsightQueryNode(source)) {
+        return !!getSeries(source)?.some((entity) => isAnyDataWarehouseNode(entity))
+    }
+    return false
+}
+
+/** Extract the connector-synced warehouse sources a query touched from its response, if the
+ * backend populated them (currently HogQL / SQL-editor responses). Always returns an array. */
+export function dataWarehouseSourcesFromResponse(response: unknown): DataWarehouseSourceUsage[] {
+    if (response && typeof response === 'object' && Array.isArray((response as any).used_data_warehouse_sources)) {
+        return (response as any).used_data_warehouse_sources
+    }
+    return []
 }
 
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
@@ -1041,7 +1131,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     return cloned as T
 }
 
-/** Checks wether a given query node satisfies all latest versions of the query schema. */
+/** Checks whether a given query node satisfies all latest versions of the query schema. */
 export function checkLatestVersionsOnQuery(node: any): boolean {
     if (node === null || typeof node !== 'object') {
         return true

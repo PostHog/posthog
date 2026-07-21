@@ -258,7 +258,23 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(Exception) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an unknown error running this query.", str(context.exception))
+        # The underlying error text must be surfaced, not collapsed to an opaque generic message —
+        # that opacity is what left callers unable to diagnose failures like invalid-UTF-8 results.
+        self.assertIn("There was an unknown error running this query", str(context.exception))
+        self.assertIn("Some other error", str(context.exception))
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_truncates_long_error(self, mock_process_query):
+        mock_process_query.side_effect = ValueError("x" * 1000)
+
+        query = AssistantTrendsQuery(series=[])
+
+        with self.assertRaises(Exception) as context:
+            await self.query_runner.arun_and_format_query(query)
+
+        message = str(context.exception)
+        self.assertIn("(truncated)", message)
+        self.assertLess(len(message), 700)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_surfaces_error_in_response_dict(self, mock_process_query):

@@ -2,7 +2,7 @@ import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
 import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -30,7 +30,9 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { retryImport } from 'lib/utils/retryImport'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -83,7 +85,6 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
-import { FeatureFlagForm } from './FeatureFlagForm'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
@@ -92,6 +93,24 @@ import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 
 const RESOURCE_TYPE = 'feature_flag'
+
+// The edit/create form pulls in heavy deps (dnd-kit, JSON editors, sortable release conditions).
+// Lazy-mounting it lets the Edit click flip state and paint a loading skeleton before that render,
+// instead of the click blocking the main thread for seconds and reading as a dead click.
+const FeatureFlagForm = lazy(() =>
+    retryImport(() => import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm })))
+)
+
+function FeatureFlagFormSkeleton(): JSX.Element {
+    return (
+        <div className="deprecated-space-y-2">
+            <LemonSkeleton active className="h-4 w-2/5" />
+            <LemonSkeleton active className="h-4 w-full" />
+            <LemonSkeleton active className="h-4 w-full" />
+            <LemonSkeleton active className="h-4 w-3/5" />
+        </div>
+    )
+}
 
 export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
@@ -160,6 +179,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
+    // Mounting the edit form is a multi-second render (Monaco editors + dnd-kit sortables). Mount it
+    // immediately when the scene first renders already in form mode (deep-link/new flag), but when the
+    // user clicks Edit on the readonly view, defer one frame so the click flips state and the loading
+    // skeleton paints before that render — otherwise the click blocks the thread and reads as dead.
+    const shouldShowForm = isNewFeatureFlag || isEditingFlag
+    const [isFormMounted, setIsFormMounted] = useState(shouldShowForm)
+    useEffect(() => {
+        if (!shouldShowForm) {
+            setIsFormMounted(false)
+            return
+        }
+        if (isFormMounted) {
+            return
+        }
+        const raf = requestAnimationFrame(() => setIsFormMounted(true))
+        return () => cancelAnimationFrame(raf)
+    }, [shouldShowForm, isFormMounted])
+
     useFileSystemLogView({
         type: 'feature_flag',
         ref: featureFlag?.id,
@@ -178,20 +215,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     if (featureFlagLoading) {
-        return (
-            <div className="deprecated-space-y-2">
-                <LemonSkeleton active className="h-4 w-2/5" />
-                <LemonSkeleton active className="h-4 w-full" />
-                <LemonSkeleton active className="h-4 w-full" />
-                <LemonSkeleton active className="h-4 w-3/5" />
-            </div>
-        )
+        return <FeatureFlagFormSkeleton />
     }
 
     // Use the form UI for creating new flags or editing existing flags.
     // For viewing existing flags (readonly), use the tabbed UI below.
-    if (isNewFeatureFlag || isEditingFlag) {
-        return <FeatureFlagForm id={id} />
+    if (shouldShowForm) {
+        if (!isFormMounted) {
+            return <FeatureFlagFormSkeleton />
+        }
+        return (
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={<FeatureFlagFormSkeleton />}>
+                    <FeatureFlagForm id={id} />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
+        )
     }
 
     if (accessDeniedToFeatureFlag) {

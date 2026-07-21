@@ -449,6 +449,28 @@ def team_api_test_factory():
                 )
             assert mock_capture.call_args_list == expected_capture_calls
 
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        @patch(
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            return_value="Deprovision the managed warehouse first.",
+        )
+        def test_delete_team_blocked_by_managed_warehouse(
+            self,
+            mock_block: MagicMock,
+            mock_start_workflow: MagicMock,
+        ):
+            # Wiring guard: perform_destroy must consult the managed-warehouse guard before
+            # dispatching the deletion workflow, and a block must stop the deletion entirely.
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("managed warehouse", response.json()["detail"])
+            mock_block.assert_called_once()
+            mock_start_workflow.assert_not_called()
+            self.assertTrue(Team.objects.filter(pk=team.pk).exists())
+
         @freeze_time("2022-02-08")
         def test_reset_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1564,6 +1586,32 @@ def team_api_test_factory():
             settings = response.json()["conversations_settings"]
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
+
+        def test_conversations_settings_change_reports_event_per_setting(self):
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                props_by_setting = {
+                    c.args[2]["setting"]: c.args[2]
+                    for c in mock_report.call_args_list
+                    if c.args[1] == "support setting changed"
+                }
+                assert set(props_by_setting) == {"slack_nudge_enabled", "widget_greeting_text"}
+                assert props_by_setting["slack_nudge_enabled"]["value"] is False
+                # Free-text values are withheld — the dict holds arbitrary copy and the widget token.
+                assert "value" not in props_by_setting["widget_greeting_text"]
+
+            # A no-op save (same values) must not re-fire the event.
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not any(c.args[1] == "support setting changed" for c in mock_report.call_args_list)
 
         def test_conversations_widget_position_setting(self):
             response = self.client.patch(

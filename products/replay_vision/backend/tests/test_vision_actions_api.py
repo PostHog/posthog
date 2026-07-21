@@ -10,6 +10,7 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.api.vision_actions import MAX_ENABLED_ALERTS_PER_SCANNER
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
@@ -67,7 +68,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             "name": "daily-summary",
             "scanner": str(self.scanner.id),
             "trigger_config": {"rrule": "FREQ=DAILY", "timezone": "UTC"},
-            "selection": {"scanner_type": "summarizer", "window_days": 1},
+            "selection": {"verdict": ["yes"]},
             "synthesis_config": {"prompt_guide": "keep it short"},
             "delivery_config": [
                 {"type": "slack", "integration_id": self.integration.id, "channel": "#general"},
@@ -96,6 +97,74 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.team_id, self.team.id)
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
+
+    def test_targeting_a_scanner_the_editor_cannot_read_is_rejected(self) -> None:
+        # The engine reads observations as the action's CREATOR, so a lower-privileged editor
+        # re-pointing an action at a scanner they can't read would exfiltrate that scanner's data
+        # via the delivery channel. Targeting writes must be checked against the requesting user.
+        hidden = self._create_scanner(name="restricted")
+        with patch(
+            "products.replay_vision.backend.scanner_access.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(hidden.id)), format="json")
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertIn("access", resp.json()["detail"])
+
+            # An action a privileged creator already pointed at the hidden scanner: an edit that
+            # doesn't touch targeting (rename) stays allowed, but touching targeting re-checks.
+            theirs = VisionAction.all_teams.create(
+                team=self.team,
+                scanner=hidden,
+                name="theirs",
+                trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+            )
+            resp = self.client.patch(f"{self.actions_url}{theirs.id}/", data={"name": "renamed"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            resp = self.client.patch(
+                f"{self.actions_url}{theirs.id}/", data={"selection": {"verdict": ["yes"]}}, format="json"
+            )
+            self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_enabled_alert_cap_per_scanner(self) -> None:
+        # Alerts evaluate on every scanner sweep, so unbounded fan-out multiplies sweep work — the
+        # cap must reject the N+1th enabled alert while still allowing a disabled one.
+        for i in range(MAX_ENABLED_ALERTS_PER_SCANNER):
+            VisionAction.all_teams.create(
+                team=self.team,
+                scanner=self.scanner,
+                name=f"alert-{i}",
+                mode="alert",
+                alert_config={"frequency": "every_match", "metric": "count"},
+                trigger_config={"rrule": "FREQ=HOURLY", "timezone": "UTC"},
+            )
+        payload = self._create_payload(
+            name="one-too-many",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+            selection={},
+        )
+        resp = self.client.post(self.actions_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("at most", resp.json()["detail"])
+
+        resp = self.client.post(self.actions_url, data={**payload, "enabled": False}, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        # Re-enabling it later must hit the same cap.
+        resp = self.client.patch(f"{self.actions_url}{resp.json()['id']}/", data={"enabled": True}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_second_digest_for_scanner_rejected(self) -> None:
+        first = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-1", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertTrue(first.json()["is_scanner_digest"])
+        second = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-2", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertIn("daily digest", second.json()["detail"].lower())
 
     def test_list(self) -> None:
         self.client.post(self.actions_url, data=self._create_payload(), format="json")
@@ -192,9 +261,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
     def test_selection_valid_accepted(self) -> None:
         resp = self.client.post(
             self.actions_url,
-            data=self._create_payload(
-                selection={"scanner_type": "scorer", "min_score": 0.5, "max_score": 1.0, "tags": ["a", "b"]}
-            ),
+            data=self._create_payload(selection={"min_score": 0.5, "max_score": 1.0, "tags": ["a", "b"]}),
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -202,15 +269,28 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.selection["min_score"], 0.5)
 
     def test_selection_unknown_key_ignored(self) -> None:
-        # The typed SelectionSerializer is the allowlist; unknown keys are dropped, not persisted.
+        # The typed SelectionSerializer is the allowlist; unknown keys (including the retired
+        # scanner_type/status/window_days) are dropped, not persisted.
         resp = self.client.post(
             self.actions_url,
-            data=self._create_payload(selection={"scanner_type": "summarizer", "bogus_key": "x"}),
+            data=self._create_payload(selection={"scanner_type": "summarizer", "window_days": 3, "bogus_key": "x"}),
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
         action = VisionAction.all_teams.get(id=resp.json()["id"])
-        self.assertNotIn("bogus_key", action.selection)
+        for key in ("bogus_key", "scanner_type", "window_days"):
+            self.assertNotIn(key, action.selection)
+
+    @parameterized.expand(
+        [
+            ("min_above_max", {"min_score": 2.0, "max_score": 1.0}),
+            ("unknown_verdict", {"verdict": ["maybe"]}),
+            ("verdict_not_a_list", {"verdict": "yes"}),
+        ]
+    )
+    def test_selection_invalid_rejected(self, _name: str, selection: dict[str, Any]) -> None:
+        resp = self.client.post(self.actions_url, data=self._create_payload(selection=selection), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
 
 
 class TestVisionActionCrossTeamIDOR(_VisionActionAPITestCase):
@@ -306,6 +386,19 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         self.assertNotIn("synthesized_markdown", completed)
         self.assertNotIn("observations", completed)
 
+    def test_hides_alert_state_bookkeeping_runs(self) -> None:
+        # Quiet alert checks (not_breached/still_breached skips) are engine state, not user-facing
+        # outcomes — run history must show only actual firings, failures, and summary skips.
+        fired = self._create_run(status=VisionActionRunStatus.COMPLETED, synthesized_markdown="3 new matches")
+        failed = self._create_run(status=VisionActionRunStatus.FAILED, error={"message": "boom"})
+        quiet = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "not_breached"})
+        suppressed = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "still_breached"})
+
+        results = self.client.get(self.runs_url()).json()["results"]
+        self.assertEqual({r["id"] for r in results}, {str(fired.id), str(failed.id)})
+        self.assertEqual(self.client.get(f"{self.runs_url()}{quiet.id}/").status_code, 404)
+        self.assertEqual(self.client.get(f"{self.runs_url()}{suppressed.id}/").status_code, 404)
+
     def test_retrieve_returns_summary_and_observations_in_stored_order(self) -> None:
         obs_a = self._create_observation("sess-a", title="Checkout")
         obs_b = self._create_observation("sess-b", title="Onboarding")
@@ -320,6 +413,8 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual(body["synthesized_markdown"], "# Themes")
         self.assertEqual([o["id"] for o in body["observations"]], [str(obs_b.id), str(obs_a.id)])
+        # 1-based position in summary order — what the report's `[obs N]` citations reference.
+        self.assertEqual([o["index"] for o in body["observations"]], [1, 2])
         self.assertEqual(body["observations"][0]["session_id"], "sess-b")
         self.assertEqual(body["observations"][0]["title"], "Onboarding")
         self.assertEqual(body["observations"][1]["recording_subject_email"], "user@example.com")
@@ -338,6 +433,9 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
 
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
+        # `mine` was second in observation_ids; dropping the unresolved foreign id must leave a gap, not
+        # renumber it to 1 — otherwise its `index` would no longer match the `[obs 2]` citation in the report.
+        self.assertEqual(body["observations"][0]["index"], 2)
 
     @parameterized.expand(
         [

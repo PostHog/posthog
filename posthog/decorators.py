@@ -3,10 +3,12 @@ from enum import StrEnum
 from functools import wraps
 from typing import Any, TypeVar, Union, cast
 
+from django.conf import settings
 from django.urls import resolve
 from django.utils.timezone import now
 
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework.request import Request
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
@@ -19,6 +21,8 @@ from posthog.models.filters.utils import get_filter
 from posthog.utils import refresh_requested_by_client
 
 from .utils import generate_cache_key, get_safe_cache
+
+INSIGHT_CACHE_WRITE_COUNTER = Counter("posthog_cloud_insight_cache_write", "A write to the redis insight cache")
 
 
 class CacheType(StrEnum):
@@ -46,7 +50,7 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
 
     @wraps(f)
     def wrapper(self: U, request: Request) -> T:
-        from posthog.caching.insight_cache import update_cached_state
+        from posthog.caching.query_cache_routing import get_query_cache
 
         # prepare caching params
         team = self.team
@@ -100,7 +104,8 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
                 fresh_result_package["last_refresh"] = timestamp  # ty: ignore[invalid-assignment]
                 fresh_result_package["is_cached"] = False  # ty: ignore[invalid-assignment]
                 fresh_result_package["query_method"] = query_method  # ty: ignore[invalid-assignment]
-                update_cached_state(team.pk, cache_key, timestamp, fresh_result_package)
+                get_query_cache().set(cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL)
+                INSIGHT_CACHE_WRITE_COUNTER.inc()
 
         return fresh_result_package
 

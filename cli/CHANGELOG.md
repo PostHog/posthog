@@ -1,5 +1,29 @@
 # posthog-cli
 
+## 0.8.5 — 2026-07-21
+
+### Patch changes
+
+- [f3a3420b95](https://github.com/PostHog/posthog/commit/f3a3420b951b9a38d75cbc811f44745585e2cba5) `posthog-cli api` failures are now diagnosable and attributable. Launch failures report the specific cause (bundle not embedded in the build, no home directory, install-directory write failure with the underlying IO error kind, Node.js missing) both in the error message and in error telemetry, instead of one generic bundle-not-found error. When the proxied Node process fails, the CLI now exits through its normal path — flushing telemetry and honoring `--no-fail` — instead of terminating immediately, and the bundled API CLI flushes its own analytics before exiting non-zero so failed calls are no longer silently dropped. The `api` command also emits the standard command-run usage event and attaches the project id from `POSTHOG_CLI_PROJECT_ID`/`POSTHOG_CLI_ENV_ID` to telemetry when stored credentials are not used. — Thanks @cvolzer3!
+
+## 0.8.4 — 2026-07-16
+
+### Patch changes
+
+- [f45778f281](https://github.com/PostHog/posthog/commit/f45778f28141b42559f59dca347aa64e8671c8bd) The dotenv credentials file can now also be pointed at with the `POSTHOG_CLI_DOTENV_FILE` environment variable, equivalent to passing `--dotenv-file` — for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh). — Thanks @ablaszkiewicz!
+
+## 0.8.3 — 2026-07-15
+
+### Patch changes
+
+- [97457ef9b4](https://github.com/PostHog/posthog/commit/97457ef9b493debd3975f12b8b6d1c4baaee2d93) Sourcemap upload concurrency can now be configured with `--concurrency` or `POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY`, while keeping the existing default of 10 uploads at a time. — Thanks @DebadityaHait!
+
+## 0.8.2 — 2026-07-13
+
+### Patch changes
+
+- [e38163eaab](https://github.com/PostHog/posthog/commit/e38163eaab6d1120f3c87fc2c38f2772ee9cadf2) Fix concurrent release creation and multipart symbol uploads — Thanks @ablaszkiewicz!
+
 ## 0.8.1 — 2026-07-06
 
 ### Patch changes

@@ -1,11 +1,18 @@
+import re
+import typing
+import datetime as dt
+import collections.abc
 from types import SimpleNamespace
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import OperationalError
 
 import grpc
+import pyarrow as pa
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
@@ -13,14 +20,20 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     clean_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+    GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
+    GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN,
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
@@ -38,6 +51,17 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+def test_get_source_config_oauth_field_declares_required_scope():
+    oauth_field = next(
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
+    )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
+    assert oauth_field.kind == "google-ads"
+    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -202,14 +226,28 @@ class TestGoogleAdsNonRetryableErrors:
                 "token, login cookie or other valid authentication credential. See "
                 "https://developers.google.com/identity/sign-in/web/devconsole-project."
             ),
+            # The other gapic-wrapped Unauthenticated message, seen on the sync path when the OAuth
+            # access token is rejected — same "401 {message}" shape, no bare UNAUTHENTICATED token.
+            (
+                "401 Request had invalid authentication credentials. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
         ],
     )
     def test_missing_auth_credential_is_non_retryable(self, error_msg):
         is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
-    def test_missing_auth_credential_has_friendly_message(self):
-        friendly = self.non_retryable["Request is missing required authentication credential"]
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
+        ],
+    )
+    def test_auth_credential_patterns_have_friendly_message(self, pattern):
+        friendly = self.non_retryable[pattern]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
@@ -248,6 +286,7 @@ class TestGoogleAdsNonRetryableErrors:
             "invalid_grant",
             "access_not_configured",
             "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -364,6 +403,27 @@ class TestValidateCredentials:
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
 
+    def test_permission_denied_returns_actionable_message(self):
+        # A connected login that can't access the customer ID surfaces as a raw gRPC PERMISSION_DENIED
+        # dump (with a per-request peer IP) at validate time. Surface a clean, actionable prompt rather
+        # than leaking the protobuf dump to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.PERMISSION_DENIED\n\tdetails = "The caller does not have permission"\n\t'
+            'debug_error_string = "peer_address:ipv4:216.239.36.223:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")
+        assert "216.239.36.223" not in (message or "")
+        assert "StatusCode" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
@@ -416,6 +476,11 @@ def _string_column(qualified_name: str) -> GoogleAdsColumn:
         is_repeatable=False,
         type_url="",
     )
+
+
+def _pa_table_with_rows(num_rows: int) -> pa.Table:
+    """A minimal Arrow table standing in for a window's extracted page; only its row count matters."""
+    return pa.table({"campaign_id": [str(i) for i in range(num_rows)], "segments_date": ["2026-01-01"] * num_rows})
 
 
 def _single_row_table() -> GoogleAdsTable:
@@ -1080,3 +1145,176 @@ class TestOverviewStatsSchemas:
         assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
         assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
         assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+
+
+_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source"
+
+
+class TestGetOAuthAccountsCaching:
+    def test_distinct_search_terms_reuse_one_hierarchy_walk(self):
+        # The whole account list comes from one expensive walk (listAccessibleCustomers + a searchStream
+        # per accessible root) that ignores `search`. Keying the cache on the search term would repeat
+        # that walk for every distinct query; the walk must run once and be filtered in memory.
+        cache.clear()
+        source = GoogleAdsSource()
+        accounts = [
+            {"id": "1234567890", "name": "Acme Corp", "level": None, "parent_id": "1234567890", "manager": False},
+            {"id": "9876543210", "name": "Beta Client", "level": None, "parent_id": "9876543210", "manager": False},
+        ]
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            walk = mock_google_ads.return_value.list_google_ads_accessible_accounts
+            walk.return_value = accounts
+
+            first = source.get_oauth_accounts(1, 2, search="acme")
+            second = source.get_oauth_accounts(1, 2, search="beta")
+
+        walk.assert_called_once()
+        assert [account.value for account in first] == ["123-456-7890"]
+        assert [account.value for account in second] == ["987-654-3210"]
+
+
+class TestGoogleAdsQueryConstruction:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
+
+    def _stats_table(self) -> GoogleAdsTable:
+        return GoogleAdsTable(
+            name="campaign_stats",
+            alias="campaign_stats",
+            columns=[_string_column("campaign.id"), _string_column("segments.date")],
+            parents=None,
+            requires_filter=True,
+            primary_key=["campaign_id", "segments_date"],
+            should_sync_default=True,
+            description=None,
+        )
+
+    def _run_source(self, table: GoogleAdsTable, *, window_rows: dict[str, int] | None = None, **source_kwargs):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+            google_ads_source,
+        )
+
+        queries: list[str] = []
+
+        def fake_search(*args, **kwargs):
+            # The production code calls positionally; pull `query` (3rd positional) either way.
+            query = kwargs.get("query", args[2] if len(args) > 2 else "")
+            queries.append(query)
+            rows = 0
+            if window_rows is not None:
+                match = re.search(r">= '(\d{4}-\d{2}-\d{2})'", query or "")
+                if match:
+                    rows = window_rows.get(match.group(1), 0)
+            # `_search_as_arrow_tables` only yields non-empty tables, so an empty window yields nothing.
+            return iter([_pa_table_with_rows(rows)] if rows else [])
+
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{self._MODULE}.google_ads_client"),
+            mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                **source_kwargs,
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+        return response, queries
+
+    def test_established_cursor_drains_in_bounded_windows(self):
+        # An established cursor on a report table is drained in bounded date windows, not the
+        # open-ended `< 2100` scan that re-extracted the whole backlog every run and OOM-spiralled.
+        with freeze_time("2026-07-17"):
+            response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=dt.date(2026, 4, 2),
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '2026-04-02' AND segments.date < '2026-04-09' "
+            "ORDER BY segments.date ASC"
+        )
+        assert all("2100-01-01" not in q for q in queries)
+        assert response.sort_mode == "asc"
+
+    def test_first_sync_uses_open_ended_scan_not_windows(self):
+        # A first sync carries the 1970 sentinel cursor; windowing it would crawl 7 days at a time
+        # from 1970 and never catch up, so first syncs must stay a single open-ended ascending scan.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries == [
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2100-01-01' "
+            "ORDER BY segments.date ASC"
+        ]
+
+    def test_run_stops_after_max_data_windows(self):
+        # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        # non-empty windows so a single run stays short enough to complete and durably advance the
+        # cursor, instead of re-extracting the whole backlog and dying to a heartbeat timeout.
+        cursor = dt.date(2026, 1, 1)
+        window_rows = {
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1
+            for i in range(GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN + 3)
+        }
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
+        assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
+
+    def test_empty_windows_are_crossed_within_one_run(self):
+        # Data only appears in the fourth window. The three empty windows before it must be
+        # traversed within the same run (not counted toward the budget, not stopping the loop), so
+        # a gap in the data never permanently stalls the cursor short of the data behind it.
+        cursor = dt.date(2026, 1, 1)
+        data_window_start = cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * 3)
+        window_rows = {data_window_start.isoformat(): 1}
+
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        lower_bounds = [re.search(r">= '(\d{4}-\d{2}-\d{2})'", q).group(1) for q in queries]  # type: ignore[union-attr]
+        assert lower_bounds[:4] == ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"]
+
+    def test_dimension_table_query_has_no_order_clause(self):
+        _response, queries = self._run_source(_single_row_table())
+
+        assert "WHERE" not in queries[0]
+        assert "ORDER BY" not in queries[0]

@@ -1,6 +1,13 @@
 {
     "configPropertyKeys": {
-        "activity_events_list": ["dateRange", "eventName", "filterTestAccounts", "limit", "widgetFilters"],
+        "activity_events_list": [
+            "dateRange",
+            "eventName",
+            "filterTestAccounts",
+            "limit",
+            "properties",
+            "widgetFilters"
+        ],
         "error_tracking_list": [
             "assignee",
             "dateRange",
@@ -104,6 +111,60 @@
             },
             "eventName": {
                 "$type": "string"
+            },
+            "properties": {
+                "$array": {
+                    "key": {
+                        "$type": "string"
+                    },
+                    "label": {
+                        "$type": "string"
+                    },
+                    "operator": {
+                        "$enum": [
+                            "between",
+                            "exact",
+                            "flag_evaluates_to",
+                            "gt",
+                            "gte",
+                            "icontains",
+                            "icontains_multi",
+                            "in",
+                            "is_cleaned_path_exact",
+                            "is_date_after",
+                            "is_date_before",
+                            "is_date_exact",
+                            "is_not",
+                            "is_not_set",
+                            "is_set",
+                            "lt",
+                            "lte",
+                            "max",
+                            "min",
+                            "not_between",
+                            "not_icontains",
+                            "not_icontains_multi",
+                            "not_in",
+                            "not_regex",
+                            "regex",
+                            "semver_caret",
+                            "semver_eq",
+                            "semver_gt",
+                            "semver_gte",
+                            "semver_lt",
+                            "semver_lte",
+                            "semver_neq",
+                            "semver_tilde",
+                            "semver_wildcard"
+                        ]
+                    },
+                    "type": {
+                        "$enum": ["event", "person"]
+                    },
+                    "value": {
+                        "$types": ["string"]
+                    }
+                }
             }
         },
         "error_tracking_list": {
@@ -287,7 +348,7 @@
                 "$enum": ["ASC", "DESC"]
             },
             "status": {
-                "$enum": ["all", "draft", "paused", "running", "stopped"]
+                "$enum": ["all", "draft", "exposure_frozen", "paused", "running", "stopped"]
             },
             "createdBy": {
                 "$type": "integer"

@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
@@ -13,6 +13,7 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
 
 from products.error_tracking.backend.models import (
@@ -30,14 +31,12 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _query_closest_fingerprints,
     _report_closest_fingerprint_metrics,
     _target_embedding_from_inputs,
-    _target_embedding_query,
     merge_similar_fingerprints_activity,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
-    select_model_name,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
@@ -50,18 +49,7 @@ def _inputs() -> FingerprintEmbeddingResultInputs:
         fingerprint="test-fingerprint",
         rendering="type_message_and_stack",
         timestamp="2026-06-08T00:00:00Z",
-        model_names=["text-embedding-3-large-3072"],
-    )
-
-
-def _inputs_with_embedding() -> FingerprintEmbeddingResultInputs:
-    return FingerprintEmbeddingResultInputs(
-        team_id=1,
-        fingerprint="test-fingerprint",
-        rendering="type_message_and_stack",
-        timestamp="2026-06-08T00:00:00Z",
         model_name="text-embedding-3-large-3072",
-        model_names=["text-embedding-3-large-3072"],
         embedding=[0.1, 0.2, 0.3],
     )
 
@@ -97,26 +85,6 @@ async def _run_workflow_with_mock_activity(
 
 
 class TestFingerprintEmbeddingResultActivity:
-    def test_select_model_prefers_large_embedding_model(self) -> None:
-        assert select_model_name(["text-embedding-3-small-1536", "text-embedding-3-large-3072"]) == (
-            "text-embedding-3-large-3072"
-        )
-
-    def test_target_embedding_query_uses_one_hour_timestamp_window(self) -> None:
-        embedding_timestamp = datetime(2026, 6, 8, tzinfo=UTC)
-
-        with patch(
-            "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.parse_select"
-        ) as parse_select:
-            _target_embedding_query(_inputs(), "text-embedding-3-large-3072", embedding_timestamp)
-
-        query = parse_select.call_args.args[0]
-        assert "FROM document_embeddings_text_embedding_3_large_3072" in query
-        assert "model_name" not in query
-        placeholders = parse_select.call_args.kwargs["placeholders"]
-        assert placeholders["min_timestamp"].value == embedding_timestamp - timedelta(hours=1)
-        assert placeholders["max_timestamp"].value == embedding_timestamp + timedelta(hours=1)
-
     def test_closest_fingerprints_query_uses_model_specific_table(self) -> None:
         with patch(
             "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.parse_select"
@@ -139,34 +107,6 @@ class TestFingerprintEmbeddingResultActivity:
             _model_specific_embeddings_table_name("unknown-model")
 
     def test_query_closest_fingerprints_returns_distances(self) -> None:
-        target_response = MagicMock(results=[[[0.1, 0.2, 0.3]]])
-        closest_response = MagicMock(
-            results=[["fingerprint-1", 0.01], ["fingerprint-2", 0.02], ["fingerprint-3", 0.03]]
-        )
-        team = MagicMock()
-
-        with patch(
-            "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.execute_hogql_query",
-            side_effect=[target_response, closest_response],
-        ) as execute_hogql_query:
-            result = _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
-
-        assert result == [
-            SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
-            SimilarFingerprintDistance(fingerprint="fingerprint-2", distance=0.02),
-            SimilarFingerprintDistance(fingerprint="fingerprint-3", distance=0.03),
-        ]
-        assert execute_hogql_query.call_count == 2
-        assert execute_hogql_query.call_args_list[0].kwargs["team"] == team
-        assert execute_hogql_query.call_args_list[0].kwargs["query_type"] == (
-            "ErrorTrackingFingerprintEmbeddingResultTargetEmbedding"
-        )
-        assert execute_hogql_query.call_args_list[1].kwargs["team"] == team
-        assert execute_hogql_query.call_args_list[1].kwargs["query_type"] == (
-            "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
-        )
-
-    def test_query_closest_fingerprints_uses_input_embedding(self) -> None:
         closest_response = MagicMock(
             results=[["fingerprint-1", 0.01], ["fingerprint-2", 0.02], ["fingerprint-3", 0.03]]
         )
@@ -176,7 +116,7 @@ class TestFingerprintEmbeddingResultActivity:
             "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.execute_hogql_query",
             return_value=closest_response,
         ) as execute_hogql_query:
-            result = _query_closest_fingerprints(team, _inputs_with_embedding(), "text-embedding-3-large-3072")
+            result = _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
 
         assert result == [
             SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
@@ -184,9 +124,12 @@ class TestFingerprintEmbeddingResultActivity:
             SimilarFingerprintDistance(fingerprint="fingerprint-3", distance=0.03),
         ]
         execute_hogql_query.assert_called_once()
+        assert execute_hogql_query.call_args.kwargs["team"] == team
         assert execute_hogql_query.call_args.kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args.kwargs["workload"] == Workload.OFFLINE
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_target_embedding_from_inputs_rejects_invalid_embedding(self) -> None:
         inputs = FingerprintEmbeddingResultInputs(
@@ -194,34 +137,12 @@ class TestFingerprintEmbeddingResultActivity:
             fingerprint="test-fingerprint",
             rendering="type_message_and_stack",
             timestamp="2026-06-08T00:00:00Z",
-            model_names=["text-embedding-3-large-3072"],
+            model_name="text-embedding-3-large-3072",
             embedding=cast(list[float], ["invalid"]),
         )
 
         with pytest.raises(TargetFingerprintEmbeddingNotFoundError, match="non-numeric"):
-            _target_embedding_from_inputs(inputs, "text-embedding-3-large-3072")
-
-    def test_query_closest_fingerprints_raises_without_target_embedding(self) -> None:
-        team = MagicMock()
-
-        with patch(
-            "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.execute_hogql_query",
-            return_value=MagicMock(results=[]),
-        ) as execute_hogql_query:
-            with pytest.raises(TargetFingerprintEmbeddingNotFoundError, match="Target embedding not found"):
-                _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
-
-        execute_hogql_query.assert_called_once()
-
-    def test_query_closest_fingerprints_raises_with_invalid_target_embedding(self) -> None:
-        team = MagicMock()
-
-        with patch(
-            "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.execute_hogql_query",
-            return_value=MagicMock(results=[[None]]),
-        ):
-            with pytest.raises(TargetFingerprintEmbeddingNotFoundError, match="Target embedding is invalid"):
-                _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
+            _target_embedding_from_inputs(inputs)
 
     def test_report_closest_fingerprint_metrics_includes_fingerprints(self) -> None:
         team = MagicMock(uuid=uuid.uuid4())
@@ -285,6 +206,21 @@ class TestFingerprintEmbeddingResultActivity:
         assert result.merged_count == 0
         assert result.query_duration_ms is not None
         assert result.closest_fingerprints == closest_fingerprints
+
+    def test_merge_activity_returns_empty_result_when_team_deleted(self) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                side_effect=Team.DoesNotExist(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture_exception,
+        ):
+            result = merge_similar_fingerprints_activity(_inputs())
+
+        assert result == FingerprintEmbeddingMergeResult()
+        capture_exception.assert_not_called()
 
     def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):
@@ -471,32 +407,14 @@ class TestFingerprintEmbeddingResultWorkflow:
                         "fingerprint": "test-fingerprint",
                         "rendering": "type_message_and_stack",
                         "timestamp": "2026-06-08T00:00:00Z",
-                        "model_names": ["text-embedding-3-large-3072"],
+                        "embedding": [0.1, 0.2, 0.3],
+                        "model_name": "text-embedding-3-large-3072",
                     }
                 )
             ]
         )
 
         assert inputs == _inputs()
-
-    def test_parse_inputs_preserves_embedding_payload(self) -> None:
-        inputs = ErrorTrackingFingerprintEmbeddingResultWorkflow.parse_inputs(
-            [
-                json.dumps(
-                    {
-                        "team_id": 1,
-                        "fingerprint": "test-fingerprint",
-                        "rendering": "type_message_and_stack",
-                        "timestamp": "2026-06-08T00:00:00Z",
-                        "model_name": "text-embedding-3-large-3072",
-                        "model_names": ["text-embedding-3-large-3072"],
-                        "embedding": [0.1, 0.2, 0.3],
-                    }
-                )
-            ]
-        )
-
-        assert inputs == _inputs_with_embedding()
 
     def test_workflow_id_for_is_stable_and_bounded(self) -> None:
         workflow_id = ErrorTrackingFingerprintEmbeddingResultWorkflow.workflow_id_for(

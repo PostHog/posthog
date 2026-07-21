@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use common::{
     start_coordinator, start_coordinator_named, start_coordinator_with_debounce, start_pod,
-    start_pod_blocking, start_pod_slow, start_pod_with_lease_ttl, start_router, test_store,
-    wait_for_condition, HandoffEvent, PodHandles, POLL_INTERVAL, WAIT_TIMEOUT,
+    start_pod_blocking, start_pod_slow, start_pod_with_lease_ttl, start_router,
+    start_router_with_lease_ttl, test_store, wait_for_condition, HandoffEvent, PodHandles,
+    POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::strategy::{
     AssignmentStrategy, JumpHashStrategy, StickyBalancedStrategy,
@@ -1415,6 +1416,7 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         new_owner: "phantom-pod".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stuck_handoff).await.unwrap();
 
@@ -1587,6 +1589,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Warming,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&warming_handoff).await.unwrap();
 
@@ -1626,13 +1629,14 @@ async fn late_joining_router_during_warming_begins_stash() {
     cancel.cancel();
 }
 
-/// When a Freezing handoff has a dead `old_owner` (one that's not a
-/// registered pod), `cleanup_stale_handoffs` should delete it so the
-/// handoff doesn't stall waiting for a `PodDrainedAck` that will never
-/// come. Verified by injecting a stale handoff into etcd and triggering
-/// a pod-change event.
+/// A Freezing handoff whose `old_owner` is dead (not a registered pod)
+/// must still run to completion: the old owner plays no role in Freezing
+/// (routers ack the freeze), and Draining treats an absent old owner as
+/// vacuously drained. The handoff advances Freezing → Draining → Warming
+/// → Complete on the live new owner and is cleaned up by completion, not
+/// by `cleanup_stale_handoffs`.
 #[tokio::test]
-async fn dead_old_owner_in_freezing_triggers_cleanup() {
+async fn dead_old_owner_in_freezing_advances_to_completion() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("dead-old-owner-freezing").await;
@@ -1640,38 +1644,32 @@ async fn dead_old_owner_in_freezing_triggers_cleanup() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Inject a stale Freezing handoff: old_owner=phantom-old (never
-    // registered as a pod), new_owner=writer-0 (will be registered next).
-    // The DrainedAck for phantom-old will never be written, so without
-    // cleanup the handoff would stall in Freezing forever.
+    // Inject a Freezing handoff: old_owner=phantom-old (never registered
+    // as a pod), new_owner=writer-0 (will be registered next).
     let stale = HandoffState {
         partition: 4,
         old_owner: Some("phantom-old".to_string()),
         new_owner: "writer-0".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stale).await.unwrap();
 
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
     let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
-
-    // Starting writer-0 fires a pod-change event which calls
-    // handle_pod_change_static → cleanup_stale_handoffs. The dead
-    // old_owner check should detect the phantom and delete the handoff.
     let _pod = start_pod(Arc::clone(&store), "writer-0", cancel.clone());
 
-    // Wait for the stale handoff to be deleted and the system to settle.
+    // router-0 acks the freeze, the absent old owner drains vacuously,
+    // writer-0 warms and acks, and completion deletes the handoff. The
+    // deferred rebalance then assigns the remaining partitions.
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
             let assignments = store.list_assignments().await.unwrap_or_default();
-            // The stale handoff for partition 4 should be gone; full set
-            // of assignments should be present once normal bootstrap
-            // completes (independent of partition 4's stale handoff).
             !handoffs
                 .iter()
                 .any(|h| h.partition == 4 && h.old_owner.as_deref() == Some("phantom-old"))
@@ -1705,6 +1703,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&freezing_handoff).await.unwrap();
 
@@ -1782,6 +1781,7 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         new_owner: "phantom-pod".to_string(),
         phase: HandoffPhase::Warming,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stuck).await.unwrap();
 
@@ -1878,6 +1878,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Warming,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&warming).await.unwrap();
     store
@@ -1885,6 +1886,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
             pod_name: "writer-1".to_string(),
             partition: 6,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -1953,6 +1955,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -1997,6 +2000,7 @@ async fn draining_old_owner_blocks_phase_advance() {
             pod_name: "writer-draining".to_string(),
             partition: 7,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -2016,11 +2020,12 @@ async fn draining_old_owner_blocks_phase_advance() {
     cancel.cancel();
 }
 
-/// `cleanup_stale_handoffs` must use registration presence, not Ready
-/// status, when judging whether a pod is gone. Otherwise a `Draining` pod
-/// in the middle of a handoff would have its handoff record deleted
-/// before it could write its `DrainedAck`. Regression test for that
-/// scenario.
+/// `cleanup_stale_handoffs` judges only the new owner; the old owner's
+/// state — Draining, or even fully deregistered — must never cause a
+/// handoff deletion. A `Draining` old owner mid-handoff is the most
+/// failure-prone shape: it still owes the protocol a `DrainedAck`, and
+/// deleting its handoff record would strand the drain. Regression test
+/// for cleanup wrongly keying off old-owner liveness.
 #[tokio::test]
 async fn draining_old_owner_does_not_trigger_cleanup() {
     use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
@@ -2030,8 +2035,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register a Draining pod with no DrainedAck written yet — the most
-    // failure-prone state for `cleanup_stale_handoffs`.
+    // Register a Draining pod with no DrainedAck written yet.
     let lease = store.grant_lease(30).await.unwrap();
     let draining_pod = RegisteredPod {
         pod_name: "writer-draining".to_string(),
@@ -2050,14 +2054,14 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`. With
-    // the bug, the Draining pod is "not active" and the handoff is
-    // deleted as stuck-on-dead-old-owner. With the fix, the handoff
-    // survives because the Draining pod's etcd key is still present.
+    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // which must leave the handoff alone: the new owner is live, and the
+    // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
     let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
     let _new_pod = start_pod(Arc::clone(&store), "writer-new", cancel.clone());
@@ -2095,9 +2099,10 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both old and new owner pods so `cleanup_stale_handoffs`
-    // doesn't delete the injected handoff. They don't run real
-    // handlers — we just need their etcd registrations to exist.
+    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // doesn't delete the injected handoff, the old owner so the scenario
+    // matches a live in-flight handoff. They don't run real handlers — we
+    // just need their etcd registrations to exist.
     let old_lease = store.grant_lease(60).await.unwrap();
     let new_lease = store.grant_lease(60).await.unwrap();
     for (name, lease) in [("writer-old", old_lease), ("writer-new", new_lease)] {
@@ -2137,6 +2142,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2160,6 +2166,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
             router_name: "slow-router".to_string(),
             partition: 1,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -2220,6 +2227,7 @@ async fn initial_assignment_skips_draining_phase() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2239,17 +2247,11 @@ async fn initial_assignment_skips_draining_phase() {
 }
 
 /// If the old owner dies *during* Draining (lease expiry, pod crash),
-/// the handoff must still progress — either by advancing via
-/// `check_phase_advance`'s "old_owner not registered" branch, or by
-/// being cleaned up and replaced via rebalance. Either way the
-/// partition must end up assigned to a healthy pod, not stuck in
-/// Draining indefinitely.
-///
-/// The actual path is racy: pod-change events run
-/// `cleanup_stale_handoffs` (which may delete) while ack-watch events
-/// can fire `check_phase_advance` (which may advance). The test
-/// asserts the end state — partition has an active assignment and no
-/// lingering Draining handoff — which both paths converge to.
+/// the handoff must still progress: `check_phase_advance`'s "old_owner
+/// not registered" branch treats the drain as vacuously complete, and
+/// the reconcile tick guarantees re-evaluation even if no watch event
+/// fires. The partition must end up assigned to a healthy pod, not
+/// stuck in Draining indefinitely.
 #[tokio::test]
 async fn dead_old_owner_in_draining_recovers() {
     use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
@@ -2259,8 +2261,8 @@ async fn dead_old_owner_in_draining_recovers() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both old and new owner. We need both initially so the
-    // injected Draining handoff isn't immediately cleaned up.
+    // Register both owners so the injected handoff starts as a live
+    // in-flight Draining handoff waiting on a real DrainedAck.
     let old_lease = store.grant_lease(60).await.unwrap();
     let new_lease = store.grant_lease(60).await.unwrap();
     for (name, lease) in [("writer-old", old_lease), ("writer-new", new_lease)] {
@@ -2282,6 +2284,7 @@ async fn dead_old_owner_in_draining_recovers() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2302,10 +2305,8 @@ async fn dead_old_owner_in_draining_recovers() {
     })
     .await;
 
-    // Kill the old owner. From this point, recovery must converge
-    // regardless of which mechanism wins — direct advance via
-    // check_phase_advance OR cleanup_stale_handoffs followed by
-    // rebalance.
+    // Kill the old owner. The next re-evaluation (pod-change event or
+    // reconcile tick) must advance the drain vacuously.
     store.delete_pod("writer-old").await.unwrap();
 
     // End-state assertion: no Draining handoff lingers for partition
@@ -2380,6 +2381,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2388,6 +2390,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
             pod_name: "writer-old".to_string(),
             partition: 5,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -2436,6 +2439,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&draining_handoff).await.unwrap();
 
@@ -2518,6 +2522,7 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         new_owner: "phantom-pod".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stuck).await.unwrap();
 
@@ -2585,4 +2590,427 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
     }
 
     cancel.cancel();
+}
+
+// ============================================================
+// Graceful exits release etcd state immediately, never by TTL
+// ============================================================
+
+/// A cancelled coordinator must revoke its election lease on the way out.
+/// With a 30s TTL, a pass that relied on lease expiry would blow the 3s
+/// bound — this pins the awaited-to-completion cleanup in
+/// `Coordinator::run`, which an unbiased select against cancellation used
+/// to drop about half the time, stalling every handoff until the TTL ran
+/// out.
+#[tokio::test]
+async fn graceful_coordinator_exit_releases_election_immediately() {
+    let store = test_store("graceful-coordinator-release").await;
+    let cancel = CancellationToken::new();
+    let handle = start_coordinator_named(
+        Arc::clone(&store),
+        "coordinator-0",
+        30,
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.get_leader().await.ok().flatten().is_some() }
+    })
+    .await;
+
+    cancel.cancel();
+    drop(handle.await);
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(3), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.get_leader().await.ok().flatten().is_none() }
+    })
+    .await;
+}
+
+/// A cancelled routing table must deregister its router on the way out: a
+/// lingering registration keeps the dead router in every freeze quorum,
+/// stalling any handoff frozen inside the TTL window.
+#[tokio::test]
+async fn routing_table_deregisters_router_on_graceful_exit() {
+    let store = test_store("graceful-router-deregister").await;
+    let cancel = CancellationToken::new();
+    let mut router =
+        start_router_with_lease_ttl(Arc::clone(&store), "router-0", 30, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { !store.list_routers().await.unwrap_or_default().is_empty() }
+    })
+    .await;
+
+    cancel.cancel();
+    if let Some(handle) = router.join_handle.take() {
+        drop(handle.await);
+    }
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(3), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.list_routers().await.unwrap_or_default().is_empty() }
+    })
+    .await;
+}
+
+/// A stuck handoff must defer only its own partition. One pod's handoffs
+/// wedge at Warming (its handler never acks); a healthy pod that joins
+/// afterwards must still receive partitions from the unpinned remainder
+/// while the wedged handoffs stay in flight — and those handoffs must
+/// never be re-planned. Before per-partition pinning, any in-flight
+/// handoff deferred all rebalancing, so the healthy pod owned nothing
+/// until the wedge resolved.
+#[tokio::test]
+async fn stuck_handoff_defers_only_its_own_partition() {
+    let store = test_store("stuck_handoff_defers_only_its_own_partition").await;
+    let cancel = CancellationToken::new();
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+    let _pod0 = start_pod(Arc::clone(&store), "writer-0", cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize && handoffs.is_empty()
+        }
+    })
+    .await;
+
+    // The blocking pod joins: the rebalance moves partitions toward it and
+    // every one of those handoffs wedges at Warming.
+    let _blocked = start_pod_blocking(Arc::clone(&store), "writer-blocked", 30, cancel.clone());
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_handoffs()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .any(|h| h.new_owner == "writer-blocked")
+        }
+    })
+    .await;
+
+    let stuck: Vec<(u32, String)> = store
+        .list_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.new_owner == "writer-blocked")
+        .map(|h| (h.partition, h.handoff_id))
+        .collect();
+    assert!(!stuck.is_empty());
+
+    // A healthy pod joins while those handoffs are wedged: it must own
+    // partitions while they are still in flight.
+    let _pod2 = start_pod(Arc::clone(&store), "writer-2", cancel.clone());
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.iter().any(|a| a.owner == "writer-2")
+                && handoffs.iter().any(|h| h.new_owner == "writer-blocked")
+        }
+    })
+    .await;
+
+    // The wedged handoffs were pinned, never re-planned: each survives
+    // with its original identity.
+    let handoffs = store.list_handoffs().await.unwrap();
+    for (partition, handoff_id) in &stuck {
+        assert!(
+            handoffs
+                .iter()
+                .any(|h| h.partition == *partition && h.handoff_id == *handoff_id),
+            "pinned handoff for partition {partition} was replanned or destroyed"
+        );
+    }
+}
+
+/// Concurrent planners can both read a partition as unpinned and plan it;
+/// handoff creation is guarded create-if-absent so the second plan's txn
+/// fails whole instead of replacing the first handoff and orphaning its
+/// acks. The losing plan's writes — including its innocent assignments —
+/// must not land either: it was computed against a stale snapshot.
+#[tokio::test]
+async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
+    use personhog_coordination::types::{
+        AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment,
+    };
+
+    let store = test_store("conflicting_plan_cannot_replace_an_in_flight_handoff").await;
+
+    let first = HandoffState {
+        partition: 0,
+        old_owner: Some("writer-0".to_string()),
+        new_owner: "writer-1".to_string(),
+        phase: HandoffPhase::Warming,
+        started_at: 0,
+        handoff_id: "first".to_string(),
+    };
+    assert!(store
+        .create_assignments_and_handoffs(&[], std::slice::from_ref(&first), &[])
+        .await
+        .unwrap());
+
+    // A competing plan targets the same partition (different owner and
+    // id) alongside an uncontested assignment write.
+    let competing = HandoffState {
+        partition: 0,
+        old_owner: Some("writer-0".to_string()),
+        new_owner: "writer-2".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: "second".to_string(),
+    };
+    let stable = PartitionAssignment {
+        partition: 1,
+        owner: "writer-0".to_string(),
+        status: AssignmentStatus::Active,
+    };
+    assert!(!store
+        .create_assignments_and_handoffs(&[stable], &[competing], &[])
+        .await
+        .unwrap());
+
+    // The in-flight handoff survives with its original identity, and the
+    // losing plan's assignment never landed.
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].handoff_id, "first");
+    assert_eq!(handoffs[0].new_owner, "writer-1");
+    assert!(store.list_assignments().await.unwrap().is_empty());
+}
+
+/// The reviewer's stale-plan scenario at the store level: a plan whose
+/// snapshot predates a concurrent move (create → complete → cleanup, so
+/// the handoff key is absent again) must be rejected by its assignment
+/// precondition — its handoff names a superseded old_owner, and applying
+/// it would drain the wrong pod while the real owner stays unfenced.
+#[tokio::test]
+async fn stale_plan_is_rejected_when_the_assignment_moved() {
+    use personhog_coordination::types::{
+        AssignmentPrecondition, AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment,
+    };
+
+    let store = test_store("stale_plan_is_rejected_when_the_assignment_moved").await;
+
+    let assignment = |owner: &str| PartitionAssignment {
+        partition: 0,
+        owner: owner.to_string(),
+        status: AssignmentStatus::Active,
+    };
+    let handoff = |old: &str, new: &str, id: &str| HandoffState {
+        partition: 0,
+        old_owner: Some(old.to_string()),
+        new_owner: new.to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: id.to_string(),
+    };
+
+    // The world the stale planner reads: partition 0 owned by A.
+    assert!(store
+        .create_assignments_and_handoffs(&[assignment("pod-a")], &[], &[])
+        .await
+        .unwrap());
+    let snapshot = store.list_assignments_with_mod_revisions().await.unwrap();
+    let (_, stale_revision) = snapshot[0];
+
+    // Concurrently, a full move to B lands: by the time the stale plan's
+    // txn arrives, the handoff key is gone and only the assignment moved.
+    assert!(store
+        .create_assignments_and_handoffs(&[assignment("pod-b")], &[], &[])
+        .await
+        .unwrap());
+
+    // The stale plan (move A -> C, guarded by its snapshot) must fail
+    // whole, creating nothing.
+    let rejected = store
+        .create_assignments_and_handoffs(
+            &[],
+            &[handoff("pod-a", "pod-c", "stale")],
+            &[AssignmentPrecondition::UnchangedSince {
+                partition: 0,
+                mod_revision: stale_revision,
+            }],
+        )
+        .await
+        .unwrap();
+    assert!(
+        !rejected,
+        "a plan reading a superseded owner must not apply"
+    );
+    assert!(store.list_handoffs().await.unwrap().is_empty());
+
+    // A plan computed from the current snapshot applies fine.
+    let snapshot = store.list_assignments_with_mod_revisions().await.unwrap();
+    let (current, fresh_revision) = &snapshot[0];
+    assert_eq!(current.owner, "pod-b");
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[],
+            &[handoff("pod-b", "pod-c", "fresh")],
+            &[AssignmentPrecondition::UnchangedSince {
+                partition: 0,
+                mod_revision: *fresh_revision,
+            }],
+        )
+        .await
+        .unwrap());
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].old_owner.as_deref(), Some("pod-b"));
+}
+
+/// A fresh-partition handoff asserts the assignment is still absent: if
+/// one appeared since the snapshot (the partition got born through a
+/// concurrent handoff's completion), the plan's old_owner: None is a lie
+/// and the plan must be rejected — and one stale precondition rejects the
+/// whole plan, valid handoffs included.
+#[tokio::test]
+async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
+    use personhog_coordination::types::{
+        AssignmentPrecondition, AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment,
+    };
+
+    let store = test_store("fresh_plan_is_rejected_when_an_assignment_appeared").await;
+
+    let fresh_handoff = |partition: u32, id: &str| HandoffState {
+        partition,
+        old_owner: None,
+        new_owner: "pod-c".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: id.to_string(),
+    };
+
+    // Partition 0 gained an assignment after the plan's snapshot.
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-b".to_string(),
+                status: AssignmentStatus::Active,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .unwrap());
+
+    // The plan carries one stale fresh-handoff (partition 0) and one
+    // genuinely fresh one (partition 1): all-or-nothing rejection.
+    let rejected = store
+        .create_assignments_and_handoffs(
+            &[],
+            &[fresh_handoff(0, "stale"), fresh_handoff(1, "innocent")],
+            &[
+                AssignmentPrecondition::Absent { partition: 0 },
+                AssignmentPrecondition::Absent { partition: 1 },
+            ],
+        )
+        .await
+        .unwrap();
+    assert!(!rejected);
+    assert!(store.list_handoffs().await.unwrap().is_empty());
+
+    // Replanned against reality, partition 1 alone applies.
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[],
+            &[fresh_handoff(1, "replanned")],
+            &[AssignmentPrecondition::Absent { partition: 1 }],
+        )
+        .await
+        .unwrap());
+    assert_eq!(store.list_handoffs().await.unwrap().len(), 1);
+}
+
+/// The rebalance must never write assignment records — handoff completion
+/// is their sole writer, so routers always observe owner changes as
+/// Complete events and a stale plan can never restore a superseded owner.
+/// Detected via mod revisions, since a redundant rewrite is byte-identical.
+#[tokio::test]
+async fn rebalance_never_writes_assignment_records() {
+    let store = test_store("rebalance_never_writes_assignment_records").await;
+    let cancel = CancellationToken::new();
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+    let _pod0 = start_pod(Arc::clone(&store), "writer-0", cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize && handoffs.is_empty()
+        }
+    })
+    .await;
+
+    let before: std::collections::HashMap<u32, i64> = store
+        .list_assignments_with_mod_revisions()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|(a, revision)| (a.partition, revision))
+        .collect();
+
+    // A second pod joins: a rebalance runs and its handoffs complete.
+    let _pod1 = start_pod(Arc::clone(&store), "writer-1", cancel.clone());
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            handoffs.is_empty() && assignments.iter().any(|a| a.owner == "writer-1")
+        }
+    })
+    .await;
+
+    let after = store.list_assignments_with_mod_revisions().await.unwrap();
+    for (assignment, revision) in &after {
+        if assignment.owner == "writer-0" {
+            assert_eq!(
+                before[&assignment.partition], *revision,
+                "partition {} was not moved, yet its assignment record was rewritten",
+                assignment.partition
+            );
+        } else {
+            assert_ne!(
+                before[&assignment.partition], *revision,
+                "partition {} moved, so completion must have rewritten its record",
+                assignment.partition
+            );
+        }
+    }
 }

@@ -2,11 +2,12 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { buildAlertFilterConfig } from 'lib/utils/alerts'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AlertType } from '~/lib/components/Alerts/types'
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
+
+import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
+import { AlertType } from 'products/alerts/frontend/types'
 
 import api from '../../api'
 import { DashboardExportResult, generateDashboardHCL } from './dashboardHclExporter'

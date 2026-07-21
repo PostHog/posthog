@@ -111,7 +111,13 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = 10) -> requests.Response:
+    def client_request(
+        cls,
+        endpoint: str,
+        method: str = "GET",
+        timeout: float | None = 10,
+        json_body: dict[str, Any] | None = None,
+    ) -> requests.Response:
         """Make a request to the GitHub App API using a JWT.
 
         ``timeout`` defaults to 10s so callers in web request and token-refresh paths
@@ -154,6 +160,8 @@ class GitHubIntegrationBase:
             source=_OBSERVABILITY_SOURCE,
             headers={"Authorization": f"Bearer {jwt_token}"},
             timeout=timeout,
+            # requests omits the body entirely when json is None
+            json=json_body,
         )
 
     # --- App installation lifecycle (uninstall) ---
@@ -353,6 +361,56 @@ class GitHubIntegrationBase:
         }
         self._on_token_refreshed()
         self.integration.save()
+
+    def mint_scoped_installation_token(
+        self,
+        permissions: Mapping[str, str],
+        repositories: list[str] | None = None,
+    ) -> str:
+        """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
+        ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
+        (bare repo names, no owner prefix).
+
+        The token is returned to the caller and deliberately NOT persisted: the cached
+        ``sensitive_config`` token is the shared full-permission credential every other
+        flow reads, and overwriting it with a downscoped one would silently break them.
+        Scoped tokens expire like any installation token (~1h) and cannot be refreshed —
+        mint a new one instead. Requesting a permission the installation doesn't have
+        fails the mint (422), which surfaces as ``GitHubIntegrationError``.
+        """
+        installation_id = self.github_installation_id
+        if not installation_id:
+            raise GitHubIntegrationError("No GitHub App installation id on this integration")
+
+        body: dict[str, Any] = {"permissions": dict(permissions)}
+        if repositories:
+            body["repositories"] = repositories
+
+        response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        try:
+            data = response.json()
+        except ValueError:
+            self._mark_if_installation_gone(response)
+            raise GitHubIntegrationError(
+                f"Non-JSON response when minting scoped installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            ) from None
+        if response.status_code != 201 or not data.get("token"):
+            self._mark_if_installation_gone(response)
+            raise GitHubIntegrationError(
+                f"Failed to mint scoped installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            )
+        return data["token"]
+
+    def _mark_if_installation_gone(self, response: requests.Response) -> None:
+        """Persist the permanently-gone marker after a failed scoped mint (404 uninstalled /
+        403 suspended), so callers that check :meth:`installation_unavailable` stop re-minting a
+        dead installation on every run. Deliberately NOT the full ``_on_token_refresh_failed``
+        hook: that one also stamps ``errors`` on transient failures, which would exclude the
+        integration from team resolution over a passing GitHub 500."""
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     @staticmethod
     def _installation_permanently_unavailable(response: requests.Response) -> bool:
@@ -827,7 +885,7 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          number title url state isDraft mergeable updatedAt headRefName
+          number title url state isDraft mergeable updatedAt headRefName headRefOid
           author { login }
           reviewDecision
           reviewRequests(first: 50) {
@@ -840,34 +898,81 @@ class GitHubIntegrationBase:
     }
     """
 
+    # GitHub surfaces its own transient server errors not as a 5xx but as an HTTP 200 with
+    # ``data: null`` and an ``errors`` body — the documented "Something went wrong while
+    # executing your query" class, plus ``SERVICE_UNAVAILABLE``/timeout errors. Because the
+    # HTTP status is 200, :meth:`api_request`'s status-code retry never sees them, so we detect
+    # and retry them here. They are safe to repeat (GraphQL reads are idempotent and the query
+    # never executed); deterministic field-level errors (permissions, validation) are not.
+    _TRANSIENT_GRAPHQL_ERROR_TYPES = frozenset({"SERVICE_UNAVAILABLE"})
+    _TRANSIENT_GRAPHQL_ERROR_MESSAGES = ("something went wrong while executing your query",)
+    # Total GraphQL attempts (initial + retries) when GitHub returns a transient body error.
+    _GRAPHQL_TRANSIENT_ATTEMPTS = 3
+
+    @classmethod
+    def _graphql_errors_are_transient(cls, errors: list) -> bool:
+        """True when the GraphQL ``errors`` body is one of GitHub's retryable server-side failures.
+
+        Conservative: any single error that isn't a known transient class (e.g. a field-level
+        permission or validation error) makes the whole response non-retryable, so we never
+        loop on a deterministic failure.
+        """
+        if not errors:
+            return False
+        for error in errors:
+            if not isinstance(error, dict):
+                return False
+            if error.get("type") in cls._TRANSIENT_GRAPHQL_ERROR_TYPES:
+                continue
+            message = str(error.get("message", "")).lower()
+            if any(marker in message for marker in cls._TRANSIENT_GRAPHQL_ERROR_MESSAGES):
+                continue
+            return False
+        return True
+
     def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
         GraphQL queries are read-only, so a POST retry on transient failures is safe —
-        hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle.
+        hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle, plus an
+        extra retry loop here for GitHub's 200-with-``errors`` transient server errors that
+        the status-code retry can't catch.
         """
-        response = self.api_request(
-            "POST",
-            "/graphql",
-            endpoint=endpoint,
-            json_body={"query": query, "variables": variables},
-            timeout=timeout,
-            retry_transient=True,
-        )
-        if response.status_code != 200:
-            raise GitHubIntegrationError(
-                f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
-                status_code=response.status_code,
+        errors: Any = None
+        for attempt in range(self._GRAPHQL_TRANSIENT_ATTEMPTS):
+            response = self.api_request(
+                "POST",
+                "/graphql",
+                endpoint=endpoint,
+                json_body={"query": query, "variables": variables},
+                timeout=timeout,
+                retry_transient=True,
             )
-        body = response.json()
-        data = body.get("data")
-        errors = body.get("errors")
-        if errors:
-            # GitHub can return useful partial data with field-level permission errors.
-            logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
-            if not data:
-                raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
-        return data or {}
+            if response.status_code != 200:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            body = response.json()
+            data = body.get("data")
+            errors = body.get("errors")
+            if not errors:
+                return data or {}
+            if data:
+                # GitHub can return useful partial data with field-level permission errors.
+                logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
+                return data
+            # No data — a hard failure. Retry GitHub's transient server errors; raise the rest.
+            if not self._graphql_errors_are_transient(errors):
+                break
+            if attempt < self._GRAPHQL_TRANSIENT_ATTEMPTS - 1:
+                logger.info(
+                    "GitHubIntegration: retrying transient GraphQL error",
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    errors=errors,
+                )
+        raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
 
     @staticmethod
     def _map_pr_state(gql_state: str | None, is_draft: bool) -> str:
@@ -949,6 +1054,7 @@ class GitHubIntegrationBase:
             "mergeable": self._map_mergeable(pr.get("mergeable")),
             "author_login": author,
             "head_branch": pr.get("headRefName"),
+            "head_sha": pr.get("headRefOid"),
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
         }

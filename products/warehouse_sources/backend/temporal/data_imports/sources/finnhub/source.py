@@ -28,13 +28,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.se
     FINNHUB_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
+    FinnhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://finnhub.io/docs/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -107,7 +112,6 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnhub",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Finnhub API key to pull market and company financial data into the PostHog Data warehouse.
 
 Create a free API key in your [Finnhub dashboard](https://finnhub.io/dashboard).

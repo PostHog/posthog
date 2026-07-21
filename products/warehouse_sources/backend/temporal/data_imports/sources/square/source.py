@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SquareSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SquareSource(ResumableSource[SquareSourceConfig, SquareResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.squareup.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

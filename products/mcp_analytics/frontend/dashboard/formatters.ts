@@ -1,7 +1,13 @@
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const EMPTY = '—'
+
+export function formatBucketLabel(bucket: string): string {
+    const d = dayjs(bucket)
+    return d.isValid() ? d.format('MMM D') : bucket
+}
 
 export function formatNumber(n: number): string {
     if (!isFinite(n)) {

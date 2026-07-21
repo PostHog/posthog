@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LeverSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lever import LeverSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever import LeverResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.source import LeverSource

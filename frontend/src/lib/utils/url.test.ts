@@ -159,6 +159,20 @@ describe('url utils', () => {
             expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
         })
 
+        it('preserves percent-encoded characters in nested query params', () => {
+            // e.g. docs "Run in PostHog" links: ?next=/sql?open_query=SELECT%0A... — decoding
+            // again would turn %0A into a raw newline that new URL() strips, corrupting the SQL
+            expect(getRelativeNextPath('/sql?open_query=SELECT%0A++properties.%24mcp+AS+tool', location)).toBe(
+                '/sql?open_query=SELECT%0A++properties.%24mcp+AS+tool'
+            )
+        })
+
+        it('preserves percent-encoded query params in same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/sql?open_query=SELECT%0A%2A', location)).toBe(
+                '/sql?open_query=SELECT%0A%2A'
+            )
+        })
+
         it('returns null for encoded protocol-relative URL', () => {
             expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
         })
