@@ -68,6 +68,15 @@ _PRIORITY_LABELS = {
     IssuePriority.CONSIDER: "consider",
 }
 
+# A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
+# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for a calming gif.
+# Self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked, to keep it copyright-clean.
+_NO_ISSUES_GIF_URL = (
+    "https://raw.githubusercontent.com/PostHog/pr-assets/"
+    "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif"
+)
+_NO_ISSUES_GIF_ALT = "Someone relaxing in a sunny garden"
+
 
 def status_marker(report_id: str) -> str:
     """The hidden marker identifying the report's status comment across turns and crashed runs."""
@@ -121,7 +130,13 @@ def render_final_body(
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
-        lines.append("Found no issues worth raising, so no review was posted.")
+        lines.extend(
+            [
+                "Nothing worth raising this time, so here's a calming gif instead:",
+                "",
+                f"![{_NO_ISSUES_GIF_ALT}]({_NO_ISSUES_GIF_URL})",
+            ]
+        )
     else:
         lines.append(found_line + ".")
         lines.append("")

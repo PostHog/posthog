@@ -21,14 +21,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PhylloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phyllo import (
     PhylloResumeConfig,
     phyllo_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.settings import ENDPOINTS, PHYLLO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    PHYLLO_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -114,21 +121,9 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — see the note in settings.py on the unverified
-        # from_date/to_date filters.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty) — see the note in
+        # settings.py on the unverified from_date/to_date filters.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: PhylloSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -153,6 +148,8 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
             client_secret=config.client_secret,
             environment=config.environment,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Phyllo endpoint is full refresh
         )

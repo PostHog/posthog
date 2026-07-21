@@ -21,10 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZonkaFeedbackSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     ZONKA_FEEDBACK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
@@ -99,7 +103,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        # An invalid or revoked auth token surfaces as a requests HTTPError when `_fetch_page` calls
+        # An invalid or revoked auth token surfaces as a requests HTTPError when the REST client calls
         # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
         # The API host varies by data center, so enumerate the known regional hosts; match the stable
         # status text and base host, not the per-request path/query.
@@ -125,20 +129,8 @@ An Admin can generate an auth token under **Company Settings → Developers → 
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Zonka Feedback's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # timestamp filter (INCREMENTAL_FIELDS is empty), so there is no incremental cursor to advance.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: ZonkaFeedbackSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -168,6 +160,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
             auth_token=config.auth_token,
             data_center=config.data_center,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

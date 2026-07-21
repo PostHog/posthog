@@ -104,6 +104,7 @@ class TestPostmarkSource:
         mock_postmark_source.assert_called_once_with(
             server_token=self.config.server_token,
             endpoint="messages_outbound",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )
