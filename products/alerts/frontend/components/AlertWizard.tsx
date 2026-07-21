@@ -93,9 +93,8 @@ export function AlertWizard({
                                 i <= current || steps.slice(current, i).every((st) => st.canAdvance !== false)
                             return (
                                 <li key={s.key} className="flex items-center gap-1 min-w-0">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
+                                    <button
+                                        type="button"
                                         disabled={!canAccess}
                                         onClick={() => {
                                             if (canAccess) {
@@ -107,7 +106,7 @@ export function AlertWizard({
                                             }
                                         }}
                                         className={cn(
-                                            'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                                            'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                                             !canAccess && 'opacity-40 cursor-not-allowed',
                                             isCurrent
                                                 ? 'bg-accent text-white font-semibold'
@@ -130,7 +129,7 @@ export function AlertWizard({
                                             {i + 1}
                                         </span>
                                         <span className="truncate">{s.title}</span>
-                                    </LemonButton>
+                                    </button>
                                     {!isLastStep(i, steps) ? (
                                         <span className="text-border" aria-hidden>
                                             →
