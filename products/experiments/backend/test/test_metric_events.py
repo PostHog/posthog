@@ -9,7 +9,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
-from products.experiments.backend.metric_events import resolve_metric_events, scan_sessions_for_metric_events
+from products.experiments.backend.metric_events import MetricHit, resolve_metric_events, scan_session_for_metric_events
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -208,7 +208,7 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         assert [source.metric_uuid for source in sources] == [valid["uuid"]]
 
 
-class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin):
+class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin):
     def _create_session_event(
         self,
         event: str,
@@ -225,33 +225,32 @@ class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin
             properties={"$session_id": session_id, **(properties or {})},
         )
 
-    def _scan(self, metrics: list[dict[str, Any]], session_ids: list[str]) -> dict[str, Any]:
+    def _scan(self, metrics: list[dict[str, Any]], session_id: str) -> list[MetricHit]:
         experiment = self._experiment(metrics=metrics)
-        return scan_sessions_for_metric_events(
+        return scan_session_for_metric_events(
             self.team,
             self.user,
             metric_sources=resolve_metric_events(experiment),
-            session_ids=session_ids,
+            session_id=session_id,
             window_start=WINDOW_START,
             window_end=WINDOW_END,
         )
 
-    def test_reports_hits_only_for_metrics_and_sessions_with_events(self) -> None:
+    def test_reports_hits_only_for_metrics_with_in_window_events(self) -> None:
         # Two metrics force a genuine multi-branch UNION ALL — a single branch collapses to a
-        # plain SelectQuery, so only this shape proves per-branch limits and no set-level LIMIT
-        # compile together (a set-level LIMIT after the last branch 500ed session_context once).
+        # plain SelectQuery, so only this shape proves the union compiles and that a metric
+        # with no matching events yields no hit.
         metric_a = _metric("mean", name="Purchases", source=_events_node("purchase"))
         metric_b = _metric("mean", name="Signups", source=_events_node("signup"))
         self._create_session_event("purchase", "s1", timestamp="2026-01-01T10:05:00Z")
         self._create_session_event("purchase", "s1", timestamp="2026-01-01T10:10:00Z")
-        self._create_session_event("purchase", "s2", timestamp="2026-01-01T12:30:00Z")  # outside window
+        self._create_session_event("purchase", "s1", timestamp="2026-01-01T12:30:00Z")  # outside window
         flush_persons_and_events()
 
-        hits = self._scan([metric_a, metric_b], ["s1", "s2"])
+        hits = self._scan([metric_a, metric_b], "s1")
 
-        assert set(hits) == {"s1"}
-        assert len(hits["s1"]) == 1
-        hit = hits["s1"][0]
+        assert len(hits) == 1
+        hit = hits[0]
         assert hit.metric_uuid == metric_a["uuid"]
         assert hit.metric_name == "Purchases"
         assert hit.event_count == 2
@@ -262,21 +261,26 @@ class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin
             datetime(2026, 1, 1, 10, 10, 0, tzinfo=UTC),
         )
 
-    def test_honors_source_node_property_filters(self) -> None:
+    @parameterized.expand(["properties", "fixedProperties"])
+    def test_honors_source_node_property_filters(self, properties_field: str) -> None:
+        # `properties` flows through the shared `event_or_action_to_filter`; `fixedProperties`
+        # are ANDed on top by `_node_condition` — both must narrow the match.
         filtered = _metric(
             "mean",
             name="Premium purchases",
-            source=_events_node(
-                "purchase", properties=[{"key": "plan", "value": ["premium"], "operator": "exact", "type": "event"}]
-            ),
+            source={
+                "kind": "EventsNode",
+                "event": "purchase",
+                properties_field: [{"key": "plan", "value": ["premium"], "operator": "exact", "type": "event"}],
+            },
         )
         unfiltered = _metric("mean", name="Purchases", source=_events_node("purchase"))
         self._create_session_event("purchase", "s1", properties={"plan": "free"})
         flush_persons_and_events()
 
-        hits = self._scan([filtered, unfiltered], ["s1"])
+        hits = self._scan([filtered, unfiltered], "s1")
 
-        assert [hit.metric_uuid for hit in hits["s1"]] == [unfiltered["uuid"]]
+        assert [hit.metric_uuid for hit in hits] == [unfiltered["uuid"]]
 
     def test_all_events_source_matches_any_event(self) -> None:
         all_events = _metric("mean", name="Anything", source=_events_node(None))
@@ -284,9 +288,9 @@ class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin
         self._create_session_event("$pageview", "s1")
         flush_persons_and_events()
 
-        hits = self._scan([all_events, purchases], ["s1"])
+        hits = self._scan([all_events, purchases], "s1")
 
-        assert [hit.metric_uuid for hit in hits["s1"]] == [all_events["uuid"]]
+        assert [hit.metric_uuid for hit in hits] == [all_events["uuid"]]
 
     def test_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -295,9 +299,9 @@ class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin
         self._create_session_event("purchase", "s1", team=other_team)
         flush_persons_and_events()
 
-        hits = self._scan([metric_a, metric_b], ["s1"])
+        hits = self._scan([metric_a, metric_b], "s1")
 
-        assert hits == {}
+        assert hits == []
 
     def test_missing_action_matches_nothing(self) -> None:
         broken = _metric("mean", name="Broken", source={"kind": "ActionsNode", "id": 999_999})
@@ -305,6 +309,6 @@ class TestScanSessionsForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin
         self._create_session_event("purchase", "s1")
         flush_persons_and_events()
 
-        hits = self._scan([broken, purchases], ["s1"])
+        hits = self._scan([broken, purchases], "s1")
 
-        assert [hit.metric_uuid for hit in hits["s1"]] == [purchases["uuid"]]
+        assert [hit.metric_uuid for hit in hits] == [purchases["uuid"]]

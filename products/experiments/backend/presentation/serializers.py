@@ -1481,14 +1481,6 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
             "occurrence. Empty when none of the experiment's metric events fired during the session."
         ),
     )
-    seen_reason = serializers.ChoiceField(
-        choices=["exposure", "metric_events", "both"],
-        help_text=(
-            "Why this experiment surfaced for the session. 'exposure': variant/exposure evidence only. "
-            "'both': exposure evidence plus at least one metric event. 'metric_events' (metric activity with no "
-            "exposure evidence) is reserved for future use and is never emitted yet."
-        ),
-    )
 
 
 class ExperimentSessionContextResponseSerializer(serializers.Serializer):

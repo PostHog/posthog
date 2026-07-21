@@ -25620,20 +25620,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `exposure` - exposure
-     * * `metric_events` - metric_events
-     * * `both` - both
-     */
-    export type SeenReasonEnum = typeof SeenReasonEnum[keyof typeof SeenReasonEnum];
-
-
-    export const SeenReasonEnum = {
-      Exposure: 'exposure',
-      MetricEvents: 'metric_events',
-      Both: 'both',
-    } as const;
-
-    /**
      * One experiment whose feature flag a session recording saw.
      */
     export interface ExperimentSessionContextItem {
@@ -25666,12 +25652,6 @@ export namespace Schemas {
       experiment_end_date: string | null;
       /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
       metrics_in_session: ExperimentSessionMetricHit[];
-      /** Why this experiment surfaced for the session. 'exposure': variant/exposure evidence only. 'both': exposure evidence plus at least one metric event. 'metric_events' (metric activity with no exposure evidence) is reserved for future use and is never emitted yet.
-       *
-       * * `exposure` - exposure
-       * * `metric_events` - metric_events
-       * * `both` - both */
-      seen_reason: SeenReasonEnum;
     }
 
     /**

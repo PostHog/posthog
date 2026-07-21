@@ -1,10 +1,10 @@
-"""Resolve which events an experiment's metrics count, and scan sessions for them.
+"""Resolve which events an experiment's metrics count, and scan a session for them.
 
 A session recording can contain the events an experiment's metrics count. This module maps an
 experiment's metrics (inline primary + secondary and saved/shared, via the shared
-`metric_resolution` enumerator) to their concrete event/action sources, and scans a bounded set
-of sessions for those events. Data-warehouse sources have no session events, so metrics whose
-every source is a data-warehouse node are marked non-linkable and skipped by the scan.
+`metric_resolution` enumerator) to their concrete event/action sources, and scans one session
+for those events. Data-warehouse sources have no session events, so metrics whose every source
+is a data-warehouse node are marked non-linkable and skipped by the scan.
 
 Consumed by the additive `metrics_in_session` fields on the single-session `session_context`
 endpoint.
@@ -29,23 +29,18 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.temporal.metric_resolution import ExperimentMetric, build_metric, iter_metric_dicts
 
 logger = logging.getLogger(__name__)
-
-# The scan groups by session id, so its output is bounded by the caller's session batch, not by
-# event payloads. The explicit limit is a backstop far above any real batch — without it HogQL
-# applies an implicit LIMIT 100 per union branch, which would silently truncate legitimate rows.
-MAX_METRIC_HIT_ROWS = 10_000
 
 # Per hit we return the first N event timestamps as seek points; event_count carries the true
 # total, so a busier metric shows the real count and the UI notes the seek points are capped.
@@ -155,52 +150,39 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
 
 
 def _node_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
-    """Match expression for one source node: the event/action match ANDed with the node's own
-    property filters. Sources this project can't resolve (a missing action, a cohort filter
-    whose cohort doesn't exist here, a filter HogQL can't compile) match nothing instead of
-    failing the whole scan — mirroring `_build_action_filter` in `exposure_query_logic`."""
-    exprs: list[ast.Expr] = []
-    if isinstance(node, ActionsNode):
-        try:
-            action = Action.objects.get(pk=int(node.id), team=team)
-        except Action.DoesNotExist:
-            logger.warning("Action %s not found for team %s; metric source matches nothing.", node.id, team.pk)
-            return ast.Constant(value=False)
-        exprs.append(action_to_expr(action))
-    elif node.event is not None:
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=node.event),
-            )
-        )
+    """Match expression for one source node, built on `event_or_action_to_filter` — the same
+    matcher the experiment analysis uses, so what counts as "this metric's event" cannot
+    diverge between the analysis and this surface. `fixedProperties` are ANDed on top: the
+    shared helper only reads `properties`, and layering the extra filter here keeps the scan
+    strictly narrower than (never contradicting) the analysis. Sources this project can't
+    resolve (a cohort filter whose cohort doesn't exist here, a filter HogQL can't compile)
+    match nothing instead of failing the whole scan; the shared helper already maps a missing
+    action to a match-nothing expression."""
     try:
-        for prop in [*(node.properties or []), *(node.fixedProperties or [])]:
-            exprs.append(property_to_expr(prop, team))
+        condition = event_or_action_to_filter(team, node)
+        fixed = [property_to_expr(prop, team) for prop in node.fixedProperties or []]
     except (Cohort.DoesNotExist, BaseHogQLError):
+        logger.warning("Unresolvable metric source filter for team %s; source matches nothing.", team.pk)
         return ast.Constant(value=False)
-    if not exprs:
-        # An EventsNode with event=None and no filters counts all events.
-        return ast.Constant(value=True)
-    return ast.And(exprs=exprs) if len(exprs) > 1 else exprs[0]
+    if fixed:
+        return ast.And(exprs=[condition, *fixed])
+    return condition
 
 
-def scan_sessions_for_metric_events(
+def scan_session_for_metric_events(
     team: Team,
     user: User,
     *,
     metric_sources: list[MetricEventSource],
-    session_ids: list[str],
+    session_id: str,
     window_start: datetime,
     window_end: datetime,
-) -> dict[str, list[MetricHit]]:
-    """session_id -> metrics with >=1 matching event in that session, sorted by first occurrence.
+) -> list[MetricHit]:
+    """The metrics with >=1 matching event in the session, sorted by first occurrence.
 
-    Metrics with no hits are omitted from each session's list; sessions with no hits at all are
-    absent from the map. Duplicate metric uuids (a saved metric shared by several experiments)
-    are scanned once. `user` threads through to HogQL for property-level access control —
-    metric source nodes can carry property filters.
+    Metrics with no hits are omitted. Duplicate metric uuids (a saved metric shared by several
+    experiments) are scanned once. `user` threads through to HogQL for property-level access
+    control — metric source nodes can carry property filters.
     """
     names_by_uuid: dict[str, str] = {}
     branches: list[ast.SelectQuery] = []
@@ -214,48 +196,41 @@ def scan_sessions_for_metric_events(
         branch = parse_select(
             """
             SELECT {metric_uuid} AS metric_uuid,
-                   $session_id AS session_id,
                    count() AS event_count,
                    min(timestamp) AS first_timestamp,
                    arraySlice(arraySort(groupArray(timestamp)), 1, {max_timestamps}) AS timestamps
             FROM events
             WHERE {metric_conditions}
-              AND $session_id IN {session_ids}
+              AND $session_id = {session_id}
               AND timestamp >= {window_start}
               AND timestamp <= {window_end}
-            GROUP BY session_id
+            GROUP BY $session_id
             """,
             placeholders={
                 "metric_uuid": ast.Constant(value=source.metric_uuid),
                 "metric_conditions": ast.Or(exprs=conditions) if len(conditions) > 1 else conditions[0],
-                "session_ids": ast.Constant(value=session_ids),
+                "session_id": ast.Constant(value=session_id),
                 "window_start": ast.Constant(value=window_start),
                 "window_end": ast.Constant(value=window_end),
                 "max_timestamps": ast.Constant(value=MAX_METRIC_EVENT_TIMESTAMPS),
             },
         )
         assert isinstance(branch, ast.SelectQuery)
-        # The backstop must sit on each branch: HogQL stamps an implicit LIMIT 100 on every
-        # union branch whose limit is unset, so a set-level limit alone would not prevent
-        # per-branch truncation. Real branches stay far below this — each groups by the
-        # caller's bounded session batch.
-        branch.limit = ast.Constant(value=MAX_METRIC_HIT_ROWS)
         branches.append(branch)
 
     if not branches:
-        return {}
+        return []
 
+    # Each branch groups a single session, so it yields at most one row — the implicit
+    # LIMIT 100 HogQL stamps on every union branch can never truncate anything here.
     query = ast.SelectSetQuery.create_from_queries(branches, "UNION ALL")
-    # No set-level LIMIT here: the printer emits it directly after the last branch's own
-    # LIMIT, which ClickHouse rejects as a syntax error. The per-branch limits above are
-    # the backstop.
     response = execute_hogql_query(query, team=team, user=user)
 
-    hits: dict[str, list[MetricHit]] = {}
-    for metric_uuid, session_id, event_count, first_timestamp, timestamps in response.results or []:
+    hits: list[MetricHit] = []
+    for metric_uuid, event_count, first_timestamp, timestamps in response.results or []:
         if not event_count:
             continue
-        hits.setdefault(str(session_id), []).append(
+        hits.append(
             MetricHit(
                 metric_uuid=str(metric_uuid),
                 metric_name=names_by_uuid[str(metric_uuid)],
@@ -264,6 +239,5 @@ def scan_sessions_for_metric_events(
                 timestamps=tuple(timestamps),
             )
         )
-    for session_hits in hits.values():
-        session_hits.sort(key=lambda hit: hit.first_timestamp)
+    hits.sort(key=lambda hit: hit.first_timestamp)
     return hits

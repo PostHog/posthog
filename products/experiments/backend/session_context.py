@@ -19,6 +19,7 @@ not applied here — this surface shows the raw session truth). Callers must pre
 what the session *saw*, not what the experiment analysis counts.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -48,9 +49,11 @@ from products.experiments.backend.metric_events import (
     MetricEventSource,
     MetricHit,
     resolve_metric_events,
-    scan_sessions_for_metric_events,
+    scan_session_for_metric_events,
 )
 from products.experiments.backend.models.experiment import Experiment
+
+logger = logging.getLogger(__name__)
 
 # Slack around the recording bounds — flag evaluation can be captured slightly outside the
 # replay window (clock skew, events flushed before/after snapshots).
@@ -90,10 +93,6 @@ class ExperimentSessionContextItem:
     experiment_end_date: Optional[datetime]
     # The experiment's metrics with >=1 matching event in the session, sorted by first occurrence.
     metrics_in_session: list[MetricHit]
-    # "exposure" (variant/exposure evidence only) or "both" (exposure evidence plus metric
-    # events). "metric_events" (metric activity without exposure evidence) is reserved for the
-    # deferred metric-only-session work and never emitted here.
-    seen_reason: str
 
 
 def get_session_experiment_context(
@@ -233,28 +232,37 @@ def get_session_experiment_context(
     # Only the experiments that actually surfaced (typically 1–3, not the candidate cap) get
     # their metrics scanned. One scan covers them all — shared saved metrics dedupe by uuid
     # inside the scan — and each experiment claims its own metrics' hits back by uuid.
-    sources_by_experiment: dict[int, list[MetricEventSource]] = {
-        experiment.pk: resolve_metric_events(experiment) for experiment, *_ in surfaced
-    }
-    all_sources = [source for sources in sources_by_experiment.values() for source in sources]
+    # Metric hits are enrichment on top of the exposure context: an unexpected failure here
+    # (one experiment's malformed stored metric, say) must degrade to "no metric hits", never
+    # take down the exposure context that already resolved above.
+    sources_by_experiment: dict[int, list[MetricEventSource]] = {}
     session_hits: dict[str, MetricHit] = {}
-    if all_sources:
-        scanned = scan_sessions_for_metric_events(
-            team,
-            user,
-            metric_sources=all_sources,
-            session_ids=[session_id],
-            window_start=window_start,
-            window_end=window_end,
-        )
-        session_hits = {hit.metric_uuid: hit for hit in scanned.get(session_id, [])}
+    try:
+        sources_by_experiment = {experiment.pk: resolve_metric_events(experiment) for experiment, *_ in surfaced}
+        all_sources = [source for sources in sources_by_experiment.values() for source in sources]
+        if all_sources:
+            session_hits = {
+                hit.metric_uuid: hit
+                for hit in scan_session_for_metric_events(
+                    team,
+                    user,
+                    metric_sources=all_sources,
+                    session_id=session_id,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+            }
+    except Exception:
+        logger.exception("Metric-event scan failed for session %s; returning context without metric hits", session_id)
+        sources_by_experiment = {}
+        session_hits = {}
 
     items: list[ExperimentSessionContextItem] = []
     for experiment, variant, variants_seen, first_exposure_timestamp in surfaced:
         metrics_in_session = sorted(
             {
                 source.metric_uuid: session_hits[source.metric_uuid]
-                for source in sources_by_experiment[experiment.pk]
+                for source in sources_by_experiment.get(experiment.pk, [])
                 if source.metric_uuid in session_hits
             }.values(),
             key=lambda hit: hit.first_timestamp,
@@ -271,7 +279,6 @@ def get_session_experiment_context(
                 experiment_start_date=experiment.start_date,
                 experiment_end_date=experiment.end_date,
                 metrics_in_session=metrics_in_session,
-                seen_reason="both" if metrics_in_session else "exposure",
             )
         )
 

@@ -603,11 +603,11 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-    def test_metrics_in_session_and_seen_reason(self) -> None:
+    def test_metrics_in_session(self) -> None:
         self._create_recording()
         # Two overlapping experiments with a metric each force a genuine multi-branch UNION ALL
-        # in the metric scan — a single branch collapses to a plain SelectQuery and would not
-        # catch the per-branch/set-level LIMIT breakage that 500ed session_context once.
+        # in the metric scan — a single branch collapses to a plain SelectQuery, so only this
+        # shape proves the union compiles end to end through the endpoint.
         metric = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -632,7 +632,6 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         by_id = {result["experiment_id"]: result for result in response.json()["results"]}
-        assert by_id[with_hit.id]["seen_reason"] == "both"
         assert by_id[with_hit.id]["metrics_in_session"] == [
             {
                 "metric_uuid": metric["uuid"],
@@ -655,7 +654,6 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             "experiment_start_date": "2025-12-01T00:00:00Z",
             "experiment_end_date": None,
             "metrics_in_session": [],
-            "seen_reason": "exposure",
         }
 
     def test_metrics_in_session_includes_saved_metric(self) -> None:

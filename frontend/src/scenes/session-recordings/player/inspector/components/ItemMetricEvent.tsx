@@ -13,7 +13,7 @@ export function ItemMetricEvent({ item }: ItemMetricEventProps): JSX.Element {
     return (
         <div data-attr="item-metric-event" className="font-light w-full">
             <div className="flex flex-row w-full gap-2 items-center px-2 py-1 text-xs">
-                <div className="truncate flex-1 min-w-0 font-medium">Reached {item.data.metricName}</div>
+                <div className="truncate flex-1 min-w-0 font-medium">Fired a {item.data.metricName} event</div>
                 <div className="flex items-center gap-1 shrink-0 text-secondary">
                     <span className="truncate max-w-[40ch]" title={item.data.experimentName}>
                         {item.data.experimentName}
@@ -55,6 +55,10 @@ export function ItemMetricEventDetail({ item }: ItemMetricEventProps): JSX.Eleme
                 <div className="flex items-center justify-between gap-2 min-w-0">
                     <span className="text-secondary shrink-0">Events in this session</span>
                     <span className="truncate">{eventCount}</span>
+                </div>
+                <div className="text-secondary">
+                    Counts every matching event in this session, which can differ from what the experiment analysis
+                    counts.
                 </div>
             </div>
         </div>

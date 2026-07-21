@@ -178,12 +178,12 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ exposureUnlinkable: false })
     })
 
-    it('ANDs the selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
+    it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.metricOptions.map((option) => option.uuid)).toEqual(['metric-purchase', 'metric-funnel'])
 
-        logic.actions.setSelectedMetricUuid('metric-purchase')
-        expect(logic.values.effectiveMetricUuid).toBe('metric-purchase')
+        logic.actions.setMetricSelected('metric-purchase', true)
+        expect(logic.values.effectiveMetricUuids).toEqual(['metric-purchase'])
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
@@ -194,9 +194,25 @@ describe('experimentReplayTabLogic', () => {
             },
         ])
 
+        // A second selection narrows further: both metrics' primary events AND together.
+        logic.actions.setMetricSelected('metric-funnel', true)
+        expect(logic.values.effectiveMetricUuids).toEqual(['metric-purchase', 'metric-funnel'])
+        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
+                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
+                    { id: 'server_side_step', name: 'server_side_step', type: 'events', properties: [] },
+                ],
+            },
+        ])
+
+        logic.actions.setMetricSelected('metric-purchase', false)
+        logic.actions.setMetricSelected('metric-funnel', false)
         // A persisted uuid whose metric has since been removed must not leak into the query.
-        logic.actions.setSelectedMetricUuid('ghost')
-        expect(logic.values.effectiveMetricUuid).toBeNull()
+        logic.actions.setMetricSelected('ghost', true)
+        expect(logic.values.effectiveMetricUuids).toEqual([])
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
@@ -214,8 +230,8 @@ describe('experimentReplayTabLogic', () => {
         expect(serverSideMetric.values.metricOptions.find((option) => option.uuid === 'metric-purchase')).toMatchObject(
             { unlinkable: true }
         )
-        serverSideMetric.actions.setSelectedMetricUuid('metric-purchase')
-        expect(serverSideMetric.values.effectiveMetricUuid).toBeNull()
+        serverSideMetric.actions.setMetricSelected('metric-purchase', true)
+        expect(serverSideMetric.values.effectiveMetricUuids).toEqual([])
         // The unlinkable event would zero the whole AND-combined query — it must never appear.
         expect(serverSideMetric.values.recordingsFilters.filter_group.values).toEqual([
             {
@@ -235,7 +251,7 @@ describe('experimentReplayTabLogic', () => {
         expect(partiallyLinkable.values.metricOptions.find((option) => option.uuid === 'metric-funnel')).toMatchObject({
             unlinkable: false,
         })
-        partiallyLinkable.actions.setSelectedMetricUuid('metric-funnel')
+        partiallyLinkable.actions.setMetricSelected('metric-funnel', true)
         expect(partiallyLinkable.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
@@ -253,7 +269,7 @@ describe('experimentReplayTabLogic', () => {
         // AND operand, so ANDing every step would demand a session fire *all* of them; we filter on
         // the entry step (series[0]) instead.
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setSelectedMetricUuid('metric-funnel')
+        logic.actions.setMetricSelected('metric-funnel', true)
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,

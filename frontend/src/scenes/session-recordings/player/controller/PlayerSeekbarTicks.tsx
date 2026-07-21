@@ -114,7 +114,7 @@ function PlayerSeekbarTick({
                         </>
                     ) : isMetricEventItem(item) ? (
                         <>
-                            Reached {item.data.metricName} in {item.data.experimentName}
+                            Fired a {item.data.metricName} event ({item.data.experimentName})
                         </>
                     ) : isEventItem(item) ? (
                         <>
