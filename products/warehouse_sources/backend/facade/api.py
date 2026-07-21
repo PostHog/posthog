@@ -48,6 +48,7 @@ __all__ = [
     "list_sources",
     "get_schema",
     "list_schemas_for_source",
+    "list_schemas",
     "get_table",
     "list_tables_for_source",
     "list_tables_by_names",
@@ -171,6 +172,25 @@ def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:
 
 def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataSchema]:
     qs = _ExternalDataSchema.objects.select_related("source").filter(team_id=team_id, source_id=source_id)
+    return [_to_schema(s) for s in qs]
+
+
+def list_schemas(
+    team_id: int,
+    *,
+    source_type: str | None = None,
+    should_sync: bool | None = None,
+) -> list[contracts.ExternalDataSchema]:
+    qs = (
+        _ExternalDataSchema.objects.select_related("source")
+        .filter(team_id=team_id)
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+    )
+    if source_type is not None:
+        qs = qs.filter(source__source_type=source_type)
+    if should_sync is not None:
+        qs = qs.filter(should_sync=should_sync)
     return [_to_schema(s) for s in qs]
 
 

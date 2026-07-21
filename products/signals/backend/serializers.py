@@ -3,8 +3,6 @@ import logging
 from collections.abc import Mapping
 from typing import cast
 
-from django.db.models import Q
-
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
@@ -99,27 +97,21 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+        from products.warehouse_sources.backend.facade import api as warehouse_api
+        from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
-        statuses = set(
-            ExternalDataSchema.objects.filter(
-                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
-                team_id=team_id,
-                source__source_type=ext_source_type,
-            )
-            .exclude(source__deleted=True)
-            .values_list("status", flat=True)
-        )
-        if ExternalDataSchema.Status.RUNNING in statuses:
+        schemas = warehouse_api.list_schemas(team_id, source_type=ext_source_type)
+        statuses = {s.status for s in schemas if s.name == schema_name or s.name.endswith(f".{schema_name}")}
+        if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
         if statuses & {
-            ExternalDataSchema.Status.FAILED,
-            ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            ExternalDataSchemaStatus.FAILED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
         }:
             return "failed"
-        if ExternalDataSchema.Status.COMPLETED in statuses:
+        if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
 

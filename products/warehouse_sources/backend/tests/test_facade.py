@@ -234,6 +234,31 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert healths[other.id].sync_status == "error"
         assert healths[other.id].last_unresolved_error == "stripe down"
 
+    def test_list_schemas_filters_by_source_type_and_excludes_deleted_sources(self) -> None:
+        deleted_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+            deleted=True,
+        )
+        ExternalDataSchema.objects.create(team_id=self.team.pk, source=deleted_source, name="ghost", should_sync=True)
+        stripe_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(team_id=self.team.pk, source=stripe_source, name="charges", should_sync=True)
+
+        postgres_schemas = api.list_schemas(self.team.pk, source_type="Postgres")
+        assert [s.name for s in postgres_schemas] == ["users"]
+
+        all_schemas = api.list_schemas(self.team.pk)
+        assert {s.name for s in all_schemas} == {"users", "charges"}
+
     def test_list_jobs_for_source_is_bounded_and_get_latest_job_orders_by_created(self) -> None:
         oldest = self._job("Completed", finished_ago=timedelta(hours=3), created_ago=timedelta(hours=3))
         middle = self._job("Failed", created_ago=timedelta(hours=2), error="x")
