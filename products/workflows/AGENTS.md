@@ -20,6 +20,36 @@ Most features touch at least two of the three. When you change a definition on o
 side, go looking for its mirror on the others — the couplings below are the known
 ones.
 
+## Execution pipeline: what rides Kafka vs cyclotron Postgres
+
+Events reach CDP from the `clickhouse_events_json` Kafka topic;
+`cdp-events.consumer.ts` evaluates them against enabled functions and flows, then
+splits the resulting invocations by kind — the same split every re-enqueue path
+(rerun worker, batch resolve) must preserve:
+
+- **Hog functions → Kafka** (`hog` / `hogoverflow` queues): stateless
+  fire-and-forget HTTP work, optimized for throughput.
+- **Hog flows → cyclotron Postgres** (`hogflow` queue, `postgres-v2` source): flow
+  runs are durable jobs with `queueScheduledAt`, because delay / wait-until /
+  batch nodes park a job for hours or days — state that can't live in a Kafka
+  offset. Workers: `cdp-cyclotron-worker-hogflow.consumer.ts`.
+- **Email sends → the dedicated `email` cyclotron queue**
+  (`cdp-cyclotron-worker-email`), which applies the SES rate limiter and
+  suppression checks.
+- Queue kinds and sources are the closed unions in `nodejs/src/cdp/types.ts`
+  (`CYCLOTRON_INVOCATION_JOB_QUEUES`, `CYCLOTRON_JOB_QUEUE_SOURCES`) — extend
+  there first or nothing routes.
+- **Transformations never touch cyclotron** — they run inline in the ingestion
+  pipeline before events reach ClickHouse. If you're adding "modify the event"
+  behavior, it doesn't belong in this product's queue machinery at all.
+
+Adjacent entry points that feed the same queues: the recurring-schedule poller
+(`cdp-hogflow-scheduler`, driven by Django's `internal_process_due_schedules`),
+batch broadcasts (`HogFlowBatchJob` rows → audience resolution in
+`cdp-cyclotron-worker-batch-resolve`), and the subscription matcher. New
+server-side entry points should enqueue through the existing `JobQueue`
+abstractions rather than writing to topics or job tables directly.
+
 ## One flow definition, three schemas — change all of them together
 
 The `HogFlow` shape exists in three places that nothing keeps in sync:
