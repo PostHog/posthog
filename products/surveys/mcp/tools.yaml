@@ -34,6 +34,9 @@ tools:
             destructive: false
             idempotent: false
         enrich_url: '{id}'
+        # The frontend parses the created entity's id/name out of the tool result for the
+        # "Open survey" toast — TOON text would defeat that parse.
+        output_format: json
         title: Creates a new survey in the project.
         description: >
             Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft

@@ -23,6 +23,7 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { POSTHOG_META_KEY } from '@/tools/types'
 
 const SurveyCreateSchema = SurveysCreateBody.omit({
     linked_insight_id: true,
@@ -80,6 +81,7 @@ const surveyCreate = (): ToolBase<
     withUiApp('survey', {
         name: 'survey-create',
         schema: SurveyCreateSchema,
+        _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } },
         handler: async (context: Context, params: z.infer<typeof SurveyCreateSchema>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
