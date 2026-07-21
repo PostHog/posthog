@@ -140,9 +140,10 @@ def get_local_package_runtime_dependencies(packages: tuple[LocalPackage, ...]) -
                 if catalog_reference in {"", "*"}:
                     selected_catalog = catalog
                 else:
-                    selected_catalog = catalogs.get(catalog_reference)
-                    if selected_catalog is None:
+                    named_catalog = catalogs.get(catalog_reference)
+                    if named_catalog is None:
                         raise ValueError(f"Catalog {catalog_reference} is missing from {workspace_manifest_path}")
+                    selected_catalog = named_catalog
 
                 resolved_version = selected_catalog.get(name)
                 if resolved_version is None:
