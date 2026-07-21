@@ -551,6 +551,7 @@
         "description": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
         "category": "Tasks",
         "feature": "tasks",
+        "feature_flag": "loops",
         "summary": "Review a loop with the user before creating it.",
         "title": "Review loop before creating",
         "required_scopes": ["loop:write"],
