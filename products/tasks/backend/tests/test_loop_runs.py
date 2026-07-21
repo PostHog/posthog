@@ -215,7 +215,9 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         trigger_b = self.create_trigger(loop)
         LoopFire.objects.for_team(self.team.id, canonical=True).bulk_create(
             [
-                LoopFire(team=self.team, loop=loop, loop_trigger=trigger_a, fire_key=f"seed-{i}")
+                LoopFire(
+                    team=self.team, loop=loop, loop_trigger=trigger_a, fire_key=f"seed-{i}", outcome_reason="created"
+                )
                 for i in range(LOOP_RATE_CAP_PER_DAY)
             ]
         )
@@ -238,7 +240,13 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         fresh_trigger = self.create_trigger(fresh)
         LoopFire.objects.for_team(self.team.id, canonical=True).bulk_create(
             [
-                LoopFire(team=self.team, loop=noisy, loop_trigger=noisy_trigger, fire_key=f"team-seed-{i}")
+                LoopFire(
+                    team=self.team,
+                    loop=noisy,
+                    loop_trigger=noisy_trigger,
+                    fire_key=f"team-seed-{i}",
+                    outcome_reason="created",
+                )
                 for i in range(LOOP_TEAM_RATE_CAP_PER_DAY)
             ]
         )
@@ -249,6 +257,33 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertFalse(result.created)
         self.assertEqual(result.reason, "team_rate_capped")
         mock_dispatch.assert_called_once_with(fresh, "needs_attention", {"reason": "team_rate_capped"})
+
+    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    def test_rejected_fires_do_not_consume_the_team_rate_budget(self, _mock_gate):
+        # Regression: rejected fires still record a LoopFire row (for idempotent replay) but must
+        # not count toward the caps. Otherwise spamming unique keys at an already-capped loop drains
+        # the shared team budget and freezes every other loop for 24h.
+        capped = self.create_loop()
+        capped_trigger = self.create_trigger(capped)
+        fresh = self.create_loop()
+        fresh_trigger = self.create_trigger(fresh)
+        LoopFire.objects.for_team(self.team.id, canonical=True).bulk_create(
+            [
+                LoopFire(
+                    team=self.team,
+                    loop=capped,
+                    loop_trigger=capped_trigger,
+                    fire_key=f"rejected-{i}",
+                    outcome_reason="rate_capped",
+                )
+                for i in range(LOOP_TEAM_RATE_CAP_PER_DAY)
+            ]
+        )
+
+        result = fire_loop(fresh, fresh_trigger, "still-allowed", "ctx")
+
+        self.assertTrue(result.created)
+        self.assertEqual(result.reason, "created")
 
     @parameterized.expand(
         [

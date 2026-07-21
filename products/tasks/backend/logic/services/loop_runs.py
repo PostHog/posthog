@@ -405,17 +405,28 @@ def _usage_gate_blocked(loop: Loop) -> bool:
     return cloud_usage_limit_response(loop.created_by, loop.team_id) is not None
 
 
+# The rate caps bound actual dispatched runs, so they count only fires that created one
+# (`outcome_reason="created"`). A rejected or deduped fire still records a LoopFire row for
+# idempotent replay, but must not consume the budget: otherwise a caller could spam unique
+# idempotency keys at an already-capped loop and, with each rejected attempt still counted, drain
+# the shared per-team budget and freeze every other loop in the project for 24h.
 def _rate_capped(loop: Loop) -> bool:
     since = django_timezone.now() - timedelta(hours=24)
     fire_count = (
-        LoopFire.objects.for_team(loop.team_id, canonical=True).filter(loop=loop, created_at__gte=since).count()
+        LoopFire.objects.for_team(loop.team_id, canonical=True)
+        .filter(loop=loop, outcome_reason="created", created_at__gte=since)
+        .count()
     )
     return fire_count >= LOOP_RATE_CAP_PER_DAY
 
 
 def _team_rate_capped(loop: Loop) -> bool:
     since = django_timezone.now() - timedelta(hours=24)
-    fire_count = LoopFire.objects.for_team(loop.team_id, canonical=True).filter(created_at__gte=since).count()
+    fire_count = (
+        LoopFire.objects.for_team(loop.team_id, canonical=True)
+        .filter(outcome_reason="created", created_at__gte=since)
+        .count()
+    )
     return fire_count >= LOOP_TEAM_RATE_CAP_PER_DAY
 
 
