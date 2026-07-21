@@ -532,10 +532,16 @@ pub fn filter_source_paths(paths: &[String]) -> Vec<&str> {
     paths
         .iter()
         .filter(|path| {
-            // Exclude system prefixes
-            if EXCLUDED_PREFIXES
-                .iter()
-                .any(|prefix| path.starts_with(prefix))
+            // Exclude system prefixes. Go sources are exempt: containerized
+            // Go builds commonly live under /usr/src (the official golang
+            // image's WORKDIR), and Go's own system trees — GOROOT wherever
+            // installed and the module cache — are already handled by
+            // filter_go_toolchain_sources.
+            let is_go_source = path.ends_with(".go") || path.ends_with(".s");
+            if !is_go_source
+                && EXCLUDED_PREFIXES
+                    .iter()
+                    .any(|prefix| path.starts_with(prefix))
             {
                 tracing::debug!("Filtered out (prefix): {}", path);
                 return false;
@@ -825,6 +831,25 @@ mod tests {
         assert_eq!(
             filter_go_toolchain_sources(paths),
             vec![r"C:\workspace\app\main.go"]
+        );
+    }
+
+    #[test]
+    fn go_sources_under_usr_survive_the_system_prefix_filter() {
+        // The official golang Docker image builds under /usr/src/app; the
+        // /usr/ system-prefix rule must not empty those projects' bundles.
+        let paths: Vec<String> = [
+            "/usr/src/app/main.go",
+            "/usr/src/app/asm_amd64.s",
+            "/usr/include/stdio.h",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        assert_eq!(
+            super::filter_source_paths(&paths),
+            vec!["/usr/src/app/main.go", "/usr/src/app/asm_amd64.s"]
         );
     }
 
