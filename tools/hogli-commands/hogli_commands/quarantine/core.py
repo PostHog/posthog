@@ -336,10 +336,12 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
     """Lint a loaded quarantine file; returns (violations, warnings).
 
     Violations: load errors, duplicate ids, ``expires`` before ``added`` or
-    more than ``MAX_QUARANTINE_DAYS`` after it, entries expired beyond the
-    grace period, invalid selectors for known runners. Warnings: load
-    warnings, entries for runners without an enforcement adapter, entries
-    inside the expiry grace period.
+    more than ``MAX_QUARANTINE_DAYS`` after it, a future ``added`` (which
+    would un-anchor that window from today and let a hand-edited entry stay
+    active indefinitely), entries expired beyond the grace period, invalid
+    selectors for known runners. Warnings: load warnings, entries for
+    runners without an enforcement adapter, entries inside the expiry grace
+    period.
     """
     violations = list(result.errors)
     warnings = list(result.warnings)
@@ -355,6 +357,12 @@ def check(result: LoadResult, today: date, grace_days: int = DEFAULT_GRACE_DAYS)
             violations.append(f"{label}: expires {entry.expires} is before added {entry.added}")
         elif entry.expires - entry.added > timedelta(days=MAX_QUARANTINE_DAYS):
             violations.append(f"{label}: quarantine window exceeds {MAX_QUARANTINE_DAYS} days")
+
+        # A future added would un-anchor the window from today: a hand-edited
+        # entry dated 2099 passes the window check yet stays active for decades.
+        # With added capped at today, the window check bounds expires too.
+        if entry.added > today:
+            violations.append(f"{label}: added {entry.added} is in the future")
 
         expired_for = (today - entry.expires).days
         if expired_for > grace_days:

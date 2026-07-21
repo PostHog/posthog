@@ -410,6 +410,19 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
         ),
         # forward compat: a runner without an adapter (and an unknown field) warn but pass
         ([raw_entry(runner="some-future-runner", future_field="x")], 0, "no enforcement adapter"),
+        # a hand-edited future-dated entry must fail check, not sit active for years
+        (
+            [
+                raw_entry(
+                    runner="playwright",
+                    id="playwright/e2e/x.spec.ts",
+                    added=(core.today_utc() + timedelta(days=365)).isoformat(),
+                    expires=(core.today_utc() + timedelta(days=395)).isoformat(),
+                )
+            ],
+            1,
+            "is in the future",
+        ),
         # jest and playwright have enforcement adapters; valid entries pass clean
         ([raw_entry(runner="jest", id="frontend/src/x.test.ts")], 0, "OK"),
         ([raw_entry(runner="playwright", id="playwright/e2e/login.spec.ts::Login redirects home")], 0, "OK"),
