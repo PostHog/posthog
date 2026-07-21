@@ -141,6 +141,22 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "disabled")
         self.assertEqual(Task.objects.filter(team=self.team).count(), 0)
 
+    def test_fire_is_blocked_when_the_loop_owner_is_deactivated(self):
+        # A run executes with its owner's credentials, so a loop whose owner was deactivated must not
+        # fire even if a teammate re-enabled it — otherwise it restarts under the inactive owner's
+        # GitHub/MCP access.
+        inactive = User.objects.create_user(
+            email="gone@example.com", first_name="Gone", password="password", is_active=False
+        )
+        loop = self.create_loop(created_by=inactive)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, "after-deactivation", "ctx")
+
+        self.assertFalse(result.created)
+        self.assertEqual(result.reason, "owner_inactive")
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
+
     def test_same_fire_key_on_a_trigger_dedups_and_returns_the_original_run(self):
         loop = self.create_loop()
         trigger = self.create_trigger(loop)

@@ -245,6 +245,14 @@ def fire_loop(
     if not loop.enabled or loop.deleted:
         return LoopFireResult(created=False, reason="disabled", task_id=None, task_run_id=None)
 
+    # A run executes with its owner's credentials (`task.created_by` = `loop.created_by`), so it must
+    # never fire as a deactivated owner. `enabled` is member-editable, so a teammate could otherwise
+    # re-enable a loop auto-paused on owner deactivation and restart it under that owner's GitHub/MCP
+    # access; the GitHub credential path doesn't re-check `is_active`. Enforce it here, at the single
+    # choke point every trigger flows through. A takeover to an active member re-qualifies the loop.
+    if loop.created_by_id is None or not loop.created_by.is_active:
+        return LoopFireResult(created=False, reason="owner_inactive", task_id=None, task_run_id=None)
+
     # A disabled trigger whose schedule pause hasn't propagated (or whose occurrence was
     # already dispatched) must not still fire.
     if trigger is not None and not trigger.enabled:
