@@ -26,13 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b im
     validate_credentials as validate_e2b_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import E2BSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://e2b.dev/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -132,6 +135,7 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
         return e2b_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

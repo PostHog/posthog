@@ -202,7 +202,6 @@ WHERE {periods_expression}
         except NoActionsError:
             return WebGoalsQueryResponse(
                 results=[],
-                samplingRate=self._sample_rate,
                 modifiers=self.modifiers,
                 preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
             )
@@ -267,7 +266,6 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
         )
@@ -344,7 +342,6 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
         )

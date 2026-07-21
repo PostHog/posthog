@@ -23,6 +23,11 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 
+from posthog.clickhouse.events_json import (
+    EVENTS_JSON_INDEXED_PROPERTY_NAMES,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+)
 from posthog.clickhouse.materialized_columns import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
@@ -30,15 +35,10 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.event.sql import (
-    EVENTS_JSON_INDEXED_PROPERTY_NAMES,
-    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-)
-from posthog.models.property import PropertyName, TableColumn
+from posthog.property_columns import PropertyName, TableColumn
 from posthog.schema_enums import PropertyGroupsMode
 
-from products.event_definitions.backend.models.property_definition import PropertyType
+from products.event_definitions.backend.property_type import PropertyType
 
 
 class PropertyScope(StrEnum):

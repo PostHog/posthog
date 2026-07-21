@@ -72,6 +72,7 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
@@ -97,6 +98,12 @@ from products.workflows.backend.services.batch_audience import (
     use_workflows_batch_audience_query,
 )
 from products.workflows.backend.services.revisions import use_workflows_revisions
+from products.workflows.backend.services.timing_reschedule import (
+    get_all_timing_action_ids,
+    get_timing_reschedule_action_ids,
+    use_workflows_timing_reschedule,
+)
+from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -358,7 +365,9 @@ class HogFlowActionConfigField(serializers.JSONField):
 
 
 class HogFlowActionSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Unique node ID within the workflow.")
+    # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
+    # real ids are short generated slugs, so 200 is generous.
+    id = serializers.CharField(max_length=200, help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
     on_error = serializers.ChoiceField(
@@ -962,6 +971,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "mismatch returns 409."
         ),
     )
+    action_redirects = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained "
+            "automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step "
+            "continue at its surviving successor instead of exiting. Null when no live deletions have occurred."
+        ),
+    )
 
     def to_internal_value(self, data):
         status = data.get("status")
@@ -1007,6 +1026,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "user_access_level",
             "draft",
             "draft_updated_at",
+            "action_redirects",
         ]
         read_only_fields = [
             "id",
@@ -1021,6 +1041,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "user_access_level",
             "draft",  # Written by draft routing (see perform_update / graph), never directly
             "draft_updated_at",
+            "action_redirects",  # Computed from graph diffs at save time (see _refresh_action_redirects)
         ]
 
     def validate(self, data):
@@ -1617,8 +1638,14 @@ class HogFlowViewSet(
                     serializer.validated_data.update(remaining)
                     serializer.save()
             else:
+                if before_update is not None:
+                    self._refresh_action_redirects(
+                        serializer.instance, before_update, serializer.validated_data.get("actions")
+                    )
                 serializer.save()
 
+        if not route_to_draft:
+            self._maybe_reschedule_timing_edits(before_update, serializer.instance)
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
@@ -1647,6 +1674,20 @@ class HogFlowViewSet(
                 )
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
+
+    def _refresh_action_redirects(self, target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
+        # Skip-forward for deleted steps: refresh the redirect map whenever a live graph write is about
+        # to land, while both the old graph (`old`, the locked pre-write row) and the new actions are in
+        # hand. Must run before serializer.save() so the map persists in the same write, transaction,
+        # and worker reload as the graph it describes. Flag-gated with the rest of the revisions cycle.
+        # No status gate: disabling a flow doesn't purge its parked runs (the worker only cancels them
+        # if they wake while the flow is still disabled), so a step deleted during a disable/re-enable
+        # window needs its redirect recorded just like one deleted live.
+        if new_actions is None or not use_workflows_revisions(self.team):
+            return
+        target.action_redirects = compute_action_redirects(
+            old.actions or [], old.edges or [], new_actions, old.action_redirects
+        )
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
@@ -1709,13 +1750,47 @@ class HogFlowViewSet(
             if route_to_draft:
                 self._write_draft(locked, locked, serializer.validated_data)
             else:
+                self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 serializer.save()
 
+        if not route_to_draft:
+            self._maybe_reschedule_timing_edits(before_update, locked)
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
 
         return Response(self.get_serializer(locked).data)
+
+    def _maybe_reschedule_timing_edits(self, before: Optional[HogFlow], after: HogFlow) -> None:
+        """Kick off a reschedule sweep of parked runs when a go-live config change could move
+        their wake times earlier (issue #66380): shortened delays and moved wait windows.
+
+        Called wherever the LIVE config changes - a direct save (the builder path, where save
+        is go-live), the graph endpoint, or publish - and never for draft writes, which don't
+        touch what runs execute. Deliberately called AFTER the writing transaction commits:
+        the feature-flag check can hit the network, and must not extend the select_for_update
+        row-lock hold. on_commit outside an atomic block runs the enqueue immediately, and in
+        tests (where an outer transaction wraps the request) it defers to that commit.
+        """
+        if not before or after.status != HogFlow.State.ACTIVE:
+            return
+        if before.status != HogFlow.State.ACTIVE:
+            # Re-enable: runs parked during the prior active period survive a disable (cancelled
+            # lazily, at wake, only while the flow is inactive), and timing edits made while
+            # inactive never swept - so converge every timing step rather than diffing against a
+            # baseline that may predate any number of unswept edits.
+            action_ids = get_all_timing_action_ids(after.actions)
+        else:
+            action_ids = get_timing_reschedule_action_ids(before.actions, after.actions)
+        if not action_ids:
+            return
+        if not use_workflows_timing_reschedule(self.team):
+            return
+        team_id = self.team_id
+        hog_flow_id = str(after.id)
+        transaction.on_commit(
+            lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
+        )
 
     def _get_in_flight_run_count(self, hog_flow: HogFlow) -> Optional[int]:
         # Best-effort: publish must not fail because the counting service is unreachable — the count
@@ -1780,11 +1855,13 @@ class HogFlowViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
             serializer.is_valid(raise_exception=True)
+            self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
             serializer.save()
             locked.draft = None
             locked.draft_updated_at = None
             locked.save(update_fields=["draft", "draft_updated_at"])
 
+        self._maybe_reschedule_timing_edits(before_update, locked)
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
 

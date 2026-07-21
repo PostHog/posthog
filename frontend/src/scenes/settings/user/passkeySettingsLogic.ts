@@ -69,7 +69,7 @@ export interface passkeySettingsLogicActions {
     loadStatus: () => {
         value: true
     } // twoFactorLogic
-    loadUser: (resetOnFailure?: boolean) => {
+    loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     beginRegistration: (label: string) => {

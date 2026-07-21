@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import Mem0SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 import (
     Mem0ResumeConfig,
     mem0_source,
@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class Mem0Source(ResumableSource[Mem0SourceConfig, Mem0ResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.mem0.ai/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -160,7 +161,8 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
         return mem0_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field
             and inputs.schema_name == MEMORIES_ENDPOINT,

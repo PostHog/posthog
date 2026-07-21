@@ -674,7 +674,9 @@ def test_repr_redacts_nested_config_secrets():
 
 
 def test_repr_redacts_real_postgres_source_config():
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+        PostgresSourceConfig,
+    )
 
     cfg = PostgresSourceConfig(
         host="fadevpn-11499.example.cloud",

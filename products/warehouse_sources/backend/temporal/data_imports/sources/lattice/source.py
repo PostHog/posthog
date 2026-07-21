@@ -21,8 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LatticeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lattice import (
+    LatticeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.lattice import (
     LatticeResumeConfig,
     lattice_source,
@@ -102,23 +107,9 @@ A Lattice admin can generate an API key under Admin > Settings > API Keys (Latti
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        # No Lattice list endpoint exposes a server-side timestamp filter;
-        # full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # No Lattice list endpoint exposes a server-side timestamp filter, so every
+        # endpoint is full refresh (no incremental fields).
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: LatticeSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -138,6 +129,8 @@ A Lattice admin can generate an API key under Admin > Settings > API Keys (Latti
             region=config.region,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Lattice endpoint is full refresh
         )

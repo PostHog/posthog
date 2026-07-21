@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UbidotsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
+    UbidotsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
     DEFAULT_UBIDOTS_API_BASE_URL,
     ENDPOINTS,
@@ -40,6 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.ubidots.com/reference/welcome"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HerokuSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.heroku import HerokuSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.heroku import (
     HerokuResumeConfig,
     heroku_source,
@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("3",)  # Accept header: application/vnd.heroku+json; version=3
+    default_version = "3"
+    api_docs_url = "https://devcenter.heroku.com/articles/platform-api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -143,6 +146,7 @@ You can find your API key in your [Heroku account settings](https://dashboard.he
         return heroku_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

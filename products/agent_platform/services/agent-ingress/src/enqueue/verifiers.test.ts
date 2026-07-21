@@ -6,6 +6,7 @@
  */
 
 import type { Request } from 'express'
+import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
 import { AgentApplication, AgentRevision, AuthModeSchema } from '@posthog/agent-shared'
@@ -82,6 +83,14 @@ const ORG_MODE = { type: 'posthog' as const, scopes: [], audience: 'organization
 const secretResolver = { resolve: async (key: string): Promise<string | null> => (key === 'WH' ? 's3cret' : null) }
 
 const req = (headers: Record<string, string>): Request => ({ headers }) as unknown as Request
+
+/** Request carrying the raw body the express json verify hook captures — the
+ *  hmac scheme hashes `rawBodyBytes` (the exact bytes signed). Accepts a Buffer
+ *  so tests can exercise non-UTF-8 payloads. */
+const signedReq = (headers: Record<string, string>, rawBody: string | Buffer): Request => {
+    const bytes = typeof rawBody === 'string' ? Buffer.from(rawBody) : rawBody
+    return { headers, rawBody: bytes.toString('utf-8'), rawBodyBytes: bytes } as unknown as Request
+}
 
 const allVerifiers = (): ReturnType<typeof buildDefaultVerifiers> =>
     buildDefaultVerifiers({
@@ -169,6 +178,96 @@ describe('buildDefaultVerifiers', () => {
             status: 500,
         })
         expect(await v.verify(req({}), mode, APP, REV)).toMatchObject({ ok: false, status: 0 })
+    })
+
+    it('shared_secret hmac_sha256: verifies a GitHub-style signature over the raw body', async () => {
+        const v = sharedSecretVerifier(secretResolver)
+        const mode = {
+            type: 'shared_secret' as const,
+            header: 'X-Hub-Signature-256',
+            secret_ref: 'WH',
+            scheme: 'hmac_sha256' as const,
+        }
+        const body = '{"action":"review_requested","installation":{"id":42}}'
+        const sig = `sha256=${createHmac('sha256', 's3cret').update(body).digest('hex')}`
+
+        const good = await v.verify(signedReq({ 'x-hub-signature-256': sig }, body), mode, APP, REV)
+        expect(good).toMatchObject({ ok: true })
+        if (good.ok) {
+            expect(good.principal).toEqual({ kind: 'shared_secret', team_id: 7 })
+        }
+
+        // A signature over different bytes (or with the wrong secret) is a 401 —
+        // the raw secret value in the header must NOT pass in this scheme.
+        expect(
+            await v.verify(signedReq({ 'x-hub-signature-256': sig }, '{"tampered":true}'), mode, APP, REV)
+        ).toMatchObject({ ok: false, status: 401 })
+        expect(await v.verify(signedReq({ 'x-hub-signature-256': 's3cret' }, body), mode, APP, REV)).toMatchObject({
+            ok: false,
+            status: 401,
+        })
+        // No header → skip so the next mode can try; unresolvable secret → fail closed.
+        expect(await v.verify(signedReq({}, body), mode, APP, REV)).toMatchObject({ ok: false, status: 0 })
+        expect(
+            await v.verify(
+                signedReq({ 'x-hub-signature-256': sig }, body),
+                { ...mode, secret_ref: 'MISSING' },
+                APP,
+                REV
+            )
+        ).toMatchObject({ ok: false, status: 500 })
+    })
+
+    it('shared_secret hmac_sha256: honors a custom signature_prefix', async () => {
+        const v = sharedSecretVerifier(secretResolver)
+        const mode = {
+            type: 'shared_secret' as const,
+            header: 'X-Sig',
+            secret_ref: 'WH',
+            scheme: 'hmac_sha256' as const,
+            signature_prefix: '',
+        }
+        const body = '{"ping":true}'
+        const bare = createHmac('sha256', 's3cret').update(body).digest('hex')
+        expect(await v.verify(signedReq({ 'x-sig': bare }, body), mode, APP, REV)).toMatchObject({ ok: true })
+        // The GitHub-style default prefix is not accepted once overridden.
+        expect(await v.verify(signedReq({ 'x-sig': `sha256=${bare}` }, body), mode, APP, REV)).toMatchObject({
+            ok: false,
+            status: 401,
+        })
+    })
+
+    it('shared_secret hmac_sha256: fails loudly (500) when the raw body was never captured', async () => {
+        // A route that reached the verifier without the express raw-body hook
+        // must not hash '' and 401 every valid signature — that reads as a
+        // customer credential problem instead of the server misconfig it is.
+        const v = sharedSecretVerifier(secretResolver)
+        const mode = {
+            type: 'shared_secret' as const,
+            header: 'X-Hub-Signature-256',
+            secret_ref: 'WH',
+            scheme: 'hmac_sha256' as const,
+        }
+        const noCapture = { headers: { 'x-hub-signature-256': 'sha256=deadbeef' } } as unknown as Request
+        expect(await v.verify(noCapture, mode, APP, REV)).toMatchObject({ ok: false, status: 500 })
+    })
+
+    it('shared_secret hmac_sha256: hashes the raw bytes, not a UTF-8 re-decode', async () => {
+        // A payload with a non-UTF-8 byte (0xff) round-trips losslessly only if
+        // we hash the bytes; hashing buf.toString('utf-8') would replace it with
+        // U+FFFD and never match the sender's signature.
+        const v = sharedSecretVerifier(secretResolver)
+        const mode = {
+            type: 'shared_secret' as const,
+            header: 'X-Hub-Signature-256',
+            secret_ref: 'WH',
+            scheme: 'hmac_sha256' as const,
+        }
+        const rawBytes = Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0xff, 0x7d]) // {"x":<0xff>}
+        const sig = `sha256=${createHmac('sha256', 's3cret').update(rawBytes).digest('hex')}`
+        expect(await v.verify(signedReq({ 'x-hub-signature-256': sig }, rawBytes), mode, APP, REV)).toMatchObject({
+            ok: true,
+        })
     })
 
     it('shared_secret: yields a single team-scoped principal (no per-caller discriminator)', async () => {
