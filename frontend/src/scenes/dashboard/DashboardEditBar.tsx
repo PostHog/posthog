@@ -11,6 +11,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { DashboardEditBarAdvancedOptionsPrototype } from 'scenes/dashboard/DashboardEditBarAdvancedOptionsPrototype'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -176,6 +177,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
+            </div>
+
+            {/* PROTOTYPE (dev-only, ?variant=A/B/C): "…" advanced options for the test account filter override */}
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardEditBarAdvancedOptionsPrototype />
             </div>
 
             <VariablesForDashboard />
