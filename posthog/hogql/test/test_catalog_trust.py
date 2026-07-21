@@ -123,6 +123,25 @@ class TestCatalogTrustWarning(BaseTest):
 
         assert self._warning_for("SELECT id FROM customer_rollup", user=user) is None
 
+    def test_executor_attaches_warning_to_query_response(self):
+        # End-to-end through HogQLQueryExecutor.execute(): the advisory must ride the
+        # response `warnings` list, where the agent-facing formatter picks it up.
+        from posthog.hogql.query import execute_hogql_query
+
+        self._create_table("customer_rollup")
+        self._create_approved_metric()
+
+        with (
+            patch(_FLAG_TARGET, return_value=True),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])),
+        ):
+            response = execute_hogql_query(query="SELECT id FROM customer_rollup", team=self.team, user=self.user)
+
+        assert response.warnings is not None
+        trust = [w for w in response.warnings if getattr(w, "type", None) == "data_catalog_trust"]
+        assert len(trust) == 1
+        assert trust[0].uncertified_tables == ["customer_rollup"]
+
     def test_lookup_failure_never_breaks_the_query(self):
         self._create_table("customer_rollup")
         self._create_approved_metric()
