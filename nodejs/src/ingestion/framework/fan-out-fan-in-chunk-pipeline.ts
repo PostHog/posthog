@@ -1,7 +1,9 @@
+import { logger } from '~/common/utils/logger'
+
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
 import { PipelineContext, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResultDlq, PipelineResultDrop, PipelineResultRedirect, isOkResult, ok } from './results'
+import { PipelineResultType, isDropResult, isOkResult, ok } from './results'
 
 /**
  * Splits one element into its sub-elements. Must be synchronous and cheap —
@@ -12,8 +14,9 @@ export type FanOutFunction<TElement, TSub> = (element: TElement) => TSub[]
 
 /**
  * Folds the subpipeline's results back into the original element. Must be
- * synchronous and cheap. Only called when every sub-result is OK (or the
- * fan-out produced no sub-elements, in which case `results` is empty).
+ * synchronous and cheap. Receives the OK sub-results that survived the
+ * subpipeline — possibly fewer than were fanned out (excluded sub-elements
+ * contribute nothing), possibly none at all.
  */
 export type FanInFunction<TElement, TSubOut, TMerged> = (original: TElement, results: TSubOut[]) => TMerged
 
@@ -26,20 +29,16 @@ export type FanInFunction<TElement, TSubOut, TMerged> = (original: TElement, res
  */
 const FAN_OUT_PARENT = Symbol('fanOutParent')
 
-type NonOkResult<R extends string> = PipelineResultDlq | PipelineResultDrop | PipelineResultRedirect<R>
-
-interface PendingParent<TElement, TSubOut, C, RSub extends string> {
+interface PendingParent<TElement, TSubOut, C> {
     original: TElement
     /** Parent context with its own sideEffects/warnings arrays; sub completions merge into them. */
     context: PipelineContext<C>
     outstanding: number
     collected: TSubOut[]
-    /** First non-OK sub-result; when set, the parent emits it instead of fanning in. */
-    failure: { result: NonOkResult<RSub>; lastStep: string | undefined } | null
 }
 
-type SubContext<TElement, TSubOut, C, RSub extends string> = PipelineContext<C> & {
-    [FAN_OUT_PARENT]?: PendingParent<TElement, TSubOut, C, RSub>
+type SubContext<TElement, TSubOut, C> = PipelineContext<C> & {
+    [FAN_OUT_PARENT]?: PendingParent<TElement, TSubOut, C>
 }
 
 /**
@@ -53,19 +52,26 @@ type SubContext<TElement, TSubOut, C, RSub extends string> = PipelineContext<C> 
  *    (fresh sideEffects/warnings arrays, merged back into the parent when the
  *    sub-result arrives — so nothing is double-counted).
  * 3. When all of a parent's sub-results are in, the parent emits
- *    `ok(fanInFn(original, collected))` — or, if any sub-result was non-OK
- *    (DLQ/DROP/REDIRECT), the parent adopts the first such result and the
- *    remaining sub-results are drained for their side effects only.
+ *    `ok(fanInFn(original, collected))` — always. Sub-result handling:
+ *    - OK contributes its value to `collected`.
+ *    - DROP is the sanctioned way for a sub-step to exclude a sub-element:
+ *      it contributes nothing, silently — the parent fans in with the
+ *      survivors, consistent with a zero-fan-out fanning in with `[]`.
+ *    - DLQ and REDIRECT also contribute nothing, but log a warning: they are
+ *      almost certainly misuse, since sub-elements are not Kafka messages —
+ *      there is nothing to dead-letter or redirect. Route the parent before
+ *      fanning out instead.
+ *    Side effects and warnings from every sub-result (OK or not) still merge
+ *    into the parent context.
  *
  * Cardinality is preserved at the parent level: N parents in, N results out.
- * Sub-element cardinality is fully contained inside the stage.
+ * Sub-element cardinality is fully contained inside the stage — and so are
+ * the subpipeline's result types: no sub-result can escape as the parent's
+ * result, so the stage emits only the upstream's redirect names (`RPrev`,
+ * not `RPrev | RSub`).
  *
  * Ordering: parents emit as their sub-results complete (unordered), the same
  * contract as `concurrentlyPerGroup`. Non-OK parents pass through untouched.
- *
- * Redirect caveat: a redirect produced for a sub-element applies to the
- * parent's Kafka message — sub-elements are not messages — so adopting the
- * first failure means "the parent redirects".
  *
  * Failures poison the stage: if the upstream, `fanOutFn`, `fanInFn`, or the
  * subpipeline throws, results already in flight still drain, then next()
@@ -83,12 +89,12 @@ export class FanOutFanInChunkPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RSub extends string = never,
-> implements ChunkPipeline<TInput, TMerged, CInput, COutput, RPrev | RSub>
+> implements ChunkPipeline<TInput, TMerged, CInput, COutput, RPrev>
 {
-    private inner: InterleavingChunkPipeline<TInput, TMerged, CInput, COutput, RPrev | RSub>
-    private pendingParents = new Set<PendingParent<TElement, TSubOut, COutput, RSub>>()
+    private inner: InterleavingChunkPipeline<TInput, TMerged, CInput, COutput, RPrev>
+    private pendingParents = new Set<PendingParent<TElement, TSubOut, COutput>>()
     /** Parents completed by sub-results, drained by onProcessPull before pulling the subpipeline again. */
-    private readyResults: PipelineResultWithContext<TMerged, COutput, RPrev | RSub>[] = []
+    private readyResults: PipelineResultWithContext<TMerged, COutput, RPrev>[] = []
     private fanOutName: string
     private fanInName: string
 
@@ -100,7 +106,7 @@ export class FanOutFanInChunkPipeline<
     ) {
         this.fanOutName = fanOutFn.name || 'anonymousFanOut'
         this.fanInName = fanInFn.name || 'anonymousFanIn'
-        this.inner = new InterleavingChunkPipeline<TInput, TMerged, CInput, COutput, RPrev | RSub>({
+        this.inner = new InterleavingChunkPipeline<TInput, TMerged, CInput, COutput, RPrev>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.pullAndFanOut(),
             onProcessPull: () => this.drainAndFanIn(),
@@ -111,7 +117,7 @@ export class FanOutFanInChunkPipeline<
         this.inner.feed(elements)
     }
 
-    next(): Promise<ChunkPipelineResultWithContext<TMerged, COutput, RPrev | RSub> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<TMerged, COutput, RPrev> | null> {
         return this.inner.next()
     }
 
@@ -120,13 +126,13 @@ export class FanOutFanInChunkPipeline<
      * subpipeline, and emit everything that is already settled (non-OK
      * passthroughs and zero-fan-out completions) without waiting on the sub.
      */
-    private async pullAndFanOut(): Promise<PullOutcome<TMerged, COutput, RPrev | RSub>> {
+    private async pullAndFanOut(): Promise<PullOutcome<TMerged, COutput, RPrev>> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
             return { kind: 'drained' }
         }
 
-        const settled: PipelineResultWithContext<TMerged, COutput, RPrev | RSub>[] = []
+        const settled: PipelineResultWithContext<TMerged, COutput, RPrev>[] = []
         const subElements: OkResultWithContext<TSub, COutput>[] = []
 
         for (const element of previousResults) {
@@ -141,7 +147,7 @@ export class FanOutFanInChunkPipeline<
                 continue
             }
 
-            const parent: PendingParent<TElement, TSubOut, COutput, RSub> = {
+            const parent: PendingParent<TElement, TSubOut, COutput> = {
                 original: element.result.value,
                 // Own copies of the mutable arrays: sub completions push into them.
                 context: {
@@ -151,11 +157,10 @@ export class FanOutFanInChunkPipeline<
                 },
                 outstanding: subs.length,
                 collected: [],
-                failure: null,
             }
             this.pendingParents.add(parent)
             for (const sub of subs) {
-                const subContext: SubContext<TElement, TSubOut, COutput, RSub> = {
+                const subContext: SubContext<TElement, TSubOut, COutput> = {
                     ...element.context,
                     sideEffects: [],
                     warnings: [],
@@ -189,7 +194,7 @@ export class FanOutFanInChunkPipeline<
      * sub with parents still pending means sub-results were lost, which the
      * cardinality contract of chunk stages makes impossible; treat it as a bug.
      */
-    private async drainAndFanIn(): Promise<ChunkPipelineResultWithContext<TMerged, COutput, RPrev | RSub> | null> {
+    private async drainAndFanIn(): Promise<ChunkPipelineResultWithContext<TMerged, COutput, RPrev> | null> {
         while (this.readyResults.length === 0) {
             const subResults = await this.subPipeline.next()
             if (subResults === null) {
@@ -211,7 +216,7 @@ export class FanOutFanInChunkPipeline<
     }
 
     private settleSubResult(subResult: PipelineResultWithContext<TSubOut, COutput, RSub>): void {
-        const subContext = subResult.context as SubContext<TElement, TSubOut, COutput, RSub>
+        const subContext = subResult.context as SubContext<TElement, TSubOut, COutput>
         const parent = subContext[FAN_OUT_PARENT]
         if (!parent) {
             throw new Error(
@@ -221,14 +226,23 @@ export class FanOutFanInChunkPipeline<
         }
 
         // Sub contexts start with fresh arrays, so this merges exactly what the
-        // sub-steps produced — even when the parent later adopts a failure.
+        // sub-steps produced — for excluded sub-results too.
         parent.context.sideEffects.push(...subResult.context.sideEffects)
         parent.context.warnings.push(...subResult.context.warnings)
 
         if (isOkResult(subResult.result)) {
             parent.collected.push(subResult.result.value)
-        } else if (parent.failure === null) {
-            parent.failure = { result: subResult.result, lastStep: subResult.context.lastStep }
+        } else if (!isDropResult(subResult.result)) {
+            // DROP is the sanctioned exclusion; DLQ/REDIRECT for a sub-element
+            // is almost certainly misuse — sub-elements are not Kafka messages,
+            // so there is nothing to dead-letter or redirect. The sub-result is
+            // excluded like a drop, but loudly.
+            logger.warn('⚠️', 'Fan-out subpipeline produced a non-droppable non-OK result; excluding it', {
+                fanOutStep: this.fanOutName,
+                fanInStep: this.fanInName,
+                resultType: PipelineResultType[subResult.result.type],
+                reason: subResult.result.reason,
+            })
         }
 
         parent.outstanding -= 1
@@ -237,21 +251,14 @@ export class FanOutFanInChunkPipeline<
         }
 
         this.pendingParents.delete(parent)
-        if (parent.failure) {
-            this.readyResults.push({
-                result: parent.failure.result,
-                context: { ...parent.context, lastStep: parent.failure.lastStep },
-            })
-        } else {
-            this.readyResults.push(this.completeParent(parent.original, parent.context, parent.collected))
-        }
+        this.readyResults.push(this.completeParent(parent.original, parent.context, parent.collected))
     }
 
     private completeParent(
         original: TElement,
         context: PipelineContext<COutput>,
         collected: TSubOut[]
-    ): PipelineResultWithContext<TMerged, COutput, RPrev | RSub> {
+    ): PipelineResultWithContext<TMerged, COutput, RPrev> {
         return {
             result: ok(this.fanInFn(original, collected)),
             context: { ...context, lastStep: this.fanInName },

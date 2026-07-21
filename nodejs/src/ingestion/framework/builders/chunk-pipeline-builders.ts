@@ -92,7 +92,7 @@ export class FanOutBuilder<
         private readonly buildFannedOutPipeline: <TSubOut, U, RSub extends string>(
             subPipeline: ChunkPipeline<TSub, TSubOut, COutput, COutput, RSub>,
             fanInFn: FanInFunction<TOutput, TSubOut, U>
-        ) => ChunkPipeline<TInput, U, CInput, COutput, R | RSub>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R>
     ) {}
 
     /**
@@ -100,12 +100,17 @@ export class FanOutBuilder<
      * builder surface (`concurrently` with `maxConcurrency`, per-step `retry`,
      * `concurrentlyPerGroup`, …). Sub-elements from all parents share the
      * subpipeline, so one concurrency cap governs the whole stage.
+     *
+     * Sub-results never escape the stage (the parent always fans in), so the
+     * subpipeline's redirect names (`RSub`) do not propagate to the stage's
+     * result type — downstream `handleResults` won't demand outputs for
+     * redirects that cannot happen.
      */
     via<TSubOut, RSub extends string = never>(
         subpipelineCallback: (
             builder: ChunkPipelineBuilder<TSub, TSub, COutput, COutput>
         ) => ChunkPipelineBuilder<TSub, TSubOut, COutput, COutput, RSub>
-    ): FanInBuilder<TInput, TOutput, TSubOut, CInput, COutput, R | RSub> {
+    ): FanInBuilder<TInput, TOutput, TSubOut, CInput, COutput, R> {
         const startBuilder = new ChunkPipelineBuilder<TSub, TSub, COutput, COutput>(
             new BufferingChunkPipeline<TSub, COutput>()
         )
@@ -225,8 +230,12 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
      * closes it into a buildable pipeline.
      *
      * Cardinality is preserved at the parent level (N in, N out); parents emit
-     * as they complete (unordered). Non-OK elements pass through unchanged; a
-     * parent whose sub-elements produce a non-OK result adopts the first one.
+     * as they complete (unordered). Non-OK elements pass through unchanged.
+     * The parent always fans in: OK sub-results are collected, dropped
+     * sub-elements are silently excluded (DROP is the sanctioned way for a
+     * sub-step to discard its sub-element), and DLQ/REDIRECT sub-results are
+     * excluded with a warning log — they are almost certainly misuse, since
+     * sub-elements are not Kafka messages.
      *
      * Like processing steps, the fan-out and fan-in functions are named
      * functions (defined in step files, created by factories where they need

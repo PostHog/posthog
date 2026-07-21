@@ -1,12 +1,19 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 
 import { ChunkPipelineBuilder } from './builders'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { createNewChunkPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
-import { PipelineResult, dlq, drop, isDlqResult, isOkResult, ok } from './results'
+import { PipelineResult, dlq, drop, isDlqResult, isOkResult, ok, redirect } from './results'
+
+jest.mock('~/common/utils/logger', () => ({
+    logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
+const mockLogger = logger as jest.Mocked<typeof logger>
 
 interface Parent {
     id: string
@@ -64,6 +71,10 @@ function okValues<T, R extends string>(results: PipelineResultWithContext<T, { m
 }
 
 describe('FanOutFanInChunkPipeline', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+    })
+
     it('fans out, processes subs, and fans results back in with one result per parent', async () => {
         const pipeline = createNewChunkPipeline<Parent>()
             .fanOut(splitSubs)
@@ -217,12 +228,37 @@ describe('FanOutFanInChunkPipeline', () => {
         expect(attempts).toBe(2)
     })
 
+    it('silently excludes dropped sub-elements and fans in with the survivors', async () => {
+        const dropEffect = Promise.resolve('dropped')
+        function dropOddSubsStep(items: SubItem[]): Promise<PipelineResult<SubItem>[]> {
+            return Promise.resolve(
+                items.map((item) => (item.value % 2 === 1 ? drop<SubItem>('odd sub', [dropEffect]) : ok(item)))
+            )
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(splitSubs)
+            .via((sub) => sub.pipeChunk(dropOddSubsStep))
+            .fanIn(sumSubs)
+            .build()
+
+        feedParents(pipeline, [{ id: 'a', subs: [1, 2, 3] }])
+
+        const results = await drainAll(pipeline)
+
+        // The parent always completes; dropped subs just contribute nothing.
+        expect(okValues(results)).toEqual([{ id: 'a', total: 2 }])
+        // The dropped sub-result's side effect still rode along on the parent.
+        expect(results[0].context.sideEffects).toContain(dropEffect)
+        expect(mockLogger.warn).not.toHaveBeenCalled()
+    })
+
     it.each([
-        ['dlq', dlq<SubItem>('first failure')],
-        ['drop', drop<SubItem>('first failure')],
-    ])('parent adopts the first non-OK sub-result (%s) and still drains its siblings', async (_name, nonOkResult) => {
+        ['dlq', dlq<SubItem>('sub failure'), 'DLQ'],
+        ['redirect', redirect<SubItem, 'sub_redirect'>('sub failure', 'sub_redirect'), 'REDIRECT'],
+    ])('excludes %s sub-results with a warning and still completes the parent', async (_name, nonOkResult, type) => {
         const siblingEffect = Promise.resolve('sibling')
-        function failFirstSubStep(items: SubItem[]): Promise<PipelineResult<SubItem>[]> {
+        function failFirstSubStep(items: SubItem[]): Promise<PipelineResult<SubItem, 'sub_redirect'>[]> {
             return Promise.resolve(
                 items.map((item) => {
                     if (item.parentId !== 'failing') {
@@ -246,13 +282,28 @@ describe('FanOutFanInChunkPipeline', () => {
 
         const results = await drainAll(pipeline)
 
+        // Both parents complete OK: the DLQ/REDIRECT sub-result is excluded
+        // like a drop, but loudly — it cannot become the parent's result.
         expect(results).toHaveLength(2)
-        const failed = results.find((r) => !isOkResult(r.result))!
-        expect(failed.result).toBe(nonOkResult)
-        // The sibling sub-result was drained: its side effect rode along on the
-        // parent even though its value was discarded.
-        expect(failed.context.sideEffects).toContain(siblingEffect)
-        expect(okValues(results)).toEqual([{ id: 'healthy', total: 3 }])
+        expect(okValues(results)).toEqual(
+            expect.arrayContaining([
+                { id: 'failing', total: 2 },
+                { id: 'healthy', total: 3 },
+            ])
+        )
+        const failing = results.find((r) => isOkResult(r.result) && r.result.value.id === 'failing')!
+        expect(failing.context.sideEffects).toContain(siblingEffect)
+        expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+            '⚠️',
+            'Fan-out subpipeline produced a non-droppable non-OK result; excluding it',
+            {
+                fanOutStep: 'splitSubs',
+                fanInStep: 'sumSubs',
+                resultType: type,
+                reason: 'sub failure',
+            }
+        )
     })
 
     it('merges sub side effects and warnings into the parent context without double-counting', async () => {

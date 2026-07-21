@@ -31,11 +31,15 @@
  * - **Ordering**: parents emit as they complete (unordered), like
  *   `concurrentlyPerGroup`.
  * - **Non-OK parents** pass through without fanning out, like `filterMap`.
- * - **Non-OK sub-results** (drop/dlq/redirect from a sub step): the parent
- *   adopts the first one; its remaining sub-results still drain and their
- *   side effects and warnings merge into the parent, but values are
- *   discarded. A redirect adopted this way applies to the parent's Kafka
- *   message — sub-elements are not messages.
+ * - **The parent always fans in.** OK sub-results are collected; DROP is the
+ *   sanctioned way for a sub-step to exclude its sub-element — silent, the
+ *   parent fans in with the survivors (consistent with a zero-fan-out fanning
+ *   in with `[]`). DLQ and REDIRECT sub-results are also excluded, but log a
+ *   warning: sub-elements are not Kafka messages, so there is nothing to
+ *   dead-letter or redirect — route the parent before fanning out instead.
+ *   Side effects and warnings from every sub-result still merge into the
+ *   parent. Because no sub-result can escape as the parent's result, the
+ *   subpipeline's redirect names don't propagate to the stage's result type.
  * - **Thrown errors** (fan-out, fan-in, or subpipeline) poison the stage
  *   permanently after in-flight work drains, like every other chunk stage.
  *
@@ -46,7 +50,7 @@ import { Message } from 'node-rdkafka'
 
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { dlq, isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 
@@ -142,11 +146,13 @@ describe('Fan-Out / Fan-In', () => {
     })
 
     /**
-     * When a sub step produces a non-OK result, the whole parent adopts it —
-     * a parent either completes fully or fails as one unit. Other parents in
-     * the same chunk are unaffected.
+     * DROP is the sanctioned way for a sub-step to exclude its sub-element:
+     * the parent still completes via fan-in, just with the survivors. Use it
+     * when a sub-element turns out to need no work — invalid part, cache hit,
+     * nothing to upload. (DLQ or REDIRECT from a sub-step is misuse — route
+     * the parent before fanning out — and is excluded with a warning log.)
      */
-    it('fails the whole parent when one of its sub-elements fails', async () => {
+    it('drops a sub-element without failing its parent', async () => {
         interface Item {
             id: string
             parts: number[]
@@ -168,7 +174,8 @@ describe('Fan-Out / Fan-In', () => {
         function createValidatePartStep(): ProcessingStep<Part, Part> {
             return function validatePartStep(part) {
                 if (part.value < 0) {
-                    return Promise.resolve(dlq('negative part'))
+                    // Silently exclude this part; the parent fans in without it.
+                    return Promise.resolve(drop('negative part'))
                 }
                 return Promise.resolve(ok(part))
             }
@@ -181,21 +188,28 @@ describe('Fan-Out / Fan-In', () => {
             .build()
 
         pipeline.feed([
-            createOkContext({ id: 'poisoned', parts: [1, -2, 3] }, { message: createTestMessage() }),
-            createOkContext({ id: 'healthy', parts: [1, 2] }, { message: createTestMessage() }),
+            createOkContext({ id: 'partly-valid', parts: [1, -2, 3] }, { message: createTestMessage() }),
+            createOkContext({ id: 'all-valid', parts: [1, 2] }, { message: createTestMessage() }),
         ])
 
-        const results = []
+        const collected: { id: string; total: number }[] = []
         let chunk = await pipeline.next()
         while (chunk !== null) {
-            results.push(...chunk)
+            for (const result of chunk) {
+                if (isOkResult(result.result)) {
+                    collected.push(result.result.value)
+                }
+            }
             chunk = await pipeline.next()
         }
 
-        expect(results).toHaveLength(2)
-        const failed = results.find((r) => isDlqResult(r.result))!
-        expect(failed.result).toMatchObject({ reason: 'negative part' })
-        const healthy = results.find((r) => isOkResult(r.result))!
-        expect(isOkResult(healthy.result) && healthy.result.value).toEqual({ id: 'healthy', total: 3 })
+        // Every parent completes OK — the dropped part just contributed nothing.
+        expect(collected).toEqual(
+            expect.arrayContaining([
+                { id: 'partly-valid', total: 4 },
+                { id: 'all-valid', total: 3 },
+            ])
+        )
+        expect(collected).toHaveLength(2)
     })
 })
