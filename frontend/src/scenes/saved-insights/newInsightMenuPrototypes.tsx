@@ -7,7 +7,7 @@ import { router } from 'kea-router'
 //   C - grid grouped by the question being asked
 //   D - flat grid plus a "start from a preset" row
 //   E - two-step: pick a question, then a visualization
-//   F - like C, but airier: more whitespace and a description per section
+//   F - like C, but airier: two columns with a divider, section descriptions, no scrolling
 // Cycle with the floating bar at the bottom of the screen (arrow keys work too).
 import { useEffect, useState } from 'react'
 
@@ -375,26 +375,72 @@ export function SectionedVariant(): JSX.Element {
     )
 }
 
-export function SectionedAiryVariant(): JSX.Element {
+function PickerCardWide({ spec }: { spec: PickerCardSpec }): JSX.Element {
+    const Icon = spec.icon
+    return (
+        <Link
+            to={spec.to}
+            data-attr={spec.dataAttr}
+            onClick={spec.onClick}
+            className={cn(
+                'flex overflow-hidden rounded border border-primary bg-surface-primary',
+                'transition-all duration-100 hover:-translate-y-0.5 hover:border-accent hover:shadow-md',
+                'focus-visible:border-accent'
+            )}
+        >
+            <div className="w-40 shrink-0 border-r border-primary bg-fill-secondary">
+                <spec.sketch />
+            </div>
+            <div className="flex flex-1 flex-col justify-center gap-0.5 p-2">
+                <div className="flex items-center gap-1.5">
+                    <Icon className={cn('text-base shrink-0', spec.iconClassName ?? 'text-secondary')} />
+                    <span className="text-sm font-semibold text-default">{spec.name}</span>
+                </div>
+                <span className="text-xs leading-snug text-secondary">{spec.description}</span>
+            </div>
+        </Link>
+    )
+}
+
+function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.Element {
+    // 3-wide grid; a 4th card would leave a hole, so it renders as a wide horizontal card instead
+    const gridCards = section.cards.slice(0, 3)
+    const wideCard = section.cards.length > 3 ? section.cards[3] : null
+    return (
+        <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-default">{section.title}</span>
+                <span className="text-xs text-secondary">{section.description}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+                {gridCards.map((spec) => (
+                    <PickerCard key={spec.key} spec={spec} />
+                ))}
+            </div>
+            {wideCard && <PickerCardWide spec={wideCard} />}
+        </div>
+    )
+}
+
+export function SectionedTwoColumnVariant(): JSX.Element {
     const sections = useQuestionSections()
+    const columns = [sections.slice(0, 2), sections.slice(2)]
     return (
         <div
-            className="flex w-[44rem] max-w-[calc(100vw-1rem)] flex-col gap-6 overflow-y-auto p-4 max-h-[calc(100vh-10rem)]"
+            className="flex w-[58rem] max-w-[calc(100vw-1rem)] gap-4 overflow-y-auto p-4 max-h-[calc(100vh-10rem)]"
             data-attr="new-insight-type-picker"
         >
-            {sections.map((section) => (
-                <div key={section.title} className="flex flex-col gap-2.5">
-                    <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-semibold text-default">{section.title}</span>
-                        <span className="text-xs text-secondary">{section.description}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                        {section.cards.map((spec) => (
-                            <PickerCard key={spec.key} spec={spec} />
-                        ))}
-                    </div>
-                </div>
-            ))}
+            <div className="flex flex-1 flex-col gap-6">
+                {columns[0].map((section) => (
+                    <QuestionSectionBlock key={section.title} section={section} />
+                ))}
+            </div>
+            <LemonDivider vertical className="self-stretch" />
+            <div className="flex flex-1 flex-col gap-6">
+                {columns[1].map((section) => (
+                    <QuestionSectionBlock key={section.title} section={section} />
+                ))}
+            </div>
         </div>
     )
 }
@@ -614,7 +660,7 @@ export const NEW_INSIGHT_PICKER_VARIANTS: {
     { key: 'C', name: 'Grouped by question', component: SectionedVariant },
     { key: 'D', name: 'Grid + presets', component: PresetsRowVariant },
     { key: 'E', name: 'Two-step', component: TwoStepVariant },
-    { key: 'F', name: 'Grouped by question (airy)', component: SectionedAiryVariant },
+    { key: 'F', name: 'Grouped, two columns', component: SectionedTwoColumnVariant },
 ]
 
 export function getPickerVariant(raw: unknown): NewInsightPickerVariant {
