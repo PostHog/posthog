@@ -126,6 +126,8 @@ class TestBrevoSource:
         _, kwargs = mock_brevo_source.call_args
         assert kwargs["api_key"] == "test-key"
         assert kwargs["endpoint"] == "contacts"
+        assert kwargs["team_id"] == 1
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"

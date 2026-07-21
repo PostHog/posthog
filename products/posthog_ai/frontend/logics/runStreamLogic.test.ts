@@ -3170,6 +3170,63 @@ describe('runStreamLogic', () => {
             })
         })
 
+        describe('full-auto mode', () => {
+            // A `bypassPermissions` run opted out of tool approvals: a destructive exec sub-tool (which
+            // otherwise always prompts) must auto-approve even on a foreground stream. The mode arrives
+            // only on the session/new meta, so this also guards that seed parsing.
+            it('auto-approves a destructive exec sub-tool once session/new seeds bypassPermissions', async () => {
+                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-full-auto')
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-destructive-fa',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        rawInput: { command: 'call cdp-functions-partial-update {"id":"abc"}' },
+                    },
+                })
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-destructive-fa', optionId: 'allow_once' },
+                })
+            })
+
+            it('still surfaces a question in full-auto instead of picking an answer', async () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-question-fa',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        _meta: {
+                            codeToolKind: 'question',
+                            questions: [{ question: 'Which goal?', options: [{ label: 'A' }, { label: 'B' }] }],
+                        },
+                        rawInput: {},
+                    },
+                })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-question-fa')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            })
+        })
+
         it('falls back to a manual card when the auto-approve POST fails', async () => {
             ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue({ status: 502 })
             jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)

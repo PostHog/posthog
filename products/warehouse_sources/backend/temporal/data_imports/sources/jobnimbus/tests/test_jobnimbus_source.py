@@ -91,30 +91,27 @@ class TestJobNimbusSource:
 
     @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid JobNimbus API key"),
-            (403, False, "Invalid JobNimbus API key"),
-            (500, False, "JobNimbus returned HTTP 500"),
-            (0, False, "Could not connect to JobNimbus: boom"),
+            (True, None),
+            (False, "Invalid JobNimbus API key"),
+            (False, "Could not validate JobNimbus API key"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.jobnimbus.check_access")
-    def test_validate_credentials(
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source._validate_credentials"
+    )
+    def test_validate_credentials_delegates(
         self,
-        status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_check: mock.MagicMock,
+        mock_validate: mock.MagicMock,
     ) -> None:
-        message = (
-            "JobNimbus returned HTTP 500"
-            if status == 500
-            else ("Could not connect to JobNimbus: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
+        # The status→message mapping is exercised against the real function in test_jobnimbus.py;
+        # here we only prove the source forwards the account-wide api_key and returns the verdict.
+        mock_validate.return_value = (expected_valid, expected_message)
         is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
+        mock_validate.assert_called_once_with("jn-key")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
@@ -125,6 +122,8 @@ class TestJobNimbusSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "contacts"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -133,6 +132,8 @@ class TestJobNimbusSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["api_key"] == "jn-key"
         assert kwargs["endpoint"] == "contacts"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
