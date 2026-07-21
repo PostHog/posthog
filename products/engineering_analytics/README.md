@@ -59,7 +59,7 @@ PostHog Code              engineering_analytics            PostHog product analy
 Two consumer classes, one tool set: engineers driving an agent (Claude Code, Cursor, PostHog AI) over their monorepo (we dogfood on `PostHog/posthog`), and PostHog Code calling the same tools autonomously on its own PRs.
 Return shapes are typed contracts whose caveats ride in honest field names (`open_to_merge_seconds`, never `cycle_time`): legible to an agent, never free-form prose it might paraphrase wrong.
 
-## What exists today
+## The system
 
 ```mermaid
 graph LR
@@ -80,10 +80,9 @@ graph LR
     CUR --> WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures<br/>for insights + SQL"]
 ```
 
-- Job-level CI is live: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
+- Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
 - One write surface: test quarantine. The UI files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App. Everything else is read-only.
 - Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
-- The GitHub source also syncs `reviews`; nothing here reads it yet.
 
 ## The goal: CI Signals for PostHog Code
 
@@ -111,12 +110,12 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Unit of value = the open PR. Phase model: draft (low rigor) vs ready-for-review (high stakes).
 - North star: actionable CI Signals for PostHog Code. Ready-for-review-to-merge time is the headline metric, not the end in itself.
 - Two first-class surfaces, one endpoint set: the in-app UI and MCP tools. Named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset); keep `mcp/tools.yaml` current whenever endpoints change.
-- One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App), carved out because this UI is the fastest surface to iterate on it. No saved views or stateful filters; persisted surfaces are a later, separate decision.
+- One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App), carved out because this UI is the fastest surface to iterate on it. No saved views or stateful filters; persisted surfaces are a separate decision.
 - Data path: HogQL over the warehouse, plus reads from Logs and Traces. PR lifecycle event ingestion deferred. Product Postgres DB stays empty.
 - No author leaderboards or per-developer performance rankings, ever. The author page (own PRs plus own CI cost, reached only from PR-row author links) is allowed; ranking people against each other is not.
 - Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping.
-- Time to merge v1 = `open_to_merge_seconds` = `merged_at - created_at`. Coarse, and named so.
+- Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse until state-transition events exist, and named so.
 - The GitHub `reviews` endpoint syncs, but review reads stay deferred until a wedge tool needs them.
 
 ## Glossary

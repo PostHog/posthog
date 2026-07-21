@@ -9,7 +9,7 @@ The product surfaces PR + CI data through **named, typed endpoints** that run cu
 
 Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
 
-The goal is Signals for PostHog Code (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the future emitter. Emission rides the curated builders; it does not wait on lifecycle events.
+The goal is Signals for PostHog Code (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
 
 ## 2. Non-goals
 
@@ -47,7 +47,6 @@ graph TB
         WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
         TRACES[("Traces: per-test CI spans<br/>from Backend CI")]
-        EV[("events: PR as group type<br/>destination, deferred")]
     end
 
     JL["Temporal job-logs pipeline"] --> LOGS
@@ -61,7 +60,6 @@ graph TB
     Sys --> WH
     Sys --> LOGS
     Sys --> TRACES
-    Sys -. future .-> EV
 ```
 
 Rules, when adding or changing a capability:
@@ -116,7 +114,7 @@ They are non-materialized: the rendered SQL is persisted per team and re-synced 
 
 - Row-level fingerprinted CI failure lines read from the **Logs** product, one row per pytest `FAILED <nodeid>` line. Team-global (logs aren't source-scoped) but gated with the other two views.
 - `fingerprint` = test id plus normalized error signature (volatile hex/digits collapsed): the group key across runs.
-- The recipe lives in code, not a stored materialization, on purpose: it is pytest-only today and must evolve by PR as more runners (jest, playwright, cargo) get covered.
+- The recipe lives in code, not a stored materialization, on purpose: it is pytest-only and must evolve by PR as more runners (jest, playwright, cargo) get covered.
 
 ## 6. Locked decisions
 
@@ -126,17 +124,17 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
   - `pr_number` (the run's `pull_requests` association, keyed with repo, `> 0`) is the attribution key. The PR snapshot keeps only the current head, so a head-SHA join silently drops every push but the latest.
   - `head_branch` is the capture-time / pre-PR / fork fallback (fork runs have an empty association). Branches are reused, so branch-keyed reads must be time-bounded.
   - `head_sha` is per-commit precision only, and always the webhook head SHA, never the ephemeral `refs/pull/N/merge` SHA.
-  - Attribution is a possibly-empty, possibly-multi set (a run ↔ PR is 0..N); v1 credits a run to the first PR in its association.
+  - Attribution is a possibly-empty, possibly-multi set (a run ↔ PR is 0..N); the read layer credits a run to the first PR in its association.
 - **Warehouse columns are strings + Nullable JSON; the builders parse and `ifNull`-guard.** Timestamps parse via `parseDateTimeBestEffort`; Nullable columns unwrap before any array function (ClickHouse rejects an Array inside a Nullable). `source_schema.py` mirrors the real landed types so seed and tests exercise the real path; violating this 500'd every endpoint on real data while idealized fixtures stayed green.
 - **The warehouse views are managed data, not code registration.** "No global HogQL views" locks out `Database.create_for` (core importing the product, every team's per-query hot path). A per-team `DataWarehouseSavedQuery`, synced only for qualifying teams, reopens nothing: it exists so cost and CI history are queryable by insights, subscriptions, and `execute-sql`.
 - **HogQL only for analytics data.** No raw ClickHouse.
-- **No product Postgres DB.** Analytics data lives in the warehouse / ClickHouse; a future product-config model goes on the main DB as a team-scoped model (`TeamScopedRootMixin`), never a separate DB.
+- **No product Postgres DB.** Analytics data lives in the warehouse / ClickHouse; any product-config model goes on the main DB as a team-scoped model (`TeamScopedRootMixin`), never a separate DB.
 - **No author leaderboards or per-developer performance rankings; the author page is allowed.** The surveillance risk is ranking people against each other, not an engineer viewing their own PRs and CI cost. The page is reachable only from PR-row author links; `author_workflow_costs` stays a UI-only read (MCP `enabled: false`).
 - **Bot detection, defined once:** `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist; per-team config deferred.
 - **Bots and drafts excluded by default** in throughput / cycle-time reads; first-class in bot-impact analysis, so never strip them at the substrate.
-- **Time to merge v1** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined). The precise companion lands with state-transition events.
+- **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined) until state-transition events exist.
 - **Team ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter stamps `test.owner_team` from the repo's ownership map (`products/*/product.yaml` + CODEOWNERS, first listed owner); unstamped spans aggregate as the first-class team `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when it flaked. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; a slug mismatch yields an empty series, never another team's data.
-- **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical later.
+- **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical.
 
 ## 7. Data sources
 
