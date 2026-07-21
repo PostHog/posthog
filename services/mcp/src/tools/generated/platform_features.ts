@@ -346,7 +346,6 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
         .optional(),
     enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
         .unwrap()
-        .unwrap()
         .describe(
             'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
         ),
