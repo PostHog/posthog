@@ -6088,6 +6088,141 @@
             "readOnlyHint": true
         }
     },
+    "loops-create-execute": {
+        "description": "Step 2 of 2 for create loop. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create loop (execute)",
+        "title": "Create loop (execute)",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-create-prepare": {
+        "description": "Step 1 of 2 for create loop. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create loop (prepare)",
+        "title": "Create loop (prepare)",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-destroy": {
+        "description": "Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project admin can delete a loop.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Delete loop",
+        "title": "Delete loop",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-list": {
+        "description": "List loops visible to the current user in the project: personal loops the user owns plus every team-visible loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`, `consecutive_failures`).",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List loops",
+        "title": "List loops",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-partial-update": {
+        "description": "Update an existing loop's config. On a team loop, identity-bearing fields (`instructions`, `repositories`, `connectors`, `behaviors`, `triggers`) are editable only by the current owner: editing them as another member takes ownership and re-validates repositories and connectors against that member's own access. Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update loop",
+        "title": "Update loop",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-preview-create": {
+        "description": "Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's prompt before enabling it.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Preview a loop fire",
+        "title": "Preview a loop fire",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-retrieve": {
+        "description": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get loop",
+        "title": "Get loop",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-run-create": {
+        "description": "Manually fire a loop right now, outside its configured triggers. Creates a fresh task run using the loop's current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as trigger-fired runs.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Manually run a loop",
+        "title": "Manually run a loop",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-runs-retrieve": {
+        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List loop runs",
+        "title": "List loop runs",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
     "managed-migrations-support-get": {
         "description": "Get one batch import (managed migration) job by id, from any PostHog team, including the raw worker `state` and `import_config` blobs. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope (a full-access `*` key is rejected; OAuth sign-in can never grant it).\n\nAdds to the list fields:\n\n- `state`: the worker-owned progress blob, `{\"parts\": [{\"key\", \"current_offset\", \"total_size\"}]}`. A part is done when `current_offset >= total_size`; parts are processed in order, so the first unfinished part is the one in flight. `current_offset` is a byte offset into the DECOMPRESSED part - only meaningful against the exact byte stream it was measured on.\n- `import_config`: the job's source / data format / sink configuration. It references credentials by secret key NAME only; secret values live in an encrypted column that is never returned by any API.\n- `created_by_email`: who started the migration, when known.\n\nTroubleshooting reminders (same semantics as the list tool): `waiting_to_start` = running with no worker lease yet; `lease_expired: true` on a running job = the worker died or the job is about to be re-claimed; a `paused` job keeps its lease and resuming (a Django admin action - this API is read-only) must clear it; `paused` with an invalid-JSON parse error at the resume point usually means the source bytes changed under the committed offset and the in-flight part needs a reset to offset 0 via Django admin's \"Resume + re-import in-flight part\".",
         "category": "Managed migrations",
