@@ -2220,9 +2220,42 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
         .await
         .unwrap()
         .into_inner();
-    let read_props: serde_json::Value =
-        serde_json::from_slice(&read.person.unwrap().properties).unwrap();
+    let read_person = read.person.unwrap();
+    let read_props: serde_json::Value = serde_json::from_slice(&read_person.properties).unwrap();
     assert_eq!(read_props["nul\u{FFFD}key"], "nul\u{FFFD}value");
+    let version_after_nul = read_person.version;
+
+    // Resending the identical NUL-bearing update must hit the no-change
+    // fast path: inputs are sanitized before diffing, so the raw NUL form
+    // compares equal to its stored U+FFFD form instead of producing a
+    // fresh record and version bump on every repeat.
+    let response = client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: PERSON_ID,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({
+                    "nul\u{0000}key": "nul\u{0000}value",
+                }))
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            routing_partition,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(
+        !response.updated,
+        "a sanitized repeat must be detected as a no-op"
+    );
+    assert_eq!(
+        response.person.unwrap().version,
+        version_after_nul,
+        "a no-op repeat must not bump the version"
+    );
 
     cancel.cancel();
 }

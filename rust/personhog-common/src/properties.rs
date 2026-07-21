@@ -376,34 +376,85 @@ pub enum TrimResult {
 }
 
 pub fn trim_properties_to_fit_size(properties: &Value, target_bytes: usize) -> TrimResult {
-    if jsonb_column_size(properties) <= target_bytes {
+    let mut current = jsonb_column_size(properties);
+    if current <= target_bytes {
         return TrimResult::Fits;
     }
     let Some(map) = properties.as_object() else {
         return TrimResult::CannotFit;
     };
 
+    // Removal runs in batches sized by each pair's estimated contribution
+    // (two 4-byte JEntries, the key bytes, and the value's content measured
+    // at offset 0), with one exact re-measure per batch. Alignment padding
+    // makes per-pair contributions position-dependent, so the estimate can
+    // be off by a few bytes per numeric — the re-measure keeps the result
+    // exact and the deficit shrinks geometrically, bounding the total cost
+    // at O(document) per pass for a handful of passes. This can remove a
+    // key or two more than the strict minimum in padding-heavy edge cases.
+    // Removal order stays alphabetical, matching the pipeline's trim.
     let mut trimmed = map.clone();
-    let mut keys: Vec<String> = map.keys().cloned().collect();
-    keys.sort();
+    let mut candidates: Vec<String> = map
+        .keys()
+        .filter(|k| can_trim_property(k))
+        .cloned()
+        .collect();
+    candidates.sort();
+    let mut candidates = candidates.into_iter();
 
-    for key in keys {
-        if !can_trim_property(&key) {
-            continue;
+    while current > target_bytes {
+        let deficit = current - target_bytes;
+        let mut estimated_freed = 0usize;
+        let mut removed_any = false;
+        for key in candidates.by_ref() {
+            let Some(value) = trimmed.remove(&key) else {
+                continue;
+            };
+            estimated_freed += 8 + key.len() + element_size(&value, 0);
+            removed_any = true;
+            if estimated_freed >= deficit {
+                break;
+            }
         }
-        trimmed.remove(&key);
-        if jsonb_column_size(&Value::Object(trimmed.clone())) <= target_bytes {
-            return TrimResult::Trimmed(Value::Object(trimmed));
+        if !removed_any {
+            return TrimResult::CannotFit;
         }
+        // Measure the map without cloning it: wrap, measure, unwrap.
+        let wrapped = Value::Object(std::mem::take(&mut trimmed));
+        current = jsonb_column_size(&wrapped);
+        let Value::Object(unwrapped) = wrapped else {
+            unreachable!("wrapped as an object above");
+        };
+        trimmed = unwrapped;
     }
 
-    TrimResult::CannotFit
+    TrimResult::Trimmed(Value::Object(trimmed))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn trim_of_many_small_keys_is_not_quadratic() {
+        // ~1.3MB document of 20k tiny trimmable keys plus protected state.
+        // The former per-removal clone-and-remeasure loop needs billions of
+        // operations here and effectively never finishes in a debug build;
+        // the batched trim completes in well under a second. Completion IS
+        // the assertion of linearity; correctness is asserted on the result.
+        let mut map = serde_json::Map::new();
+        map.insert("email".to_string(), json!("keep@example.com"));
+        for i in 0..20_000 {
+            map.insert(format!("k{i:05}"), json!("v".repeat(40)));
+        }
+        let value = Value::Object(map);
+        let TrimResult::Trimmed(trimmed) = trim_properties_to_fit_size(&value, 524_288) else {
+            panic!("a document of trimmable keys must trim");
+        };
+        assert!(jsonb_column_size(&trimmed) <= 524_288);
+        assert_eq!(trimmed["email"], "keep@example.com");
+    }
 
     #[test]
     fn protected_properties_are_not_trimmable() {

@@ -340,6 +340,12 @@ impl PersonHogLeaderService {
 /// parse, team_id must fit the column's `integer`, and created_at must
 /// sit inside a sanity range ([1970, 9999]) any legitimately created
 /// person satisfies.
+///
+/// These three are the only fields that need checking because they are
+/// the only writer-bound fields representable in `CachedPerson`: the
+/// legacy jsonb columns and `last_seen_at` have no cache field and are
+/// unconditionally empty in `cached_person_to_proto`, so a leader-produced
+/// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     const MAX_EPOCH_SECS_YEAR_9999: i64 = 253_402_300_799;
     if Uuid::parse_str(&p.uuid).is_err() {
@@ -467,6 +473,36 @@ impl PersonHogLeader for PersonHogLeaderService {
             })?
         };
 
+        // Sanitize the request values before diffing so no-op detection
+        // compares in sanitized space: cached state holds the sanitized
+        // form, and an unsanitized repeat of the same value must hit the
+        // no-change fast path instead of producing a fresh record every
+        // time. The post-merge sanitize below stays as the admission
+        // guarantee (it also covers legacy dirt already in the cache).
+        let mut set_properties = set_properties;
+        let mut set_once_properties = set_once_properties;
+        let input_stats = {
+            let mut stats = sanitize_for_jsonb(&mut set_properties);
+            let once = sanitize_for_jsonb(&mut set_once_properties);
+            stats.nul_strings += once.nul_strings;
+            stats.clamped_numbers += once.clamped_numbers;
+            stats
+        };
+        if input_stats.nul_strings > 0 {
+            counter!("personhog_leader_properties_nul_sanitized_total")
+                .increment(input_stats.nul_strings);
+        }
+        if input_stats.clamped_numbers > 0 {
+            counter!("personhog_leader_properties_numbers_clamped_total")
+                .increment(input_stats.clamped_numbers);
+        }
+        // Unset targets must match keys as stored, i.e. sanitized.
+        let unset_properties: Vec<String> = req
+            .unset_properties
+            .iter()
+            .map(|k| k.replace('\u{0000}', "\u{FFFD}"))
+            .collect();
+
         // Per-key lock serializes concurrent updates for the same person
         let mutex = self
             .locks
@@ -497,7 +533,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             &req.event_name,
             &set_properties,
             &set_once_properties,
-            &req.unset_properties,
+            &unset_properties,
             &person.properties,
         );
 
