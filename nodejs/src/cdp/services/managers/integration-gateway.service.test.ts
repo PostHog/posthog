@@ -4,9 +4,9 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { internalFetch } from '~/common/utils/request'
 
 import {
-    createIntegrationGatewayService,
     IntegrationGatewayConfig,
     IntegrationGatewayService,
+    createIntegrationGatewayService,
 } from './integration-gateway.service'
 
 jest.mock('~/common/utils/request', () => ({
