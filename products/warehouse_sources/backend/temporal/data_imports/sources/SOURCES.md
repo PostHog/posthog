@@ -280,6 +280,7 @@ the row lists both.
 | inngest                          | HTTP                        | requests                                                        | ✅                          |
 | insightly                        | HTTP                        | requests                                                        | ✅                          |
 | instana                          | HTTP                        | requests                                                        | ✅                          |
+| instantly                        | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | instatus                         | HTTP                        | requests                                                        | ✅                          |
 | intercom                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | intruder                         | HTTP                        | requests                                                        | ✅                          |
@@ -765,7 +766,6 @@ doesn't conflict with concurrent PRs.
 - infor_nexus
 - insightful
 - instagram
-- instantly
 - interzoid
 - jobber
 - judgeme_reviews
