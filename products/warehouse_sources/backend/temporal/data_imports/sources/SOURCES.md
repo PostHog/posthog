@@ -435,6 +435,7 @@ the row lists both.
 | rapid7_insightvm                 | HTTP                        | requests                                                        | ✅                          |
 | raygun                           | HTTP                        | requests                                                        | ✅                          |
 | recharge                         | HTTP                        | requests                                                        | ✅                          |
+| recreation                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recruitee                        | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift                         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
@@ -875,7 +876,6 @@ doesn't conflict with concurrent PRs.
 - razorpay
 - rb2b
 - rd_station_marketing
-- recreation
 - reddit
 - redis
 - referralhero
