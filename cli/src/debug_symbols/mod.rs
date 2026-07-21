@@ -11,13 +11,14 @@ use crate::dsym::{source_bundle, DsymFile};
 pub mod upload;
 
 const ELF_MAGIC: &[u8; 4] = b"\x7fELF";
-// Thin little-endian 64/32-bit Mach-O, and big-endian fat/fat64 headers (the
-// on-disk layouts produced by Apple toolchains and Go).
-const MACHO_MAGICS: [[u8; 4]; 4] = [
+// Thin little-endian 64/32-bit Mach-O and the big-endian fat header — the
+// on-disk layouts produced by Apple toolchains and Go, and the ones the
+// symbolic archive parser understands (fat64, `0xcafebabf`, is not supported
+// and stays skipped).
+const MACHO_MAGICS: [[u8; 4]; 3] = [
     [0xcf, 0xfa, 0xed, 0xfe],
     [0xce, 0xfa, 0xed, 0xfe],
     [0xca, 0xfe, 0xba, 0xbe],
-    [0xca, 0xfe, 0xba, 0xbf],
 ];
 
 /// A native debug-info file discovered on disk, parsed and validated,
@@ -45,6 +46,8 @@ pub struct DiscoveryReport {
     pub without_debug_info: Vec<PathBuf>,
     /// ELFs with debug info but no GNU build id (cannot be uploaded)
     pub missing_build_id: Vec<PathBuf>,
+    /// Mach-O binaries with debug info but no `LC_UUID` (cannot be uploaded)
+    pub missing_uuid: Vec<PathBuf>,
     /// Mach-O binaries whose DWARF is compressed (`__zdebug_*` sections, Go's
     /// default on macOS), which the symbolication server can't read yet
     pub compressed_dwarf: Vec<PathBuf>,
@@ -200,6 +203,7 @@ pub fn discover(directory: &Path) -> Result<DiscoveryReport> {
             match file {
                 Candidate::NoDebugInfo => report.without_debug_info.push(path.to_path_buf()),
                 Candidate::NoBuildId => report.missing_build_id.push(path.to_path_buf()),
+                Candidate::MissingUuid => report.missing_uuid.push(path.to_path_buf()),
                 Candidate::CompressedDwarf => report.compressed_dwarf.push(path.to_path_buf()),
                 Candidate::Valid(file) => {
                     // Dedup by debug id (e.g. a binary and its objcopy companion):
@@ -231,6 +235,7 @@ enum Candidate {
     Valid(DebugSymbolFile),
     NoDebugInfo,
     NoBuildId,
+    MissingUuid,
     CompressedDwarf,
 }
 
@@ -304,18 +309,17 @@ fn parse_candidates(path: &Path) -> Result<Vec<Candidate>> {
             continue;
         }
 
-        // ELF only: without a GNU build id (code id), symbolic synthesizes a
-        // content-derived debug id that the SDK cannot reproduce at runtime,
-        // so the upload would never match any crash event. Mach-O always
-        // carries its identity in LC_UUID.
-        if format == FileFormat::Elf && object.code_id().is_none() {
-            candidates.push(Candidate::NoBuildId);
-            continue;
-        }
-
+        // Without an identity the SDK can reproduce at runtime — the GNU
+        // build id for ELF, the LC_UUID for Mach-O — the upload would never
+        // match any crash event. For ELF specifically, symbolic synthesizes a
+        // content-derived debug id when the build id is missing, so the
+        // code_id check must come first.
         let debug_id = object.debug_id();
-        if debug_id.is_nil() {
-            candidates.push(Candidate::NoBuildId);
+        if (format == FileFormat::Elf && object.code_id().is_none()) || debug_id.is_nil() {
+            candidates.push(match format {
+                FileFormat::MachO => Candidate::MissingUuid,
+                _ => Candidate::NoBuildId,
+            });
             continue;
         }
 
@@ -371,6 +375,15 @@ pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()>
             "{} has no debug info (skipping). For release builds, set \
              `debug = \"line-tables-only\"` (or `true`) in [profile.release], \
              and upload before stripping.",
+            path.display()
+        );
+    }
+
+    for path in &report.missing_uuid {
+        warn!(
+            "{} has debug info but no LC_UUID, so it cannot be matched to \
+             crash events (skipping). Relink without stripping the UUID load \
+             command (ld adds one by default; `-no_uuid` removes it).",
             path.display()
         );
     }
