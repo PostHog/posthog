@@ -62,7 +62,11 @@ def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization
     loop (project deletion cascades `Loop` rows away while the log keeps plain `team_id` /
     `organization_id`), so a live-row denylist alone would open another user's deleted personal-loop
     history to org admins. The live-row denylist stays on top so a currently-personal loop hides ALL
-    its rows, including ones logged back when it was team-visible."""
+    its rows, including ones logged back when it was team-visible.
+
+    No object-level loop RBAC here, deliberately: this route is restricted to org admins and owners
+    (`OrganizationActivityLogPermission`), who pass the RBAC precheck for every object, so the
+    filter the team route applies via `visible_loop_ids` would be a no-op on this one."""
     from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
 
     user_id = getattr(user, "id", None)

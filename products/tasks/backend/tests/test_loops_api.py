@@ -958,6 +958,20 @@ class LoopObjectAccessControlAPITest(LoopsAPITestCase):
         owner_patch = self.owner_client.patch(loop_a_url, {"name": "mine"}, format="json")
         self.assertEqual(owner_patch.status_code, status.HTTP_200_OK, owner_patch.content)
 
+    def test_activity_log_restriction_honors_loop_rbac(self):
+        # A loop hidden from the list must not leak its config history through the activity feed.
+        from posthog.api.advanced_activity_logs.viewset import restrict_loop_activity
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        AccessControl.objects.create(team=self.team, resource="loop", resource_id=None, access_level="none")
+        self._grant(self.peer, self.loop_a["id"], "viewer")
+
+        base = ActivityLog.objects.filter(team_id=self.team.id, scope="Loop")
+        peer_ids = {row.item_id for row in restrict_loop_activity(base, self.team.id, self.peer)}
+
+        self.assertIn(self.loop_a["id"], peer_ids)
+        self.assertNotIn(self.loop_b["id"], peer_ids)
+
 
 class LoopActivityLogVisibilityAPITest(LoopsAPITestCase):
     def test_personal_loop_activity_is_hidden_from_a_teammate(self):

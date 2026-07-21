@@ -670,12 +670,15 @@ def list_loops(team_id: int, user: User | None) -> list[LoopDTO]:
 def visible_loop_ids(team_id: int, user: User | None) -> set[str]:
     """Ids of loops the user may see, as strings. For callers outside request/team scope
     (e.g. the activity-log viewset restricting `Loop`-scoped rows): uses `for_team` explicitly
-    so it never depends on ambient team context, unlike `list_loops`/`_visible_loop_queryset`."""
+    so it never depends on ambient team context, unlike `list_loops`/`_visible_loop_queryset`.
+    Applies the same object-level RBAC filter as `list_loops`, so a loop hidden from the list
+    can't leak its config history through the activity feed instead."""
     user_id = getattr(user, "id", None)
     visibility_q = Q(visibility=Loop.Visibility.TEAM)
     if user_id is not None:
         visibility_q |= Q(created_by_id=user_id)
     loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=False).filter(visibility_q)
+    loops = _rbac_filter_visible(loops, team_id, user)
     return {str(loop_id) for loop_id in loops.values_list("id", flat=True)}
 
 
