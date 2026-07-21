@@ -91,6 +91,28 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert collected == [_uuid(i) for i in expected_indices]
 
+    def test_multiple_conditions_are_combined_with_or(self):
+        # The audience builder presents conditions as OR (orFiltering UI + docs). A person
+        # matching only one of two conditions must be included; if the conditions were
+        # AND-combined only p3 (matching both) would survive, silently dropping p1 and p2.
+        _create_person(team=self.team, distinct_ids=["p1"], uuid=_uuid(1), properties={"plan": "pro"})
+        _create_person(team=self.team, distinct_ids=["p2"], uuid=_uuid(2), properties={"subscribed": "true"})
+        _create_person(
+            team=self.team, distinct_ids=["p3"], uuid=_uuid(3), properties={"plan": "pro", "subscribed": "true"}
+        )
+        _create_person(team=self.team, distinct_ids=["p4"], uuid=_uuid(4), properties={"plan": "free"})
+        flush_persons_and_events()
+
+        filters = {
+            "properties": [
+                {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"},
+                {"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"},
+            ]
+        }
+
+        assert sorted(get_batch_audience_person_ids(self.team, filters)) == [_uuid(i) for i in (1, 2, 3)]
+        assert get_batch_audience_count(self.team, filters, dedupe_key="email") == 3
+
     def test_use_flag_defaults_off_when_feature_enabled_raises(self):
         # Batch sends are a critical path — a Redis/HyperCache blip that makes
         # posthoganalytics.feature_enabled() throw must fall back to the legacy
