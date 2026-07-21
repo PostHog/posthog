@@ -180,7 +180,7 @@ if (res.status >= 400) {
                 "em": "{sha256Hex(lower(person.properties.email))}",
                 "fn": "{sha256Hex(lower(person.properties.first_name))}",
                 "ln": "{sha256Hex(lower(person.properties.last_name))}",
-                "fbc": "{not empty(person.properties.fbclid ?? person.properties.$initial_fbclid) ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : ''}",
+                "fbc": "{not empty(person.properties.fbclid ?? person.properties.$initial_fbclid) ? f'fb.1.{toInt(toUnixTimestampMilli(now()))}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : ''}",
                 "client_user_agent": "{event.properties.$raw_user_agent}",
             },
             "secret": False,
