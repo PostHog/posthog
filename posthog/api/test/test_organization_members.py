@@ -44,19 +44,27 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     #     assert len(response.json()["results"]) == 2
 
-    def test_members_only_see_themselves_when_org_restricts_member_list_visibility(self):
-        other_user = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+    def test_members_only_see_themselves_and_admins_when_org_restricts_member_list_visibility(self):
+        other_member = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        admin = User.objects.create_and_join(
+            self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
         self.organization.members_can_see_org_members = False
         self.organization.save()
 
+        # Plain members see themselves and admins, but not other members
         response = self.client.get("/api/organizations/@current/members/")
-        assert [m["user"]["email"] for m in response.json()["results"]] == [self.user.email]
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, admin.email}
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
         response = self.client.get("/api/organizations/@current/members/")
-        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, other_user.email}
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            other_member.email,
+            admin.email,
+        }
 
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")

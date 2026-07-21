@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.db.models import F, Model, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -228,7 +228,10 @@ class OrganizationMemberViewSet(
                 organization=organization, user_id=cast(User, self.request.user).id
             ).first()
             if requesting_membership is None or requesting_membership.level < OrganizationMembership.Level.ADMIN:
-                queryset = queryset.filter(user_id=cast(User, self.request.user).id)
+                # Restricted members still see admins/owners — the people they'd ask for access
+                queryset = queryset.filter(
+                    Q(user_id=cast(User, self.request.user).id) | Q(level__gte=OrganizationMembership.Level.ADMIN)
+                )
 
         if self.action == "list":
             params = self.request.GET.dict()
