@@ -141,7 +141,7 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         team_id = self.team_id
         if not self.team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled for this team"}, status=drf_status.HTTP_400_BAD_REQUEST
+                {"detail": "Support is not enabled for this team"}, status=drf_status.HTTP_400_BAD_REQUEST
             )
 
         serializer = ZendeskImportStartSerializer(data=request.data)

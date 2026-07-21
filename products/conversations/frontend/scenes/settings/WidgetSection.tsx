@@ -89,7 +89,7 @@ export function WidgetSection(): JSX.Element {
                     <>
                         <LemonDivider />
                         <LemonBanner type="info" className="my-2">
-                            Allowed domains for the widget are managed under the <strong>Conversations API</strong>{' '}
+                            Allowed domains for the widget are managed under the <strong>Direct API</strong>{' '}
                             section — they apply to both the widget and direct API calls.
                         </LemonBanner>
                         <SceneSection title="Visual settings" className="mt-8" titleSize="sm">
