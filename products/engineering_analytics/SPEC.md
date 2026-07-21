@@ -5,7 +5,7 @@ Sibling doc: [README.md](./README.md), read that first for the product picture a
 
 ## 1. Purpose
 
-The product surfaces PR + CI data through **named, typed endpoints** that run curated HogQL privately over the warehouse (`github_*` tables), Logs, and Traces. Two first-class surfaces consume the same endpoints: the in-app UI and **MCP tools**; keep `mcp/tools.yaml` current whenever endpoints change. Nothing is registered as a global HogQL view, so the product stays isolated and off the per-query catalog hot path; core imports only the viewset, exactly like `visual_review`.
+The product surfaces PR + CI data through **named, typed endpoints** that run curated HogQL privately over the warehouse (`github_*` tables), Logs, and Traces. Two first-class surfaces consume the same endpoints: the in-app UI and **MCP tools**. Nothing is registered as a global HogQL view, so the product stays isolated and off the per-query catalog hot path; core imports only the viewset, exactly like `visual_review`.
 
 Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
 
@@ -87,7 +87,7 @@ One `build_query()` builder per source table in `logic/views/`, embedded as subq
 The endpoint catalog is `presentation/views.py`; the agent-facing descriptions live in `mcp/tools.yaml`. Those are the source of truth, not this file. Every endpoint follows the same design practices:
 
 - Time windows are `date_from` / `date_to`, relative (`-30d`) or ISO8601.
-- Capped lists return `{items, truncated, limit}`; never silently undercount against a sibling aggregate.
+- Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
 - Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 
@@ -138,7 +138,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 
 ## 7. Data sources
 
-Warehouse tables (GitHub source; string timestamps + Nullable JSON, the shape locked by `source_schema.py`, see §6):
+Warehouse tables (GitHub source):
 
 - `github_pull_requests`: PR snapshot. Current state only; transitions are overwritten on update.
 - `github_workflow_runs`: CI runs. Webhook-only (the webhook is the source of truth; history is a deliberate one-off backfill). A settled run never changes, so durations and trends are precise; until settled, `status` / `conclusion` mutate (see the freshness caveat).
