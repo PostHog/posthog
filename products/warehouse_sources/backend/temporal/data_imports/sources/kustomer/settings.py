@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class KustomerEndpointConfig:
@@ -23,3 +25,7 @@ KUSTOMER_ENDPOINTS: dict[str, KustomerEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(KUSTOMER_ENDPOINTS.keys())
+
+# Kustomer's GET list endpoints expose no updated-since filter, so no endpoint
+# has an incremental field — every stream is a full refresh.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

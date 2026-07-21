@@ -564,6 +564,7 @@ layer = "modules"
 path = "products.product_tours"
 depends_on = [
     "posthog",
+    "products.approvals",
     "products.feature_flags",
     "products.surveys",
 ]

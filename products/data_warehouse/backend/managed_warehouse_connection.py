@@ -190,11 +190,15 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
             and existing.job_inputs.get("user")
             and existing.job_inputs.get("password")
         )
-        reader_configured = bool(has_reader_credentials and existing_metadata.get("reader_configured") is True)
         if has_reader_credentials:
+            assert existing is not None
+            assert isinstance(existing_metadata, dict)
+            assert isinstance(existing.job_inputs, dict)
+            reader_configured = existing_metadata.get("reader_configured") is True
             username = str(existing.job_inputs["user"])
             password = str(existing.job_inputs["password"])
         else:
+            reader_configured = False
             username = f"posthog_team_{team_id}"
             password = secrets.token_urlsafe(32)
 

@@ -136,10 +136,17 @@ class TestEnableTeamBackfill:
         team = Team.objects.create(organization=org)
         server = self._server(org)
 
-        enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+        with patch(
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.configure_project_reader",
+            side_effect=lambda **kwargs: {
+                "username": f"posthog_team_{kwargs['team_id']}",
+                "password": kwargs["password"],
+            },
+        ):
+            enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
 
         source = ExternalDataSource.objects.get(
-            team_id=team.id, access_method=ExternalDataSource.AccessMethod.WAREHOUSE, direct_query_enabled=True
+            team_id=team.id, access_method=ExternalDataSource.AccessMethod.DIRECT, direct_query_enabled=True
         )
         assert source.source_type == "Postgres"
         assert source.job_inputs["host"] == server.host

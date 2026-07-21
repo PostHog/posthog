@@ -139,6 +139,7 @@ class TestEnsureManagedWarehouseDirectSource:
         source.refresh_from_db()
         assert requested_passwords == [_PROJECT_READER_PASSWORD, _PROJECT_READER_PASSWORD]
         assert source.direct_query_enabled is True
+        assert isinstance(source.connection_metadata, dict)
         assert source.connection_metadata["reader_configured"] is True
         assert ExternalDataSource.objects.filter(team=team, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX).count() == 1
 
