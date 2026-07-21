@@ -560,6 +560,7 @@ the row lists both.
 | unleash                          | HTTP                        | requests                                                        | ✅                          |
 | unstructured                     | HTTP                        | requests                                                        | ✅                          |
 | upstash                          | HTTP                        | requests                                                        | ✅                          |
+| uppromote                        | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | uptimerobot                      | HTTP                        | requests                                                        | ✅                          |
 | us_census                        | HTTP                        | requests                                                        | ✅                          |
 | usersnap                         | HTTP                        | requests + PyJWT                                                | ✅                          |
@@ -979,6 +980,7 @@ doesn't conflict with concurrent PRs.
 - twenty
 - twitter
 - twitter_ads
+- tyntec_sms
 - uppromote
 - uptick
 - uservoice
