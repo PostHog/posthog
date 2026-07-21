@@ -89,9 +89,10 @@ EVAL_WORKFLOWS = [
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
+    # Trial-eval no-op stubs, kept registered so runs started on the previous release can finish.
     increment_trial_eval_count_activity,
-    disable_evaluation_activity,
     send_trial_usage_email_activity,
+    disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,

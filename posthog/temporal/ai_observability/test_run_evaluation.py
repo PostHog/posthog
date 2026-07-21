@@ -28,7 +28,6 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
-from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 from .evaluation_errors import (
@@ -47,7 +46,6 @@ from .run_evaluation import (
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
-    SendTrialUsageEmailInputs,
     WorkflowResult,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
@@ -56,11 +54,15 @@ from .run_evaluation import (
     execute_sentiment_eval_activity,
     extract_event_tools,
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     run_hog_eval,
     send_evaluation_disabled_email_activity,
-    send_trial_usage_email_activity,
 )
+
+
+def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
+    """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
+    key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
+    return MagicMock(active_provider_key=key)
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
@@ -130,10 +132,17 @@ def setup_data():
 
 
 @pytest.fixture
-def grandfathered(setup_data, settings):
-    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
-    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
-    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
+def active_key_config(setup_data):
+    """Give the team a healthy active provider key so a null-config judge resolves via DefaultModelSpec."""
+    team = setup_data["team"]
+    key = LLMProviderKey.objects.create(
+        team=team,
+        provider="openai",
+        name="openai key",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "sk-test"},
+    )
+    EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
 
 class TestRunEvaluationWorkflow:
@@ -172,7 +181,7 @@ class TestRunEvaluationWorkflow:
             assert result["output_config"] == {"allows_na": False}
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity(self, setup_data, grandfathered):
+    def test_execute_llm_judge_activity(self, setup_data, active_key_config):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -224,7 +233,7 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, grandfathered):
+    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, active_key_config):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 
@@ -270,7 +279,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_skips_on_context_window_exceeded(
-        self, output_config, expected_verdict, expected_applicable, setup_data, grandfathered
+        self, output_config, expected_verdict, expected_applicable, setup_data, active_key_config
     ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
@@ -667,7 +676,7 @@ class TestRunEvaluationWorkflow:
         assert result["skip_reason"] == "hog_error"
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, grandfathered):
+    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, active_key_config):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -709,7 +718,7 @@ class TestRunEvaluationWorkflow:
             assert result["allows_na"] is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, grandfathered):
+    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, active_key_config):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -849,7 +858,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
-        self, error_props: dict[str, Any], setup_data, grandfathered
+        self, error_props: dict[str, Any], setup_data, active_key_config
     ):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
@@ -1076,11 +1085,6 @@ class TestRunEvaluationWorkflow:
             "output_type": "boolean",
             "output_config": {},
             "team_id": 1,
-            "model_configuration": {
-                "provider": "openai",
-                "model": "gpt-4.1",
-                "provider_key_id": None,
-            },
         }
 
         event_data = create_mock_event_data(
@@ -1098,10 +1102,7 @@ class TestRunEvaluationWorkflow:
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
         ):
-            mock_get_or_create.return_value = (
-                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
-                False,
-            )
+            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.complete.side_effect = StructuredOutputParseError(
@@ -1125,7 +1126,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
-        self, raised_exception: Exception, expected_label: str, setup_data, grandfathered
+        self, raised_exception: Exception, expected_label: str, setup_data, active_key_config
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1153,46 +1154,6 @@ class TestRunEvaluationWorkflow:
                 execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
-
-    @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data, settings):
-        team = setup_data["team"]
-        # Only a grandfathered team gets past the funded gate to the model-allowlist check.
-        settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
-        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=50)
-
-        evaluation = {
-            "id": str(setup_data["evaluation"].id),
-            "name": "Test Evaluation",
-            "evaluation_type": "llm_judge",
-            "evaluation_config": {"prompt": "Is this accurate?"},
-            "output_type": "boolean",
-            "output_config": {},
-            "team_id": team.id,
-            "model_configuration": {
-                "provider": "openai",
-                "model": "gpt-5.4",
-                "provider_key_id": None,
-            },
-        }
-
-        event_data = create_mock_event_data(team.id)
-
-        with (
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as mock_user_errors,
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_errors,
-        ):
-            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
-
-        mock_client_class.assert_not_called()
-        mock_user_errors.assert_called_once_with("model_not_allowed", provider=None)
-        mock_errors.assert_not_called()
-        assert result["terminal_user_error"] is True
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "model_not_allowed"
-        assert result["status_reason"] == "model_not_allowed"
-        assert result["verdict"] is None
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):
@@ -1947,185 +1908,6 @@ class TestExecuteHogEvalActivityAllowsNA:
         assert "Must return boolean" in result["reasoning"]
 
 
-class TestIncrementTrialEvalCountActivity:
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after",
-        [
-            (100, 0, None, 1),
-            (100, 49, 50, 50),
-            (100, 74, 75, 75),
-            (100, 99, 100, 100),
-            (100, 100, None, 101),  # already exceeded — should not re-trigger
-            (100, 50, None, 51),  # just past 50% — no threshold
-            (10, 4, 50, 5),  # 50% of 10
-            (10, 7, 75, 8),  # round(10 * 75 / 100) = round(7.5) = 8
-            (10, 9, 100, 10),  # 100% of 10
-        ],
-        ids=[
-            "no_threshold",
-            "50pct_reached",
-            "75pct_reached",
-            "100pct_reached",
-            "already_exceeded",
-            "past_50pct",
-            "small_limit_50pct",
-            "small_limit_75pct_rounds",
-            "small_limit_100pct",
-        ],
-    )
-    async def test_increment_trial_eval_count(
-        self, setup_data, trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after
-    ):
-        team = setup_data["team"]
-        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
-        config.trial_eval_limit = trial_eval_limit
-        config.trial_evals_used = trial_evals_used
-        await sync_to_async(config.save)()
-
-        result = await increment_trial_eval_count_activity(team.id)
-
-        assert result == expected_threshold
-        config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
-        assert config.trial_evals_used == expected_used_after
-
-
-class TestSendTrialUsageEmailActivity:
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "threshold_pct, expected_template",
-        [
-            (50, "ai_observability_trial_warning"),
-            (75, "ai_observability_trial_warning"),
-            (100, "ai_observability_trial_exhausted"),
-        ],
-        ids=["50pct_warning", "75pct_warning", "100pct_exhausted"],
-    )
-    async def test_sends_correct_template_for_threshold(self, setup_data, threshold_pct, expected_template):
-        team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 100})
-
-        with (
-            patch("posthog.email.is_email_available", return_value=True),
-            patch("posthog.email.EmailMessage") as mock_email_class,
-        ):
-            mock_message = MagicMock()
-            mock_email_class.return_value = mock_message
-
-            await send_trial_usage_email_activity(
-                SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=threshold_pct)
-            )
-
-            mock_email_class.assert_called_once()
-            call_kwargs = mock_email_class.call_args[1]
-            assert call_kwargs["template_name"] == expected_template
-            mock_message.send.assert_called_once()
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_skips_exhausted_email_when_trial_not_actually_exhausted(self, setup_data):
-        # provider_key_required disables route here with threshold 100 for teams cut off mid-trial
-        # at the deprecation date or that never started — "used up" would be false for them.
-        team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 50})
-
-        with (
-            patch("posthog.email.is_email_available", return_value=True),
-            patch("posthog.email.EmailMessage") as mock_email_class,
-        ):
-            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=100))
-
-            mock_email_class.assert_not_called()
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_skips_when_email_not_available(self, setup_data):
-        team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
-
-        with (
-            patch("posthog.email.is_email_available", return_value=False),
-            patch("posthog.email.EmailMessage") as mock_email_class,
-        ):
-            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=50))
-
-            mock_email_class.assert_not_called()
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("threshold_pct", [50, 75, 100], ids=["50pct", "75pct", "100pct"])
-    async def test_campaign_key_includes_threshold_and_team(self, setup_data, threshold_pct):
-        team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 100})
-
-        with (
-            patch("posthog.email.is_email_available", return_value=True),
-            patch("posthog.email.EmailMessage") as mock_email_class,
-        ):
-            mock_message = MagicMock()
-            mock_email_class.return_value = mock_message
-
-            await send_trial_usage_email_activity(
-                SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=threshold_pct)
-            )
-
-            call_kwargs = mock_email_class.call_args[1]
-            assert call_kwargs["campaign_key"] == f"llm_analytics_trial_{threshold_pct}pct_{team.id}"
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_includes_affected_eval_names_in_context(self, setup_data):
-        team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
-
-        # Trial eval (no provider_key) — should be included
-        mc_trial = await sync_to_async(LLMModelConfiguration.objects.create)(
-            team=team, provider="openai", model="gpt-4o-mini"
-        )
-        await sync_to_async(Evaluation.objects.create)(
-            team=team,
-            name="My Trial Eval",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=mc_trial,
-            enabled=True,
-        )
-        # Legacy eval (no model_configuration) — should be included
-        await sync_to_async(Evaluation.objects.create)(
-            team=team,
-            name="Legacy Eval",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=None,
-            enabled=True,
-        )
-        # Disabled eval — should NOT be included
-        await sync_to_async(Evaluation.objects.create)(
-            team=team,
-            name="Disabled Eval",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=mc_trial,
-            enabled=False,
-        )
-
-        with (
-            patch("posthog.email.is_email_available", return_value=True),
-            patch("posthog.email.EmailMessage") as mock_email_class,
-        ):
-            mock_message = MagicMock()
-            mock_email_class.return_value = mock_message
-
-            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=75))
-
-            call_kwargs = mock_email_class.call_args[1]
-            affected = call_kwargs["template_context"]["affected_evals"]
-            assert "My Trial Eval" in affected
-            assert "Legacy Eval" in affected
-
-
 class TestSendEvaluationDisabledEmailActivity:
     @pytest.fixture
     def setup_data(self, db):
@@ -2153,8 +1935,8 @@ class TestSendEvaluationDisabledEmailActivity:
                     team_id=team.id,
                     evaluation_id="eval-123",
                     evaluation_name="My Eval",
-                    status_reason="model_not_allowed",
-                    human_readable_reason="The model 'gpt-9' isn't available on the trial plan.",
+                    status_reason="provider_key_required",
+                    human_readable_reason="Add a provider API key to run this evaluation.",
                     disabled_at=datetime(2026, 6, 25, 12, 0, 0, tzinfo=UTC),
                 )
             )
@@ -2163,9 +1945,9 @@ class TestSendEvaluationDisabledEmailActivity:
             call_kwargs = mock_email_class.call_args[1]
             assert call_kwargs["template_name"] == "ai_observability_evaluation_disabled"
             assert call_kwargs["template_context"]["evaluation_name"] == "My Eval"
-            assert "isn't available on the trial plan" in call_kwargs["template_context"]["disabled_reason"]
+            assert "Add a provider API key" in call_kwargs["template_context"]["disabled_reason"]
             # Campaign key must include the reason so a later different-reason error triggers a fresh email.
-            assert "model_not_allowed" in call_kwargs["campaign_key"]
+            assert "provider_key_required" in call_kwargs["campaign_key"]
             # It also includes the disable timestamp so a later same-reason disable sends a fresh email.
             assert "1782388800000000" in call_kwargs["campaign_key"]
             mock_message.send.assert_called_once()
@@ -2184,7 +1966,7 @@ class TestSendEvaluationDisabledEmailActivity:
                     team_id=team.id,
                     evaluation_id="eval-123",
                     evaluation_name="My Eval",
-                    status_reason="model_not_allowed",
+                    status_reason="provider_key_required",
                     human_readable_reason="reason",
                 )
             )
@@ -2253,10 +2035,7 @@ class TestJudgePromptAssembly:
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
-            mock_get_or_create.return_value = (
-                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
-                False,
-            )
+            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()
@@ -2307,10 +2086,7 @@ class TestJudgePromptAssembly:
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
-            mock_get_or_create.return_value = (
-                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
-                False,
-            )
+            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()
