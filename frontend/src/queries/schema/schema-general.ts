@@ -7143,7 +7143,6 @@ export const externalDataSources = [
     'Dixa',
     'Gladly',
     'Qualtrics',
-    'Delighted',
     'AzureDevOps',
     'Rollbar',
     'Opsgenie',
@@ -7821,6 +7820,9 @@ export const externalDataSources = [
     'Plivo',
     'DataForSEO',
     'Sleekplan',
+    'Tally',
+    'Nuntly',
+    'FusionAuth',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

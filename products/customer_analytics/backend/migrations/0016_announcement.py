@@ -163,9 +163,6 @@ class Migration(migrations.Migration):
                 name="ca_announcement_delivery_uniq",
             ),
         ),
-        # FKs to hot tables (posthog_team, posthog_user) are declared db_constraint=False on
-        # the model to avoid locking the parent on CreateModel; add the real constraint NOT VALID
-        # here and VALIDATE in the follow-up migration (same pattern as 0013/0014 relationships).
         AddForeignKeyNotValid(
             model_name="announcement",
             name="ca_announcement_team_id_fk",

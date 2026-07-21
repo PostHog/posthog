@@ -939,7 +939,7 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -1055,7 +1055,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -1434,7 +1434,6 @@ export interface CredentialApi {
  * * `Dixa` - Dixa
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
- * * `Delighted` - Delighted
  * * `AzureDevOps` - AzureDevOps
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
@@ -2112,6 +2111,9 @@ export interface CredentialApi {
  * * `Plivo` - Plivo
  * * `DataForSEO` - DataForSEO
  * * `Sleekplan` - Sleekplan
+ * * `Tally` - Tally
+ * * `Nuntly` - Nuntly
+ * * `FusionAuth` - FusionAuth
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2303,7 +2305,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Dixa: 'Dixa',
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
-    Delighted: 'Delighted',
     AzureDevOps: 'AzureDevOps',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
@@ -2981,6 +2982,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Plivo: 'Plivo',
     DataForSEO: 'DataForSEO',
     Sleekplan: 'Sleekplan',
+    Tally: 'Tally',
+    Nuntly: 'Nuntly',
+    FusionAuth: 'FusionAuth',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3010,6 +3014,8 @@ export interface TableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name: string
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -3055,6 +3061,8 @@ export interface PatchedTableApi {
     deleted?: boolean | null
     /** @maxLength 128 */
     name?: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+    readonly hogql_name?: string
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string

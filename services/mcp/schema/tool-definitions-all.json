@@ -6950,6 +6950,20 @@
             "readOnlyHint": true
         }
     },
+    "organizations-get": {
+        "description": "Fetches the organizations that the user has access to, with their id, name, and membership level. Use this to discover organizations — including ones other than the active organization — and to resolve an organization name to the id you pass to `switch-organization`.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Fetches the organizations that the user has access to.",
+        "title": "Get organizations",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organizations-list": {
         "description": "List all organizations the user has access to. Returns org ID, name, slug, and membership level. Use the ID with organization-get for details or switch-organization to change context.",
         "category": "Platform Features",
@@ -9232,7 +9246,7 @@
         }
     },
     "switch-organization": {
-        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-get` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog organization for subsequent tool calls.",
@@ -9246,7 +9260,7 @@
         }
     },
     "switch-project": {
-        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-get` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog project for subsequent tool calls.",
