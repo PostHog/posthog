@@ -1139,7 +1139,8 @@ describe('exec tool', () => {
                 status: 'approved',
                 is_drifted: false,
             }
-            const flagTool = () => makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const flagTool = (): Tool<ZodObjectAny> =>
+                makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
 
             it('adds governed_metrics without touching the tool matches', async () => {
                 const hookless = createExec([flagTool()])
@@ -1181,9 +1182,7 @@ describe('exec tool', () => {
                 const hooked = createExec([makeMockTool()], undefined, {
                     searchGovernedMetrics: async () => [],
                 })
-                const result = JSON.parse(
-                    (await hooked.handler(mockContext, { command: 'search revenue' })) as string
-                )
+                const result = JSON.parse((await hooked.handler(mockContext, { command: 'search revenue' })) as string)
                 expect(result.matches).toEqual([])
                 expect(result.hint).toContain('system.information_schema.metrics')
             })
@@ -1192,9 +1191,7 @@ describe('exec tool', () => {
                 const hooked = createExec([makeMockTool()], undefined, {
                     searchGovernedMetrics: async () => [revenueMetric],
                 })
-                const result = JSON.parse(
-                    (await hooked.handler(mockContext, { command: 'search revenue' })) as string
-                )
+                const result = JSON.parse((await hooked.handler(mockContext, { command: 'search revenue' })) as string)
                 expect(result.matches).toEqual([])
                 expect(result.governed_metrics).toEqual([revenueMetric])
             })

@@ -178,9 +178,7 @@ describe('ToolExecutor', () => {
         }
 
         it('fetches and surfaces governed metrics when the catalog flag is on', async () => {
-            const request = vi
-                .fn()
-                .mockResolvedValue({ count: 1, next: null, previous: null, results: [metricRow] })
+            const request = vi.fn().mockResolvedValue({ count: 1, next: null, previous: null, results: [metricRow] })
 
             const result = await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'search revenue customers' } },
