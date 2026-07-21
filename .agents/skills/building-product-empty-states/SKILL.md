@@ -14,7 +14,7 @@ Before a user has set a product up, its scene should show a setup empty state: t
 1. A scene declares `emptyState` on its `SceneExport`. The app shell (`frontend/src/scenes/App.tsx`) wraps the scene in `ProductEmptyStateGate` — the scene component itself contains **no** empty-state branching.
 2. The gate mounts the product's **detection logic**, which pushes a normalized status into `productSetupStatusLogic({ productKey })` — the app-wide single read point for "is product X set up?".
 3. The gate renders the setup empty state for `needs-setup` / `waiting-for-data`, and the scene untouched for `has-data`. While `loading` it shows the standard scene-level spinner — the one shared loading treatment. **Never add a product-specific loading fallback.**
-4. Statuses are **preloaded at app boot**: `productSetupPreloadLogic` (mounted in `App.tsx`) answers every registered probe (`setupProbes.ts`) with one combined event-count query on idle, so by the time a user opens the scene the status is usually already known and the spinner never shows. The product's in-scene detection stays the fresher source of truth.
+4. Statuses are **preloaded at app boot**: `productSetupPreloadLogic` (mounted in `App.tsx`) answers every manifest-declared probe (each product's `setupProbe`, aggregated into `productSetupProbes`) with one combined event-count query on idle, so by the time a user opens the scene the status is usually already known and the spinner never shows. The product's in-scene detection stays the fresher source of truth.
 5. Users can always **skip**. Skip is local-only (localStorage, keyed team + product, never backend-persisted); detection keeps polling, and a slim "Set up" banner stays visible until data lands.
 
 ## Adoption steps
@@ -77,7 +77,7 @@ Then **delete** the scene's bespoke empty/loading branches (including any custom
 
 ### 4b. Register a boot-time probe
 
-Add an entry to `PRODUCT_SETUP_PROBES` in `lib/components/ProductEmptyState/setupProbes.ts` - the event names that prove your product has data (and optionally the "instrumented but no traffic" events), mirroring your detection logic's semantics. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
+Declare a `setupProbe` in your product manifest (`products/<name>/manifest.tsx`) - the `productKey`, the event names that prove your product has data (and optionally the "instrumented but no traffic" events), and the `featureFlag` to gate on, mirroring your detection logic's semantics. `build-products.mjs` aggregates every manifest's `setupProbe` into `productSetupProbes` (regenerate with `pnpm build:products`), and `productSetupPreloadLogic` answers them at boot. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. The `ProductSetupProbe` shape and the count-to-status mapping live in `lib/components/ProductEmptyState/setupProbes.ts`. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
 
 ### 5. Test the status mapping
 

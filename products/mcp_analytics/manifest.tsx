@@ -57,12 +57,18 @@ export const manifest: ProductManifest = {
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     },
+    setupProbe: {
+        productKey: ProductKey.MCP_ANALYTICS,
+        hasDataEvents: ['$mcp_tool_call'],
+        waitingEvents: ['$mcp_initialize'],
+        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
+    },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'MCP analytics',
-            intents: [ProductKey.AI_OBSERVABILITY],
+            intents: [ProductKey.MCP_ANALYTICS],
             category: ProductItemCategory.AI_ENGINEERING,
             visualOrder: 2,
             type: 'mcp_analytics',
