@@ -186,6 +186,58 @@
             },
             "required": ["file", "model", "data_interval_start", "data_interval_end"],
             "type": "object"
+        },
+        {
+            "description": "Typed configuration for the hogql model.",
+            "properties": {
+                "file": {
+                    "description": "Typed configuration for a FileDownload batch-export destination.",
+                    "properties": {
+                        "compression": {
+                            "anyOf": [
+                                {
+                                    "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                                    "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy"
+                        },
+                        "format": {
+                            "default": "Parquet",
+                            "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                            "enum": ["Parquet", "JSONLines"],
+                            "type": "string"
+                        },
+                        "max_size_mb": {
+                            "anyOf": [
+                                {
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Split download into multiple files of at most this size in MB"
+                        }
+                    },
+                    "type": "object"
+                },
+                "hogql_query": {
+                    "description": "HogQL SELECT query whose results are exported. Placeholders are not supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of the time the export starts; events ingested moments before may not be included yet.",
+                    "type": "string"
+                },
+                "model": {
+                    "enum": ["hogql"],
+                    "type": "string"
+                }
+            },
+            "required": ["file", "model", "hogql_query"],
+            "type": "object"
         }
     ]
 }

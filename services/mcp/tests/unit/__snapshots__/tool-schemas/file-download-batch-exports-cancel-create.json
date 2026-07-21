@@ -2,11 +2,13 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "data_interval_end": {
+            "description": "End of the data interval to export",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
         "data_interval_start": {
+            "description": "Start of the data interval to export",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
@@ -54,6 +56,10 @@
             },
             "type": "object"
         },
+        "hogql_query": {
+            "description": "HogQL SELECT query whose results are exported. Placeholders are not supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of the time the export starts; events ingested moments before may not be included yet.",
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this batch export run.",
             "type": "string"
@@ -65,11 +71,11 @@
             "type": "array"
         },
         "model": {
-            "description": "* `events` - events\n* `persons` - persons\n* `sessions` - sessions",
-            "enum": ["events", "persons", "sessions"],
+            "description": "* `events` - events\n* `persons` - persons\n* `sessions` - sessions\n* `hogql` - hogql",
+            "enum": ["events", "persons", "sessions", "hogql"],
             "type": "string"
         }
     },
-    "required": ["id", "file", "model", "data_interval_start", "data_interval_end"],
+    "required": ["id", "file", "model"],
     "type": "object"
 }
