@@ -1773,12 +1773,23 @@ class FeatureFlagSerializer(
 
         encrypt_flag_payloads(validated_data)
 
-        self._free_key_held_by_soft_deleted_flags(validated_data["key"])
-
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
-        with ImpersonatedContext(request):
-            instance: FeatureFlag = super().create(validated_data)
+        try:
+            self._free_key_held_by_soft_deleted_flags(validated_data["key"])
+
+            with ImpersonatedContext(request):
+                instance: FeatureFlag = super().create(validated_data)
+        except IntegrityError as e:
+            # The "unique key for team" DB constraint is the authoritative guard on key
+            # uniqueness. A concurrent create can slip a duplicate in between the unlocked
+            # validate_key read and this write; translate that constraint violation into
+            # the same clean field error instead of surfacing a 500. Mirrors update().
+            if "unique key for team" in str(e):
+                raise serializers.ValidationError(
+                    {"key": [exceptions.ErrorDetail("There is already a feature flag with this key.", code="unique")]}
+                ) from e
+            raise
 
         self._attempt_set_tags(tags, instance)
         self._attempt_set_evaluation_contexts(evaluation_contexts, instance)

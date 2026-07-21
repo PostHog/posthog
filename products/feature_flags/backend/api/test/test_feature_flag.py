@@ -16,6 +16,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -132,6 +133,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
+
+    def test_create_flag_translates_concurrent_duplicate_key_integrity_error(self):
+        # Simulates a concurrent create racing past the unlocked validate_key pre-check:
+        # the "unique key for team" DB constraint is the last line of defense, and must
+        # surface as the same clean 400 the pre-check gives a sequential duplicate, not a
+        # raw 500.
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.FeatureFlag.objects.create",
+            side_effect=IntegrityError('duplicate key value violates unique constraint "unique key for team"'),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {"name": "Beta feature", "key": "red_button"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": "There is already a feature flag with this key.",
+                "attr": "key",
+            },
+        )
 
     @parameterized.expand(
         [
