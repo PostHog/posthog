@@ -116,6 +116,10 @@
     "full_suite_only": [
         "playwright/e2e/oauth-mcp-consent.spec.ts",
         "playwright/e2e/preflight.spec.ts",
-        "playwright/e2e/system-status.spec.ts"
+        "playwright/e2e/qmatrix/control.spec.ts",
+        "playwright/e2e/qmatrix/runmode.spec.ts",
+        "playwright/e2e/qmatrix/skipmode.spec.ts",
+        "playwright/e2e/system-status.spec.ts",
+        "products/links/frontend/e2e/qmatrix-product.spec.ts"
     ]
 }
