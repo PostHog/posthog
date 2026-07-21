@@ -19,7 +19,7 @@ from posthog.models.integration import Integration
 
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
-from products.tasks.backend.models import Loop, LoopTrigger, TaskRun
+from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,36 @@ def pause_loops_for_deactivated_user(user_id: int) -> None:
             _pause_loop_and_cancel_runs(loop)
         except Exception:
             logger.exception("loop_lifecycle.owner_deactivation_pause_failed", extra={"loop_id": str(loop.id)})
+
+    # A run mints its sandbox credentials from `task.created_by` (snapshotted at fire time), and loop
+    # ownership can transfer via takeover after a run starts. Pausing only loops the user still owns
+    # would miss a run they authored on a since-transferred loop, leaving it executing under the
+    # deactivated user's credentials. Cancel those independently, keyed on the run's credential owner.
+    try:
+        _cancel_loop_runs_authored_by(user_id)
+    except Exception:
+        logger.exception("loop_lifecycle.owner_deactivation_run_cancel_failed", extra={"user_id": user_id})
+
+
+def _cancel_loop_runs_authored_by(user_id: int) -> None:
+    """Cancel and signal every non-terminal loop run whose task this user created, regardless of who
+    currently owns the loop. Runs the loop-ownership pass already cancelled are terminal by now, so
+    they don't re-match; this only catches runs on loops that were taken over after firing."""
+    now = django_timezone.now()
+    runs = list(
+        TaskRun.objects.filter(
+            task__created_by_id=user_id,
+            task__origin_product=Task.OriginProduct.LOOP,
+            status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
+        )
+    )
+    if not runs:
+        return
+    TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
+        status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
+    )
+    for run in runs:
+        signal_loop_run_cancelled(run.workflow_id)
 
 
 def _pause_loop_and_cancel_runs(loop: Loop) -> None:

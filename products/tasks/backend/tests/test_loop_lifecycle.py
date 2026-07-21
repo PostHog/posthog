@@ -66,3 +66,32 @@ class TestPauseLoopsForDeactivatedUser(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.CANCELLED)
         mock_signal.assert_called_once_with(run.workflow_id)
+
+    @patch(f"{LIFECYCLE_MODULE}.pause_loop_schedules")
+    @patch(f"{LIFECYCLE_MODULE}.dispatch_loop_event")
+    @patch(f"{LIFECYCLE_MODULE}.signal_loop_run_cancelled")
+    def test_deactivation_cancels_a_transferred_loops_run_authored_by_the_user(
+        self, mock_signal, _mock_dispatch, _mock_pause
+    ):
+        # The run's credentials come from its task's creator. If the loop was taken over after the
+        # run started, it is no longer owned by the original author, so pausing loops by current
+        # ownership misses the run — it would keep running under the deactivated author's credentials.
+        new_owner = User.objects.create_user(email="new@example.com", first_name="New", password="password")
+        loop = self._loop(created_by=new_owner)
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Active",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            internal=True,
+        )
+        run = task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status", "updated_at"])
+
+        pause_loops_for_deactivated_user(self.user.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        mock_signal.assert_called_once_with(run.workflow_id)
