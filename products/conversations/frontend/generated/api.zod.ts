@@ -184,7 +184,7 @@ export const ConversationsAlertRulesCreateBody = /* @__PURE__ */ zod.object({
         .max(conversationsAlertRulesCreateBodyWindowMinutesMax)
         .optional()
         .describe(
-            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.'
+            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).'
         ),
     min_count: zod
         .number()
@@ -233,7 +233,7 @@ export const ConversationsAlertRulesUpdateBody = /* @__PURE__ */ zod.object({
         .max(conversationsAlertRulesUpdateBodyWindowMinutesMax)
         .optional()
         .describe(
-            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.'
+            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).'
         ),
     min_count: zod
         .number()
@@ -283,7 +283,7 @@ export const ConversationsAlertRulesPartialUpdateBody = /* @__PURE__ */ zod.obje
         .max(conversationsAlertRulesPartialUpdateBodyWindowMinutesMax)
         .optional()
         .describe(
-            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.'
+            'Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).'
         ),
     min_count: zod
         .number()

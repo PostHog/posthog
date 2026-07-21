@@ -41562,7 +41562,7 @@ export namespace Schemas {
       /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. */
       filters?: TicketAlertRuleFilters;
       /**
-         * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.
+         * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).
          * @minimum 15
          * @maximum 1440
          */
@@ -49651,7 +49651,7 @@ export namespace Schemas {
       /** Ticket filters in the tickets list endpoint's query-param form, e.g. `{"channel_source": "email", "tags": "[\"billing\"]"}`. Matching tickets created within the rule's window count toward the threshold. Allowed keys: status, priority, channel_source, channel_detail, assignee, distinct_ids, search, sla, snoozed, tags, tags_all, tags_exclude, ai_triage_result. */
       filters?: PatchedTicketAlertRuleFilters;
       /**
-         * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window.
+         * Evaluation window in minutes (15-1440). The rule counts matching tickets created within this trailing window. Rules with a spike_multiplier evaluate in whole hours (the window is rounded up).
          * @minimum 15
          * @maximum 1440
          */
