@@ -114,6 +114,7 @@ const _itemTypes = [
     'app-state',
     'session-change',
     'experiment-variant',
+    'metric-event',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -220,6 +221,21 @@ export type InspectorListItemExperimentVariant = InspectorListItemBase & {
     }
 }
 
+export type InspectorListItemMetricEvent = InspectorListItemBase & {
+    type: 'metric-event'
+    data: {
+        // Synthesized client-side from the experiments session_context endpoint response
+        // (metrics_in_session[].first_timestamp) — like the exposure marker, there is no backend
+        // event for this item. One marker per metric, at its first occurrence in the session.
+        // `id` keeps the same keying contract as event/comment items in the seekbar.
+        id: string
+        experimentId: number
+        experimentName: string
+        metricName: string
+        eventCount: number
+    }
+}
+
 export type InspectorListItem =
     | InspectorListItemEvent
     | InspectorListItemConsole
@@ -235,6 +251,7 @@ export type InspectorListItem =
     | InspectorListSessionChange
     | InspectorListItemLog
     | InspectorListItemExperimentVariant
+    | InspectorListItemMetricEvent
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -440,6 +457,7 @@ export interface playerInspectorLogicValues {
     items: InspectorListItem[]
     matchingEvents: MatchedRecordingEvent[] | null
     matchingEventsLoading: boolean
+    metricEventItems: InspectorListItemMetricEvent[]
     notebookCommentItems: InspectorListItemNotebookComment[]
     playbackIndicatorIndex: number
     playbackIndicatorIndexStop: number
@@ -453,7 +471,12 @@ export interface playerInspectorLogicValues {
         rawConsoleLogs: RecordingConsoleLogV2[]
     }
     runtimeDoctorEvents: InspectorListItemDoctor[]
-    seekbarItems: (InspectorListItemComment | InspectorListItemEvent | InspectorListItemExperimentVariant)[]
+    seekbarItems: (
+        | InspectorListItemComment
+        | InspectorListItemEvent
+        | InspectorListItemExperimentVariant
+        | InspectorListItemMetricEvent
+    )[]
     syncScrollPaused: boolean
     windowNumberForID: (windowId: number | undefined) => number | '?' | undefined
 }
@@ -509,6 +532,7 @@ export interface playerInspectorLogicActions {
             | 'inactivity'
             | 'inspector-summary'
             | 'logs'
+            | 'metric-event'
             | 'network'
             | 'offline-status'
             | 'performance'
@@ -592,22 +616,28 @@ export interface playerInspectorLogicMeta {
         }
         notebookCommentItems: (
             sessionNotebookComments: any,
-            windowIdForTimestamp: (timestamp: number) => number | undefined,
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemNotebookComment[]
         commentItems: (
             sessionComments: CommentType[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined,
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemComment[]
         experimentVariantItems: (
             experimentItems: ExperimentSessionContextItemApi[],
-            windowIdForTimestamp: (timestamp: number) => number | undefined,
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
             windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
             start: Dayjs | null
         ) => InspectorListItemExperimentVariant[]
+        metricEventItems: (
+            experimentItems: ExperimentSessionContextItemApi[],
+            windowIdForTimestamp: (timestamp: number) => number | undefined, // sessionRecordingDataCoordinatorLogic
+            windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
+            start: Dayjs | null
+        ) => InspectorListItemMetricEvent[]
         runtimeDoctorEvents: (
             start: Dayjs | null,
             doctorDiagnostics: DoctorDiagnostics | null
@@ -627,7 +657,8 @@ export interface playerInspectorLogicMeta {
             sessionPlayerMetaData: SessionRecordingType | null,
             segments: import('@common/replay-shared/src').RecordingSegment[],
             runtimeDoctorEvents: InspectorListItemDoctor[],
-            experimentVariantItems: InspectorListItemExperimentVariant[]
+            experimentVariantItems: InspectorListItemExperimentVariant[],
+            metricEventItems: any
         ) => InspectorListItem[]
         allItems: (
             start: Dayjs | null,
@@ -685,7 +716,12 @@ export interface playerInspectorLogicMeta {
             allowMatchingEventsFilter: boolean,
             trackedWindow: number | null,
             hasEventsToDisplay: boolean
-        ) => (InspectorListItemComment | InspectorListItemEvent | InspectorListItemExperimentVariant)[]
+        ) => (
+            | InspectorListItemComment
+            | InspectorListItemEvent
+            | InspectorListItemExperimentVariant
+            | InspectorListItemMetricEvent
+        )[]
         inspectorDataState: (
             sessionEventsDataLoading: boolean,
             sessionPlayerMetaDataLoading: boolean,
@@ -1302,6 +1338,46 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
+        metricEventItems: [
+            (s) => [s.experimentItems, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (
+                experimentItems: import('products/experiments/frontend/generated/api.schemas').ExperimentSessionContextItemApi[],
+                windowIdForTimestamp: (timestamp: number) => number | undefined,
+                windowNumberForID: (windowId: number | undefined) => number | '?' | undefined,
+                start: Dayjs | null
+            ): InspectorListItemMetricEvent[] => {
+                const items: InspectorListItemMetricEvent[] = []
+                for (const item of experimentItems || []) {
+                    // One marker per metric the session hit, at its first occurrence — the direct
+                    // mirror of the exposure marker (which marks the first exposure moment).
+                    for (const hit of item.metrics_in_session || []) {
+                        const { timestamp, timeInRecording } = timeRelativeToStart(
+                            { timestamp: hit.first_timestamp },
+                            start
+                        )
+                        items.push({
+                            type: 'metric-event',
+                            timestamp,
+                            timeInRecording,
+                            search: `metric ${item.experiment_name} ${hit.metric_name}`,
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                            data: {
+                                id: `metric-event-${item.experiment_id}-${hit.metric_uuid}`,
+                                experimentId: item.experiment_id,
+                                experimentName: item.experiment_name,
+                                metricName: hit.metric_name,
+                                eventCount: hit.event_count,
+                            },
+                            key: `metric-event-${item.experiment_id}-${hit.metric_uuid}`,
+                        })
+                    }
+                }
+                return items
+            },
+            { resultEqualityCheck: equal },
+        ],
+
         runtimeDoctorEvents: [
             (s) => [s.start, s.doctorDiagnostics],
             (start: Dayjs | null, doctorDiagnostics: DoctorDiagnostics | null): InspectorListItemDoctor[] => {
@@ -1353,6 +1429,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.segments,
                 s.runtimeDoctorEvents,
                 s.experimentVariantItems,
+                s.metricEventItems,
             ],
             (
                 start: Dayjs | null,
@@ -1369,7 +1446,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 sessionPlayerMetaData: null | import('~/types').SessionRecordingType,
                 segments: import('~/types').RecordingSegment[],
                 runtimeDoctorEvents: InspectorListItemDoctor[],
-                experimentVariantItems: InspectorListItemExperimentVariant[]
+                experimentVariantItems: InspectorListItemExperimentVariant[],
+                metricEventItems: InspectorListItemMetricEvent[]
             ) => {
                 const items: InspectorListItem[] = []
 
@@ -1407,6 +1485,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // Add experiment first-exposure markers
                 for (const item of experimentVariantItems) {
+                    items.push(item)
+                }
+
+                // Add experiment metric first-hit markers
+                for (const item of metricEventItems) {
                     items.push(item)
                 }
 
@@ -1744,17 +1827,28 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allowMatchingEventsFilter: boolean,
                 trackedWindow: number | null,
                 hasEventsToDisplay: boolean
-            ): (InspectorListItemEvent | InspectorListItemComment | InspectorListItemExperimentVariant)[] => {
-                // Pre-filter to only events, comments and experiment variant markers, avoiding the full filterInspectorListItems call
+            ): (
+                | InspectorListItemEvent
+                | InspectorListItemComment
+                | InspectorListItemExperimentVariant
+                | InspectorListItemMetricEvent
+            )[] => {
+                // Pre-filter to only events, comments and experiment markers, avoiding the full filterInspectorListItems call
                 const eventAndCommentItems: (
                     | InspectorListItemEvent
                     | InspectorListItemComment
                     | InspectorListItemExperimentVariant
+                    | InspectorListItemMetricEvent
                 )[] = []
 
                 for (const item of allItemsData.items) {
-                    // Only process events, comments and experiment variant markers
-                    if (item.type !== 'events' && item.type !== 'comment' && item.type !== 'experiment-variant') {
+                    // Only process events, comments and experiment markers
+                    if (
+                        item.type !== 'events' &&
+                        item.type !== 'comment' &&
+                        item.type !== 'experiment-variant' &&
+                        item.type !== 'metric-event'
+                    ) {
                         continue
                     }
 
@@ -1773,6 +1867,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         | InspectorListItemEvent
                         | InspectorListItemComment
                         | InspectorListItemExperimentVariant
+                        | InspectorListItemMetricEvent
 
                     // Apply event-specific filters
                     if (item.type === 'events') {
@@ -1806,7 +1901,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         const isPageView = item.type === 'events' && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
                         const isExperimentVariant = item.type === 'experiment-variant'
-                        return isPrimary || isPageView || isComment || isExperimentVariant
+                        const isMetricEvent = item.type === 'metric-event'
+                        return isPrimary || isPageView || isComment || isExperimentVariant || isMetricEvent
                     })
 
                     // If still too many, sample them
