@@ -32,6 +32,9 @@ export function productEmptyStateStory(
     { config, mocks }: ProductEmptyStateStoryOptions = {}
 ): ProductEmptyStateStory {
     return {
+        // Empty states show a persistent "listening for data" spinner (and animated preview)
+        // by design, so the snapshot runner must not wait for loaders to disappear here.
+        parameters: { testOptions: { waitForLoadersToDisappear: false } },
         args: { config: { ...emptyState.config, ...config }, mode },
         decorators: [
             mswDecorator({
