@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -474,8 +474,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             actions.loadDataWarehouseSavedQueries()
             actions.refreshDatabaseSchema()
         },
-        updateDataWarehouseSavedQueryError: () => {
-            lemonToast.error('Failed to update view')
+        updateDataWarehouseSavedQueryFailure: ({ errorObject }: { errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            lemonToast.error(apiError?.detail || 'Failed to update view')
             actions.loadDataWarehouseSavedQueries()
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
