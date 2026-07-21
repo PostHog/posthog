@@ -43,10 +43,7 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
-from posthog.hogql.transforms.uuid_timestamp_bounds import (
-    apply_uuid_v7_timestamp_bounds,
-    uuid_v7_timestamp_bounds_enabled,
-)
+from posthog.hogql.transforms.uuid_timestamp_bounds import apply_uuid_v7_timestamp_bounds
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -205,11 +202,9 @@ def prepare_ast_for_printing(
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
 
-    # Bound events uuid point lookups by the timestamp embedded in UUIDv7 constants, so they prune
-    # partitions instead of scanning full history. Runs on the typed AST, before predicate pushdown
-    # so the bound rides into its pre-filtering subquery. ClickHouse-only: other dialects have no
-    # events table, and the HogQL dialect must echo the user's query unchanged.
-    if dialect == "clickhouse" and uuid_v7_timestamp_bounds_enabled(context.modifiers):
+    # ClickHouse only: must run before predicate pushdown so the bound lands in its
+    # pre-filtering subquery, and the HogQL dialect must echo the user's query unchanged.
+    if dialect == "clickhouse":
         with context.timings.measure("uuid_v7_timestamp_bounds"):
             node = apply_uuid_v7_timestamp_bounds(node)
 

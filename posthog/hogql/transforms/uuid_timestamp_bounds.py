@@ -1,27 +1,19 @@
-"""Derive events.timestamp bounds from UUIDv7 uuid point lookups.
+"""Add timestamp bounds to events queries that look up rows by UUIDv7 constants.
 
-An events query filtering on `uuid = '<constant>'` with no timestamp filter scans the team's full
-event history. Event UUIDs are UUIDv7: server-assigned ones embed the event's own timestamp, and
-SDK-generated ones embed the client clock at event creation. So a UUIDv7 constant pins the matched
-row's timestamp to the constant's embedded time, give or take client clock skew. When every row a
-SELECT's WHERE can match has its uuid pinned to known UUIDv7 constants, we AND a constant
-`timestamp` range (buffered each side) onto that WHERE, letting ClickHouse prune partitions and
-granules by primary key instead of reading full history.
+Event uuids are UUIDv7, so the uuid constant in `uuid = '<constant>'` carries the row's
+approximate timestamp in its high 48 bits. When every row a WHERE clause can match is pinned
+to known UUIDv7 constants, we AND a buffered constant timestamp range onto that WHERE, so
+ClickHouse prunes partitions instead of scanning the team's full event history.
 
-Fail-safe, mirroring the sessions WhereClauseExtractor: each AND conjunct contributes bounds
-independently; an OR contributes only when every branch is bounded (union of the ranges); NOT and
-anything unrecognized contribute nothing. Constants that are not valid UUIDv7s contribute nothing,
-so lookups for legacy or foreign uuids keep their unbounded scan.
-
-The buffer absorbs divergence between the uuid's embedded clock and the stored (skew-corrected)
-timestamp. Events further out than the buffer — e.g. backfills captured with an SDK-fresh uuid but
-an explicitly historical timestamp — are missed by a bounded lookup; that trade-off is accepted as
-part of the move to all-UUIDv7 event uuids, and `uuidV7TimestampBounds: false` opts a query out.
+The buffer covers clock skew between the uuid's embedded time and the stored timestamp.
+Rows further out than the buffer (for example a backfill sent with a fresh uuid but a
+historical timestamp) will not be found by the bounded lookup. Constants that are not valid
+UUIDv7s contribute nothing, so those lookups keep their unbounded scan.
 """
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -29,15 +21,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
 
-if TYPE_CHECKING:
-    from posthog.schema import HogQLQueryModifiers
-
 UUID_V7_TIMESTAMP_BUFFER = timedelta(days=3)
-
-
-def uuid_v7_timestamp_bounds_enabled(modifiers: "HogQLQueryModifiers") -> bool:
-    """On unless explicitly disabled, so ad-hoc queries benefit without opting in."""
-    return modifiers.uuidV7TimestampBounds is not False
 
 
 def apply_uuid_v7_timestamp_bounds(node: _T_AST) -> _T_AST:
@@ -49,8 +33,8 @@ def apply_uuid_v7_timestamp_bounds(node: _T_AST) -> _T_AST:
 class _Bound:
     lower: datetime
     upper: datetime
-    # Chain prefix of the uuid field reference that produced the bound (e.g. ["e"] for e.uuid),
-    # reused to reference `timestamp` on the same scan.
+    # Chain prefix of the uuid field that produced the bound (["e"] for e.uuid), reused to
+    # reference timestamp on the same scan.
     chain_prefix: list[str | int]
 
 
@@ -66,7 +50,7 @@ def _uuid_v7_embedded_datetime(value: object) -> Optional[datetime]:
         return None
     if parsed.version != 7:
         return None
-    # The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+    # The high 48 bits of a UUIDv7 hold the Unix millisecond timestamp.
     return datetime.fromtimestamp((parsed.int >> 80) / 1000, tz=UTC)
 
 
@@ -99,8 +83,8 @@ class UuidV7TimestampBoundsTransform(TraversingVisitor):
                 bounds = _intersect_bounds(bounds, self._bounds_from_expr(clause, scan_ids))
 
         for scan_id, bound in bounds.items():
-            # The injected fields are typed by hand (this runs after the type resolver), against
-            # the same table type the uuid comparison resolved to.
+            # This runs after the type resolver, so the injected fields are typed by hand
+            # against the same table type the uuid comparison resolved to.
             scan_type = scan_ids[scan_id]
             lower_field = ast.Field(
                 chain=[*bound.chain_prefix, "timestamp"],
@@ -127,7 +111,7 @@ class UuidV7TimestampBoundsTransform(TraversingVisitor):
             node.where = condition if node.where is None else ast.And(exprs=[node.where, condition])
 
     def _events_scan_ids(self, node: ast.SelectQuery) -> dict[int, ast.TableType | ast.TableAliasType]:
-        """Table types of events-table scans in this SELECT's FROM/JOIN chain, keyed by identity."""
+        """Table types of events table scans in this SELECT's FROM/JOIN chain, keyed by identity."""
         result: dict[int, ast.TableType | ast.TableAliasType] = {}
         join = node.select_from
         while join is not None:
@@ -144,6 +128,12 @@ class UuidV7TimestampBoundsTransform(TraversingVisitor):
     def _bounds_from_expr(
         self, expr: ast.Expr, scan_ids: dict[int, ast.TableType | ast.TableAliasType]
     ) -> dict[int, _Bound]:
+        """Derive per-scan timestamp bounds implied by the expression, failing safe to no bound.
+
+        AND conjuncts each contribute bounds on their own. An OR contributes only when every
+        branch is bounded, taking the union of the ranges. NOT and anything unrecognized
+        contribute nothing.
+        """
         if isinstance(expr, ast.And):
             merged: dict[int, _Bound] = {}
             for child in expr.exprs:
@@ -239,7 +229,7 @@ class UuidV7TimestampBoundsTransform(TraversingVisitor):
 
 
 def _intersect_bounds(left: dict[int, _Bound], right: dict[int, _Bound]) -> dict[int, _Bound]:
-    """Merge bounds from two conjuncts; overlapping scans keep the tighter (intersected) range."""
+    """Merge bounds from two conjuncts, keeping the tighter range where both bound the same scan."""
     merged = dict(left)
     for key, bound in right.items():
         existing = merged.get(key)

@@ -106,13 +106,6 @@ class TestUuidTimestampBounds(BaseTest):
         assert "greaterOrEquals" not in printed
         assert "lessOrEquals" not in printed
 
-    def test_modifier_opt_out(self) -> None:
-        printed = self._print(
-            f"SELECT event FROM events WHERE uuid = '{UUID_LATE}'",
-            modifiers=HogQLQueryModifiers(uuidV7TimestampBounds=False),
-        )
-        assert "greaterOrEquals" not in printed
-
     def test_bound_applies_to_the_select_owning_the_lookup(self) -> None:
         printed = self._print(
             f"SELECT event FROM (SELECT event, timestamp FROM events WHERE uuid = '{UUID_LATE}') WHERE timestamp > '2020-01-01'"
