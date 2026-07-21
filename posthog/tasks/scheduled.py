@@ -486,11 +486,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send external data failure digest catch-up",
     )
 
+    # Background net for tables created while nobody visits the warehouse status page. Each
+    # reconcile opens a real warehouse session (one worker pod, billed compute), so the sweep is
+    # deliberately infrequent — the 60s-coalesced status-read path is the interactive fast path.
     sender.add_periodic_task(
-        crontab(minute="*/5"),
+        crontab(minute="17,47"),
         reconcile_all_managed_warehouse_tables_task.s(),
         name="reconcile managed warehouse SQL editor tables",
-        expires=300,
+        expires=1800,
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance

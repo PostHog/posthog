@@ -44,7 +44,10 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 120
+# Live introspection of a large catalog plus the credential handshake can far exceed the
+# digest bound; the select_for_update guards make an overlap harmless, but keep the lock
+# long enough that it stays the normal exclusion mechanism.
+MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
 
@@ -72,6 +75,27 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
     except Exception:
         client.delete(schedule_key)
         raise
+
+
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
+    from products.data_warehouse.backend.managed_warehouse_connection import (  # noqa: PLC0415
+        soft_delete_managed_warehouse_sources,
+    )
+
+    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+
+
+def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
+    soft_delete_managed_warehouse_sources_task.delay(organization_id=str(organization_id))
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")

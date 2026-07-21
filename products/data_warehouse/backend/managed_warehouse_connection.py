@@ -12,6 +12,10 @@ Setup happens in two steps:
 
 This bypasses the user-facing create endpoint because the managed host is internal infrastructure
 and is not reachable for live schema validation during provisioning.
+
+Lifecycle is org-level only: ``soft_delete_managed_warehouse_sources`` handles deprovisioning of
+the whole warehouse. There is no per-team offboarding flow yet — a single team leaving keeps its
+connection until the org deprovisions (revisit if per-team removal becomes a product flow).
 """
 
 from __future__ import annotations
@@ -47,21 +51,6 @@ logger = structlog.get_logger(__name__)
 MANAGED_WAREHOUSE_SOURCE_DESCRIPTION = "Managed warehouse (auto-provisioned)"
 
 
-def managed_warehouse_namespaces(team_id: int, table_suffix: str) -> tuple[set[str], set[tuple[str, str]]]:
-    """Return whole schemas and legacy exact tables owned by a project."""
-    return (
-        {
-            f"team_{team_id}",
-            f"posthog_data_imports_{table_suffix}",
-            f"shadow_{team_id}_models",
-        },
-        {
-            ("posthog", f"events_{table_suffix}"),
-            ("posthog", f"persons_{table_suffix}"),
-        },
-    )
-
-
 def _managed_source_queryset(team_id: int) -> QuerySet[ExternalDataSource]:
     return ExternalDataSource._base_manager.filter(
         team_id=team_id,
@@ -92,6 +81,9 @@ def _ensure_managed_source_locked(
     password: str,
     reader_configured: bool,
 ) -> ExternalDataSource | None:
+    # Deliberately includes soft-deleted rows: a re-enabled membership revives its tombstoned
+    # source (the caller's credential pre-read filters deleted=False, so a revived row always
+    # gets fresh credentials and stays disabled until the handshake completes).
     existing = _managed_source_queryset(team_id).select_for_update().order_by("-created_at").first()
 
     config = _source_config(server, username=username, password=password)
@@ -255,6 +247,11 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
         ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
     except (DuckgresServer.DoesNotExist, Team.DoesNotExist, ValueError):
         return
+    except RuntimeError:
+        # The credential handshake needs the warehouse control plane; while an org is still
+        # provisioning this fails on every sweep, so skip quietly and let the next run retry.
+        logger.info("Managed warehouse reader handshake not possible yet", team_id=team_id)
+        return
 
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
@@ -286,12 +283,27 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
         source_id = source.id
         source_config = dict(source.job_inputs or {})
 
+    # The allowlist mirrors the live Duckgres org-team row (the same row its reader policy is
+    # derived from), so hand-set layouts — legacy overrides like team 2's posthog.events, custom
+    # schema names like devex — stay in sync instead of assuming the suffix-derived scheme.
+    # Introspection also runs AS the reader, so this filter is defense in depth, not the boundary.
+    namespaces = managed_warehouse.project_reader_namespaces(organization_id=organization_id, team_id=team_id)
+    if namespaces is None:
+        return
+    allowed_schemas, allowed_relations = namespaces
+
     source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     config = source_impl.parse_config(source_config)
-    allowed_schemas, allowed_relations = managed_warehouse_namespaces(team_id, table_suffix)
+    try:
+        discovered = source_impl.get_schemas(config, team_id)
+    except Exception:
+        # A provisioning or briefly unreachable warehouse fails here on every periodic sweep;
+        # skip and let the next run retry rather than surfacing a task error each time.
+        logger.warning("Managed warehouse introspection failed; will retry", team_id=team_id, exc_info=True)
+        return
     source_schemas = [
         schema
-        for schema in source_impl.get_schemas(config, team_id)
+        for schema in discovered
         if (schema.source_schema or "", schema.source_table_name or schema.name.rsplit(".", 1)[-1]) in allowed_relations
         or (schema.source_schema or "") in allowed_schemas
     ]
@@ -354,7 +366,7 @@ def _managed_sources_for_org(organization_id: str | UUID) -> QuerySet[ExternalDa
     ).exclude(deleted=True)
 
 
-def update_managed_warehouse_password(*, organization_id: str | UUID, password: str) -> None:
+def update_managed_warehouse_root_password(*, organization_id: str | UUID, password: str) -> None:
     """Refresh the internal root writer without changing project reader credentials."""
     from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 

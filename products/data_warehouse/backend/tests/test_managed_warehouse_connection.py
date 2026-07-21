@@ -16,7 +16,7 @@ from products.data_warehouse.backend.managed_warehouse_connection import (
     ensure_managed_warehouse_direct_source,
     reconcile_managed_warehouse_tables,
     soft_delete_managed_warehouse_sources,
-    update_managed_warehouse_password,
+    update_managed_warehouse_root_password,
 )
 from products.data_warehouse.backend.presentation.views import managed_warehouse
 from products.data_warehouse.backend.tasks import reconcile_all_managed_warehouse_tables_task
@@ -50,8 +50,16 @@ def _mock_project_reader_credentials():
     def configure_project_reader(*, team_id: int, password: str, **_kwargs: object) -> dict[str, str]:
         return {"username": f"posthog_team_{team_id}", "password": password}
 
+    def project_reader_namespaces(*, team_id: int, **_kwargs: object) -> tuple[set[str], set[tuple[str, str]]]:
+        # Mirrors the Duckgres row these tests provision (suffix "prod" layout).
+        return (
+            {f"team_{team_id}", "posthog_data_imports_prod", f"shadow_{team_id}_models"},
+            {("posthog", "events_prod"), ("posthog", "persons_prod")},
+        )
+
     with (
         patch.object(managed_warehouse, "configure_project_reader", side_effect=configure_project_reader) as mocked,
+        patch.object(managed_warehouse, "project_reader_namespaces", side_effect=project_reader_namespaces),
         patch(
             "products.data_warehouse.backend.managed_warehouse_connection.secrets.token_urlsafe",
             return_value=_PROJECT_READER_PASSWORD,
@@ -397,6 +405,54 @@ class TestReconcileManagedWarehouseTables:
         assert schema.table is not None
         assert schema.table.deleted is False
 
+    def test_allowlist_follows_a_legacy_row_with_default_named_overrides(self) -> None:
+        # Team-2 shape: the Duckgres row grants posthog.events/persons via overrides that spell
+        # the derived default names. The local filter must mirror the row, not the suffix scheme.
+        org, team = self._setup()
+        with patch.object(
+            managed_warehouse,
+            "project_reader_namespaces",
+            return_value=(
+                {f"team_{team.id}", "posthog_data_imports_team_2", f"shadow_{team.id}_models"},
+                {("posthog", "events"), ("posthog", "persons")},
+            ),
+        ):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+                return_value=[_source_schema("events"), _source_schema("persons"), _source_schema("events_prod")],
+            ):
+                reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        assert set(ExternalDataSchema.objects.filter(source_id=source.id).values_list("name", flat=True)) == {
+            "posthog.events",
+            "posthog.persons",
+        }
+
+    def test_fails_closed_when_the_team_row_is_missing_or_disabled(self) -> None:
+        org, team = self._setup()
+        with patch.object(managed_warehouse, "project_reader_namespaces", return_value=None):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas"
+            ) as get_schemas:
+                reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        get_schemas.assert_not_called()
+        source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        assert not ExternalDataSchema.objects.filter(source_id=source.id).exists()
+
+    def test_skips_quietly_when_the_warehouse_is_not_reachable(self) -> None:
+        # A provisioning warehouse fails introspection on every sweep; that must not raise.
+        org, team = self._setup()
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            side_effect=ConnectionRefusedError("still provisioning"),
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        assert not ExternalDataSchema.objects.filter(source_id=source.id).exists()
+
     def test_periodic_sweep_schedules_every_managed_project(self) -> None:
         org, team = self._setup()
 
@@ -489,10 +545,10 @@ class TestManagedWarehouseLifecycle:
         source = ensure_managed_warehouse_direct_source(team_id=team.id, organization_id=org.id)
         return org, team, source, server
 
-    def test_update_password_only_rotates_the_internal_root_writer(self) -> None:
+    def test_update_root_password_only_rotates_the_internal_root_writer(self) -> None:
         org, _team, source, server = self._org_team_source()
 
-        update_managed_warehouse_password(organization_id=org.id, password="rotated")
+        update_managed_warehouse_root_password(organization_id=org.id, password="rotated")
 
         source.refresh_from_db()
         server.refresh_from_db()
