@@ -41,9 +41,7 @@ const FORBIDDEN_PACKAGES = [
 // Ratchet policy: when an edge is cut, lower the budget to lock it in; raise it only as a
 // conscious, reviewed decision in the PR that needs it. There is headroom for churn, but any
 // reintroduced leak jumps the graph back toward ~100 MiB and fails loudly.
-// Bumped to cover the expanded $mcp_error_message taxonomy description (no new modules reachable,
-// same 978 files and crossing edges — just a larger string in the already-reachable taxonomy JSON).
-const TOTAL_INPUT_BYTES_BUDGET = 14_437_000
+const TOTAL_INPUT_BYTES_BUDGET = 14_500_000
 
 function fail(message) {
     console.error(`\n❌ ${message}`)

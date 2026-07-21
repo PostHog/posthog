@@ -309,7 +309,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # would otherwise reanchor those rows to "public" (the static fallback) and orphan their
         # existing Delta data. Pin metadata to the OLD schema before saving the cleared config so
         # the rename helper can match correctly.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
             PostgresSourceConfig,
         )
 
@@ -394,7 +394,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # as a separate row. When the user clears the schema, the legacy unqualified row gets
         # renamed to that qualified form — the orphan duplicate must be soft-deleted so the legacy
         # row (with the actual Delta data) is canonical.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
             PostgresSourceConfig,
         )
 
