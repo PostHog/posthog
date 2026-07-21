@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -69,7 +69,7 @@ def _response(body: dict[str, Any]) -> mock.Mock:
 def _collect_pages(response: SourceResponse) -> list[list[dict[str, Any]]]:
     items = response.items()
     assert isinstance(items, Iterable)
-    return list(items)
+    return cast(list[list[dict[str, Any]]], list(items))
 
 
 class TestZendeskSunshineTransport:
