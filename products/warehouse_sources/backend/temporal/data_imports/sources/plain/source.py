@@ -57,6 +57,7 @@ You can create an API key in your [Plain workspace settings](https://app.plain.c
 
 Make sure to grant the following read permissions:
 - customer:read
+- company:read
 - thread:read
 - timeline:read
 - user:read
@@ -89,9 +90,10 @@ Make sure to grant the following read permissions:
         return {
             "401 Client Error": "Invalid Plain credentials. Please check your API key.",
             # Plain fails the whole GraphQL request when the key lacks a scope any requested field needs.
-            # Our customers/threads queries read assignee (user:read) and label (label:read) data on top
-            # of the basics, so name every required scope — retrying a key missing one never succeeds.
-            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read.",
+            # Our customers/threads queries read company (company:read), assignee (user:read), and label
+            # (label:read) data on top of the basics, so name every required scope — retrying a key
+            # missing one never succeeds.
+            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, company:read, thread:read, timeline:read, user:read, label:read.",
         }
 
     def get_schemas(
