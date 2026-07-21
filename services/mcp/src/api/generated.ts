@@ -625,6 +625,8 @@ export namespace Schemas {
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
       useWebAnalyticsPreAggregatedTables?: boolean | null;
+      /** Derive events.timestamp bounds from UUIDv7 constants compared against events.uuid, so uuid point lookups prune partitions instead of scanning full event history. On unless explicitly disabled. * */
+      uuidV7TimestampBounds?: boolean | null;
     }
 
     export interface ClickhouseQueryProgress {
