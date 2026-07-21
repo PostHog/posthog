@@ -628,7 +628,7 @@ def _expr_to_compare_op(
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
         if not isinstance(value, list):
-            raise Exception("IN and NOT IN operators require a list of values")
+            raise QueryError("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     elif operator == PropertyOperator.SEMVER_EQ:
