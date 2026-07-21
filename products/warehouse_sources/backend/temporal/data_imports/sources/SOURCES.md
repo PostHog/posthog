@@ -308,6 +308,7 @@ the row lists both.
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
 | klaus                            | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                          | HTTP                        | requests                                                        | ✅                          |
+| knock                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | koyeb                            | HTTP                        | requests                                                        | ✅                          |
 | kong_konnect                     | HTTP                        | requests                                                        | ✅                          |
 | kubecost                         | HTTP                        | requests                                                        | ✅                          |
@@ -794,7 +795,6 @@ doesn't conflict with concurrent PRs.
 - kisi
 - kissmetrics
 - klarna
-- knock
 - kommo
 - koyeb
 - kyve
