@@ -1695,6 +1695,7 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         DASHBOARD = "dashboard", "Dashboard"
         FILE = "file", "File"
         GITHUB_PR = "github_pr", "GitHub PR"
+        POSTHOG_CANVAS = "canvas", "Canvas"
 
     class Adapter(models.TextChoices):
         SLACK_MESSAGE = "slack_message", "Slack message"
@@ -1709,8 +1710,18 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
-    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts", null=True, blank=True)
+    task_run = models.ForeignKey(
+        TaskRun, on_delete=models.CASCADE, related_name="living_artifacts", null=True, blank=True
+    )
+    channel = models.ForeignKey(
+        Channel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="living_artifacts",
+        db_index=False,
+    )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
@@ -1736,6 +1747,13 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
             models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
+            models.Index(fields=["team", "channel", "-updated_at"], name="task_artifact_team_channel_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(task__isnull=False) | models.Q(channel__isnull=False),
+                name="task_artifact_has_owner",
+            ),
         ]
 
     def __str__(self):
