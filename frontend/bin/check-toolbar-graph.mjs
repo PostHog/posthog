@@ -38,10 +38,14 @@ const FORBIDDEN_PACKAGES = [
     'node_modules/hls.js/',
 ]
 
-// Ratchet policy: when an edge is cut, lower the budget to lock it in; raise it only as a
-// conscious, reviewed decision in the PR that needs it. There is headroom for churn, but any
-// reintroduced leak jumps the graph back toward ~100 MiB and fails loudly.
-const TOTAL_INPUT_BYTES_BUDGET = 14_436_000
+// Ratchet policy: this is the COARSE backstop. The precise boundary enforcement is the
+// crossing-edges baseline above — that is what fails a real leak (which jumps the graph back
+// toward ~100 MiB). This total only needs to sit far enough below that to catch a leak while
+// leaving headroom for ordinary churn: adding a couple of lines to a broadly-imported file like
+// ~/types must not trip it. Keep a few hundred KB of slack; raise it as a conscious, reviewed
+// decision when genuine toolbar-owned growth eats the slack, and never pin it to the exact
+// current size (that turns the backstop into a hair-trigger on unrelated PRs).
+const TOTAL_INPUT_BYTES_BUDGET = 14_600_000
 
 function fail(message) {
     console.error(`\n❌ ${message}`)
