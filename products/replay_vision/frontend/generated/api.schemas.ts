@@ -960,6 +960,61 @@ export interface AffectedCohortResponseApi {
 }
 
 /**
+ * Body of POST /vision/scanners/{id}/bulk_observe/.
+ */
+export interface BulkObserveRequestApi {
+    /**
+     * Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+}
+
+/**
+ * * `started` - Started
+ * * `already_running` - Already running
+ * * `skipped_limit` - Skipped — in-flight limit reached
+ * * `skipped_quota` - Skipped — monthly credit quota reached
+ * * `failed` - Failed to start
+ */
+export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
+
+export const ScanOutcomeEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+    SkippedLimit: 'skipped_limit',
+    SkippedQuota: 'skipped_quota',
+    Failed: 'failed',
+} as const
+
+/**
+ * Per-session outcome of a bulk scan trigger.
+ */
+export interface BulkObserveResultApi {
+    /** The session recording this outcome is for. */
+    session_id: string
+    /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
+     *
+     * * `started` - Started
+     * * `already_running` - Already running
+     * * `skipped_limit` - Skipped — in-flight limit reached
+     * * `skipped_quota` - Skipped — monthly credit quota reached
+     * * `failed` - Failed to start */
+    scan_outcome: ScanOutcomeEnumApi
+}
+
+/**
+ * Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design.
+ */
+export interface BulkObserveResponseApi {
+    /** How many new scans were started. */
+    started: number
+    /** Per-session outcomes, in request order (deduplicated). */
+    results: BulkObserveResultApi[]
+}
+
+/**
  * Who this scanner's findings affected in the window; counted from observations, not estimated.
  */
 export interface ScannerImpactApi {

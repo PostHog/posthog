@@ -67,13 +67,18 @@ from products.replay_vision.backend.queries import (
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.quota import (
+    compute_quota_snapshot,
     credits_used_by_scanner,
     current_period_bounds,
     sum_enabled_scanner_estimated_credits,
 )
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.temporal.constants import (
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    MAX_SESSION_ID_LENGTH,
+)
 from products.replay_vision.backend.temporal.scanners import validate_scanner_config
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -587,6 +592,60 @@ class ObserveResponseSerializer(serializers.Serializer):
     )
 
 
+# One request can start at most this many scans. Bounds the fan-out of a single bulk trigger well
+# under the in-flight caps; the frontend selects from one loaded page, so this is rarely the binding
+# limit — the concurrency headroom usually is.
+BULK_OBSERVE_MAX_SESSIONS = 200
+
+
+class BulkObserveRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/{id}/bulk_observe/."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
+        allow_empty=False,
+        max_length=BULK_OBSERVE_MAX_SESSIONS,
+        help_text=(
+            f"Session recording IDs to scan on demand, at most {BULK_OBSERVE_MAX_SESSIONS} per request. "
+            "Scans start until the in-flight limit or monthly credit quota is reached; the rest are "
+            "reported as skipped rather than failing the whole batch. Already-running sessions are a no-op."
+        ),
+    )
+
+
+class BulkObserveResultSerializer(serializers.Serializer):
+    """Per-session outcome of a bulk scan trigger."""
+
+    session_id = serializers.CharField(help_text="The session recording this outcome is for.")
+    # Named scan_outcome (not outcome) so its generated enum doesn't collide with other products'
+    # `outcome` enums — a bare `outcome` ChoiceField forces the shared OutcomeEnum to be renamed.
+    scan_outcome = serializers.ChoiceField(
+        choices=[
+            ("started", "Started"),
+            ("already_running", "Already running"),
+            ("skipped_limit", "Skipped — in-flight limit reached"),
+            ("skipped_quota", "Skipped — monthly credit quota reached"),
+            ("failed", "Failed to start"),
+        ],
+        help_text=(
+            "'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is "
+            "already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached "
+            "before this session; 'skipped_quota' — the monthly credit quota would be exceeded; "
+            "'failed' — the workflow failed to start."
+        ),
+    )
+
+
+class BulkObserveResponseSerializer(serializers.Serializer):
+    """Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design."""
+
+    started = serializers.IntegerField(help_text="How many new scans were started.")
+    results = BulkObserveResultSerializer(
+        many=True,
+        help_text="Per-session outcomes, in request order (deduplicated).",
+    )
+
+
 class EstimateRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
 
@@ -992,6 +1051,78 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @extend_schema(
+        request=BulkObserveRequestSerializer,
+        responses={202: BulkObserveResponseSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="bulk_observe",
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+    )
+    def bulk_observe(self, request: Request, **kwargs: Any) -> Response:
+        """Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight
+        caps and monthly credit quota, reporting the rest as skipped rather than failing the batch."""
+        scanner = self.get_object()
+        # Observation output exposes recording contents, so this requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Triggering on-demand observations requires session_recording read access.")
+
+        body = BulkObserveRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        # Dedup preserving order — the same session twice in one batch would just be a wasted no-op.
+        session_ids = list(dict.fromkeys(body.validated_data["session_ids"]))
+        user = cast(User, request.user)
+
+        # "Scan what fits": compute how many NEW scans can start once, up front. The tighter of the
+        # in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
+        # the user knows which limit they hit. Decrementing a local counter as we start models each new
+        # in-flight row without re-querying (a started scan consumes exactly one slot).
+        max_starts, skip_reason = self._bulk_observe_headroom(scanner)
+        results: list[dict[str, str]] = []
+        started = 0
+        for session_id in session_ids:
+            if started >= max_starts:
+                results.append({"session_id": session_id, "scan_outcome": skip_reason})
+                continue
+            workflow_id, outcome = start_apply_scanner_workflow(
+                scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
+            )
+            if outcome is WorkflowStartOutcome.STARTED:
+                started += 1
+                results.append({"session_id": session_id, "scan_outcome": "started"})
+            elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
+                # Already in flight — counted in the caps already, so it consumes no new headroom.
+                results.append({"session_id": session_id, "scan_outcome": "already_running"})
+            else:
+                results.append({"session_id": session_id, "scan_outcome": "failed"})
+
+        return Response(
+            BulkObserveResponseSerializer({"started": started, "results": results}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str]:
+        """(max_starts, skip_reason): how many new scans can start, and the reason once that's used up."""
+        team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
+        scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
+        in_flight_limit = max(
+            0,
+            min(
+                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+            ),
+        )
+        snapshot = compute_quota_snapshot(self.team.organization_id)
+        cost = observation_credits_for_model(scanner.model)
+        # Uncapped org (remaining None) → quota never binds; otherwise how many of THIS model's cost fit.
+        quota_limit = in_flight_limit if snapshot.remaining is None else (snapshot.remaining // cost if cost else 0)
+        # Report quota as the reason only when it's the strictly tighter limit.
+        if quota_limit < in_flight_limit:
+            return quota_limit, "skipped_quota"
+        return in_flight_limit, "skipped_limit"
 
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(
