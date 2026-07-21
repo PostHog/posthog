@@ -234,6 +234,10 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             }
             try {
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
+                // Keep the digest in the shared list — scannerDigestLogic (the Observations-tab card)
+                // reads it from here via is_scanner_digest. The Summaries-and-alerts table filters it
+                // out at render time instead, so the card and the table can disagree without this
+                // source hiding the digest from both.
                 actions.loadActionsSuccess(response.results ?? [])
             } catch (error: any) {
                 lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)
