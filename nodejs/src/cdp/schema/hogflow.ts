@@ -19,13 +19,19 @@ const _commonActionFields = {
                 label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
             }),
             z.array(
-                z.object({
-                    key: z.string(),
-                    result_path: z.string().optional().nullable(),
-                    spread: z.boolean().optional().nullable(),
-                    label: z.string().optional().nullable(),
-                })
+                z.union([
+                    z.object({
+                        key: z.string(),
+                        result_path: z.string().optional().nullable(),
+                        spread: z.boolean().optional().nullable(),
+                        label: z.string().optional().nullable(),
+                    }),
+                    // Rows written before the API coerced bare key strings — normalize at read so
+                    // one legacy value can't make the whole flow row unparseable.
+                    z.string().transform((key) => ({ key })),
+                ])
             ),
+            z.string().transform((key) => ({ key })),
         ])
         .optional()
         .nullable(),

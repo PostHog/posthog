@@ -419,13 +419,25 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
 
     def validate_output_variable(self, value):
-        # The worker only parses {key, ...} objects; a bare key string stored as-is makes the whole
-        # flow row unparseable for the worker, so coerce it to the canonical shape.
-        if isinstance(value, str):
-            return {"key": value}
+        # The worker only parses {key, ...} objects; anything else stored here makes the whole flow
+        # row unparseable for the worker. Coerce a bare key string to the canonical shape and reject
+        # the rest at write time.
+        if value is None:
+            return value
+
+        def coerce(entry: Any) -> dict:
+            if isinstance(entry, str) and entry:
+                return {"key": entry}
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str) and entry["key"]:
+                return entry
+            raise serializers.ValidationError(
+                "output_variable must be an object with a non-empty string 'key' (or a list of those); "
+                "a bare string is accepted as the key."
+            )
+
         if isinstance(value, list):
-            return [{"key": entry} if isinstance(entry, str) else entry for entry in value]
-        return value
+            return [coerce(entry) for entry in value]
+        return coerce(value)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
