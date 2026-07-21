@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
@@ -13,7 +14,11 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
-from products.review_hog.backend.temporal.activities import ValidateChunkInput, validate_chunk_activity
+from products.review_hog.backend.temporal.activities import (
+    ValidateChunkInput,
+    _salvage_validation_from_prose,
+    validate_chunk_activity,
+)
 
 _MODULE = "products.review_hog.backend.temporal.activities"
 _CHUNK_ID = 3
@@ -160,6 +165,27 @@ async def test_final_attempt_skips_the_failed_turn_and_continues_on_a_fresh_sess
     assert [call.args[0] for call in mock_end.await_args_list] == [first_session, fresh_session]
     # The wedged session ends failed; the fresh one finished the chunk cleanly and ends completed.
     assert [call.kwargs["status"] for call in mock_end.await_args_list] == ["failed", "completed"]
+
+
+@parameterized.expand(
+    [
+        ("prose", "- **Checked:** the filter\n- **Found:** it's fine", True),
+        ("blank", "   \n  ", False),
+    ]
+)
+def test_salvage_from_prose_dismisses_and_keeps_a_persistable_argumentation(
+    _name: str, text: str, expect_prose_kept: bool
+) -> None:
+    # A prose first turn is degraded into a dismissal so it never posts an unverified finding to the PR
+    # (is_valid must stay False), and the argumentation must be non-empty — persist_verdict silently
+    # drops a verdict whose argumentation fails the durable ValidationVerdict schema.
+    verdict = _salvage_validation_from_prose(text)
+    assert verdict.is_valid is False
+    assert verdict.argumentation.strip()
+    if expect_prose_kept:
+        assert text.strip() in verdict.argumentation
+    else:
+        assert "empty turn" in verdict.argumentation
 
 
 @pytest.mark.asyncio

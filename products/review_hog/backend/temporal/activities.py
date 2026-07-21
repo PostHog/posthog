@@ -1020,6 +1020,26 @@ def _load_validation_context(
     return chunk, snapshot.pr_metadata, snapshot.pr_files
 
 
+def _salvage_validation_from_prose(text: str) -> IssueValidation:
+    """Turn a prose first turn into a dismissed verdict instead of failing the chunk.
+
+    The validator's first turn must emit an `IssueValidation` JSON object; occasionally the agent
+    ends with prose (its analysis, unwrapped) and no JSON. Raising there burns a Temporal chunk retry
+    and mints error-tracking noise per distinct prose opening, yet the net outcome is the same as here:
+    the issue goes unposted. So dismiss the finding — a dismissal (`is_valid=False`) never reaches the
+    PR — and keep the raw text as the verdict's argumentation for a discoverable trace.
+    """
+    salvaged = text.strip()
+    if salvaged:
+        argumentation = (
+            "Validator ended with prose instead of a JSON verdict; dismissing so the finding isn't "
+            "posted without a confirmed verdict. Raw agent output follows:\n\n" + salvaged
+        )
+    else:
+        argumentation = "Validator ended with an empty turn instead of a JSON verdict; dismissing the finding."
+    return IssueValidation(is_valid=False, argumentation=argumentation)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1081,6 +1101,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             model=VALIDATION_MODEL,
                             reasoning_effort=VALIDATION_REASONING_EFFORT,
                             initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+                            # A prose first turn (no JSON verdict) is salvaged into a dismissed verdict
+                            # instead of raising — see `_salvage_validation_from_prose`. This is the
+                            # ~41/day handled failure that otherwise burns a chunk retry per occurrence.
+                            fallback_from_text=_salvage_validation_from_prose,
                         )
                     else:
                         validation = await continue_sandbox_session(

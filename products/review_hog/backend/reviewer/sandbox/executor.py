@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -123,6 +124,7 @@ async def start_sandbox_session(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    fallback_from_text: Callable[[str], _ModelT] | None = None,
 ) -> tuple[MultiTurnSession, _ModelT]:
     """Open a multi-turn sandbox session and return it with its first validated turn.
 
@@ -133,6 +135,12 @@ async def start_sandbox_session(
     ``runtime_adapter`` / ``model`` / ``reasoning_effort`` / ``initial_permission_mode`` pin the
     session's LLM exactly like ``run_sandbox_review``'s kwargs; all-``None`` keeps the agent server's
     default. The pin applies to the whole session — every follow-up turn runs on the opener's model.
+
+    ``fallback_from_text``, when given, salvages a first turn whose text failed to parse/validate
+    against ``model_to_validate`` (e.g. the agent ended with prose instead of the required JSON):
+    instead of raising and losing the whole session, the callback builds a degraded ``model_to_validate``
+    from the raw end-turn text so the caller still gets a (live) session and a usable result. Leaving it
+    ``None`` keeps the strict behavior (a parse failure ends the session and raises).
     """
     full_prompt = f"{system_prompt}\n\n{prompt}"
     context = CustomPromptSandboxContext(
@@ -156,6 +164,7 @@ async def start_sandbox_session(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            fallback_from_text=fallback_from_text,
         )
     except Exception:
         logger.exception("Sandbox session start failed")

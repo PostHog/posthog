@@ -141,6 +141,27 @@ class TestRunSandboxReview:
         assert call_kwargs["ai_stage"] == "validation-c3"
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
 
+    @pytest.mark.asyncio
+    async def test_fallback_from_text_forwards_to_start(self) -> None:
+        # The prose-salvage callback must reach MultiTurnSession.start — if it's dropped, a prose first
+        # turn raises again instead of degrading, reviving the handled-but-noisy chunk-retry failure.
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+        fallback = lambda text: DummyModel(result=text)
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await start_sandbox_session(
+                team_id=1,
+                user_id=2,
+                repository="test/repo",
+                branch="b",
+                prompt="p",
+                system_prompt="s",
+                model_to_validate=DummyModel,
+                fallback_from_text=fallback,
+            )
+
+        assert mock_start.call_args.kwargs["fallback_from_text"] is fallback
+
     @parameterized.expand(
         [
             ("clean_teardown", {}, "completed", None),
