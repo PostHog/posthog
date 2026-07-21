@@ -8,6 +8,12 @@ TWELVE_DATA_BASE_URL = "https://api.twelvedata.com"
 # Hard cap the API enforces on /time_series `outputsize`.
 TIME_SERIES_PAGE_SIZE = 5000
 
+# Bounds on import fan-out: every per-symbol table issues one request per configured symbol, and
+# /time_series pages further toward the start date, so both dimensions need a ceiling. Enforced at
+# config validation AND at sync time, so a previously stored config can't bypass them.
+MAX_SYMBOLS = 100
+MAX_TIME_SERIES_PAGES_PER_SYMBOL = 50
+
 TIME_SERIES_ENDPOINT = "time_series"
 
 TIME_SERIES_INTERVALS = (

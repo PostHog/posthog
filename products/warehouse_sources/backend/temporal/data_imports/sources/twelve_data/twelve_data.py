@@ -11,6 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.settings import (
     ENDPOINTS,
+    MAX_SYMBOLS,
+    MAX_TIME_SERIES_PAGES_PER_SYMBOL,
     TIME_SERIES_ENDPOINT,
     TIME_SERIES_PAGE_SIZE,
     TWELVE_DATA_BASE_URL,
@@ -116,6 +118,7 @@ def _time_series_pages(
     interval: str,
     start_date: str | None,
     seeded_end_date: str | None,
+    logger: FilteringBoundLogger,
 ) -> Iterator[tuple[list[dict], str | None]]:
     """Walk a symbol's bars from newest to oldest, yielding ``(rows, next_end_date)`` per page.
 
@@ -123,13 +126,25 @@ def _time_series_pages(
     requested order (verified against the live API), so history deeper than one page is reached by
     moving ``end_date`` back to the oldest bar received. Without a lower bound (no ``start_date``)
     only the most recent page is fetched, keeping first syncs bounded on high-frequency intervals.
+    The walk is additionally capped at ``MAX_TIME_SERIES_PAGES_PER_SYMBOL`` pages per run so an
+    arbitrarily old start date on a minute interval can't occupy a worker with unbounded requests.
     """
     end_date = seeded_end_date
     # Oldest datetime already yielded — end_date is inclusive, so the boundary bar comes back on
     # the next page and must be dropped to avoid duplicate rows within one sync.
     boundary = seeded_end_date
+    pages_fetched = 0
 
     while True:
+        if pages_fetched >= MAX_TIME_SERIES_PAGES_PER_SYMBOL:
+            logger.warning(
+                "Twelve Data: time_series page cap reached, stopping history walk",
+                symbol=symbol,
+                interval=interval,
+                start_date=start_date,
+                pages_fetched=pages_fetched,
+            )
+            return
         params: dict[str, Any] = {
             "symbol": symbol,
             "interval": interval,
@@ -142,6 +157,7 @@ def _time_series_pages(
             params["end_date"] = end_date
 
         body = _fetch(session, "/time_series", params)
+        pages_fetched += 1
         if body is None:
             return
 
@@ -185,6 +201,13 @@ def twelve_data_rows(
         yield from _catalog_rows(session, endpoint_config)
         return
 
+    # Re-checked at sync time (not just config validation) so a previously stored config can't
+    # bypass the fan-out cap.
+    if len(symbols) > MAX_SYMBOLS:
+        raise TwelveDataError(
+            f"Twelve Data symbol limit exceeded: {len(symbols)} symbols configured, maximum is {MAX_SYMBOLS}"
+        )
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     completed = [s for s in (resume.completed_symbols if resume else []) if s in symbols]
     resume_symbol = resume.current_symbol if resume else None
@@ -207,7 +230,9 @@ def twelve_data_rows(
 
         if endpoint == TIME_SERIES_ENDPOINT:
             seeded_end_date = resume_end_date if symbol == resume_symbol else None
-            for rows, next_end_date in _time_series_pages(session, symbol, interval, start_date, seeded_end_date):
+            for rows, next_end_date in _time_series_pages(
+                session, symbol, interval, start_date, seeded_end_date, logger
+            ):
                 yield rows
                 # Save AFTER yielding so a crash re-yields the last page instead of skipping it;
                 # merge dedupes the overlap on the primary key.

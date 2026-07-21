@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_dat
     DEFAULT_TIME_SERIES_INTERVAL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAX_SYMBOLS,
     TIME_SERIES_INTERVALS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.twelve_data import (
@@ -57,6 +58,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
             "Twelve Data API error 401": "Your Twelve Data API key is invalid or missing. Check the key and reconnect the source.",
             "Twelve Data API error 403": "Your Twelve Data plan does not include access to this data. Upgrade your plan or deselect the table.",
             "Twelve Data API error 404": "Twelve Data could not find one of the configured symbols. Check the symbols list in the source settings.",
+            "Twelve Data symbol limit exceeded": f"Too many symbols configured for the Twelve Data source. Reduce the list to at most {MAX_SYMBOLS} symbols.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -84,8 +86,11 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
     def validate_credentials(
         self, config: TwelveDataSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if not parse_symbols(config.symbols):
+        symbols = parse_symbols(config.symbols)
+        if not symbols:
             return False, "Enter at least one symbol to sync"
+        if len(symbols) > MAX_SYMBOLS:
+            return False, f"Too many symbols — the maximum is {MAX_SYMBOLS}"
 
         return validate_twelve_data_credentials(config.api_key)
 
@@ -141,7 +146,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                         required=True,
                         placeholder="AAPL, MSFT, EUR/USD",
                         secret=False,
-                        caption="Comma-separated list of symbols to sync in the time series, quotes, dividends, splits, and earnings tables. Each Twelve Data request is charged per symbol, so a longer list uses more of your plan's API credits.",
+                        caption=f"Comma-separated list of up to {MAX_SYMBOLS} symbols to sync in the time series, quotes, dividends, splits, and earnings tables. Each Twelve Data request is charged per symbol, so a longer list uses more of your plan's API credits.",
                     ),
                     SourceFieldSelectConfig(
                         name="interval",

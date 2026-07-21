@@ -126,6 +126,15 @@ class TestTwelveDataSource:
         assert error == "Enter at least one symbol to sync"
         probe.assert_not_called()
 
+    def test_validate_credentials_rejects_too_many_symbols(self) -> None:
+        # Guards the fan-out cap: every per-symbol table issues one request per symbol.
+        symbols = ",".join(f"S{i}" for i in range(source_module.MAX_SYMBOLS + 1))
+        with mock.patch.object(source_module, "validate_twelve_data_credentials") as probe:
+            ok, error = self.source.validate_credentials(_config(symbols=symbols), team_id=1)
+        assert ok is False
+        assert error == f"Too many symbols — the maximum is {source_module.MAX_SYMBOLS}"
+        probe.assert_not_called()
+
     def test_resumable_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_inputs("time_series"))
         assert manager._data_class is TwelveDataResumeConfig

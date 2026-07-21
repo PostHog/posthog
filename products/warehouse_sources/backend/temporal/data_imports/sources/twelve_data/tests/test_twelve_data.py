@@ -187,6 +187,12 @@ class TestPerSymbolEndpoints:
         assert saved[0].completed_symbols == ["AAPL"]
         assert saved[-1].completed_symbols == ["AAPL", "MSFT"]
 
+    def test_sync_rejects_too_many_symbols(self) -> None:
+        # The cap must hold at sync time too, so a stored config can't bypass validation.
+        symbols = [f"S{i}" for i in range(twelve_data.MAX_SYMBOLS + 1)]
+        with pytest.raises(TwelveDataError, match="Twelve Data symbol limit exceeded"):
+            _run("quotes", [], symbols=symbols)
+
     def test_resume_skips_completed_symbols(self) -> None:
         resume = TwelveDataResumeConfig(completed_symbols=["AAPL"])
         responses = [_response({"meta": {"symbol": "MSFT"}, "splits": [{"date": "2003-02-18", "ratio": 0.5}]})]
@@ -253,6 +259,22 @@ class TestTimeSeries:
             responses[0]._content = json.dumps(_time_series_body("AAPL", ["2020-01-02"])).encode()
             _batches, session, _ = _run("time_series", responses, config_start_date="2020-01-01")
         assert _params(session, 0)["start_date"] == "2020-01-01"
+
+    def test_page_cap_stops_history_walk(self) -> None:
+        # An arbitrarily old start date on a minute interval must not walk history unbounded.
+        with (
+            mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 2),
+            mock.patch.object(twelve_data, "MAX_TIME_SERIES_PAGES_PER_SYMBOL", 2),
+        ):
+            responses = [
+                _response(_time_series_body("AAPL", ["2026-07-21", "2026-07-20"])),
+                _response(_time_series_body("AAPL", ["2026-07-20", "2026-07-19"])),
+                # Would be page 3 — must never be requested.
+                _response(_time_series_body("AAPL", ["2026-07-19", "2026-07-18"])),
+            ]
+            batches, session, _ = _run("time_series", responses, config_start_date="2000-01-01")
+        assert session.get.call_count == 2
+        assert [row["datetime"] for batch in batches for row in batch] == ["2026-07-21", "2026-07-20", "2026-07-19"]
 
     def test_resume_mid_symbol_seeds_end_date_and_dedupes_boundary(self) -> None:
         resume = TwelveDataResumeConfig(completed_symbols=[], current_symbol="AAPL", next_end_date="2026-07-20")
