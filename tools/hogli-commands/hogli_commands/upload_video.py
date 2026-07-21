@@ -26,11 +26,6 @@ _MAX_MB: Final = 10
 _COMMIT_MESSAGE: Final = "add video"
 
 
-def _escape_label(text: str) -> str:
-    """Escape the one markdown metacharacter that would truncate link text."""
-    return text.replace("]", "\\]")
-
-
 @click.command(name="pr:upload-video")
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--label", help="Link text for the markdown (defaults to each file's stem).")
@@ -82,6 +77,8 @@ def upload_video(files: tuple[Path, ...], label: str | None, yes: bool) -> None:
         click.secho(f"Uploading {path.name} → {pr_assets.REPO}/{key} …", fg="cyan", err=True)
         sha = pr_assets.upload(path, key, token, session, message=_COMMIT_MESSAGE)
         text = label if label is not None else path.stem
-        markdown = f"[{_escape_label(text)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
+        markdown = (
+            f"[{pr_assets.escape_markdown_label(text)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
+        )
         click.echo(markdown)  # stdout carries only the markdown, so callers can pipe it
         click.secho(f"✓ uploaded {path.name}", fg="green", err=True)

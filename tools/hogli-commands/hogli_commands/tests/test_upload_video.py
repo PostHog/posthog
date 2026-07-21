@@ -87,10 +87,16 @@ def test_upload_uses_video_commit_message(mp4: Path, monkeypatch: pytest.MonkeyP
     assert session.put.call_args.kwargs["json"]["message"] == "add video"
 
 
-def test_label_rejected_for_multiple_files(mp4: Path, tmp_path: Path) -> None:
+def test_label_rejected_for_multiple_files(mp4: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Isolate the network so a guard regression fails loudly here instead of PUTting to
+    # the public repo from a token-bearing machine.
     other = tmp_path / "second.webm"
     other.write_bytes(b"webm fake")
-    result = CliRunner(mix_stderr=False).invoke(
-        upload_video.upload_video, ["--yes", "--label", "demo", str(mp4), str(other)]
-    )
+    monkeypatch.setenv("GH_TOKEN", "tok")
+    session = _session(_resp(201, "x"))
+    with patch.object(upload_video.requests, "Session", return_value=session):
+        result = CliRunner(mix_stderr=False).invoke(
+            upload_video.upload_video, ["--yes", "--label", "demo", str(mp4), str(other)]
+        )
     assert result.exit_code != 0
+    session.put.assert_not_called()

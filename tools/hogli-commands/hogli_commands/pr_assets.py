@@ -29,6 +29,11 @@ PUBLIC_WARNING: Final = (
 )
 
 
+def escape_markdown_label(text: str) -> str:
+    """Escape the one markdown metacharacter that would truncate alt or link text."""
+    return text.replace("]", "\\]")
+
+
 def make_key(ext: str) -> str:
     """Object key for an upload: ``YYYY/MM/<uuid4>.<ext>`` in UTC.
 

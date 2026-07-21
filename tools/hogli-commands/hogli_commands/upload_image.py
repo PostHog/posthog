@@ -29,11 +29,6 @@ _MAX_MB: Final = 10  # GitHub caps image/gif attachments at 10 MB; larger is a v
 _COMMIT_MESSAGE: Final = "add screenshot"
 
 
-def _escape_alt(text: str) -> str:
-    """Escape the one markdown metacharacter that would truncate image alt text."""
-    return text.replace("]", "\\]")
-
-
 @click.command(name="pr:upload-image")
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--alt", help="Alt text for the markdown (defaults to each file's stem).")
@@ -86,6 +81,6 @@ def upload_image(files: tuple[Path, ...], alt: str | None, yes: bool) -> None:
         click.secho(f"Uploading {path.name} → {pr_assets.REPO}/{key} …", fg="cyan", err=True)
         sha = pr_assets.upload(path, key, token, session, message=_COMMIT_MESSAGE)
         caption = alt if alt is not None else path.stem
-        markdown = f"![{_escape_alt(caption)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
+        markdown = f"![{pr_assets.escape_markdown_label(caption)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
         click.echo(markdown)  # stdout carries only the markdown, so callers can pipe it
         click.secho(f"✓ uploaded {path.name}", fg="green", err=True)
