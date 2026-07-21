@@ -643,7 +643,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
         )
 
         can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
-        hide_members_without_access = not can_edit and not team.organization.members_can_see_org_members
+        hide_members_without_access = (
+            not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
+        )
 
         results = []
         for membership in memberships:

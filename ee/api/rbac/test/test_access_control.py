@@ -2030,10 +2030,20 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert self._find_member(data["results"], self.user2_membership.id) is not None
         assert self._find_member(data["results"], self.organization_membership.id) is not None
 
-        # Editors (org admins) always see the full roster so they can grant access
+        # Org admins always see the full roster so they can grant access
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self.client.get("/api/projects/@current/access_control_members")
         assert self._find_member(res.json()["results"], user3_membership.id) is not None
+
+        # Explicit project admins who aren't org admins can edit, but still don't see the full roster
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        data = res.json()
+        assert data["can_edit"] is True
+        assert self._find_member(data["results"], user3_membership.id) is None
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
