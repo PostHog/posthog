@@ -1,6 +1,7 @@
 """
 Unit tests for the agent-ingress HTTP client (logic/ingress_client.py) — the thin
-transport behind the `agent-applications-invoke` / `agent-applications-send` / `agent-applications-listen` MCP tools. The
+transport behind the `agent-applications-invoke` / `agent-applications-send` /
+`agent-applications-cancel` / `agent-applications-listen` MCP tools. The
 viewset bridge is covered in test_agent_runtime_bridge.py against a mocked client;
 here we test the client itself in isolation by stubbing the outbound
 `internal_requests.request`, so no live ingress process is needed. Focus: the
@@ -131,6 +132,17 @@ class TestIngressClientRoutes(SimpleTestCase):
         args, kwargs = mock_ingress.request.call_args
         self.assertEqual(args[1], "http://ingress.test/agents/my-agent/send")
         self.assertEqual(kwargs["json"], {"session_id": "s1", "message": "more"})
+
+    @patch(_INGRESS)
+    def test_cancel_assembles_body_and_forwards_bearer(self, mock_ingress: MagicMock) -> None:
+        mock_ingress.request.return_value = _resp(
+            200, json_body={"ok": True, "idempotent": False, "state": "cancelled"}, content=b"{}"
+        )
+        self.ingress_client.cancel("my-agent", session_id="s1", authorization="Bearer x")
+        args, kwargs = mock_ingress.request.call_args
+        self.assertEqual(args[1], "http://ingress.test/agents/my-agent/cancel")
+        self.assertEqual(kwargs["json"], {"session_id": "s1"})
+        self.assertEqual(kwargs["headers"]["authorization"], "Bearer x")
 
     @override_settings(AGENT_INTERNAL_SIGNING_KEY=_SIGNING_KEY)
     @patch(_INGRESS)

@@ -1,11 +1,11 @@
 """
 Thin HTTP client for the agent-ingress service — the LIVE (promoted-revision)
-runtime surface behind the `agent-invoke` / `agent-send` / `agent-listen` MCP
-tools. Two auth stances:
+runtime surface behind the `agent-invoke` / `agent-send` / `agent-cancel` /
+`agent-listen` MCP tools. Two auth stances:
 
-  - run() / send() forward the CALLER's PAT (`Authorization: Bearer …`) so the
-    ingress `posthog` auth mode re-introspects it and the session principal is
-    the real caller — preserving ACL on later send/listen. See
+  - run() / send() / cancel() forward the CALLER's PAT (`Authorization: Bearer …`)
+    so the ingress `posthog` auth mode re-introspects it and the session principal
+    is the real caller — preserving ACL on later send/listen. See
     services/agent-ingress/src/enqueue/auth.ts.
   - session_digest() is an internal read RPC: a short-lived aud=`agent-ingress.rpc`
     JWT sent as `x-internal-secret`, the same idiom the janitor client uses.
@@ -105,6 +105,14 @@ class IngressClient:
             f"/agents/{slug}/send",
             headers=self._forward_headers(authorization),
             json={"session_id": session_id, "message": message},
+        )
+
+    def cancel(self, slug: str, *, session_id: str, authorization: str | None) -> dict:
+        return self._call(
+            "POST",
+            f"/agents/{slug}/cancel",
+            headers=self._forward_headers(authorization),
+            json={"session_id": session_id},
         )
 
     # ── internal read RPC: session digest ────────────────────────────────────

@@ -773,6 +773,16 @@ describe('ingress HTTP server (path mode)', () => {
             .send({ message: 'hi' })
         expect(pathRes.status).toBe(200)
         expect(pathRes.body.session_id).not.toBeUndefined()
+        // Every chat route rides the same alias mount — /cancel included, since
+        // Django's agent_cancel bridge addresses the ingress Service the same way.
+        const cancelRes = await request(app)
+            .post('/agents/alias-agent/cancel')
+            .set('Host', 'agent-ingress.svc.cluster.local:3030')
+            .send({ session_id: pathRes.body.session_id })
+        expect(cancelRes.status).toBe(200)
+        // `idempotent` must be explicit (not just absent-and-falsy): Django's
+        // agent_cancel bridge fails closed on a 2xx body missing it.
+        expect(cancelRes.body).toMatchObject({ ok: true, idempotent: false, state: 'cancelled' })
     })
 
     it('domain mode resolves a non-live revision through the path alias (preview-proxy URL shape)', async () => {

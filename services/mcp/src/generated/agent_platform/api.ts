@@ -164,7 +164,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -249,7 +249,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -1033,15 +1033,18 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     )
 
 /**
- * Append a message to an existing LIVE session and re-queue it.
+ * Append a message to an existing LIVE session.
  *
  * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
  * so the ACL principal-match passes. A `completed` session is NOT terminal —
  * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
- * another turn; only truly-terminal states (failed / cancelled / closed) 410,
- * which passes through as a 410. A janitor ownership pre-check runs first, but
- * it's redundant defense-in-depth (ingress `/send` already app-scopes the
- * load), kept for a clean early 404.
+ * another turn; a `running` session buffers the message and drains it at its
+ * next model-call boundary. Only truly-terminal states (failed / cancelled /
+ * closed) 410, which passes through as a 410. Ingress acks an accepted send
+ * with a bare `{ok: true}`, so the `queued` in the response here is an
+ * acceptance acknowledgment, not a live state read. A janitor ownership
+ * pre-check runs first, but it's redundant defense-in-depth (ingress `/send`
+ * already app-scopes the load), kept for a clean early 404.
  */
 export const AgentApplicationsSendParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
