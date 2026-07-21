@@ -23,8 +23,11 @@ const baselinePath = path.join(__dirname, 'toolbar-graph-baseline.json')
 // 2. Packages on the toolbar denylist (toolbar-config.mjs) must stay absent entirely —
 //    their presence means the deny plugin regressed.
 //
-// 3. A coarse total-input-bytes ratchet backstops everything else. The eager/shipped-size
-//    budget lives in check-toolbar-size.mjs; this one only catches graph-reachability creep.
+// This check enforces the module BOUNDARY only; it does not gate on size. Shipped size is
+// owned by check-toolbar-size.mjs, measured from the esbuild OUTPUT (post-tree-shake) — the
+// right place to fail. Input-graph source bytes count code that tree-shakes away, so they are
+// not useful to fail a PR on when the output is acceptable; the total input is printed here as
+// context only, never as a gate, and is surfaced in the shared CI comment for trend visibility.
 const ENTRY = 'src/toolbar/index.tsx'
 
 const APP_ZONE = [/^src\/products/, /^src\/scenes\//, /^src\/layout\//, /^src\/models\//, /^\.\.\/products\//]
@@ -37,11 +40,6 @@ const FORBIDDEN_PACKAGES = [
     'node_modules/mermaid/',
     'node_modules/hls.js/',
 ]
-
-// Ratchet policy: when an edge is cut, lower the budget to lock it in; raise it only as a
-// conscious, reviewed decision in the PR that needs it. There is headroom for churn, but any
-// reintroduced leak jumps the graph back toward ~100 MiB and fails loudly.
-const TOTAL_INPUT_BYTES_BUDGET = 14_450_000
 
 function fail(message) {
     console.error(`\n❌ ${message}`)
@@ -129,18 +127,10 @@ for (const [file, info] of Object.entries(inputs)) {
     }
 }
 
-if (totalBytes > TOTAL_INPUT_BYTES_BUDGET) {
-    fail(
-        `Toolbar graph totals ${formatMiB(totalBytes)} of source input, over the ` +
-            `${formatMiB(TOTAL_INPUT_BYTES_BUDGET)} budget. Something new is reachable from the toolbar ` +
-            `entry. Find it with \`pnpm --filter=@posthog/frontend visualize-toolbar-bundle\`, or raise the ` +
-            `budget in frontend/bin/check-toolbar-graph.mjs as a conscious decision in this PR.`
-    )
-}
-
 const status = process.exitCode ? '🟡' : '🟢'
 console.info(
-    `${status} toolbar graph: ${Object.keys(inputs).length} files, ${formatMiB(totalBytes)} source input (budget ${formatMiB(TOTAL_INPUT_BYTES_BUDGET)})`
+    `${status} toolbar graph: ${Object.keys(inputs).length} files, ${formatMiB(totalBytes)} source input ` +
+        `(context only — shipped size is enforced by check-toolbar-size)`
 )
 console.info(`   survivors (toolbar-owned closure): ${survivors.size} files, ${formatMiB(survivorBytes)}`)
 console.info(`   toolbar -> app crossing edges: ${crossingEdges.size} (baseline ${baselineEdges.size})`)
@@ -153,7 +143,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
             '',
             '| Metric | Value | Limit |',
             '| --- | --- | --- |',
-            `| ${status} total source input | ${formatMiB(totalBytes)} | ${formatMiB(TOTAL_INPUT_BYTES_BUDGET)} |`,
+            `| ${status} total source input | ${formatMiB(totalBytes)} | context only (size: check-toolbar-size) |`,
             `| toolbar -> app edges | ${crossingEdges.size} | baseline ${baselineEdges.size} |`,
         ].join('\n') + '\n'
     )
