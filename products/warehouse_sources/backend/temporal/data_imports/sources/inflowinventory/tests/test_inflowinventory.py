@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -6,14 +7,14 @@ from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory import inflowinventory
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
+    INFLOWINVENTORY_API_VERSION,
     PAGE_SIZE,
     InflowInventoryResumeConfig,
-    InflowInventoryRetryableError,
     check_access,
-    get_rows,
     inflowinventory_source,
     validate_credentials,
 )
@@ -22,148 +23,204 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
     INFLOWINVENTORY_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = inflowinventory._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+DEFAULT_URL = "https://cloudapi.inflowinventory.com/co-123/products"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: InflowInventoryResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[InflowInventoryResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> InflowInventoryResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: InflowInventoryResumeConfig) -> None:
-        self.saved.append(data)
+def _json_response(body: Any, *, status: int = 200, url: str = DEFAULT_URL, reason: str = "OK") -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp.reason = reason
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _full_page(start_id: int) -> list[dict]:
-    return [{"productId": str(start_id + i)} for i in range(PAGE_SIZE)]
+def _make_manager(resume_state: InflowInventoryResumeConfig | None = None) -> MagicMock:
+    manager = MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[Any, list[dict]],
-        endpoint: str = "products",
-    ) -> list[dict]:
-        def fake_fetch(session: Any, company_id: str, path: str, after: Any, count: int, logger: Any) -> list[dict]:
-            return pages[after]
+def _wire(session: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params + url AT SEND TIME.
 
-        monkeypatch.setattr(inflowinventory, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(inflowinventory, "make_tracked_session", lambda **kwargs: MagicMock())
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead. ``prepared.url``
+    must be a real host string because the client's SSRF host-pinning inspects it before sending.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="inflow-key",
-            company_id="co-123",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
+    def _prepare(request: Any) -> MagicMock:
+        snapshots.append({"params": dict(request.params or {}), "url": request.url})
+        prepared = MagicMock()
+        prepared.url = DEFAULT_URL
+        return prepared
 
-    def test_single_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: [{"productId": "1"}, {"productId": "2"}]})
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _full_page(start_id: int, id_field: str = "productId") -> list[dict[str, Any]]:
+    return [{id_field: str(start_id + i)} for i in range(PAGE_SIZE)]
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: MagicMock) -> Any:
+    return inflowinventory_source(
+        api_key="inflow-key",
+        company_id="co-123",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_short_page_yields_and_stops(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_json_response([{"productId": "1"}, {"productId": "2"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
         assert rows == [{"productId": "1"}, {"productId": "2"}]
+        assert session.send.call_count == 1
         # The page is short (< PAGE_SIZE), so we stop without persisting resume state.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_follows_after_cursor_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_after_cursor_until_short_page(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
         # Last row of the first full page has productId str(PAGE_SIZE - 1), which becomes the cursor.
         last_id = str(PAGE_SIZE - 1)
-        pages = {None: _full_page(0), last_id: [{"productId": "9999"}]}
-        rows = self._collect(manager, monkeypatch, pages)
+        snapshots = _wire(session, [_json_response(_full_page(0)), _json_response([{"productId": "9999"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
         assert len(rows) == PAGE_SIZE + 1
-        assert [s.after for s in manager.saved] == [last_id]
+        assert snapshots[0]["params"] == {"count": PAGE_SIZE}
+        assert snapshots[1]["params"] == {"count": PAGE_SIZE, "after": last_id}
+        # Checkpoint saved after the first full page (points at the next page); the short page ends it.
+        manager.save_state.assert_called_once_with(InflowInventoryResumeConfig(after=last_id))
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(InflowInventoryResumeConfig(after="42"))
-        # The unpaginated first page (after=None) must never be fetched on resume.
-        pages = {"42": [{"productId": "5"}]}
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cursor_uses_per_endpoint_id_field(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        last_id = str(PAGE_SIZE - 1)
+        snapshots = _wire(
+            session,
+            [_json_response(_full_page(0, id_field="customerId")), _json_response([{"customerId": "9999"}])],
+        )
+
+        _rows(_source("customers", _make_manager()))
+        assert snapshots[1]["params"]["after"] == last_id
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        # The unpaginated first page (after absent) must never be fetched on resume.
+        snapshots = _wire(session, [_json_response([{"productId": "5"}])])
+
+        rows = _rows(_source("products", _make_manager(InflowInventoryResumeConfig(after="42"))))
+
         assert rows == [{"productId": "5"}]
+        assert session.send.call_count == 1
+        assert snapshots[0]["params"]["after"] == "42"
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: []})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_json_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_full_page_missing_id_field_stops(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_missing_id_field_stops(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
         # A full page whose last row lacks the cursor field can't be paginated past — stop instead
         # of looping forever on the same cursor.
         page = _full_page(0)
         page[-1] = {"name": "no id here"}
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: page})
+        _wire(session, [_json_response(page)])
+
+        manager = _make_manager()
+        rows = _rows(_source("products", manager))
+
         assert len(rows) == PAGE_SIZE
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_request_sends_count_and_no_after(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_json_response([])])
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+        _rows(_source("products", _make_manager()))
+        assert snapshots[0]["params"] == {"count": PAGE_SIZE}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_targets_company_scoped_url(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_json_response([])])
+
+        _rows(_source("sales_orders", _make_manager()))
+        assert snapshots[0]["url"] == "https://cloudapi.inflowinventory.com/co-123/sales-orders"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_version_header_is_set_on_session(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_json_response([])])
+
+        _rows(_source("products", _make_manager()))
+        assert session.headers.get("Accept") == f"application/json;version={INFLOWINVENTORY_API_VERSION}"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(InflowInventoryRetryableError):
-            _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
+    @mock.patch("time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_reissued(
+        self, _name: str, status: int, MockSession: MagicMock, _sleep: MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, [_json_response([], status=status), _json_response([])])
+
+        rows = _rows(_source("products", _make_manager()))
+        # A 429/5xx is retried (not permanently failed): the second attempt succeeds with an empty page.
+        assert rows == []
+        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_error_raises(self, _name: str, status: int, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_json_response([], status=status, reason="Client Error")])
+
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
+            _rows(_source("products", _make_manager()))
 
-    def test_success_returns_list_body(self) -> None:
-        body = [{"productId": "1"}]
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
-        assert result == body
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_raises_value_error(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        # A 200 whose body isn't the expected bare array is a permanent contract violation.
+        _wire(session, [_json_response({"error": "nope"})])
 
-    def test_non_list_body_raises_value_error(self) -> None:
-        session = self._session_returning(200, {"error": "nope"})
         with pytest.raises(ValueError):
-            _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
-
-    def test_first_page_omits_after_param(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_page_unwrapped(session, "co-1", "products", None, PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"count": PAGE_SIZE}
-
-    def test_paginated_request_sends_after_cursor(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_page_unwrapped(session, "co-1", "customers", "abc", PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"count": PAGE_SIZE, "after": "abc"}
-
-    def test_request_targets_company_scoped_url(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_page_unwrapped(session, "co-1", "sales-orders", None, PAGE_SIZE, MagicMock())
-        args, _ = session.get.call_args
-        assert args[0] == "https://cloudapi.inflowinventory.com/co-1/sales-orders"
+            _rows(_source("products", _make_manager()))
 
 
 class TestCheckAccess:
@@ -246,13 +303,7 @@ class TestCheckAccess:
 class TestInflowInventorySourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = inflowinventory_source(
-            api_key="inflow-key",
-            company_id="co-123",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == INFLOWINVENTORY_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
