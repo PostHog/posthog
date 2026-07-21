@@ -3,6 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import orjson
 import pyarrow as pa
@@ -118,7 +119,9 @@ class LemonSqueezyPaginator(JSONResponsePaginator):
 def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is valid. `/v1/users/me` is a cheap authenticated probe."""
     ok, _status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # capture=False: `/v1/users/me` returns account data; allow_redirects=False keeps the
+        # probe (and its bearer token) pinned to the Lemon Squeezy origin.
+        lambda: make_tracked_session(capture=False, allow_redirects=False, redact_values=(api_key,)),
         f"{BASE_URL}/v1/users/me",
         headers={**JSON_API_HEADERS, "Authorization": f"Bearer {api_key}"},
     )
@@ -144,6 +147,15 @@ def lemon_squeezy_source(
             "headers": dict(JSON_API_HEADERS),
             "auth": {"type": "bearer", "token": api_key},
             "paginator": LemonSqueezyPaginator(watermark),
+            # capture=False: list responses carry customer PII, redeemable `license_keys.key`
+            # values, and signed file/checkout URLs the name-based scrubbers can't recognise, so
+            # keep the raw bodies out of HTTP sample capture even when an operator enables it.
+            "session": make_tracked_session(capture=False, redact_values=(api_key,)),
+            # `links.next` is response-controlled, so pin every paginated and resumed request to
+            # the Lemon Squeezy origin and refuse redirects — a poisoned next link can't retarget
+            # the bearer token at an attacker-controlled host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resources": [
             {
@@ -246,10 +258,36 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     return table_from_py_list([row for _, row in latest_by_id.values()])
 
 
+class LemonSqueezyUntrustedURLError(Exception):
+    pass
+
+
+# Host and scheme of the Lemon Squeezy API, pinned so a response-controlled `links.next` can't
+# retarget a credentialed webhook-management request at another origin.
+_API_NETLOC = urlsplit(BASE_URL).netloc
+
+
+def _assert_lemon_squeezy_origin(url: str) -> None:
+    """Reject a webhook-pagination URL that points off the Lemon Squeezy API origin.
+
+    `links.next` is response-controlled and the webhook-management session sends the bearer
+    token on every request, so a poisoned next link (off-host, downgraded to http, or on a
+    non-default port — netloc carries the port) would otherwise exfiltrate the key. Redirects
+    are separately refused by the no-redirect session `_make_session` builds.
+    """
+    split = urlsplit(url)
+    if not (split.scheme == "https" and split.netloc == _API_NETLOC and split.path.startswith("/v1/")):
+        raise LemonSqueezyUntrustedURLError(f"Refusing to follow a Lemon Squeezy URL outside {BASE_URL}/v1/")
+
+
 def _make_session(api_key: str) -> Session:
     return make_tracked_session(
         headers={**JSON_API_HEADERS, "Authorization": f"Bearer {api_key}"},
         redact_values=(api_key,),
+        # Webhook responses carry the signing secret and store/customer data, so keep them out of
+        # HTTP sample capture; no-redirect pins the credentialed request to the origin it validated.
+        capture=False,
+        allow_redirects=False,
     )
 
 
@@ -257,6 +295,7 @@ def _iterate_list(session: Session, url: str) -> Iterator[dict[str, Any]]:
     """Walk a JSON:API list endpoint via `links.next`, yielding each `data[]` item."""
     next_url: Optional[str] = url
     while next_url:
+        _assert_lemon_squeezy_origin(next_url)
         response = session.get(next_url, timeout=30)
         response.raise_for_status()
         body = response.json()

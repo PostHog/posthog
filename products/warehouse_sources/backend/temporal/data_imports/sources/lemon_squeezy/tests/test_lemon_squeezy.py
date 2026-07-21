@@ -11,7 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy import (
     LemonSqueezyPaginator,
     LemonSqueezyResumeConfig,
+    LemonSqueezyUntrustedURLError,
+    _assert_lemon_squeezy_origin,
     _flatten_json_api_item,
+    _make_session,
     _parse_datetime,
     _webhook_table_transformer,
     create_webhook,
@@ -23,13 +26,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_sque
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.settings import (
     ALL_WEBHOOK_EVENTS,
+    BASE_URL,
     INCREMENTAL_ENDPOINTS,
     LEMON_SQUEEZY_ENDPOINTS,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials and the webhook management helpers build their own tracked session.
+# The source builds its own tracked session (capture-disabled, host-pinned) for the sync client,
+# validate_credentials, and the webhook management helpers.
 LEMON_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy.make_tracked_session"
 )
@@ -65,7 +68,11 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         snapshots.append({"url": request.url, "params": dict(request.params or {}), "headers": request.headers or {}})
-        return mock.MagicMock()
+        # The prepared URL must be a real string: the client host-pins every request URL, so a
+        # MagicMock here would blow up `urlsplit` in the allowed-host check.
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
@@ -141,7 +148,7 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(LEMON_SESSION_PATCH)
     def test_follows_links_next_and_drops_original_params(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(
@@ -170,7 +177,7 @@ class TestPagination:
             next_url="https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2"
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(LEMON_SESSION_PATCH)
     def test_rows_are_flattened(self, MockSession):
         session = MockSession.return_value
         _wire(session, [_response([_json_api_item("1", "2024-05-02T00:00:00Z", total=999)], None)])
@@ -179,7 +186,7 @@ class TestPagination:
 
         assert rows == [{"id": "1", "created_at": "2024-05-02T00:00:00Z", "total": 999}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(LEMON_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(session, [_response([_json_api_item("9", "2024-05-01T00:00:00Z")], None)])
@@ -191,7 +198,7 @@ class TestPagination:
         assert requests_seen[0]["url"] == resume_url
         assert requests_seen[0]["params"] == {}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(LEMON_SESSION_PATCH)
     def test_incremental_stops_once_page_predates_watermark(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(
@@ -224,7 +231,7 @@ class TestPagination:
         # Boundary rows older than the watermark are re-yielded; merge on id dedupes them.
         assert [row["id"] for row in rows] == ["3", "2", "1"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(LEMON_SESSION_PATCH)
     def test_full_refresh_walks_past_old_pages(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(
@@ -255,7 +262,7 @@ class TestPagination:
 
 class TestSourceResponseMetadata:
     @pytest.mark.parametrize("endpoint", list(LEMON_SQUEEZY_ENDPOINTS.keys()))
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(LEMON_SESSION_PATCH)
     def test_response_metadata_per_endpoint(self, MockSession, endpoint):
         response = _source(endpoint, _make_manager())
 
@@ -510,3 +517,43 @@ class TestWebhookManagement:
 
         assert result.success is True
         session.patch.assert_not_called()
+
+
+class TestCredentialLeakHardening:
+    """Guards the SSRF / credential-exposure controls: pinning credentialed requests to the
+    Lemon Squeezy origin and keeping secret-bearing responses out of HTTP sample capture."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://evil.example.com/v1/orders",  # off-host
+            "http://api.lemonsqueezy.com/v1/orders",  # scheme downgrade to http
+            "https://api.lemonsqueezy.com:8443/v1/orders",  # non-default port
+            "https://api.lemonsqueezy.com.evil.com/v1/orders",  # look-alike host
+            "https://api.lemonsqueezy.com/internal/orders",  # off the /v1/ prefix
+        ],
+    )
+    def test_iterate_list_refuses_off_origin_next_url(self, url):
+        with pytest.raises(LemonSqueezyUntrustedURLError):
+            _assert_lemon_squeezy_origin(url)
+
+    def test_iterate_list_allows_api_origin(self):
+        # A legitimate next link must not be rejected.
+        _assert_lemon_squeezy_origin(f"{BASE_URL}/v1/webhooks?page%5Bnumber%5D=2")
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy.rest_api_resource"
+    )
+    def test_source_pins_host_and_disables_capture(self, mock_rest_api_resource):
+        _source("orders", _make_manager())
+
+        client = mock_rest_api_resource.call_args.args[0]["client"]
+        # Off-host next/resume URLs and redirects are rejected before the bearer token is sent.
+        assert client["allowed_hosts"] == []
+        assert client["allow_redirects"] is False
+        # Response bodies carry PII, license keys, and signed URLs — never captured as samples.
+        assert client["session"].get_adapter(BASE_URL)._capture is False
+
+    def test_make_session_disables_capture(self):
+        # Webhook responses carry the signing secret and store/customer data.
+        assert _make_session("key").get_adapter(BASE_URL)._capture is False
