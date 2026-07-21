@@ -53,8 +53,22 @@ export function rowAtY(layout: HeatmapLayout, y: number): number {
     if (layout.rows === 0 || layout.rowHeight <= 0) {
         return -1
     }
-    const row = Math.floor((layout.plotTop + layout.plotHeight - y) / layout.rowHeight)
+    const row = rawRowAtY(layout, y)
     return row >= 0 && row < layout.rows ? row : -1
+}
+
+/** Like `rowAtY`, but pixels beyond the plot clamp to the edge rows — for gestures (brush
+ *  releases) that legitimately end outside the plot area. */
+export function rowAtYClamped(layout: HeatmapLayout, y: number): number {
+    if (layout.rows === 0 || layout.rowHeight <= 0) {
+        return -1
+    }
+    return Math.max(0, Math.min(layout.rows - 1, rawRowAtY(layout, y)))
+}
+
+// Bottom-up row index for a canvas y pixel, unbounded — callers apply their own edge policy.
+function rawRowAtY(layout: HeatmapLayout, y: number): number {
+    return Math.floor((layout.plotTop + layout.plotHeight - y) / layout.rowHeight)
 }
 
 export function maxCellValue(cells: number[][]): number {
