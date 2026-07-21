@@ -19,14 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
     validate_credentials as validate_apify_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
+    DATASET_ITEMS_ENDPOINT,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
-    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ApifyDatasetSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -106,21 +109,14 @@ The token needs read access to the dataset's storage.""",
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                detected_primary_keys=PRIMARY_KEYS.get(endpoint),
-                description="The rows produced by the Apify dataset. Columns are defined by the Actor that produced them. Full refresh only — the whole dataset is re-imported on every sync.",
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions={
+                DATASET_ITEMS_ENDPOINT: "The rows produced by the Apify dataset. Columns are defined by the Actor that produced them. Full refresh only — the whole dataset is re-imported on every sync."
+            },
+        )
 
     def validate_credentials(
         self, config: ApifyDatasetSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -140,6 +136,8 @@ The token needs read access to the dataset's storage.""",
             api_token=config.api_token,
             dataset_id=config.dataset_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # full refresh only
         )

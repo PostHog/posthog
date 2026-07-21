@@ -62,8 +62,8 @@ export type attachedContextLogicType = MakeLogicType<
  * provider (a mounted hook/component, or a future @-mention picker) owns a stable `providerId` and
  * upserts its items; `contextItems` flattens and dedupes across providers.
  *
- * A consumer reads `contextItems` at send time and wraps the outgoing message with a
- * `<posthog_context>` block (`utils/posthogContextBlock`). Nothing here is keyed by conversation —
+ * A consumer reads `contextItems` at send time and wraps the outgoing message with the
+ * trusted/untrusted context blocks (`utils/posthogContextBlock`). Nothing here is keyed by conversation —
  * the on-screen context is global to the app at any instant.
  *
  * This store also keeps the sent-context bookkeeping (`sentContextKeysByTask`): which non-text refs

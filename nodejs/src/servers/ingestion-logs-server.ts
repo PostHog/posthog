@@ -12,6 +12,8 @@ import {
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
 import { LogsIngestionConsumer } from '~/logs/logs-ingestion-consumer'
+import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
+import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
@@ -101,6 +103,14 @@ export class IngestionLogsServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
         const samplingRulesCache = new SamplingRulesCache(this.postgres)
+        // Metric rules are inert without an export URL — the consumer also gates on
+        // LOGS_METRICS_RULES_ENABLED_TEAMS and the killswitch per team.
+        const metricRulesCache = this.config.LOGS_METRICS_RULES_EXPORT_URL
+            ? new MetricRulesCache(this.postgres)
+            : undefined
+        const metricsEmitter = this.config.LOGS_METRICS_RULES_EXPORT_URL
+            ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
+            : undefined
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -114,6 +124,8 @@ export class IngestionLogsServer implements NodeServer {
                 quotaLimiting,
                 outputs,
                 samplingRulesCache,
+                metricRulesCache,
+                metricsEmitter,
             })
             await consumer.start()
             return consumer.service
