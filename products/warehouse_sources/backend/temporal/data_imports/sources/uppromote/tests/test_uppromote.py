@@ -163,9 +163,9 @@ class TestUpPromoteSourcePagination:
             sent_params.append(dict(request.params or {}))
             return next(response_iter)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
+        # The pull path builds its own capture-disabled session and hands it to RESTClient
+        # via config, so patch the factory where the source imports it.
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session") as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
             mock_session.prepare_request.side_effect = lambda req: req
@@ -241,6 +241,31 @@ class TestUpPromoteSourcePagination:
         self._drive("affiliates", manager, [_page([])])
 
         manager.save_state.assert_not_called()
+
+    def test_pull_session_disables_http_sample_capture(self) -> None:
+        # Affiliate/referral sync bodies carry PII, so the pull path must never let RESTClient
+        # capture raw responses into the shared samples prefix.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session") as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = lambda *_a, **_k: _page([])
+
+            source = uppromote_source(
+                api_key="test-key",
+                endpoint="affiliates",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                webhook_source_manager=_make_webhook_manager(enabled=False),
+            )
+            list(cast(Iterable[list[dict[str, Any]]], source.items()))
+
+        assert all(call.kwargs.get("capture") is False for call in MockSession.call_args_list)
+        assert MockSession.call_args_list, "expected the pull path to build a tracked session"
 
     @parameterized.expand(
         [

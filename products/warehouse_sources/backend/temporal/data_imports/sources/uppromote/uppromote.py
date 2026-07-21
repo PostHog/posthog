@@ -230,6 +230,10 @@ def uppromote_source(
                     "location": "header",
                     "api_key": api_key,
                 },
+                # Sync responses carry affiliate/referral PII (emails, addresses, payment
+                # details), so reuse the capture-disabled, key-redacting tracked session
+                # rather than letting RESTClient build its default capturing one.
+                "session": _make_session(api_key),
                 # No pagination metadata in responses — iterate pages until an empty one.
                 "paginator": PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True),
             },
