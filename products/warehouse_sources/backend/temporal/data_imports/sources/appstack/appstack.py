@@ -118,6 +118,10 @@ def appstack_source(
             # The response's `total_count` counts the current page, not the whole window, so it
             # must never be used as a grand total; the walk ends when a page comes back short.
             "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+            # Export rows can carry device/user identifiers (idfv, maid, customer_user_id) the
+            # name-based sample scrubbers don't recognise, so keep response bodies out of shared
+            # HTTP sample storage. Requests are still metered and logged (with the key redacted).
+            "session": make_tracked_session(capture=False, redact_values=(api_key,)),
         },
         "resource_defaults": None,
         "resources": [get_resource(endpoint, should_use_incremental_field, window_start)],
@@ -164,7 +168,7 @@ def validate_credentials(api_key: str) -> bool:
     being misreported to the user as an invalid API key.
     """
     window_start = int(datetime.now(UTC).timestamp()) - VALIDATION_PROBE_WINDOW_SECONDS
-    response = make_tracked_session(redact_values=(api_key,)).get(
+    response = make_tracked_session(capture=False, redact_values=(api_key,)).get(
         f"{APPSTACK_API_BASE_URL}/export",
         params={"timestamp": window_start, "limit": 1},
         headers={"Authorization": api_key},

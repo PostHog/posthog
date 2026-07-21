@@ -131,6 +131,18 @@ class TestAppstackSource:
         assert paginator.total_path is None
         assert paginator.limit == PAGE_SIZE
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
+    def test_client_session_disables_sample_capture(self, mock_rest: MagicMock, mock_session: MagicMock) -> None:
+        # Export rows carry device/user identifiers the sample scrubbers can't recognise; the client
+        # must run on a capture=False session so response bodies stay out of shared sample storage.
+        mock_rest.return_value = MagicMock(name="events", column_hints=None)
+
+        self._call(self._manager(can_resume=False))
+
+        assert mock_session.call_args.kwargs["capture"] is False
+        assert mock_rest.call_args.args[0]["client"]["session"] is mock_session.return_value
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
     def test_resume_replays_pinned_window_at_saved_offset(self, mock_rest: MagicMock) -> None:
         # Offsets are positions within one export window: a resumed attempt must reuse the saved
@@ -205,3 +217,14 @@ class TestValidateCredentials:
 
         headers = mock_session.return_value.get.call_args.kwargs["headers"]
         assert headers["Authorization"] == "the-key"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
+    def test_probe_disables_sample_capture(self, mock_session: MagicMock) -> None:
+        # The probe hits the same export endpoint, so its response body must not be captured either.
+        response = MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        validate_credentials("the-key")
+
+        assert mock_session.call_args.kwargs["capture"] is False
