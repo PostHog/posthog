@@ -330,6 +330,11 @@ describe('InstructionsFormatter', () => {
             const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
             expect(flagOn).toContain('#### Metric discovery (semantic layer)')
             expect(flagOn).toContain('system.information_schema.metrics')
+            // The catalog-first workflow rule and the search cross-reference are the
+            // steering that redirects agents away from plausible raw tables — a
+            // template edit that drops either silently regresses discovery.
+            expect(flagOn).toContain('before raw schema discovery')
+            expect(flagOn).toContain('`search <keywords>` also surfaces governed metrics')
 
             // Flag-off must be byte-identical to a context without the field, so orgs
             // without the catalog are never steered at a table that doesn't exist.
