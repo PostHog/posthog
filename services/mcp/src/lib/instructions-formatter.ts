@@ -15,6 +15,7 @@ import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
 import CLI_LEARN from '@/templates/sections/cli-learn.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
@@ -29,6 +30,7 @@ import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-comp
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
+import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import type { ExecLearnGuide } from '@/tools/exec-learn'
@@ -78,14 +80,24 @@ export class InstructionsFormatter {
 
     /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
      *  The bulk of the system prompt lives on the exec tool's `command` parameter
-     *  description (`buildExecCommandReference`) — this is just env + tool index. */
+     *  description (`buildExecCommandReference`) — this is just env + tool index.
+     *  The skills-first mandate stays out of here to protect the budget; it lives
+     *  on the exec tool description and command reference instead. */
     buildExecInstructions(ctx: InstructionsContext): string {
         return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
     }
 
-    /** Build the top-level description of the `posthog:exec` tool. */
-    buildExecToolDescription(): string {
-        return EXEC_TOOL_BLURB.trim()
+    /** Build the top-level description of the `posthog:exec` tool. Lives in the
+     *  uncapped top-level `description`, so the skills text costs no schema budget.
+     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  an agent before its first tool call, and agents that answer PostHog-behavior
+     *  questions by cloning the public repo never make a call for the gate to catch. */
+    buildExecToolDescription(opts: { skillsEnabled?: boolean } = {}): string {
+        const blurb = EXEC_TOOL_BLURB.trim()
+        if (!opts.skillsEnabled) {
+            return blurb
+        }
+        return `${SKILLS_FIRST.trim()}\n\n${blurb}`
     }
 
     /**
@@ -164,7 +176,10 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
-                ...(skillsEnabled ? [CLI_LEARN] : []),
+                // Compact skills-first variant: this reference lives inside the
+                // schema-capped `command` description (see the budget test), so the
+                // content-routing paragraph is reserved for the uncapped full reference.
+                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
                 ...(learnSection ? [learnSection] : []),
                 ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
                 CLI_SCHEMA_DRILLDOWN,

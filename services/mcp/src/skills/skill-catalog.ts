@@ -3,7 +3,8 @@ import { parse as parseYaml } from 'yaml'
 
 export const LEARN_OUTPUT_CHAR_LIMIT = 44_000
 
-const MAX_GLOBAL_SKILLS = 10
+// Also the cap applied after merging PostHog and project results in `learn -s`.
+export const MAX_GLOBAL_SKILLS = 10
 const MAX_GLOBAL_SNIPPETS = 2
 const MAX_SCOPED_MATCHES = 50
 const SEARCH_CONTEXT_LINES = 2
@@ -43,6 +44,9 @@ export interface LearnSearchResult {
     identifier: string
     description: string
     snippets: LearnSearchSnippet[]
+    // Populated by `SkillCatalog.searchResults`; optional so client-scored project
+    // results (which merge in via a separate path) can omit it until they are scored.
+    score?: number
 }
 
 interface RankedSkill {
@@ -145,6 +149,10 @@ export class SkillCatalog {
         return this.skillsByName.has(name)
     }
 
+    describe(name: string): string | undefined {
+        return this.skillsByName.get(name)?.description
+    }
+
     searchResults(query: string, namespace = ''): LearnSearchResult[] {
         const normalizedQuery = normalizeQuery(query)
         return [...this.skillsByName.values()]
@@ -152,10 +160,11 @@ export class SkillCatalog {
             .filter((result): result is RankedSkill => result !== null)
             .sort((left, right) => right.score - left.score || left.skill.name.localeCompare(right.skill.name))
             .slice(0, MAX_GLOBAL_SKILLS)
-            .map(({ skill, snippets }) => ({
+            .map(({ skill, snippets, score }) => ({
                 identifier: `${namespace}${skill.name}`,
                 description: skill.description,
                 snippets,
+                score,
             }))
     }
 
@@ -340,7 +349,10 @@ export function searchLearnFile(identifier: string, file: SkillFile, query: stri
         .slice(0, MAX_SCOPED_MATCHES)
 
     if (matchingLines.length === 0) {
-        return `No matches for "${query}" in ${identifier}/${file.path}.`
+        return (
+            `No matches for "${query}" in ${identifier}/${file.path}.\n` +
+            `Read it with \`learn ${identifier} ${file.path}\` (${file.lineCount} lines, ${file.charCount} chars) or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.`
+        )
     }
 
     const blocks = matchingLines.map(({ index }) => {
@@ -384,6 +396,35 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
     return fitLearnOutput(sections.join('\n\n'))
 }
 
+// Per-match tier bonuses mirroring `rankSkill`'s content weights, keyed by the
+// backend's `matched_field`. Name and description already score via their own
+// text below, so they add no tier bonus here.
+const MATCHED_FIELD_TIER_BONUS: Record<string, number> = {
+    body: 80,
+    file_path: 120,
+    file_content: 40,
+}
+
+/**
+ * Client-side relevance score for a project search result, comparable to `SkillCatalog`'s
+ * `rankSkill` scores so both sources can merge into one ranked list. The project body/file
+ * text is not available client-side, so per-match tier bonuses derived from `matched_field`
+ * stand in for content scoring.
+ */
+export function scoreProjectSearchResult(
+    query: string,
+    name: string,
+    description: string,
+    matchedFields: readonly string[]
+): number {
+    const normalizedQuery = normalizeQuery(query)
+    let score = scoreText(name, normalizedQuery, 1_000) + scoreText(description, normalizedQuery, 300)
+    for (const field of matchedFields) {
+        score += MATCHED_FIELD_TIER_BONUS[field] ?? 0
+    }
+    return score
+}
+
 function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill | null {
     let score = scoreText(skill.name, query, 1_000) + scoreText(skill.description, query, 300)
     const snippets: LearnSearchSnippet[] = []
@@ -393,10 +434,17 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
         if (file.kind !== 'markdown') {
             continue
         }
-        const contentWeight = file.path === 'SKILL.md' ? 80 : 40
-        score += scoreText(file.content, query, contentWeight)
+        const isSkillFile = file.path === 'SKILL.md'
+        // Exclude the YAML frontmatter from SKILL.md scoring and snippets: the
+        // description already scores via `skill.description` (avoid double-counting)
+        // and its snippet would just repeat the description line already printed.
+        const frontmatterLines = isSkillFile ? frontmatterLineSpan(file.content) : 0
+        const contentWeight = isSkillFile ? 80 : 40
+        const scoredContent =
+            frontmatterLines > 0 ? splitLines(file.content).slice(frontmatterLines).join('\n') : file.content
+        score += scoreText(scoredContent, query, contentWeight)
         if (snippets.length < MAX_GLOBAL_SNIPPETS) {
-            const snippet = findSnippet(file, query)
+            const snippet = findSnippet(file, query, frontmatterLines)
             if (snippet) {
                 snippets.push(snippet)
             }
@@ -406,9 +454,35 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
     return score > 0 ? { skill, score, snippets } : null
 }
 
+interface QueryToken {
+    // A token matches text if the text includes ANY variant. Variants add light
+    // stemming (analyzing → analyz → analy) so related word forms still match.
+    variants: string[]
+}
+
 interface NormalizedQuery {
     phrase: string
-    tokens: string[]
+    tokens: QueryToken[]
+}
+
+// Longest-first so the longest matching suffix is stripped (e.g. "sessions" → "session", not "sessionation").
+const STEM_SUFFIXES = ['ations', 'ation', 'tions', 'tion', 'ings', 'ing', 'es', 'ed', 's']
+// Shortest token length the scorer treats as informative — also the floor for derived stems.
+export const MIN_STEM_VARIANT_LENGTH = 5
+
+/**
+ * Deduped, lower-cased query tokens using the same tokenization the scorer applies, exported so
+ * callers derive tokens identically instead of inventing a divergent tokenizer.
+ */
+export function extractQueryTokens(query: string): string[] {
+    return [
+        ...new Set(
+            query
+                .trim()
+                .toLowerCase()
+                .match(/[\p{L}\p{N}]+/gu) ?? []
+        ),
+    ]
 }
 
 function normalizeQuery(query: string): NormalizedQuery {
@@ -416,17 +490,36 @@ function normalizeQuery(query: string): NormalizedQuery {
     if (!phrase) {
         throw new Error('Search query cannot be empty.')
     }
-    const tokens = [...new Set(phrase.match(/[\p{L}\p{N}]+/gu) ?? [])]
-    if (tokens.length === 0) {
+    const rawTokens = extractQueryTokens(query)
+    if (rawTokens.length === 0) {
         throw new Error('Search query must contain a letter or number.')
     }
-    return { phrase, tokens }
+    return { phrase, tokens: rawTokens.map((token) => ({ variants: stemVariants(token) })) }
+}
+
+// Only ASCII-alpha tokens of 6+ chars are stemmed; the min-5 guard on derived stems
+// prevents over-matching (e.g. "sessions" must not reach "assessing" via a 4-char "sess").
+function stemVariants(token: string): string[] {
+    if (token.length < 6 || !/^[a-z]+$/.test(token)) {
+        return [token]
+    }
+    const suffix = STEM_SUFFIXES.find((candidate) => token.length > candidate.length && token.endsWith(candidate))
+    if (!suffix) {
+        return [token]
+    }
+    const stem = token.slice(0, -suffix.length)
+    const variants = [token, stem, stem.slice(0, -1)]
+    return [...new Set(variants.filter((variant) => variant.length >= MIN_STEM_VARIANT_LENGTH))]
+}
+
+function tokenMatches(token: QueryToken, normalizedText: string): boolean {
+    return token.variants.some((variant) => normalizedText.includes(variant))
 }
 
 function scoreText(text: string, query: NormalizedQuery, weight: number): number {
     const normalizedText = text.toLowerCase()
     let score = normalizedText.includes(query.phrase) ? weight * 2 : 0
-    const matchingTokens = query.tokens.filter((token) => normalizedText.includes(token)).length
+    const matchingTokens = query.tokens.filter((token) => tokenMatches(token, normalizedText)).length
     if (matchingTokens === query.tokens.length) {
         score += weight
     } else {
@@ -437,16 +530,25 @@ function scoreText(text: string, query: NormalizedQuery, weight: number): number
 
 function matchesQuery(text: string, query: NormalizedQuery): boolean {
     const normalizedText = text.toLowerCase()
-    return normalizedText.includes(query.phrase) || query.tokens.every((token) => normalizedText.includes(token))
+    return normalizedText.includes(query.phrase) || query.tokens.every((token) => tokenMatches(token, normalizedText))
 }
 
-function findSnippet(file: SkillFile, query: NormalizedQuery): LearnSearchSnippet | undefined {
+// `skipLines` drops leading frontmatter lines while preserving raw line numbers, so the
+// emitted `path:line` still matches what `--lines`/file reads return.
+function findSnippet(file: SkillFile, query: NormalizedQuery, skipLines = 0): LearnSearchSnippet | undefined {
     const lines = splitLines(file.content)
-    const index = lines.findIndex((line) => matchesQuery(line, query))
-    if (index === -1) {
-        return undefined
+    for (let index = skipLines; index < lines.length; index += 1) {
+        if (matchesQuery(lines[index]!, query)) {
+            return { path: file.path, line: index + 1, text: lines[index]!.trim() }
+        }
     }
-    return { path: file.path, line: index + 1, text: lines[index]!.trim() }
+    return undefined
+}
+
+// Number of leading lines occupied by the YAML frontmatter block (0 when absent).
+function frontmatterLineSpan(content: string): number {
+    const match = FRONTMATTER_PATTERN.exec(content)
+    return match ? (match[0].match(/\n/g)?.length ?? 0) : 0
 }
 
 export function fitLearnOutput(value: string): string {

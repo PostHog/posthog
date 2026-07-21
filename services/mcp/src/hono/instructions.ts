@@ -24,6 +24,7 @@ import {
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
+import { trackSkillInvoked } from './analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -140,6 +141,10 @@ export class InstructionsBuilder {
         }
         const guides = guidesEnabled ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state)) : []
         const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
+        // The catalog (and this closure) is rebuilt per request, so this Set dedupes
+        // within one exec command — a 5-file batch of one skill fires a single event,
+        // while separate commands each still count.
+        const invokedIdentifiers = new Set<string>()
         return new ExecLearnCatalog(
             guides,
             skillsEnabled
@@ -150,12 +155,25 @@ export class InstructionsBuilder {
                           ? undefined
                           : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
                   }
-                : undefined
+                : undefined,
+            (invocation) => {
+                const identifier = `${invocation.source}:${invocation.skill}`
+                if (invokedIdentifiers.has(identifier)) {
+                    return
+                }
+                invokedIdentifiers.add(identifier)
+                void trackSkillInvoked(state, invocation)
+            }
         )
     }
 
-    buildExecToolDescription(): string {
-        return this.formatter.buildExecToolDescription()
+    buildExecToolDescription(state?: ResolvedState): string {
+        const skillsEnabled = state ? this.getExecLearnCapabilities(state).skillsEnabled : false
+        return this.formatter.buildExecToolDescription({ skillsEnabled })
+    }
+
+    execSkillsEnabled(state: ResolvedState): boolean {
+        return this.getExecLearnCapabilities(state).skillsEnabled
     }
 
     getGuidelines(): string {

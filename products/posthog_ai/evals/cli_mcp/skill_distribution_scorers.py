@@ -28,13 +28,14 @@ class _SkillLoad:
 
 
 def skill_distribution_expectations(
-    skill: str, downstream_tools: list[str], skill_delivery: SkillDelivery
+    skill: str, downstream_tools: list[str], skill_delivery: SkillDelivery, *, source: str = "posthog"
 ) -> dict[str, dict[str, object]]:
     expectations: dict[str, dict[str, object]] = {
-        "expected_skill_loaded": {"skill": skill, "delivery": skill_delivery},
+        "expected_skill_loaded": {"skill": skill, "delivery": skill_delivery, "source": source},
         "skill_loaded_before_tool": {
             "skill": skill,
             "delivery": skill_delivery,
+            "source": source,
             "tools": downstream_tools,
         },
     }
@@ -42,7 +43,7 @@ def skill_distribution_expectations(
         expectations.update(
             {
                 "skill_search_first": {},
-                "expected_skill_discovered": {"skill": skill},
+                "expected_skill_discovered": {"skill": skill, "source": source},
                 "no_bundled_skill_bypass": {},
             }
         )
@@ -95,16 +96,30 @@ def _skill_search_calls(parser: LogParser) -> list[ToolCall]:
     return [call for call in _successful_exec_calls(parser) if _is_skill_search(call)]
 
 
-def _qualified_skill(skill: str) -> str:
-    return f"posthog:{skill}"
+def _qualified_skill(skill: str, source: str = "posthog") -> str:
+    return f"{source}:{skill}"
 
 
 def _output_mentions_skill(output: str, qualified_skill: str) -> bool:
     return re.search(rf"(?<![a-zA-Z0-9_-]){re.escape(qualified_skill)}(?![a-zA-Z0-9_-])", output) is not None
 
 
+def _is_qualified_skill_token(token: str) -> bool:
+    return token.startswith(("posthog:", "project:"))
+
+
 def _exec_skill_load_calls(parser: LogParser, qualified_skill: str) -> list[ToolCall]:
-    return [call for call in _successful_exec_calls(parser) if _exec_command(call) == ("learn", qualified_skill)]
+    loads: list[ToolCall] = []
+    for call in _successful_exec_calls(parser):
+        verb, rest = _exec_command(call)
+        if verb != "learn" or not rest:
+            continue
+        # A batch read (`learn posthog:a posthog:b`) is all qualified names; a `<skill> <path>`
+        # read (`learn posthog:a SKILL.md`) is not, so it is not counted as a load.
+        tokens = rest.split()
+        if all(_is_qualified_skill_token(token) for token in tokens) and qualified_skill in tokens:
+            loads.append(call)
+    return loads
 
 
 def _bundled_skill_loads(parser: LogParser, skill: str) -> list[_SkillLoad]:
@@ -125,21 +140,24 @@ def _bundled_skill_loads(parser: LogParser, skill: str) -> list[_SkillLoad]:
     return sorted(loads, key=lambda load: load.position)
 
 
-def _skill_loads(parser: LogParser, skill: str, delivery: SkillDelivery) -> list[_SkillLoad]:
+def _skill_loads(parser: LogParser, skill: str, delivery: SkillDelivery, source: str = "posthog") -> list[_SkillLoad]:
     if delivery == "bundled":
         return _bundled_skill_loads(parser, skill)
     return [
         _SkillLoad(position=call.position, call_id=call.call_id, matched_via="exec_learn")
-        for call in _exec_skill_load_calls(parser, _qualified_skill(skill))
+        for call in _exec_skill_load_calls(parser, _qualified_skill(skill, source))
     ]
 
 
-def _skill_and_delivery(spec: dict[str, object]) -> tuple[str, SkillDelivery] | None:
+def _skill_and_delivery(spec: dict[str, object]) -> tuple[str, SkillDelivery, str] | None:
     skill = spec.get("skill")
     delivery = spec.get("delivery")
+    source = spec.get("source", "posthog")
     if not isinstance(skill, str) or not skill or delivery not in ("bundled", "exec"):
         return None
-    return skill, cast(SkillDelivery, delivery)
+    if source not in ("posthog", "project"):
+        return None
+    return skill, cast(SkillDelivery, delivery), cast(str, source)
 
 
 def _is_exec_skill_command(call: ToolCall) -> bool:
@@ -148,6 +166,8 @@ def _is_exec_skill_command(call: ToolCall) -> bool:
         rest == "skills"
         or rest == "-s"
         or rest.startswith("-s ")
+        or rest == "-d"
+        or rest.startswith("-d ")
         or rest.startswith("posthog:")
         or rest.startswith("project:")
     )
@@ -209,11 +229,14 @@ class ExpectedSkillDiscovered(Scorer):
         skill = spec.get("skill")
         if not isinstance(skill, str) or not skill:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Expected skill is missing"})
+        source = spec.get("source", "posthog")
+        if source not in ("posthog", "project"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Invalid scorer expectation"})
         parser = _parser(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
 
-        qualified_skill = _qualified_skill(skill)
+        qualified_skill = _qualified_skill(skill, cast(str, source))
         for call in _skill_search_calls(parser):
             if _output_mentions_skill(call.output, qualified_skill):
                 return Score(name=self._name(), score=1.0, metadata={"skill": qualified_skill, "call_id": call.call_id})
@@ -243,12 +266,12 @@ class ExpectedSkillLoaded(Scorer):
         skill_spec = _skill_and_delivery(spec)
         if skill_spec is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Invalid scorer expectation"})
-        skill, delivery = skill_spec
+        skill, delivery, source = skill_spec
         parser = _parser(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
 
-        loads = _skill_loads(parser, skill, delivery)
+        loads = _skill_loads(parser, skill, delivery, source)
         if delivery == "bundled" and loads:
             load = loads[0]
             return Score(
@@ -262,7 +285,7 @@ class ExpectedSkillLoaded(Scorer):
                 },
             )
 
-        qualified_skill = _qualified_skill(skill)
+        qualified_skill = _qualified_skill(skill, source)
         matching_searches = [
             call for call in _skill_search_calls(parser) if _output_mentions_skill(call.output, qualified_skill)
         ]
@@ -305,12 +328,12 @@ class SkillLoadedBeforeTool(Scorer):
         tools = spec.get("tools")
         if skill_spec is None or not isinstance(tools, list) or not all(isinstance(tool, str) for tool in tools):
             return Score(name=self._name(), score=0.0, metadata={"reason": "Invalid scorer expectation"})
-        skill, delivery = skill_spec
+        skill, delivery, source = skill_spec
         parser = _parser(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
 
-        loads = _skill_loads(parser, skill, delivery)
+        loads = _skill_loads(parser, skill, delivery, source)
         downstream_calls = [call for call in parser.get_tool_calls() if not call.is_error and call.name in tools]
         for load in loads:
             for downstream in downstream_calls:

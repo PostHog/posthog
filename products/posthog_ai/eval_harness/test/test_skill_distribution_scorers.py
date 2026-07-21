@@ -18,8 +18,10 @@ from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
 
 SKILL = "querying-posthog-data"
 QUALIFIED_SKILL = f"posthog:{SKILL}"
+PROJECT_QUALIFIED_SKILL = f"project:{SKILL}"
 EXEC_EXPECTED = skill_distribution_expectations(SKILL, ["execute-sql"], "exec")
 BUNDLED_EXPECTED = skill_distribution_expectations(SKILL, ["execute-sql"], "bundled")
+PROJECT_EXEC_EXPECTED = skill_distribution_expectations(SKILL, ["execute-sql"], "exec", source="project")
 
 
 def _acp_line(update: dict) -> str:
@@ -212,6 +214,7 @@ def test_bundled_distribution_rejects_wrong_failed_or_late_skill_loads(
         ("learn skills", False, 0.0),
         (f"learn {QUALIFIED_SKILL}", False, 0.0),
         ("learn project:team-retention", False, 0.0),
+        (f"learn -d {QUALIFIED_SKILL}", False, 0.0),
         ("learn analytics", False, 1.0),
         ("learn -s revenue", True, 1.0),
     ],
@@ -225,6 +228,22 @@ def test_exec_skill_bypass_counts_only_successful_distribution_commands(
 
 
 @pytest.mark.parametrize(
+    "load_command,expected_score",
+    [
+        (f"learn posthog:other {QUALIFIED_SKILL}", 1.0),
+        (f"learn -d {QUALIFIED_SKILL}", 0.0),
+    ],
+)
+def test_exec_batch_read_counts_as_load_but_describe_does_not(load_command: str, expected_score: float) -> None:
+    output = _output(
+        _exec("search", "learn -s revenue", QUALIFIED_SKILL),
+        _exec("load", load_command),
+    )
+
+    assert _score(ExpectedSkillLoaded(), output).score == expected_score
+
+
+@pytest.mark.parametrize(
     "scorer,expected",
     [
         (SkillSearchFirst(), BUNDLED_EXPECTED),
@@ -235,3 +254,23 @@ def test_exec_skill_bypass_counts_only_successful_distribution_commands(
 )
 def test_delivery_specific_scorers_skip_the_other_arm(scorer: Scorer, expected: dict[str, dict[str, object]]) -> None:
     assert _score(scorer, _happy_path(), expected).score is None
+
+
+@pytest.mark.parametrize(
+    "scorer,output",
+    [
+        (
+            ExpectedSkillDiscovered(),
+            _output(_exec("search", "learn -s revenue", f'{{"name":"{PROJECT_QUALIFIED_SKILL}"}}')),
+        ),
+        (
+            ExpectedSkillLoaded(),
+            _output(
+                _exec("search", "learn -s revenue", PROJECT_QUALIFIED_SKILL),
+                _exec("load", f"learn {PROJECT_QUALIFIED_SKILL}"),
+            ),
+        ),
+    ],
+)
+def test_project_source_discovery_and_loading(scorer: Scorer, output: dict[str, object]) -> None:
+    assert _score(scorer, output, PROJECT_EXEC_EXPECTED).score == 1.0
