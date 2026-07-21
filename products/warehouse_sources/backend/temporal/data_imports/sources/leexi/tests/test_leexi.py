@@ -10,8 +10,10 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.leexi import (
     LeexiResumeConfig,
+    _make_session,
     _to_leexi_timestamp,
     leexi_source,
+    probe_endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import (
     ENDPOINTS,
@@ -19,8 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.sett
     PAGE_SIZE,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# The source builds its own capture-disabled session and hands it to RESTClient via the client config.
+CLIENT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.leexi.leexi.make_tracked_session"
+)
 
 
 def _page(items: list[dict[str, Any]], count: int | None = None) -> Response:
@@ -249,3 +253,26 @@ class TestSourceResponseMetadata:
     @pytest.mark.parametrize("config", list(LEEXI_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config) -> None:
         assert config.partition_key == "created_at"
+
+
+class TestSampleCaptureDisabled:
+    """Leexi call responses carry `simple_transcript`, notes, and free-form customer text; both the
+    sync and probe sessions must disable HTTP sample capture so those bodies never land in the shared
+    sample store outside the warehouse table's access controls."""
+
+    def test_make_session_disables_capture_and_redacts_secret(self) -> None:
+        adapters = list(_make_session("key-secret").adapters.values())
+        assert adapters
+        assert all(adapter._capture is False for adapter in adapters)
+        assert all("key-secret" in adapter._redact_values for adapter in adapters)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sync_session_created_with_capture_disabled(self, MockSession) -> None:
+        _wire(MockSession.return_value, [("/users", _page([]))])
+        _rows(_source("users", _make_manager()))
+        assert MockSession.call_args.kwargs["capture"] is False
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_probe_session_created_with_capture_disabled(self, MockSession) -> None:
+        probe_endpoint("key-id", "key-secret", "/calls")
+        assert MockSession.call_args.kwargs["capture"] is False

@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from dateutil import parser
-from requests import Response
+from requests import Response, Session
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -53,6 +53,15 @@ class LeexiPaginator(PageNumberPaginator):
         super().update_state(response, data)
         if self._has_next_page and data is not None and len(data) < self._page_size:
             self._has_next_page = False
+
+
+def _make_session(api_key_secret: str) -> Session:
+    """Session for all Leexi traffic. The key secret is registered for value-based redaction so it
+    can't leak into logged URLs or samples, and response capture is disabled: `calls` responses
+    carry `simple_transcript`, and call notes and meeting data are arbitrary customer-authored text
+    that can hold proprietary content or secrets the name-based sample scrubbers can't recognise —
+    so nothing lands in the shared HTTP sample store outside the warehouse table's access controls."""
+    return make_tracked_session(redact_values=(api_key_secret,), capture=False)
 
 
 def _to_leexi_timestamp(value: Any) -> str:
@@ -147,6 +156,7 @@ def leexi_source(
             "headers": {"Accept": "application/json"},
             # Framework Basic auth redacts the key secret from logs and captured samples.
             "auth": {"type": "http_basic", "username": api_key_id, "password": api_key_secret},
+            "session": _make_session(api_key_secret),
         },
         "resources": _build_resources(endpoint, should_use_incremental_field, incremental_field),
     }
@@ -201,7 +211,7 @@ def probe_endpoint(api_key_id: str, api_key_secret: str, path: str) -> Optional[
     """Probe a Leexi list endpoint with the cheapest possible request; returns the HTTP
     status, or None when the request itself failed."""
     _ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key_secret,)),
+        lambda: _make_session(api_key_secret),
         f"{LEEXI_BASE_URL}{path}?items=1",
         auth=HTTPBasicAuth(api_key_id, api_key_secret),
     )
