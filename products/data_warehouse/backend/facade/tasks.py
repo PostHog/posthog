@@ -8,5 +8,10 @@ from products.data_warehouse.backend.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
 )
+from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
 
-__all__ = ["reconcile_all_managed_warehouse_tables_task", "send_external_data_failure_digest_catchup"]
+__all__ = [
+    "reconcile_all_managed_warehouse_tables_task",
+    "schedule_external_data_failure_digest",
+    "send_external_data_failure_digest_catchup",
+]

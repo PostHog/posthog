@@ -3824,7 +3824,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Must be inside the atomic block so a failed schema-state reset rolls this back too.
             for schema_id in cdc_schema_ids:
                 try:
-                    update_sync_type_config_keys(schema_id, instance.team_id, removes=["cdc_broken"])
+                    update_sync_type_config_keys(
+                        schema_id, instance.team_id, removes=["cdc_broken", "cdc_extraction_paused"]
+                    )
                 except ExternalDataSchema.DoesNotExist:
                     pass
 
@@ -4021,6 +4023,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Could not resume CDC: {e}"},
             )
+
+        # Extraction is running again: clear the paused marker so the schema stops reading as
+        # halted (failure digest badge, loader status guard). Status stays FAILED until a run
+        # actually succeeds. After the unpause, so a failure here leaves the marker for retry.
+        for schema in cdc_schemas:
+            try:
+                update_sync_type_config_keys(schema.id, instance.team_id, removes=["cdc_extraction_paused"])
+            except ExternalDataSchema.DoesNotExist:
+                pass
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
