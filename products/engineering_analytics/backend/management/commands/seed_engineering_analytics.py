@@ -37,6 +37,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 from posthog.models import Team
@@ -734,7 +735,7 @@ def _seed_trace_spans(team: Team) -> int:
 
 
 # Synthetic thinned CI failure logs for the broken-tests panel and the per-run failure-log
-# drilldowns (they read the Logs product, fed in production by the Temporal job-logs pipeline —
+# drilldowns (they read the Logs product, fed in production by the Temporal job-logs pipeline;
 # see logic/job_logs/). One small failure region per seeded failing job, reusing the _SPAN_TEAMS
 # roster so test health and broken tests describe the same tests. Deterministic; uuids are
 # prefixed 'engseed-log-' so re-seeding deletes exactly its own rows.
@@ -749,6 +750,11 @@ _LOG_FAILURE_DETAILS = (
     "psycopg.OperationalError: connection to server at 127.0.0.1 port 5432 failed",
     "AssertionError: rows mismatch: 1042 != 1041",
 )
+
+
+def _sql_escape(value: object) -> str:
+    # For single-quoted ClickHouse literals; job fields originate from the GitHub API via the fixture.
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
 def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
@@ -779,13 +785,16 @@ def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
             ("##[error]Process completed with exit code 1.", "ERROR", orig_total),
         ]
         # Mirrors the attribute contract in job_logs/activity.py; the read paths filter on these.
-        # Keys carry the stored ``__str`` type suffix — the logs table's ``attributes`` alias strips
+        # Keys carry the stored ``__str`` type suffix; the logs table's ``attributes`` alias strips
         # it, so ``attributes['repo']`` reads require ``repo__str`` in ``attributes_map_str``.
         base_attrs = (
             f"'job_id__str', '{job_id}', 'run_id__str', '{run_id}', 'repo__str', '{SEED_REPOSITORY}', "
-            f"'branch__str', '{job.get('head_branch') or ''}', 'conclusion__str', '{job.get('conclusion')}', "
-            f"'job_name__str', '{job.get('name')}', 'workflow_name__str', '{job.get('workflow_name') or ''}', "
-            f"'run_attempt__str', '{job.get('run_attempt') or 1}', 'head_sha__str', '{job.get('head_sha') or ''}', "
+            f"'branch__str', '{_sql_escape(job.get('head_branch') or '')}', "
+            f"'conclusion__str', '{_sql_escape(job.get('conclusion'))}', "
+            f"'job_name__str', '{_sql_escape(job.get('name'))}', "
+            f"'workflow_name__str', '{_sql_escape(job.get('workflow_name') or '')}', "
+            f"'run_attempt__str', '{job.get('run_attempt') or 1}', "
+            f"'head_sha__str', '{_sql_escape(job.get('head_sha') or '')}', "
             f"'orig_total__str', '{orig_total}'"
         )
         for seq, (body, severity_text, orig_line) in enumerate(lines):
@@ -794,7 +803,8 @@ def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
                 attrs += f", 'orig_line__str', '{orig_line}'"
             rows.append(
                 f"('{_LOG_UUID_PREFIX}-{job_id}-{seq}', {team.pk}, '{run_id}', '{job_id}', 0, "
-                f"'{ts}', '{ts}', '{expiry}', '{body}', '{severity_text}', {_LOG_SEVERITY[severity_text]}, "
+                f"'{_sql_escape(ts)}', '{_sql_escape(ts)}', '{expiry}', '{_sql_escape(body)}', "
+                f"'{severity_text}', {_LOG_SEVERITY[severity_text]}, "
                 f"'{CI_LOGS_SERVICE_NAME}', map('service.name', '{CI_LOGS_SERVICE_NAME}'), 'engseed@1', '', "
                 f"map({attrs}))"
             )
@@ -807,12 +817,14 @@ def _seed_ci_failure_logs(team: Team, jobs: list[dict[str, Any]]) -> int:
         f"ALTER TABLE {LOGS_LOCAL_TABLE} DELETE WHERE team_id = %(team_id)s AND uuid LIKE '{_LOG_UUID_PREFIX}-%%' "
         "SETTINGS mutations_sync = 1",
         {"team_id": team.pk},
+        workload=Workload.LOGS,
     )
     if rows:
         sync_execute(
             "INSERT INTO logs_distributed (uuid, team_id, trace_id, span_id, trace_flags, timestamp, "
             "observed_timestamp, original_expiry_timestamp, body, severity_text, severity_number, service_name, "
-            "resource_attributes, instrumentation_scope, event_name, attributes_map_str) VALUES " + ",".join(rows)
+            "resource_attributes, instrumentation_scope, event_name, attributes_map_str) VALUES " + ",".join(rows),
+            workload=Workload.LOGS,
         )
     return len(rows)
 
