@@ -563,6 +563,7 @@ the row lists both.
 | vercel                           | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| wasabi                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                          | HTTP                        | requests                                                        | ✅                          |
 | weights_and_biases               | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | windmill                         | HTTP                        | requests                                                        | ✅                          |
@@ -985,7 +986,6 @@ doesn't conflict with concurrent PRs.
 - visma_economic
 - vwo
 - waiteraid
-- wasabi
 - watchmode
 - when_i_work
 - wikipedia_pageviews
