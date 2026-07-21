@@ -643,7 +643,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         )
 
         can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
-        hide_members_without_access = (
+        hide_non_project_members = (
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )
 
@@ -669,7 +669,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             )
 
             # When the org restricts member list visibility, project members only see users with access to this project
-            if hide_members_without_access and project_result.effective_access_level in (None, "none"):
+            if hide_non_project_members and project_result.effective_access_level in (None, "none"):
                 continue
 
             resource_entries: dict[str, dict] = {}
