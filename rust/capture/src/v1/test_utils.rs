@@ -678,6 +678,7 @@ pub struct TestState {
 pub struct TestStateBuilder {
     quota_limited: bool,
     overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
+    ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
@@ -698,6 +699,7 @@ impl TestStateBuilder {
         Self {
             quota_limited: false,
             overflow_limiter: None,
+            ai_events_overflow_limiter: None,
             historical_threshold_days: None,
             restriction_service: None,
             global_rate_limiter: None,
@@ -729,6 +731,17 @@ impl TestStateBuilder {
     /// Add an in-process overflow limiter with the given rate and burst.
     pub fn with_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
         self.overflow_limiter = Some((
+            NonZeroU32::new(per_second).expect("per_second must be > 0"),
+            NonZeroU32::new(burst).expect("burst must be > 0"),
+        ));
+        self
+    }
+
+    /// Arm the AI overflow valve: a dedicated AI-lane limiter with the given
+    /// rate and burst. Also sets `ai_events_overflow_enabled`, mirroring
+    /// production where both derive from the same overflow-topic config.
+    pub fn with_ai_events_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
+        self.ai_events_overflow_limiter = Some((
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
             NonZeroU32::new(burst).expect("burst must be > 0"),
         ));
@@ -819,6 +832,11 @@ impl TestStateBuilder {
             .overflow_limiter
             .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
 
+        let ai_events_overflow_limiter = self
+            .ai_events_overflow_limiter
+            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
+
         // Build the v1 sink router with a MockProducer-backed KafkaSink
         let mock_producer = self
             .mock_producer
@@ -868,13 +886,13 @@ impl TestStateBuilder {
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 20 * 1024 * 1024,
             overflow_limiter,
-            ai_events_overflow_limiter: None,
+            ai_events_overflow_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ai_routing: self.ai_routing,
-            ai_events_overflow_enabled: false,
+            ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
         };
 

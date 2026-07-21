@@ -3304,6 +3304,45 @@ mod tests {
         });
     }
 
+    /// process_batch wiring: overflow stamping must run when only the AI-lane
+    /// limiter is armed (analytics limiter unset), with the state's AI limiter
+    /// governing the AI lane — a bursting key's second `$ai_*` event lands on
+    /// the AI overflow topic while an analytics event on the same key stays on
+    /// the main topic (it would overflow instead if the limiter arguments were
+    /// ever swapped).
+    #[tokio::test]
+    async fn process_batch_routes_ai_overflow_with_only_ai_limiter_armed() {
+        let ts = TestStateBuilder::new()
+            .with_ai_routing(crate::config::AiRouting::Secondary)
+            .with_ai_events_overflow_limiter(1, 1)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        // All three events share the token:distinct_id overflow key; burst=1
+        // lets the first AI event through and overflows the second.
+        let batch = valid_batch(vec![
+            Event {
+                event: "$ai_generation".to_string(),
+                ..valid_event()
+            },
+            Event {
+                event: "$ai_generation".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            let mut topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
+            topics.sort_unstable();
+            assert_eq!(
+                topics,
+                vec!["ai_events", "ai_events_overflow", "events_main"]
+            );
+        });
+    }
+
     // =========================================================================
     // merge_sink_results tests
     // =========================================================================
