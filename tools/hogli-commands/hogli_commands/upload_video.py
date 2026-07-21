@@ -1,10 +1,10 @@
 """hogli pr:upload-video: upload short demo videos to the public PostHog/pr-assets repo.
 
-Same storage, auth, and confirmation gate as pr:upload-image (GitHub contents API on
-PostHog/pr-assets), but for video files. GitHub renders no inline player for raw-hosted
-video, so the printed markdown is a plain [label](url) link that opens or downloads the
-file rather than an embed. For an inline player, drag the video into the PR comment
-editor by hand instead.
+Same storage, auth, and confirmation gate as pr:upload-image (the shared pr_assets
+client), but for video files. GitHub renders no inline player for raw-hosted video, so
+the printed markdown is a plain [label](url) link that opens or downloads the file
+rather than an embed. For an inline player, drag the video into the PR comment editor
+by hand instead.
 """
 
 from __future__ import annotations
@@ -15,28 +15,15 @@ from typing import Final
 import click
 import requests
 
+from hogli_commands import pr_assets
 from hogli_commands.github_auth import github_token
-from hogli_commands.upload_image import _PUBLIC_WARNING, _REPO, _make_key, _upload
 
 _ALLOWED_EXTS: Final = frozenset({"mp4", "webm"})
-# GitHub's own inline-upload cap for videos on free plans; demo-pass MP4s are ~300 KB
+# GitHub's own inline-upload cap for videos on free plans, and roomy for the intended
+# use: a 10-30 s screen recording of the app at 1280px wide (H.264, CRF 26) comes out
+# around 250-650 KB, so 10 MB fits several minutes of UI screencast.
 _MAX_MB: Final = 10
-_MAX_BYTES: Final = _MAX_MB * 1024 * 1024
 _COMMIT_MESSAGE: Final = "add video"
-
-
-def _validate(path: Path) -> str:
-    """Return the lowercased extension, or raise on a symlink / unsupported type / oversized file."""
-    if path.is_symlink():
-        raise click.ClickException(f"{path.name}: refusing to upload a symlink (it could point at a sensitive file)")
-    ext = path.suffix.lower().lstrip(".")
-    if ext not in _ALLOWED_EXTS:
-        allowed = ", ".join(sorted(_ALLOWED_EXTS))
-        raise click.ClickException(f"{path.name}: unsupported extension '.{ext}' (allowed: {allowed})")
-    size = path.stat().st_size
-    if size > _MAX_BYTES:
-        raise click.ClickException(f"{path.name}: {size / 1024 / 1024:.1f} MB exceeds the {_MAX_MB} MB limit")
-    return ext
 
 
 def _escape_label(text: str) -> str:
@@ -66,12 +53,12 @@ def upload_video(files: tuple[Path, ...], label: str | None, yes: bool) -> None:
     SHA-pinned URLs keep serving even after the file is deleted. Never upload customer
     data, secrets, or internal-only information.
     """
-    click.secho(_PUBLIC_WARNING, fg="yellow", bold=True, err=True)
+    click.secho(pr_assets.PUBLIC_WARNING, fg="yellow", bold=True, err=True)
 
     if label is not None and len(files) > 1:
         raise click.ClickException("--label captions a single video; drop it to label each file with its stem")
 
-    validated = [(path, _validate(path)) for path in files]
+    validated = [(path, pr_assets.validate(path, _ALLOWED_EXTS, _MAX_MB)) for path in files]
 
     if not yes:
         click.secho(
@@ -91,10 +78,10 @@ def upload_video(files: tuple[Path, ...], label: str | None, yes: bool) -> None:
     session = requests.Session()
 
     for path, ext in validated:
-        key = _make_key(ext)
-        click.secho(f"Uploading {path.name} → {_REPO}/{key} …", fg="cyan", err=True)
-        sha = _upload(path, key, token, session, message=_COMMIT_MESSAGE)
+        key = pr_assets.make_key(ext)
+        click.secho(f"Uploading {path.name} → {pr_assets.REPO}/{key} …", fg="cyan", err=True)
+        sha = pr_assets.upload(path, key, token, session, message=_COMMIT_MESSAGE)
         text = label if label is not None else path.stem
-        markdown = f"[{_escape_label(text)}](https://raw.githubusercontent.com/{_REPO}/{sha}/{key})"
+        markdown = f"[{_escape_label(text)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
         click.echo(markdown)  # stdout carries only the markdown, so callers can pipe it
         click.secho(f"✓ uploaded {path.name}", fg="green", err=True)
