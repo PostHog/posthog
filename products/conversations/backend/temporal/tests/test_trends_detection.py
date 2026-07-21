@@ -133,9 +133,9 @@ class TestTrendsDetection(BaseTest):
             self._make_tickets(10, when=IN_WINDOW, channel=Channel.WIDGET)
             detection.run_detection(self.team.id)
 
-        active = TicketIncident.objects.for_team(self.team.id).filter(status=IncidentStatus.ACTIVE)
-        assert active.count() == 1
-        assert active.first().scope == "volume"
+        active = list(TicketIncident.objects.for_team(self.team.id).filter(status=IncidentStatus.ACTIVE))
+        assert len(active) == 1
+        assert active[0].scope == "volume"
 
     def test_absolute_rule_counts_only_matching_tickets(self) -> None:
         rule = self._make_rule(
