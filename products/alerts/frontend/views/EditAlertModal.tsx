@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
@@ -11,8 +11,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,15 +63,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     // is the single switch: off = legacy modal below, on = V2. Consumers don't change.
     const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
     if (redesigned) {
-        return (
-            <BindLogic logic={insightLogic} props={props.insightLogicProps}>
-                <BindLogic logic={insightDataLogic} props={props.insightLogicProps}>
-                    <BindLogic logic={insightVizDataLogic} props={props.insightLogicProps}>
-                        <EditAlertModalV2 {...props} />
-                    </BindLogic>
-                </BindLogic>
-            </BindLogic>
-        )
+        return <EditAlertModalV2 {...props} />
     }
     return <LegacyEditAlertModal {...props} />
 }
