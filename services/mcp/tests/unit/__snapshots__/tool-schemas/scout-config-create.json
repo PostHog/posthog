@@ -16,6 +16,18 @@
             "minimum": 30,
             "type": "number"
         },
+        "run_time_of_day": {
+            "anyOf": [
+                {
+                    "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically."
+        },
         "skill_name": {
             "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",
             "maxLength": 200,

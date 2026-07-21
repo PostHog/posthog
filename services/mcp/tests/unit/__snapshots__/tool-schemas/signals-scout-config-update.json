@@ -14,10 +14,22 @@
             "type": "string"
         },
         "run_interval_minutes": {
-            "description": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+            "description": "Minutes between runs (30–43200). Use 1440 for a daily schedule.",
             "maximum": 43200,
             "minimum": 30,
             "type": "number"
+        },
+        "run_time_of_day": {
+            "anyOf": [
+                {
+                    "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Set null to return to a rolling 24-hour interval."
         }
     },
     "required": ["id"],
