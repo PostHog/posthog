@@ -12,12 +12,19 @@ import { tryJsonParse } from 'lib/utils/json'
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
-import type { GroupType, GroupTypeIndex, HogFunctionConfigurationType, HogFunctionTypeType } from '../../../types'
+import type {
+    GroupType,
+    GroupTypeIndex,
+    HogFunctionConfigurationContextId,
+    HogFunctionConfigurationType,
+    HogFunctionTypeType,
+} from '../../../types'
 import {
     HogFunctionConfigurationLogicProps,
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
+import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export type HogFunctionTestInvocationForm = {
     globals: string // CyclotronJobInvocationGlobals
@@ -71,6 +78,7 @@ export interface hogFunctionTestLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     configuration: HogFunctionConfigurationType // hogFunctionConfigurationLogic
     configurationHasErrors: boolean // hogFunctionConfigurationLogic
+    contextId: HogFunctionConfigurationContextId // hogFunctionConfigurationLogic
     currentHogCode: string // hogFunctionConfigurationLogic
     exampleInvocationGlobals: CyclotronJobInvocationGlobals // hogFunctionConfigurationLogic
     sampleGlobals: CyclotronJobInvocationGlobals | null // hogFunctionConfigurationLogic
@@ -245,6 +253,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 'configuration',
                 'templateId',
                 'configurationHasErrors',
+                'contextId',
                 'sampleGlobals',
                 'sampleGlobalsLoading',
                 'exampleInvocationGlobals',
@@ -333,6 +342,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        toggleExpanded: () => {
+            // Contexts with a sample globals loader fetch real product data as soon as the
+            // test panel opens, instead of waiting for a "Load new event" click.
+            if (values.expanded && !values.sampleGlobals && SAMPLE_GLOBALS_CONTEXTS[values.contextId]) {
+                actions.loadSampleGlobals()
+            }
+        },
         loadSampleGlobalsSuccess: () => {
             if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
                 actions.receiveExampleGlobals(values.sampleGlobals)
