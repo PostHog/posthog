@@ -591,8 +591,9 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
-        queryset = queryset.exclude(
-            filters__events__0__id__regex=r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$"
+        queryset = queryset.filter(
+            Q(filters__events__0__id__isnull=True)
+            | ~Q(filters__events__0__id__regex=r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$")
         )
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):

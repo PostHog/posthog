@@ -200,6 +200,14 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertIn("managed through the alert API", response.json()["detail"])
 
     def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self):
+        ordinary = HogFunction.objects.create(
+            team=self.team,
+            name="Ordinary destination",
+            hog="return event",
+            type="destination",
+            enabled=False,
+            filters={},
+        )
         managed = HogFunction.objects.create(
             team=self.team,
             name="Billing alert destination",
@@ -213,6 +221,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
+        ordinary_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{ordinary.id}/")
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
@@ -221,6 +230,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertEqual(ordinary_response.status_code, status.HTTP_200_OK, ordinary_response.json())
+        self.assertIn(str(ordinary.id), listed_ids)
         self.assertNotIn(str(managed.id), listed_ids)
         self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)

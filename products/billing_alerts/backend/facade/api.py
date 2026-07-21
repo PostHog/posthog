@@ -45,7 +45,11 @@ from ..logic.state_machine import (
     billing_alert_snapshot,
     next_billing_alert_check_at,
 )
-from ..models import BillingAlertConfiguration, BillingAlertEvent
+from ..models import (
+    DAILY_CHECK_INTERVAL_HOURS as DAILY_CHECK_INTERVAL_HOURS,
+    BillingAlertConfiguration,
+    BillingAlertEvent,
+)
 
 
 @dataclass(frozen=True)
