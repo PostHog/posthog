@@ -54,8 +54,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
                 "or qualified_electronic_signature."
             ),
             "signature_authentication_mode": "How the signer is authenticated: otp_email, otp_sms, or no_otp.",
-            "signature_link": "Link the signer uses to sign.",
-            "signature_link_expiration_date": "When the signature link expires.",
+            # signature_link is intentionally not imported — it is a directly usable signing URL
+            # (see yousign.SIGNER_CAPABILITY_FIELDS), so it is stripped before rows are persisted.
+            "signature_link_expiration_date": "When the signer's (non-imported) signature link expires.",
             "delivery_mode": "How this signer is notified: email, or none.",
             "fields": "Fields placed on the documents for this signer.",
             "signed_at": "When the signer completed their signature.",
