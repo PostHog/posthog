@@ -506,7 +506,8 @@ def create_from_template(
     # which trips the posthog.models.property circular import during django.setup().
     from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties  # noqa: PLC0415
 
-    dashboard.filters = normalize_dashboard_filters_properties(dict(template.dashboard_filters or {}))
+    raw_filters = template.dashboard_filters
+    dashboard.filters = normalize_dashboard_filters_properties(raw_filters) if isinstance(raw_filters, dict) else {}
     dashboard.description = template.dashboard_description or ""
 
     for template_tag in template.tags or []:

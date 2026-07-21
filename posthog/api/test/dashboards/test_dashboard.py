@@ -41,6 +41,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -1645,6 +1646,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "use_template")
 
+    def test_use_template_ignores_non_dict_dashboard_filters(self) -> None:
+        template = DashboardTemplate.objects.create(
+            team=self.team,
+            template_name="invalid-filters",
+            scope="team",
+            dashboard_description="",
+            dashboard_filters=["invalid"],
+            tiles=[],
+        )
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "from invalid filters", "use_template": template.template_name},
+            expected_status=status.HTTP_201_CREATED,
+        )
+
+        dashboard = Dashboard.objects.get(id=dashboard_id, team=self.team)
+        self.assertEqual(dashboard.filters, {})
+
     @parameterized.expand(
         [
             ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
@@ -1655,8 +1674,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
-        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-
         if owner == "self":
             template_team: Team | None = self.team
         elif owner == "sibling":
