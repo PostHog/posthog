@@ -172,9 +172,10 @@ class CohortsStaffToolsViewSet(viewsets.ViewSet):
         cohort_ids: list[int] = list(dict.fromkeys(request.validated_query_data["cohort_ids"]))
         # No deleted=False filter: staff need to see a deleted cohort's state to explain why it
         # stopped calculating.
-        cohorts_by_id = {
-            cohort.id: cohort for cohort in Cohort.objects.select_related("team").filter(id__in=cohort_ids)
-        }
+        # Staff-only, cross-team by design: see class docstring.
+        # nosemgrep: idor-lookup-without-team
+        cohorts = Cohort.objects.select_related("team").filter(id__in=cohort_ids)
+        cohorts_by_id = {cohort.id: cohort for cohort in cohorts}
         found = [cohorts_by_id[cohort_id] for cohort_id in cohort_ids if cohort_id in cohorts_by_id]
         not_found_ids = [cohort_id for cohort_id in cohort_ids if cohort_id not in cohorts_by_id]
 
@@ -202,6 +203,8 @@ class CohortsStaffToolsViewSet(viewsets.ViewSet):
     @action(methods=["POST"], detail=False)
     def recalculate(self, request: request.Request, **kwargs: Any) -> response.Response:
         cohort_ids: list[int] = list(dict.fromkeys(request.validated_data["cohort_ids"]))
+        # Staff-only, cross-team by design: see class docstring.
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
         cohorts_by_id = {cohort.id: cohort for cohort in Cohort.objects.filter(id__in=cohort_ids)}
 
         queued_ids: list[int] = []
