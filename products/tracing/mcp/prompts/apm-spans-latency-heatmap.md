@@ -1,4 +1,4 @@
-Latency over time — trace counts per (time bucket, duration bucket) cell. The 2D combination of `apm-spans-sparkline` (when) and `apm-spans-duration-histogram` (how slow): one call answers "when did latency change, and how".
+Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: "when did latency change, and how".
 
 Returns one row per non-empty `(time bucket, duration bucket)` cell:
 
@@ -6,7 +6,7 @@ Returns one row per non-empty `(time bucket, duration bucket)` cell:
 - `bucket_ns` — duration bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)
 - `count` — traces whose ROOT span duration falls in that cell (or spans, when `rootSpans` is false)
 
-Time buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.
+Time buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~4-hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.
 
 Use to answer:
 
@@ -15,7 +15,7 @@ Use to answer:
 - "Did the deploy at 14:00 change the latency profile, not just the p95?"
 - "Is the slow tail constant background or bursty?"
 
-For a single distribution with per-service breakdown, use `apm-spans-duration-histogram`. For counts over time without duration structure, use `apm-spans-sparkline`. For per-operation percentiles, use `apm-spans-aggregate`. Cells carry no service breakdown — narrow with `serviceNames` instead.
+For a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.
 
 All parameters must be nested inside a `query` object.
 
@@ -86,6 +86,7 @@ Property filters applied to the counted spans. Same filter shape and operators a
 # Reminders
 
 - `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000. Buckets follow the 1-2-5 series; a 3.5ms trace lands in the 2ms bucket (bucket floor).
-- Rows with `bucket_ns: 0, count: 0` are time-axis filler for quiet buckets, not data — a gap in traffic, not zero latency.
+- `{bucket_ns: 0, count: 0}` rows are the sentinel time-axis filler described above — skip them when reading densities.
 - Default counts are **traces** (one per root span); they line up with `apm-spans-duration-histogram`, not with `apm-spans-count`.
+- Cells carry no service breakdown — narrow with `serviceNames` instead.
 - After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (nanoseconds), `orderBy: "duration"`.
