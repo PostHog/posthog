@@ -327,6 +327,7 @@ the row lists both.
 | leadfeeder                       | HTTP                        | requests                                                        | ✅                          |
 | leexi                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lemlist                          | HTTP                        | requests                                                        | ✅                          |
+| lemon_squeezy                    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
 | lightfield                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
@@ -816,7 +817,6 @@ doesn't conflict with concurrent PRs.
 - koyeb
 - kyve
 - lambda_labs
-- lemon_squeezy
 - lever
 - liana
 - lingo_dev
