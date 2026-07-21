@@ -326,67 +326,6 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
     },
 })
 
-const OrganizationGetSchema = RetrieveParams.extend({
-    id: RetrieveParams.shape['id'].describe('Organization ID. If omitted, uses the active organization.').optional(),
-})
-
-const organizationGet = (): ToolBase<typeof OrganizationGetSchema, Schemas.Organization> => ({
-    name: 'organization-get',
-    schema: OrganizationGetSchema,
-    handler: async (context: Context, params: z.infer<typeof OrganizationGetSchema>) => {
-        const id = params.id ?? (await context.stateManager.getOrgID())
-        if (!id) {
-            throw new Error('id is required. Provide it explicitly or set an active organization first.')
-        }
-        const result = await context.api.request<Schemas.Organization>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(id))}/`,
-        })
-        const filtered = pickResponseFields(result, [
-            'id',
-            'name',
-            'slug',
-            'created_at',
-            'updated_at',
-            'membership_level',
-            'member_count',
-            'teams.*.id',
-            'teams.*.name',
-            'teams.*.project_id',
-            'projects.*.id',
-            'projects.*.name',
-        ]) as typeof result
-        return filtered
-    },
-})
-
-const OrganizationsListSchema = ListQueryParams
-
-const organizationsList = (): ToolBase<
-    typeof OrganizationsListSchema,
-    WithPostHogUrl<Schemas.PaginatedOrganizationList>
-> => ({
-    name: 'organizations-list',
-    schema: OrganizationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof OrganizationsListSchema>) => {
-        const result = await context.api.request<Schemas.PaginatedOrganizationList>({
-            method: 'GET',
-            path: `/api/organizations/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'name', 'slug', 'membership_level'])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
-    },
-})
-
 const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
     PartialUpdateBody.omit({
         name: true,
@@ -469,6 +408,67 @@ const organizationEnforce2faExecute = (): ToolBase<
         })
         const filtered = pickResponseFields(result, ['enforce_2fa']) as typeof result
         return filtered
+    },
+})
+
+const OrganizationGetSchema = RetrieveParams.extend({
+    id: RetrieveParams.shape['id'].describe('Organization ID. If omitted, uses the active organization.').optional(),
+})
+
+const organizationGet = (): ToolBase<typeof OrganizationGetSchema, Schemas.Organization> => ({
+    name: 'organization-get',
+    schema: OrganizationGetSchema,
+    handler: async (context: Context, params: z.infer<typeof OrganizationGetSchema>) => {
+        const id = params.id ?? (await context.stateManager.getOrgID())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active organization first.')
+        }
+        const result = await context.api.request<Schemas.Organization>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(id))}/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'slug',
+            'created_at',
+            'updated_at',
+            'membership_level',
+            'member_count',
+            'teams.*.id',
+            'teams.*.name',
+            'teams.*.project_id',
+            'projects.*.id',
+            'projects.*.name',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const OrganizationsListSchema = ListQueryParams
+
+const organizationsList = (): ToolBase<
+    typeof OrganizationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedOrganizationList>
+> => ({
+    name: 'organizations-list',
+    schema: OrganizationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof OrganizationsListSchema>) => {
+        const result = await context.api.request<Schemas.PaginatedOrganizationList>({
+            method: 'GET',
+            path: `/api/organizations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'slug', 'membership_level'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -586,10 +586,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comments-list': commentsList,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
-    'organization-get': organizationGet,
-    'organizations-list': organizationsList,
     'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,
     'organization-enforce-2fa-execute': organizationEnforce2faExecute,
+    'organization-get': organizationGet,
+    'organizations-list': organizationsList,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,
