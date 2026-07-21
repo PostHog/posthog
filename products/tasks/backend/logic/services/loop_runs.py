@@ -18,6 +18,7 @@ from django.db import connection, transaction
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
+from posthog.models.organization import OrganizationMembership
 from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
@@ -226,6 +227,21 @@ class _FireDecision:
     cancelled_workflow_ids: list[str] = field(default_factory=list)
 
 
+def _owner_eligible_to_run(loop: Loop) -> bool:
+    """Whether the loop's owner may still have a run execute as them: an active user account that is
+    also a current member of the loop's org. A run mints team-scoped OAuth/GitHub/MCP credentials as
+    `loop.created_by`, so a deactivated account or a user removed from the org must not keep firing —
+    membership removal leaves `is_active=True`, so account state alone is insufficient."""
+    if loop.created_by_id is None:
+        return False
+    owner = loop.created_by
+    if owner is None or not owner.is_active:
+        return False
+    return OrganizationMembership.objects.filter(
+        user_id=loop.created_by_id, organization_id=loop.team.organization_id
+    ).exists()
+
+
 def fire_loop(
     loop: Loop,
     trigger: LoopTrigger | None,
@@ -245,12 +261,14 @@ def fire_loop(
     if not loop.enabled or loop.deleted:
         return LoopFireResult(created=False, reason="disabled", task_id=None, task_run_id=None)
 
-    # A run executes with its owner's credentials (`task.created_by` = `loop.created_by`), so it must
-    # never fire as a deactivated owner. `enabled` is member-editable, so a teammate could otherwise
-    # re-enable a loop auto-paused on owner deactivation and restart it under that owner's GitHub/MCP
-    # access; the GitHub credential path doesn't re-check `is_active`. Enforce it here, at the single
-    # choke point every trigger flows through. A takeover to an active member re-qualifies the loop.
-    if loop.created_by_id is None or not loop.created_by.is_active:
+    # A run executes with its owner's credentials (`task.created_by` = `loop.created_by`) and can mint
+    # team-scoped OAuth/GitHub/MCP tokens as them, so it must never fire unless the owner is still an
+    # active user AND a current member of the loop's org. `enabled` is member-editable, so a teammate
+    # could otherwise re-enable a loop auto-paused on owner deactivation; and a removed member keeps
+    # `is_active=True`, so account state alone isn't enough. Enforced here, the single choke point
+    # every trigger flows through (re-checked under the row lock in `_fire_loop_committed`). A takeover
+    # to an eligible member re-qualifies the loop.
+    if not _owner_eligible_to_run(loop):
         return LoopFireResult(created=False, reason="owner_inactive", task_id=None, task_run_id=None)
 
     # A disabled trigger whose schedule pause hasn't propagated (or whose occurrence was
@@ -314,18 +332,18 @@ def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str,
         # fail-closed default manager would raise without ambient team context.
         locked_loop = (
             Loop.objects.for_team(loop.team_id, canonical=True)
-            .select_related("created_by")
+            .select_related("created_by", "team")
             .select_for_update(of=("self",))
             .filter(pk=loop.id)
             .first()
         )
         if locked_loop is None or not locked_loop.enabled or locked_loop.deleted:
             return _FireDecision(reason="disabled", created=False, is_replay=False)
-        # Re-check the owner's active state here, under the loop lock and freshly read, not just at
-        # the pre-lock check in `fire_loop`: a deactivation that commits `is_active=False` between
-        # that check and this transaction would otherwise let the fire create a run (and, post-commit,
-        # mint an OAuth token) for the now-deactivated owner before lifecycle cancellation lands.
-        if locked_loop.created_by_id is None or not locked_loop.created_by.is_active:
+        # Re-check owner eligibility here, under the loop lock and freshly read, not just at the
+        # pre-lock check in `fire_loop`: a deactivation or membership removal that commits between that
+        # check and this transaction would otherwise let the fire create a run (and, post-commit, mint
+        # an OAuth token) for the now-ineligible owner before lifecycle cancellation lands.
+        if not _owner_eligible_to_run(locked_loop):
             return _FireDecision(reason="owner_inactive", created=False, is_replay=False)
         loop = locked_loop
 

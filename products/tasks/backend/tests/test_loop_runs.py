@@ -76,6 +76,8 @@ class LoopRunsTestCase(TestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="loop-owner@example.com", first_name="Loop", password="password")
+        # A loop owner is a member of the team's org; the fire path requires current membership.
+        self.organization.members.add(self.user)
         # The cloud usage gate makes a live HTTP call to the LLM gateway; unmocked it is
         # non-deterministic (fails open when the gateway is down, blocks when it's up locally).
         # Default it to "allowed" so happy-path fires are deterministic; the gate-specific tests
@@ -152,6 +154,19 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         trigger = self.create_trigger(loop)
 
         result = fire_loop(loop, trigger, "after-deactivation", "ctx")
+
+        self.assertFalse(result.created)
+        self.assertEqual(result.reason, "owner_inactive")
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
+
+    def test_fire_is_blocked_when_the_owner_is_no_longer_an_org_member(self):
+        # Removing a user from the org leaves `is_active=True`, so account state alone isn't enough:
+        # a former member's loop must not keep firing and minting team-scoped credentials as them.
+        former_member = User.objects.create_user(email="left@example.com", first_name="Left", password="password")
+        loop = self.create_loop(created_by=former_member)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, "after-removal", "ctx")
 
         self.assertFalse(result.created)
         self.assertEqual(result.reason, "owner_inactive")
