@@ -1107,10 +1107,6 @@ class ModalSandbox(SandboxBase):
         if relayed_mcp_servers:
             relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
 
-        if auto_publish and not self.agent_server_supports_auto_publish():
-            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
-            auto_publish = False
-
         command = self._build_agent_server_command(
             repo_path,
             task_id,

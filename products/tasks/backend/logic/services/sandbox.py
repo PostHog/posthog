@@ -243,13 +243,6 @@ class SandboxBase(ABC):
             timeout_seconds=45,
         )
 
-    def agent_server_supports_auto_publish(self) -> bool:
-        """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
-        CLI options, so probe the installed binary before passing --autoPublish; unsupported
-        binaries degrade to review-first instead of crashing at launch."""
-        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
-        return result.exit_code == 0
-
     def clone_repository(
         self,
         repository: str,
