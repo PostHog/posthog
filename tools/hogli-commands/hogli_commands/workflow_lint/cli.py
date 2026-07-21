@@ -26,19 +26,18 @@ def _gh_annotation(level: str, check_label: str, issue: Issue) -> None:
     click.echo(f"::{level}{file_part} title=lint:workflows ({check_label})::{issue.render()}")
 
 
-def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> tuple[int, int]:
-    """Run a single check and return total and blocking issue counts."""
+def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> int:
+    """Run a single check, print results, return the issue count."""
     mode = "" if check.blocking else ", advisory"
     click.echo(f"  {check.id} ({check.label}{mode})...")
     result = check.run(workflows)
+    marker = "✗" if check.blocking else "!"
     for issue in result.issues:
-        marker = "✗" if check.blocking else "!"
         click.echo(f"    {marker} {issue.render()}")
         _gh_annotation("error" if check.blocking else "warning", check.label, issue)
     if not result.issues:
         click.echo("    ✓ ok")
-    issue_count = len(result.issues)
-    return issue_count, issue_count if check.blocking else 0
+    return len(result.issues)
 
 
 def _default_workflows_dir() -> Path:
@@ -91,9 +90,10 @@ def cmd_lint_workflows(check_id: str | None, list_checks: bool, workflows_dir: P
     blocking_issues = 0
     checks_with_issues: list[WorkflowCheck] = []
     for check in selected:
-        check_issues, check_blocking_issues = _run_one(check, workflows)
+        check_issues = _run_one(check, workflows)
         total_issues += check_issues
-        blocking_issues += check_blocking_issues
+        if check.blocking:
+            blocking_issues += check_issues
         if check_issues:
             checks_with_issues.append(check)
 
