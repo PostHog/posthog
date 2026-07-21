@@ -348,7 +348,9 @@ const MCP_MISSING_CAPABILITY_LINK = '{project.url}/mcp-analytics/activity'
 
 const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolErrorMessage(slackEscapeExpr, '*')
 const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolErrorMessage(markdownEscapeExpr, '**')
-const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(${MCP_EFFECTIVE_TOOL_EXPR})}`
+// Bound the tool name before encoding: percent-encoding can triple the length, and the link
+// rides inside Teams/Discord bodies that must stay under provider message limits.
+const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(substring(concat(${MCP_EFFECTIVE_TOOL_EXPR}), 1, ${MCP_FIELD_MAX_LENGTH}))}`
 
 interface MCPNotificationVariantsOptions {
     subTemplateId: 'mcp-missing-capability' | 'mcp-tool-error'

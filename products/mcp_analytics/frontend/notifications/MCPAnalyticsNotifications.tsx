@@ -177,7 +177,13 @@ export function MCPAnalyticsNotifications(): JSX.Element {
                                 />
                                 <ConfirmDeleteButton
                                     onDelete={() => deleteNotification(fn)}
-                                    disabledReason={notificationsLoading ? 'Refreshing notifications…' : undefined}
+                                    disabledReason={
+                                        notificationsLoading
+                                            ? 'Refreshing notifications…'
+                                            : pendingToggleIds[fn.id]
+                                              ? 'Waiting for the enable/disable update to finish…'
+                                              : undefined
+                                    }
                                     data-attr="mcp-analytics-notification-delete"
                                 />
                             </div>

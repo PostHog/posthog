@@ -229,6 +229,19 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
         ],
     }),
     listeners(({ actions, values }) => ({
+        // If a reload was already in flight when a mutation settled, that GET read pre-mutation
+        // state and its pending-id tombstone is now cleared — reload once more so the stale
+        // response can't revert a confirmed toggle or resurrect a confirmed delete.
+        toggleNotificationEnabledSettled: () => {
+            if (values.notificationsLoading) {
+                actions.loadNotifications()
+            }
+        },
+        deleteNotificationSettled: () => {
+            if (values.notificationsLoading) {
+                actions.loadNotifications()
+            }
+        },
         loadNotificationsSuccess: ({ notifications }) => {
             // Preserve the server total while the list is capped. Optimistic deletes can leave it
             // slightly stale until the next count reload, which is more accurate than replacing it with 500.
