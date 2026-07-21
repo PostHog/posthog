@@ -1,11 +1,3 @@
-"""Business logic for customer-analytics announcements.
-
-An announcement is one plain-text (Slack mrkdwn) message a CSM sends to many customer
-Slack channels via the SupportHog bot. Channel access is validated server-side against
-the bot's member channels (via the conversations facade) so a caller can never make the
-bot post to arbitrary Slack destinations.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -26,19 +18,6 @@ if TYPE_CHECKING:
 
 
 def create_announcement(team: Team, created_by: User, message: str, channel_ids: list[str]) -> Announcement:
-    """Persist the announcement with one delivery row per channel, validated against the
-    bot's member channels.
-
-    Security boundary: only channels in the bot's member list get a ``pending`` row (the
-    send task posts pending rows exclusively), so a crafted channel ID can never make the
-    bot post to an arbitrary Slack destination. Rather than rejecting the whole request,
-    a non-member channel is born ``failed`` with ``not_in_channel`` — the same outcome as
-    losing the channel between create and delivery, so history and rollup handle both
-    identically and valid channels still deliver.
-
-    Raises :class:`AnnouncementValidationError` only when the member list itself can't be
-    resolved (bot not connected, Slack unavailable) — persisting zero rows in that case.
-    """
     try:
         allowed = {c.id: c for c in list_support_bot_channels(team.pk, members_only=True)}
     except SupportSlackNotConfigured:
@@ -46,6 +25,9 @@ def create_announcement(team: Team, created_by: User, message: str, channel_ids:
     except SupportSlackChannelsUnavailable:
         raise AnnouncementValidationError("Could not verify Slack channels right now. Please try again.")
 
+    # Only member channels get a pending row (the only state the send task posts), so a
+    # crafted channel ID can never make the bot post to an arbitrary Slack destination;
+    # non-member channels are born failed, same as a channel lost between create and send.
     with transaction.atomic():
         announcement = Announcement.objects.create(
             team=team,
@@ -73,11 +55,6 @@ def create_announcement(team: Team, created_by: User, message: str, channel_ids:
 
 
 def list_channels(team_id: int) -> list[AnnouncementChannelView]:
-    """The bot's member channels labeled by customer account, for the composer picker.
-
-    Channels mapped to a customer sort first (by customer name); unmapped ones fall
-    below, sorted by channel name. Raises the conversations facade errors unchanged.
-    """
     member_channels = list_support_bot_channels(team_id, members_only=True)
     name_by_channel = _customer_names_by_channel(team_id)
     enriched = [

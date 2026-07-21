@@ -534,9 +534,6 @@ export interface PaginatedAnnouncementListApi {
     results: AnnouncementApi[]
 }
 
-/**
- * A selectable Slack channel in the composer picker, labeled by customer where known.
- */
 export interface AnnouncementChannelApi {
     /** Slack channel ID (e.g. C0123ABCD). */
     id: string

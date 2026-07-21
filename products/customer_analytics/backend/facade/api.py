@@ -2117,7 +2117,6 @@ def _announcements_queryset(team_id: int):
 
 
 def list_announcements(team_id: int, offset: int, limit: int) -> tuple[list[contracts.AnnouncementView], int]:
-    """Announcements for the team, newest first. Returns ``(page, total_count)``."""
     queryset = _announcements_queryset(team_id)
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
@@ -2130,20 +2129,12 @@ def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView 
 
 
 def create_announcement(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.AnnouncementView:
-    """Validate the channels against the SupportHog bot's member channels and persist the
-    announcement with pending per-channel delivery rows.
-
-    Raises :class:`contracts.AnnouncementValidationError` (→ 400) on any validation failure,
-    persisting nothing.
-    """
     team = Team.objects.get(id=team_id)
     announcement = _announcements_logic.create_announcement(team, user, message, channels)
     return _to_announcement_view(announcement)
 
 
 def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChannelView]:
-    """The SupportHog bot's member channels labeled by customer account, for the composer
-    picker. Returns [] when the bot isn't connected or the list can't be resolved."""
     try:
         return _announcements_logic.list_channels(team_id)
     except SupportSlackNotConfigured:

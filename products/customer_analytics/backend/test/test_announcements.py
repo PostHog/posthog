@@ -36,7 +36,6 @@ class TestAnnouncementAPI(APIBaseTest):
         assert data["status"] == "pending"
         assert data["total_channels"] == 2
         assert data["created_by"]["id"] == self.user.pk
-        # Names are resolved server-side from the member-channel lookup, not from the request body.
         assert {(d["slack_channel_id"], d["slack_channel_name"]) for d in data["deliveries"]} == {
             ("C1", "acme-corp"),
             ("C2", "globex"),
@@ -46,10 +45,6 @@ class TestAnnouncementAPI(APIBaseTest):
 
     @patch(HELPER)
     def test_create_isolates_non_member_channel(self, mock_channels):
-        # Pentest fix: a caller crafting a channel ID the bot isn't in (a DM, private channel,
-        # App Home) must never be posted to. Only member channels get a pending row (the only
-        # state the send task posts); a non-member channel is born failed — matching a
-        # delivery-time loss — while valid channels still deliver.
         mock_channels.return_value = self._member_channels()
 
         response = self.client.post(self.base_url, {"message": "hi", "channels": ["C1", "D_secret_dm"]}, format="json")
@@ -114,14 +109,12 @@ class TestAnnouncementAPI(APIBaseTest):
             SupportChannel(id="C1", name="zzz-internal", is_member=True),
             SupportChannel(id="C2", name="acme-shared", is_member=True),
         ]
-        # C2 is mapped to a customer account; C1 is an unmapped (e.g. internal) channel.
         Account.objects.create_account(team=self.team, name="Acme", properties={"slack_channel_id": "C2"})
 
         response = self.client.get(f"{self.base_url}channels/")
 
         assert response.status_code == status.HTTP_200_OK
         channels = response.json()
-        # Mapped channel sorts first with its customer name; unmapped falls below with null.
         assert channels[0]["id"] == "C2"
         assert channels[0]["customer_name"] == "Acme"
         assert channels[1]["id"] == "C1"

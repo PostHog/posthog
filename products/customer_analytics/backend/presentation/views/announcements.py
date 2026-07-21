@@ -1,12 +1,3 @@
-"""DRF views for customer-analytics announcements.
-
-An announcement is one plain-text (Slack mrkdwn) message a CSM sends to many customer
-Slack channels via the SupportHog bot. This module owns the HTTP layer only: request
-validation and response shaping. Channel validation, persistence, and enrichment live
-behind the facade; the serializers wrap its frozen contracts, wire-faithful to the
-original ``ModelSerializer`` output so the generated OpenAPI components are unchanged.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -31,10 +22,8 @@ from products.customer_analytics.backend.facade.contracts import (
 )
 from products.customer_analytics.backend.presentation.views.views import _FacadePaginationMixin
 
-# Status (value, label) pairs, kept in sync with the model TextChoices. Declared here so
-# this module imports no product models — the generated ``AnnouncementStatusEnum`` /
-# ``AnnouncementDeliveryStatusEnum`` stay identical to the model-derived ones (matched by
-# value against the ``ENUM_NAME_OVERRIDES`` entries in settings).
+# Duplicated from the model TextChoices so this module imports no product models;
+# ENUM_NAME_OVERRIDES matches the generated enums against these by value.
 _ANNOUNCEMENT_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("sending", "Sending"),
@@ -80,8 +69,6 @@ class AnnouncementDeliverySerializer(DataclassSerializer):
 
 
 class AnnouncementChannelSerializer(serializers.Serializer):
-    """A selectable Slack channel in the composer picker, labeled by customer where known."""
-
     id = serializers.CharField(help_text="Slack channel ID (e.g. C0123ABCD).")
     name = serializers.CharField(help_text="Slack channel display name (without the leading #).")
     is_member = serializers.BooleanField(help_text="Whether the SupportHog bot is a member of this channel.")
@@ -160,9 +147,7 @@ class AnnouncementViewSet(
     TeamAndOrgViewSetMixin,
     _FacadePaginationMixin,
     mixins.CreateModelMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
+    viewsets.ReadOnlyModelViewSet,
 ):
     scope_object = "customer_analytics"
     serializer_class = AnnouncementSerializer

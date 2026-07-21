@@ -10211,9 +10211,6 @@ export namespace Schemas {
       channels: string[];
     }
 
-    /**
-     * A selectable Slack channel in the composer picker, labeled by customer where known.
-     */
     export interface AnnouncementChannel {
       /** Slack channel ID (e.g. C0123ABCD). */
       id: string;

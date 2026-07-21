@@ -510,12 +510,6 @@ class ExternalAccountCustomPropertiesResult:
 
 
 class AnnouncementValidationError(ValueError):
-    """Raised when an announcement create fails validation; the viewset maps it to a 400.
-
-    ``detail`` is either a message string or a ``{field: message}`` dict, matching the
-    shapes DRF's ``ValidationError`` accepts.
-    """
-
     def __init__(self, detail: str | dict[str, str]) -> None:
         super().__init__(str(detail))
         self.detail = detail
@@ -523,12 +517,6 @@ class AnnouncementValidationError(ValueError):
 
 @stdlib_dataclass(frozen=True)
 class AnnouncementChannelView:
-    """A selectable Slack channel in the announcements composer picker.
-
-    ``customer_name`` is the account whose ``slack_channel_id`` points at this channel,
-    or None when the channel isn't mapped to a customer analytics account.
-    """
-
     id: str
     name: str
     is_member: bool
@@ -537,8 +525,6 @@ class AnnouncementChannelView:
 
 @stdlib_dataclass(frozen=True)
 class AnnouncementDeliveryView:
-    """Per-channel delivery state of an announcement, as returned by the endpoints."""
-
     id: UUID | None = None
     slack_channel_id: str = ""
     slack_channel_name: str = ""
@@ -550,14 +536,8 @@ class AnnouncementDeliveryView:
 
 @stdlib_dataclass(frozen=True)
 class AnnouncementView:
-    """An announcement as returned by the announcements endpoints.
-
-    Defaults exist so the wrapping serializer can parse request bodies (which carry
-    only ``message`` + ``channels``) — see :class:`AccountView` for the pattern.
-    ``channels`` is the write-only list of Slack channel IDs from the request; the
-    facade always returns it empty.
-    """
-
+    # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
+    # message + channels; channels is write-only and always returned empty.
     id: UUID | None = None
     short_id: str = ""
     message: str = ""
