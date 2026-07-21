@@ -27,8 +27,10 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel
+
+from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
@@ -290,6 +292,33 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _get_assignment_properties(ticket: Ticket) -> dict:
+    """Current assignment on the ticket, so workflows can route a single team's tickets.
+
+    `assignee_type` is "user", "role", or None (unassigned). `assignee_role_name` is set only for
+    role assignments, letting filters target a team by name instead of its UUID.
+    """
+    assignment = TicketAssignment.objects.select_related("role").filter(ticket_id=ticket.id).first()
+    if assignment is None:
+        return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
+    if assignment.user_id is not None:
+        return {"assignee_type": "user", "assignee_id": str(assignment.user_id), "assignee_role_name": None}
+    if assignment.role_id is not None:
+        return {
+            "assignee_type": "role",
+            "assignee_id": str(assignment.role_id),
+            "assignee_role_name": assignment.role.name if assignment.role else None,
+        }
+    return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
+
+
+def _role_name_for_assignee(assignee_type: str | None, assignee_id: str | None) -> str | None:
+    """Look up a role's name for the assignment event; None for user or empty assignees."""
+    if assignee_type != "role" or not assignee_id:
+        return None
+    return Role.objects.filter(id=assignee_id).values_list("name", flat=True).first()
+
+
 def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
     """SLA state at the moment of the event.
 
@@ -393,6 +422,7 @@ def capture_ticket_assigned(
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
+    properties["assignee_role_name"] = _role_name_for_assignee(assignee_type, assignee_id)
     properties.update(_get_actor_properties(actor, actor_type))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
@@ -419,6 +449,7 @@ def capture_message_sent(
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_assignment_properties(ticket))
     properties.update(_get_sla_properties(ticket, timezone.now()))
 
     capture_internal(
@@ -438,6 +469,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
     properties.update(_get_customer_properties(ticket))
+    properties.update(_get_assignment_properties(ticket))
 
     team = ticket.team
     process_person = False
