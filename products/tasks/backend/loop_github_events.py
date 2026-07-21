@@ -53,6 +53,15 @@ def handle_github_event_for_loops(event_type: str, payload: dict[str, Any], deli
         _observe_github_event("skipped")
         return
 
+    # A matched trigger fires an unattended run with the loop owner's GitHub/MCP credentials, and the
+    # event's issue/comment/PR text is fed into that run's prompt. Restrict firing to trusted GitHub
+    # actors so untrusted external content can't steer a credentialed run: a "data, not instructions"
+    # fence is not an enforcement boundary (see loop_github_events untrusted-content review).
+    if not _event_actor_is_trusted(event_type, payload):
+        logger.info("loop_github_event_untrusted_actor_excluded", event_type=event_type, delivery_id=delivery_id)
+        _observe_github_event("skipped")
+        return
+
     action = payload.get("action")
     summary = _build_event_summary(event_type, payload)
 
@@ -145,6 +154,26 @@ def _fire_result_outcome(reason: str) -> LoopGithubEventOutcome:
 def _extract_installation_id(payload: dict[str, Any]) -> str | None:
     installation_id = (payload.get("installation") or {}).get("id")
     return str(installation_id) if installation_id is not None else None
+
+
+# GitHub `author_association` values that mean the actor has a trusted relationship to the repo.
+# OWNER/MEMBER/COLLABORATOR have (or are granted) write-ish access; external CONTRIBUTOR / NONE /
+# FIRST_TIME_CONTRIBUTOR do not and must not be able to steer a credentialed run.
+_TRUSTED_GITHUB_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
+def _event_actor_is_trusted(event_type: str, payload: dict[str, Any]) -> bool:
+    """Whether the event's author is a trusted repo actor, read from the webhook's `author_association`
+    (no API call). Push events are inherently write-gated (you can't push without access), so they are
+    trusted. For issue / comment / PR events the triggering author's association decides; an absent or
+    external association is untrusted (fail closed)."""
+    if event_type == "push":
+        return True
+    for key in ("comment", "issue", "pull_request"):
+        node = payload.get(key)
+        if isinstance(node, dict) and node.get("author_association") is not None:
+            return str(node.get("author_association")).upper() in _TRUSTED_GITHUB_ASSOCIATIONS
+    return False
 
 
 def _is_self_triggered_branch(event_type: str, payload: dict[str, Any]) -> bool:

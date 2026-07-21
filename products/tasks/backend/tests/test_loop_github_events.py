@@ -79,6 +79,7 @@ class TestHandleGithubEventForLoops(TestCase):
         repository: str,
         action: str | None = None,
         ref: str | None = None,
+        author_association: str = "MEMBER",
     ) -> dict:
         payload: dict = {
             "installation": {"id": installation_id},
@@ -88,6 +89,12 @@ class TestHandleGithubEventForLoops(TestCase):
             payload["action"] = action
         if event_type == "push":
             payload["ref"] = ref or "refs/heads/main"
+        elif event_type == "issues":
+            payload["issue"] = {"author_association": author_association}
+        elif event_type == "issue_comment":
+            payload["comment"] = {"author_association": author_association}
+        elif event_type == "pull_request":
+            payload["pull_request"] = {"author_association": author_association}
         return payload
 
     @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
@@ -215,10 +222,51 @@ class TestHandleGithubEventForLoops(TestCase):
             "installation": {"id": 998877},
             "repository": {"full_name": "acme/repo"},
             "action": "opened",
-            "pull_request": {"base": {"ref": base_ref}, "labels": [{"name": name} for name in labels]},
+            "pull_request": {
+                "base": {"ref": base_ref},
+                "labels": [{"name": name} for name in labels],
+                "author_association": "MEMBER",
+            },
         }
 
         handle_github_event_for_loops("pull_request", payload, delivery_id="del-pr-filter")
+
+        self.assertEqual(mock_fire_loop.called, expect_fired)
+
+    @parameterized.expand(
+        [
+            ("owner", "OWNER", True),
+            ("member", "MEMBER", True),
+            ("collaborator", "COLLABORATOR", True),
+            ("outside_contributor", "CONTRIBUTOR", False),
+            ("no_association", "NONE", False),
+        ]
+    )
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_only_trusted_github_actors_can_fire_a_loop(self, _name, association, expect_fired, mock_fire_loop):
+        # The issue body reaches the credentialed run's prompt, so an untrusted external author must
+        # not be able to trigger it. Push events are inherently write-gated and stay trusted.
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["issues"],
+            filters={"actions": ["opened"]},
+        )
+
+        handle_github_event_for_loops(
+            "issues",
+            self._event_payload(
+                "issues",
+                installation_id=998877,
+                repository="acme/repo",
+                action="opened",
+                author_association=association,
+            ),
+            delivery_id="del-actor-trust",
+        )
 
         self.assertEqual(mock_fire_loop.called, expect_fired)
 
