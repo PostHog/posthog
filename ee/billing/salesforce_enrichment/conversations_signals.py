@@ -5,13 +5,12 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Count, DateTimeField, Max, Min, Q, QuerySet
+from django.db.models.functions import Coalesce
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
 
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
@@ -19,7 +18,6 @@ from products.conversations.backend.models.constants import Channel
 
 LOGGER = get_logger(__name__)
 MAX_SLACK_MEMBER_PAGES = 100
-_UUID_REGEX = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 
 @dataclass
@@ -120,35 +118,20 @@ def _activity_at() -> Coalesce:
 
 
 def _tickets_with_verified_org() -> QuerySet[Ticket]:
-    """Tickets whose organization attribution is confirmed through a trusted path.
+    """Tickets whose organization attribution is trusted for Salesforce enrichment.
 
-    ``Ticket.organization_id`` can be stamped from an authoritative
-    ``OrganizationMembership`` lookup, but also from analytics ``$groups``,
-    which are customer-supplied and spoofable. Before an org is used as a
-    Salesforce Account key, re-verify it here: the ticket's customer identity
-    (the widget's real distinct_id, or the provider-supplied email that the
-    Slack/Teams/email channels store in ``distinct_id``/``email_from``) must
-    belong to a member of that organization, and that identity must carry a
-    positive attestation (``identity_verified=True``).
+    A ticket qualifies when it carries a positive identity attestation
+    (``identity_verified=True``) and a resolved ``organization_id``. That
+    ``organization_id`` is stamped once at creation (see
+    ``products/conversations/backend/events.py``): either from an authoritative
+    ``OrganizationMembership`` lookup, or — for a customer whose members are
+    registered in another region and so are invisible to this region's Postgres —
+    from a durable analytics ``$groups`` signal. The durability floor on that
+    analytics path is what keeps a single spoofed event from dictating the org, so
+    the enrichment can trust the stamped value without re-deriving it region-locally.
     """
-    membership_for_ticket_org = OrganizationMembership.objects.filter(
-        organization_id=OuterRef("organization_uuid")
-    ).filter(
-        Q(user__distinct_id=OuterRef("distinct_id"))
-        | Q(user__email__iexact=OuterRef("distinct_id"))
-        | Q(user__email__iexact=OuterRef("email_from"))
-    )
-    return (
-        # organization_id is free text (analytics-derived values are arbitrary), so
-        # guard the uuid cast with CASE — an unguarded cast would abort the whole
-        # query on the first malformed row. Comparing as uuid also lets the
-        # membership organization_id index anchor the EXISTS.
-        Ticket.objects.annotate(
-            organization_uuid=Case(
-                When(organization_id__regex=_UUID_REGEX, then=Cast("organization_id", output_field=UUIDField())),
-                output_field=UUIDField(),
-            )
-        ).filter(Exists(membership_for_ticket_org), identity_verified=True)
+    return Ticket.objects.filter(identity_verified=True).exclude(
+        Q(organization_id__isnull=True) | Q(organization_id="")
     )
 
 
