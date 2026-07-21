@@ -515,6 +515,7 @@ the row lists both.
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tavus                            | HTTP                        | requests                                                        | ✅                          |
 | tawk_to                          | HTTP                        | requests                                                        | ✅                          |
+| teachable                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | teamcity                         | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
@@ -952,7 +953,6 @@ doesn't conflict with concurrent PRs.
 - swonkie
 - synthesia
 - systeme
-- teachable
 - telli
 - tempo
 - terra_api
