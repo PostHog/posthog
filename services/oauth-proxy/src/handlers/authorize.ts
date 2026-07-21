@@ -12,6 +12,31 @@ const REGION_PICKER_HEADERS: Record<string, string> = {
     'Referrer-Policy': 'no-referrer',
 }
 
+// OAuth request parameters MUST NOT be included more than once (RFC 6749 §3.1).
+// We enforce it because the proxy reads these with `.get()` (first value) for KV
+// keying but forwards the last value to the regional server via `.set()`. A
+// duplicated `state` splits those two reads, letting an attacker route a victim's
+// callback to a preloaded redirect URI. `resource` (RFC 8707) is intentionally
+// excluded — it is allowed to repeat.
+const SINGLE_VALUED_PARAMS = [
+    'state',
+    'client_id',
+    'redirect_uri',
+    'response_type',
+    'scope',
+    'code_challenge',
+    'code_challenge_method',
+] as const
+
+function findDuplicatedParam(url: URL): string | null {
+    for (const param of SINGLE_VALUED_PARAMS) {
+        if (url.searchParams.getAll(param).length > 1) {
+            return param
+        }
+    }
+    return null
+}
+
 /**
  * OAuth Authorization — region picker + redirect.
  *
@@ -23,6 +48,17 @@ const REGION_PICKER_HEADERS: Record<string, string> = {
  */
 export async function handleAuthorize(request: Request, kv: KVNamespace): Promise<Response> {
     const url = new URL(request.url)
+
+    const duplicatedParam = findDuplicatedParam(url)
+    if (duplicatedParam) {
+        return new Response(
+            JSON.stringify({
+                error: 'invalid_request',
+                error_description: `Duplicate ${duplicatedParam} parameter is not allowed`,
+            }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+        )
+    }
 
     // If region is already selected (via query param from the picker page),
     // redirect to the regional authorize endpoint
