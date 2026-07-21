@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     ARTICLE_PAGEVIEWS_ENDPOINT,
     BASE_URL,
     DATA_START_DATE,
+    MAX_ARTICLES,
     TOP_ARTICLES_ENDPOINT,
     TOP_WINDOW_DAYS,
     USER_AGENT,
@@ -42,11 +43,14 @@ def _normalize_project(project: str) -> str:
 def _parse_articles(article_names: Optional[str]) -> list[str]:
     if not article_names:
         return []
-    articles = []
+    articles: list[str] = []
+    seen: set[str] = set()
     for raw in re.split(r"[,\n]", article_names):
         # The API identifies articles in URL form, with underscores instead of spaces.
         article = raw.strip().replace(" ", "_")
-        if article:
+        # Dedupe so a repeated title doesn't refetch the same per-article window.
+        if article and article not in seen:
+            seen.add(article)
             articles.append(article)
     return articles
 
@@ -189,12 +193,22 @@ def _get_rows(
         articles = _parse_articles(article_names)
         if not articles:
             raise ValueError(NO_ARTICLES_ERROR)
+        # Runtime cap as well as setup validation, so a config stored before the limit
+        # existed (or one that bypassed validation) can't fan out past MAX_ARTICLES.
+        if len(articles) > MAX_ARTICLES:
+            logger.warning(
+                f"Wikipedia Pageviews: {len(articles)} article titles configured, syncing only the first {MAX_ARTICLES}"
+            )
+            articles = articles[:MAX_ARTICLES]
 
     # The API truncates ranges at the newest loaded day and 404s fully-empty windows (treated
     # as empty above), so today is a safe end boundary despite the ~1-day ingestion lag.
     end_boundary = datetime.now(UTC).date()
 
-    start = _coerce_date(start_date) or DATA_START_DATE
+    # Clamp to the first day data exists: a stored start_date like 0001-01-01 parses fine but
+    # would otherwise fan out into hundreds of thousands of empty daily requests (the top
+    # endpoint serves one day per request).
+    start = max(_coerce_date(start_date) or DATA_START_DATE, DATA_START_DATE)
     if should_use_incremental_field:
         last_value = _coerce_date(db_incremental_field_last_value)
         if last_value is not None:

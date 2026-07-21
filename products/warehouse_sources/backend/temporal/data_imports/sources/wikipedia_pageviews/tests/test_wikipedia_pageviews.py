@@ -12,6 +12,8 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
+    DATA_START_DATE,
+    MAX_ARTICLES,
     PAGEVIEWS_ENDPOINT,
     TOP_ARTICLES_ENDPOINT,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
@@ -109,6 +111,7 @@ class TestHelpers:
             ("empty", "", []),
             ("commas_and_spaces", "Albert Einstein, Ada Lovelace", ["Albert_Einstein", "Ada_Lovelace"]),
             ("newlines_and_blanks", "Albert Einstein\n\nMarie Curie,", ["Albert_Einstein", "Marie_Curie"]),
+            ("dedupes_repeats", "Cat, Cat, Dog, Cat", ["Cat", "Dog"]),
         ]
     )
     def test_parse_articles(self, _name, value, expected):
@@ -167,6 +170,18 @@ class TestPageviews:
         ]
         saved = [call.args[0].next_start for call in manager.save_state.call_args_list]
         assert saved == ["2025-07-02", "2026-07-03", "2026-07-22"]
+
+    @freeze_time("2026-07-21")
+    def test_start_date_before_data_start_is_clamped(self):
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.return_value = _response(json_body={"items": []})
+
+        _run(PAGEVIEWS_ENDPOINT, session, start_date="0001-01-01")
+
+        # A pathological early start must not fan out before pageview data exists; the first
+        # requested window begins at DATA_START_DATE.
+        first_start, _ = _requested_ranges(session)[0]
+        assert first_start == f"{DATA_START_DATE:%Y%m%d}00"
 
     @freeze_time("2026-07-21")
     def test_404_window_is_skipped_and_iteration_continues(self):
@@ -267,6 +282,18 @@ class TestArticlePageviews:
     def test_raises_without_configured_articles(self):
         with pytest.raises(ValueError, match=NO_ARTICLES_ERROR):
             _run(ARTICLE_PAGEVIEWS_ENDPOINT, mock.MagicMock(spec=requests.Session), article_names="  ,  ")
+
+    @freeze_time("2026-07-21")
+    def test_article_titles_capped_at_max_at_runtime(self):
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.return_value = _response(json_body={"items": []})
+        # Single window (start within a year of now), so one request per article — a config
+        # stored past the cap must still not fan out beyond MAX_ARTICLES.
+        names = ",".join(f"Article_{i}" for i in range(MAX_ARTICLES + 5))
+
+        _run(ARTICLE_PAGEVIEWS_ENDPOINT, session, article_names=names, start_date="2026-07-20")
+
+        assert session.get.call_count == MAX_ARTICLES
 
 
 class TestTopArticles:

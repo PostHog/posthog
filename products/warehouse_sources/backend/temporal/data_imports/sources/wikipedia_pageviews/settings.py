@@ -19,6 +19,10 @@ WINDOW_DAYS = 366
 # The top endpoint serves one day per request; batch this many days per yield/checkpoint.
 TOP_WINDOW_DAYS = 7
 
+# Each article title costs one request per window, so an unbounded list fans out into an
+# unbounded number of outbound requests. Cap the number of titles synced per source.
+MAX_ARTICLES = 100
+
 PAGEVIEWS_ENDPOINT = "pageviews"
 ARTICLE_PAGEVIEWS_ENDPOINT = "article_pageviews"
 TOP_ARTICLES_ENDPOINT = "top_articles"

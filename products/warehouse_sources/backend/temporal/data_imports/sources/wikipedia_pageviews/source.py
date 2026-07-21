@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     DATA_START_DATE,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAX_ARTICLES,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews import (
@@ -101,8 +102,11 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
     ) -> tuple[bool, str | None]:
         if config.start_date and _coerce_date(config.start_date) is None:
             return False, "Start date must be in YYYY-MM-DD format."
-        if schema_name == ARTICLE_PAGEVIEWS_ENDPOINT and not _parse_articles(config.article_names):
+        articles = _parse_articles(config.article_names)
+        if schema_name == ARTICLE_PAGEVIEWS_ENDPOINT and not articles:
             return False, "Add one or more article titles in the source settings to sync this table."
+        if len(articles) > MAX_ARTICLES:
+            return False, f"Too many article titles. List at most {MAX_ARTICLES}."
         return validate_project(config.project, config.access, config.agent)
 
     def get_resumable_source_manager(
