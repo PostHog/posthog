@@ -560,6 +560,17 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+export interface DataCatalogTrustWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'data_catalog_trust'
+    /** Warehouse tables the query read that carry no certification (or a deprecated one) in the data catalog */
+    uncertified_tables: string[]
+    /** Approved governed metric names from the team's catalog (capped sample, not exhaustive) */
+    approved_metrics: string[]
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -579,7 +590,7 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | DataCatalogTrustWarning)[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2347,7 +2358,7 @@ export interface AnalyticsQueryResponseBase {
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | DataCatalogTrustWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
