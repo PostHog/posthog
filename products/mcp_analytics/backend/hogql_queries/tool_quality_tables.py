@@ -135,6 +135,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_quality_rows_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -214,6 +215,7 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_quality_daily_stats_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -280,6 +282,7 @@ class MCPToolCategoryCountsQueryRunner(AnalyticsQueryRunner[MCPToolCategoryCount
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_category_counts_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -340,6 +343,7 @@ class MCPToolCategoriesQueryRunner(AnalyticsQueryRunner[MCPToolCategoriesQueryRe
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_tool_categories_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
