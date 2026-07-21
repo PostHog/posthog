@@ -375,37 +375,7 @@ export function SectionedVariant(): JSX.Element {
     )
 }
 
-function PickerCardWide({ spec }: { spec: PickerCardSpec }): JSX.Element {
-    const Icon = spec.icon
-    return (
-        <Link
-            to={spec.to}
-            data-attr={spec.dataAttr}
-            onClick={spec.onClick}
-            className={cn(
-                'flex overflow-hidden rounded border border-primary bg-surface-primary',
-                'transition-all duration-100 hover:-translate-y-0.5 hover:border-accent hover:shadow-md',
-                'focus-visible:border-accent'
-            )}
-        >
-            <div className="w-40 shrink-0 border-r border-primary bg-fill-secondary">
-                <spec.sketch />
-            </div>
-            <div className="flex flex-1 flex-col justify-center gap-0.5 p-2">
-                <div className="flex items-center gap-1.5">
-                    <Icon className={cn('text-base shrink-0', spec.iconClassName ?? 'text-secondary')} />
-                    <span className="text-sm font-semibold text-default">{spec.name}</span>
-                </div>
-                <span className="text-xs leading-snug text-secondary">{spec.description}</span>
-            </div>
-        </Link>
-    )
-}
-
 function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.Element {
-    // 3-wide grid; a 4th card would leave a hole, so it renders as a wide horizontal card instead
-    const gridCards = section.cards.slice(0, 3)
-    const wideCard = section.cards.length > 3 ? section.cards[3] : null
     return (
         <div className="flex flex-col gap-2.5">
             <div className="flex flex-col gap-0.5">
@@ -413,11 +383,10 @@ function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.El
                 <span className="text-xs text-secondary">{section.description}</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
-                {gridCards.map((spec) => (
+                {section.cards.map((spec) => (
                     <PickerCard key={spec.key} spec={spec} />
                 ))}
             </div>
-            {wideCard && <PickerCardWide spec={wideCard} />}
         </div>
     )
 }
