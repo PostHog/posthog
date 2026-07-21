@@ -137,3 +137,38 @@ export const NumberOnly: Story = {
         </Stage>
     ),
 }
+
+export const ClickableWithTooltipAndFooter: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={340}>
+                <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                    <MetricCard
+                        title="Total Revenue"
+                        data={REVENUE}
+                        labels={MONTHS}
+                        theme={theme}
+                        color="#22d3ee"
+                        titleTooltip="Sum of all invoices paid in the selected range."
+                        onClick={() => undefined}
+                        onClickTooltip="View paid invoices"
+                        footer={<span className="cursor-pointer underline">View paid invoices</span>}
+                        sparklineClassName="mt-4"
+                        formatValue={(v) => `US$${Math.round(v).toLocaleString()}`}
+                    />
+                </div>
+            </Stage>
+        )
+    },
+}
+
+export const Loading: Story = {
+    render: () => (
+        <Stage width={360} height={320}>
+            <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                <MetricCard title="Total Revenue" loading />
+            </div>
+        </Stage>
+    ),
+}
