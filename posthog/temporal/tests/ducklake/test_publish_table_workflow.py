@@ -44,6 +44,7 @@ class TestPublishTableActivities(BaseTest):
         assert publication.status == ManagedWarehousePublishedTable.Status.COMPLETED
         assert publication.folder_version == "20260720120000"
         assert publication.last_published_at is not None
+        assert publication.table_id is not None
         table = DataWarehouseTable.objects.get(team_id=self.team.pk, id=publication.table_id)
         assert table.format == DataWarehouseTable.TableFormat.Parquet
         assert table.name == "customer_arr"
@@ -77,6 +78,7 @@ class TestPublishTableActivities(BaseTest):
 
         publication.refresh_from_db()
         assert DataWarehouseTable.objects.filter(team_id=self.team.pk, name="customer_arr").count() == 1
+        assert publication.table_id is not None
         table = DataWarehouseTable.objects.get(team_id=self.team.pk, id=publication.table_id)
         assert "/20260721120000/**.parquet" in table.url_pattern
         assert table.row_count == 7

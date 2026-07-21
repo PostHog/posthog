@@ -90,9 +90,9 @@ def create_publication(
 def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
     temporal = sync_connect()
     inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
-    async_to_sync(temporal.start_workflow)(
-        "duckgres-publish-table",
-        inputs,
+    async_to_sync(temporal.start_workflow)(  # type: ignore[misc]
+        "duckgres-publish-table",  # type: ignore[arg-type]
+        inputs,  # type: ignore[arg-type]
         id=f"duckgres-publish-{publication.id}",
         task_queue=str(settings.DUCKLAKE_TASK_QUEUE),
     )

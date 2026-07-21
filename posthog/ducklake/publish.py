@@ -9,12 +9,15 @@ repoints the table's url_pattern, so readers never see a half-written folder.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from django.conf import settings
 
 from psycopg import sql as psql
+
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
 PUBLISH_WRITE_SECRET_NAME = "posthog_publish_write"
 
@@ -143,6 +146,8 @@ def delete_stale_publish_versions(folder: str, keep_version: str) -> None:
     keep_fragment = f"/{keep_version}/"
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        stale = [{"Key": obj["Key"]} for obj in page.get("Contents", []) if keep_fragment not in obj["Key"]]
+        stale: list[ObjectIdentifierTypeDef] = [
+            {"Key": obj["Key"]} for obj in page.get("Contents", []) if keep_fragment not in obj["Key"]
+        ]
         if stale:
             s3.delete_objects(Bucket=bucket, Delete={"Objects": stale})
