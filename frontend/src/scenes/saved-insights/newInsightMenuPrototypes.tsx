@@ -159,7 +159,16 @@ const SUB_INSIGHT_CARDS: Record<'worldMap' | 'table' | 'number' | 'pie' | 'barVa
 
 // -- Shared card + card sources --
 
-export function PickerCard({ spec, className }: { spec: PickerCardSpec; className?: string }): JSX.Element {
+export function PickerCard({
+    spec,
+    className,
+    uniformHeight = false,
+}: {
+    spec: PickerCardSpec
+    className?: string
+    /** Reserve exactly two description lines so cards line up across sections. */
+    uniformHeight?: boolean
+}): JSX.Element {
     const Icon = spec.icon
     return (
         <Link
@@ -179,9 +188,13 @@ export function PickerCard({ spec, className }: { spec: PickerCardSpec; classNam
             <div className="flex flex-1 flex-col gap-0.5 p-2">
                 <div className="flex items-center gap-1.5">
                     <Icon className={cn('text-base shrink-0', spec.iconClassName ?? 'text-secondary')} />
-                    <span className="text-sm font-semibold text-default">{spec.name}</span>
+                    <span className="text-sm font-semibold text-default whitespace-nowrap">{spec.name}</span>
                 </div>
-                <span className="text-xs leading-snug text-secondary">{spec.description}</span>
+                <span
+                    className={cn('text-xs leading-snug text-secondary', uniformHeight && 'line-clamp-2 min-h-[33px]')}
+                >
+                    {spec.description}
+                </span>
             </div>
         </Link>
     )
@@ -414,6 +427,23 @@ export function SectionedVariant(): JSX.Element {
     )
 }
 
+// Terse copy so every description fits the two-line slot at variant F's card width
+const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
+    [InsightType.TRENDS]: 'How metrics change over time.',
+    [InsightType.STICKINESS]: 'How often users repeat actions.',
+    [InsightType.LIFECYCLE]: 'New, returning, and dormant users.',
+    [InsightType.FUNNELS]: 'Conversion through a sequence of steps.',
+    [InsightType.RETENTION]: 'How many users come back later.',
+    [InsightType.PATHS]: 'The routes users take through your product.',
+    [InsightType.SQL]: 'Query your data with SQL.',
+    [InsightType.HOG]: 'Query your data with Hog.',
+    ai: 'Describe an insight and let AI build it.',
+    'preset-number': 'One big number for a single metric.',
+    'preset-table': 'Totals ranked in a sortable table.',
+    'preset-pie': 'Share of a total, split by a breakdown.',
+    'preset-world-map': 'Unique users per country.',
+}
+
 function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.Element {
     return (
         <div className="flex flex-col gap-2.5">
@@ -423,7 +453,11 @@ function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.El
             </div>
             <div className="grid grid-cols-3 gap-2">
                 {section.cards.map((spec) => (
-                    <PickerCard key={spec.key} spec={spec} />
+                    <PickerCard
+                        key={spec.key}
+                        spec={{ ...spec, description: SHORT_CARD_DESCRIPTIONS[spec.key] ?? spec.description }}
+                        uniformHeight
+                    />
                 ))}
             </div>
         </div>
