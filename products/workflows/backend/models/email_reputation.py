@@ -33,9 +33,16 @@ class EmailReputationSnapshot(TeamScopedRootMixin, UUIDModel):
                 condition=models.Q(hog_flow__isnull=True),
                 name="unique_team_reputation_snapshot",
             ),
+            # scope is denormalized from hog_flow nullability for readers; keep them coherent so
+            # a row can't classify as one target by scope and the other by hog_flow.
+            models.CheckConstraint(
+                check=models.Q(scope="team", hog_flow__isnull=True)
+                | models.Q(scope="workflow", hog_flow__isnull=False),
+                name="email_rep_snapshot_scope_matches_target",
+            ),
         ]
         indexes = [
-            models.Index(fields=["team", "evaluated_at"]),
+            models.Index(fields=["team", "evaluated_at"], name="posthog_ema_team_id_a35f59_idx"),
             # Serves the evaluator's daily plan query (recent team rows with sends, no team filter).
             models.Index(
                 fields=["evaluated_at"],

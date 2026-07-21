@@ -91,6 +91,14 @@ class Migration(migrations.Migration):
                         fields=("team", "evaluated_at"),
                         name="unique_team_reputation_snapshot",
                     ),
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            models.Q(("hog_flow__isnull", True), ("scope", "team")),
+                            models.Q(("hog_flow__isnull", False), ("scope", "workflow")),
+                            _connector="OR",
+                        ),
+                        name="email_rep_snapshot_scope_matches_target",
+                    ),
                 ],
             },
         ),
