@@ -158,7 +158,10 @@ function SupportTicketsBulkActions({ ctx }: { ctx: BulkSelectionContext<Ticket, 
     )
 }
 
-export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
+export function SupportTicketsTable({
+    embedded = false,
+    bulkActionsTarget,
+}: SupportTicketsTableProps & { bulkActionsTarget?: HTMLElement | null }): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const { tickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
     const { setCurrentPage, setSorting } = useActions(logic)
@@ -189,6 +192,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 rowAriaLabel: (ticket: Ticket) => `Select ticket ${ticket.ticket_number}`,
                 headerAriaLabel: 'Select all tickets on this page',
                 noun: ['ticket', 'tickets'],
+                barPortalTarget: bulkActionsTarget,
                 renderActions: (ctx) => <SupportTicketsBulkActions ctx={ctx} />,
             }}
             pagination={{
@@ -233,7 +237,10 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     )
 }
 
-export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsTableProps): JSX.Element {
+export function SupportTicketsTableFilters({
+    embedded = false,
+    bulkSelectionBarRef,
+}: SupportTicketsTableProps & { bulkSelectionBarRef?: (element: HTMLDivElement | null) => void }): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
         searchQuery,
@@ -537,6 +544,7 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
             <div className="flex items-center gap-2">
+                <div ref={bulkSelectionBarRef} className="flex items-center gap-2 empty:hidden" />
                 <TicketColumnsDropdown aiEnabled={aiEnabled} embedded={embedded} />
                 <SavedViewsButton id="SupportTicketsScene" />
                 <LemonButton
@@ -558,6 +566,9 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
 export function SupportTicketsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const conversationsDisabled = !!currentTeam && !currentTeam.conversations_enabled
+    // Render the bulk-action bar into the filters toolbar rather than above the table, so
+    // selecting tickets doesn't insert a row that pushes the table down.
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     return (
         <SceneContent className="pb-4">
@@ -571,8 +582,8 @@ export function SupportTicketsScene(): JSX.Element {
             />
             <ScenesTabs />
             {conversationsDisabled ? <ConversationsDisabledBanner /> : null}
-            <SupportTicketsTableFilters />
-            <SupportTicketsTable />
+            <SupportTicketsTableFilters bulkSelectionBarRef={setBulkBarTarget} />
+            <SupportTicketsTable bulkActionsTarget={bulkBarTarget} />
         </SceneContent>
     )
 }
