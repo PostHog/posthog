@@ -20,9 +20,7 @@ import {
     IconPerson,
     IconPieChart,
     IconPiggyBank,
-    IconPlusSmall,
     IconRetention,
-    IconSparkles,
     IconRetentionHeatmap,
     IconHeart,
     IconHeartFilled,
@@ -39,33 +37,27 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isNonEmptyObject } from 'lib/utils/guards'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { projectLogic } from 'scenes/projectLogic'
+import { NewInsightButton } from 'scenes/saved-insights/NewInsightMenu'
 import { NewInsightShortcuts } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -780,77 +772,6 @@ export function InsightIcon({
     }
 
     return Icon ? <Icon className={className} /> : null
-}
-
-export function NewInsightButton(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
-        ([insightType]) =>
-            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
-    )
-    const menuItems: LemonMenuItems = [
-        {
-            icon: <IconSparkles className="text-ai" />,
-            label: (
-                <div className="flex flex-col text-sm py-1">
-                    <strong>AI</strong>
-                    <span className="text-xs font-normal">
-                        Ask PostHog AI to create insights using natural language and query any of your data
-                    </span>
-                </div>
-            ),
-            to: urls.ai(),
-            'data-attr': 'new-insight-menu-ai',
-        },
-        {
-            title: 'Insight types',
-            items: insightEntries
-                .filter(([, metadata]) => metadata.inMenu)
-                .map(([insightType, metadata]) => ({
-                    icon: metadata.icon ? <metadata.icon /> : undefined,
-                    label: (
-                        <div className="flex flex-col text-sm py-1">
-                            <strong>{metadata.name}</strong>
-                            <span className="text-xs font-normal">{metadata.description}</span>
-                        </div>
-                    ),
-                    to: INSIGHT_TYPE_URLS[insightType as InsightType],
-                    'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
-                    onClick: () => {
-                        eventUsageLogic.actions.reportSavedInsightNewInsightClicked(insightType)
-                    },
-                })),
-        },
-    ]
-
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Insight}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            <Shortcut
-                name="NewInsight"
-                keybind={[keyBinds.new]}
-                intent="New insight"
-                interaction="click"
-                scope={Scene.SavedInsights}
-                priority={100}
-            >
-                <LemonMenu items={menuItems} placement="bottom-end">
-                    <LemonButton
-                        type="primary"
-                        data-attr="saved-insights-new-insight-button"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        tooltip="New insight"
-                    >
-                        New
-                    </LemonButton>
-                </LemonMenu>
-            </Shortcut>
-        </AccessControlAction>
-    )
 }
 
 export function SavedInsights(): JSX.Element {
