@@ -240,6 +240,7 @@ the row lists both.
 | giphy                            | HTTP                        | requests                                                        | ✅                          |
 | gitlab                           | HTTP                        | requests                                                        | ✅                          |
 | gladly                           | HTTP                        | requests                                                        | ✅                          |
+| glassfrog                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | gnews                            | HTTP                        | requests                                                        | ✅                          |
 | gocardless                       | HTTP                        | requests                                                        | ✅                          |
 | goldcast                         | HTTP                        | requests                                                        | ✅                          |
@@ -411,6 +412,7 @@ the row lists both.
 | payfit                           | HTTP                        | requests                                                        | ✅                          |
 | paystack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                            | HTTP                        | requests                                                        | ✅                          |
+| perigon                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | persistiq                        | HTTP                        | requests                                                        | ✅                          |
 | persona                          | HTTP                        | requests                                                        | ✅                          |
 | personio                         | HTTP                        | requests                                                        | ✅                          |
@@ -551,6 +553,7 @@ the row lists both.
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
+| tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
@@ -745,7 +748,6 @@ doesn't conflict with concurrent PRs.
 - gerrit
 - getstream
 - gitea
-- glassfrog
 - gmail
 - gnews
 - gojiberry
@@ -861,7 +863,6 @@ doesn't conflict with concurrent PRs.
 - peec_ai
 - pendo
 - pennylane
-- perigon
 - perk
 - pexels
 - phyllo
@@ -975,7 +976,6 @@ doesn't conflict with concurrent PRs.
 - tremendous
 - trustpilot
 - turso
-- tvmaze
 - twenty
 - twitter
 - twitter_ads
