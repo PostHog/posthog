@@ -33772,6 +33772,20 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface IntercomTicketSignalExtra {
+      state: string | null;
+      priority: string | null;
+      admin_assignee_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface HubspotTicketSignalExtra {
+      hs_ticket_priority: string | null;
+      hs_pipeline_stage: string | null;
+      hs_ticket_category: string | null;
+      createdate: string | null;
+    }
+
     /**
      * One chunk in a drill-down window over a single knowledge document.
      *
@@ -40616,6 +40630,8 @@ export namespace Schemas {
      * * `appfigures` - Appfigures
      * * `appfollow` - AppFollow
      * * `judgeme_reviews` - Judge.me
+     * * `intercom` - Intercom
+     * * `hubspot` - HubSpot
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -40666,6 +40682,8 @@ export namespace Schemas {
       Appfigures: 'appfigures',
       Appfollow: 'appfollow',
       JudgemeReviews: 'judgeme_reviews',
+      Intercom: 'intercom',
+      Hubspot: 'hubspot',
     } as const;
 
     /**
@@ -55959,6 +55977,8 @@ export namespace Schemas {
      * * `appfigures` - appfigures
      * * `appfollow` - appfollow
      * * `judgeme_reviews` - judgeme_reviews
+     * * `intercom` - intercom
+     * * `hubspot` - hubspot
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -56009,6 +56029,8 @@ export namespace Schemas {
       Appfigures: 'appfigures',
       Appfollow: 'appfollow',
       JudgemeReviews: 'judgeme_reviews',
+      Intercom: 'intercom',
+      Hubspot: 'hubspot',
     } as const;
 
     /**
@@ -56177,7 +56199,7 @@ export namespace Schemas {
       createdDate: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -56232,7 +56254,9 @@ export namespace Schemas {
        * * `retently` - retently
        * * `appfigures` - appfigures
        * * `appfollow` - appfollow
-       * * `judgeme_reviews` - judgeme_reviews */
+       * * `judgeme_reviews` - judgeme_reviews
+       * * `intercom` - intercom
+       * * `hubspot` - hubspot */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
