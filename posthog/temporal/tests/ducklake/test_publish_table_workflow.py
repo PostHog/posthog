@@ -1,10 +1,12 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.ducklake.models import ManagedWarehousePublishedTable
 from posthog.temporal.ducklake.publish_table_workflow import (
     PublishMarkFailedInputs,
     PublishRegisterInputs,
+    PublishTableInputs,
+    publish_table_copy_activity,
     publish_table_mark_failed_activity,
     publish_table_register_activity,
 )
@@ -51,6 +53,36 @@ class TestPublishTableActivities(BaseTest):
         assert f"team_{self.team.pk}_publish_{publication.id.hex}" in table.url_pattern
         assert "/20260720120000/**.parquet" in table.url_pattern
         assert table.row_count == 5
+
+    def test_copy_rejects_empty_modeled_table_before_export(self) -> None:
+        publication = self._publication()
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.__exit__.return_value = False
+        count_cursor = MagicMock()
+        count_cursor.fetchone.return_value = (0,)
+        connection.execute.side_effect = [MagicMock(), count_cursor]
+
+        with (
+            patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
+            patch(
+                f"{_WORKFLOW_MODULE}.get_duckgres_config_for_org",
+                return_value={
+                    "DUCKGRES_HOST": "duckgres",
+                    "DUCKGRES_PORT": "5432",
+                    "DUCKGRES_DATABASE": "ducklake",
+                    "DUCKGRES_USERNAME": "posthog",
+                    "DUCKGRES_PASSWORD": "password",
+                },
+            ),
+            patch(f"{_WORKFLOW_MODULE}.psycopg.connect", return_value=connection),
+            patch(f"{_WORKFLOW_MODULE}.setup_duckgres_session"),
+            patch(f"{_WORKFLOW_MODULE}.HeartbeaterSync"),
+            self.assertRaisesRegex(ValueError, "Empty modeled tables cannot be published yet"),
+        ):
+            publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
+
+        assert connection.execute.call_count == 2
 
     def test_register_repoints_existing_table_on_republish(self) -> None:
         publication = self._publication()

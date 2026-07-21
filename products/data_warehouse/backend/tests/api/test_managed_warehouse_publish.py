@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import IntegrityError
+
+import psycopg
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -44,6 +47,28 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == [{"schema_name": "main", "table_name": "customer_arr"}]
 
+    @patch(f"{_LOGIC}.execute_ducklake_query")
+    @patch(f"{_LOGIC}.is_dev_mode", return_value=False)
+    @patch(f"{_LOGIC}.get_duckgres_server_by_team_org", return_value=None)
+    def test_modeled_tables_returns_empty_without_a_provisioned_warehouse(
+        self,
+        _mock_server: MagicMock,
+        _mock_dev_mode: MagicMock,
+        mock_query: MagicMock,
+    ) -> None:
+        response = self.client.get(f"{self._base()}/managed-warehouse-modeled-tables/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": []}
+        mock_query.assert_not_called()
+
+    @patch(f"{_LOGIC}.execute_ducklake_query", side_effect=psycopg.OperationalError("connection timed out"))
+    def test_modeled_tables_reports_temporary_unavailability(self, _mock_query: MagicMock) -> None:
+        response = self.client.get(f"{self._base()}/managed-warehouse-modeled-tables/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json() == {"detail": "The managed warehouse is temporarily unavailable."}
+
     @patch(f"{_LOGIC}.start_publish_workflow")
     def test_publish_creates_publication_and_starts_workflow(self, mock_start: MagicMock) -> None:
         response = self.client.post(
@@ -80,13 +105,32 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_start.assert_not_called()
 
+    @patch(f"{_LOGIC}.start_publish_workflow")
+    def test_publish_returns_bad_request_when_concurrent_create_wins(self, mock_start: MagicMock) -> None:
+        publication_manager = MagicMock()
+        publication_manager.filter.return_value.exists.return_value = False
+        publication_manager.create.side_effect = IntegrityError("duplicate key")
+
+        with patch.object(
+            ManagedWarehousePublishedTable.objects,
+            "for_team",
+            return_value=publication_manager,
+        ):
+            response = self.client.post(
+                f"{self._base()}/managed-warehouse-publish-table/",
+                {"source_schema_name": "main", "source_table_name": "customer_arr"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_start.assert_not_called()
+
     def test_list_published_tables(self) -> None:
-        self._publication()
+        self._publication(name="z_customer_arr")
+        self._publication(name="a_customer_arr", source_table_name="another_table")
         response = self.client.get(f"{self._base()}/managed-warehouse-published-tables/")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["name"] == "customer_arr"
+        assert [result["name"] for result in results] == ["a_customer_arr", "z_customer_arr"]
         assert results[0]["status"] == "pending"
 
     @patch(f"{_LOGIC}.start_publish_workflow")

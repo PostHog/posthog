@@ -116,6 +116,8 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
             )
             row = cursor.fetchone()
             row_count = int(row[0]) if row else 0
+            if row_count == 0:
+                raise ValueError("Empty modeled tables cannot be published yet.")
             conn.execute(
                 build_publish_copy_sql(publication.source_schema_name, publication.source_table_name, destination)
             )
@@ -193,6 +195,7 @@ def publish_table_mark_failed_activity(inputs: PublishMarkFailedInputs) -> None:
 
 @temporalio.workflow.defn(name="duckgres-publish-table")
 class DuckgresPublishTableWorkflow(PostHogWorkflow):
+    # TODO: Reap publications left in PUBLISHING when Temporal terminates or cancels a workflow.
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PublishTableInputs:
         loaded = json.loads(inputs[0])

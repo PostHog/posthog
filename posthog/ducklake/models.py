@@ -211,7 +211,7 @@ class ManagedWarehousePublishedTable(TeamScopedRootMixin, CreatedMetaFields, Upd
     folder_version = models.CharField(max_length=32, null=True, blank=True)
     table_id = models.UUIDField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    # Avoid locking the hot user table when this table is created.
+    # User ownership is metadata here, so this does not enforce a database-level foreign key.
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

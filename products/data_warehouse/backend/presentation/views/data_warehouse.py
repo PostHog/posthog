@@ -1139,7 +1139,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))
 
     @extend_schema(
-        responses={200: ModeledTablesResponseSerializer},
+        responses={
+            200: ModeledTablesResponseSerializer,
+            503: OpenApiResponse(description="The managed warehouse is temporarily unavailable."),
+        },
         summary="List modeled managed warehouse tables",
         description="List modeled Duckgres tables that can be published to the PostHog data warehouse.",
     )
@@ -1150,7 +1153,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["warehouse_view:read"],
     )
     def managed_warehouse_modeled_tables(self, request: Request, **kwargs) -> Response:
-        tables = managed_warehouse_publish.list_modeled_tables(self.team_id)
+        try:
+            tables = managed_warehouse_publish.list_modeled_tables(self.team_id)
+        except managed_warehouse_publish.ModeledTableDiscoveryError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(
             {"results": [{"schema_name": table.schema_name, "table_name": table.table_name} for table in tables]}
         )
@@ -1167,7 +1173,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["warehouse_view:read"],
     )
     def managed_warehouse_published_tables(self, request: Request, **kwargs) -> Response:
-        publications = ManagedWarehousePublishedTable.objects.for_team(self.team_id).filter(deleted=False)
+        publications = (
+            ManagedWarehousePublishedTable.objects.for_team(self.team_id).filter(deleted=False).order_by("name")
+        )
         return Response({"results": [self._published_table_payload(publication) for publication in publications]})
 
     @validated_request(

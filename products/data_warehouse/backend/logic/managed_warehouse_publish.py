@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from typing import Any, cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
+import psycopg
 from asgiref.sync import async_to_sync
 
 from posthog.ducklake.client import execute_ducklake_query
@@ -23,6 +26,8 @@ from posthog.temporal.ducklake.publish_table_workflow import PublishTableInputs
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_DISCOVERY_CONNECT_TIMEOUT_SECONDS = 5
+_DISCOVERY_STATEMENT_TIMEOUT_SECONDS = 5
 
 _MODELED_TABLES_SQL = """
 SELECT table_schema, table_name
@@ -36,10 +41,25 @@ class PublishValidationError(Exception):
     pass
 
 
+class ModeledTableDiscoveryError(Exception):
+    pass
+
+
 def list_modeled_tables(team_id: int) -> list[ModeledTable]:
+    if get_duckgres_server_by_team_org(team_id) is None and not is_dev_mode():
+        return []
+
     table_suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
     reserved_table_names = reserved_backfill_table_names(table_suffix)
-    result = execute_ducklake_query(team_id, sql=_MODELED_TABLES_SQL)
+    try:
+        result = execute_ducklake_query(
+            team_id,
+            sql=_MODELED_TABLES_SQL,
+            connect_timeout_seconds=_DISCOVERY_CONNECT_TIMEOUT_SECONDS,
+            statement_timeout_seconds=_DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
+        )
+    except psycopg.Error as error:
+        raise ModeledTableDiscoveryError("The managed warehouse is temporarily unavailable.") from error
     return [
         ModeledTable(schema_name=str(row[0]), table_name=str(row[1]))
         for row in result.results
@@ -79,20 +99,25 @@ def create_publication(
     if name_taken:
         raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.")
 
-    return ManagedWarehousePublishedTable.objects.for_team(team.pk).create(
-        team=team,
-        source_schema_name=source_schema_name,
-        source_table_name=source_table_name,
-        name=resolved_name,
-    )
+    try:
+        with transaction.atomic():
+            return ManagedWarehousePublishedTable.objects.for_team(team.pk).create(
+                team=team,
+                source_schema_name=source_schema_name,
+                source_table_name=source_table_name,
+                name=resolved_name,
+            )
+    except IntegrityError as error:
+        raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.") from error
 
 
 def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
     temporal = sync_connect()
     inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
-    async_to_sync(temporal.start_workflow)(  # type: ignore[misc]
-        "duckgres-publish-table",  # type: ignore[arg-type]
-        inputs,  # type: ignore[arg-type]
+    start_workflow = cast(Callable[..., Any], async_to_sync(temporal.start_workflow))
+    start_workflow(
+        "duckgres-publish-table",
+        inputs,
         id=f"duckgres-publish-{publication.id}",
         task_queue=str(settings.DUCKLAKE_TASK_QUEUE),
     )
