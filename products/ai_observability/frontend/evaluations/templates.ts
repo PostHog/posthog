@@ -1,3 +1,5 @@
+import { getHogEvalExample } from './hogEvalExamples'
+
 export interface LLMJudgeTemplate {
     key: string
     name: string
@@ -46,26 +48,10 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
     {
         key: 'cost_latency',
         name: 'Cost & latency',
-        description: 'Flag expensive or slow generations using Hog code',
+        description: 'Flag expensive or slow generations and traces using Hog code',
         evaluation_type: 'hog',
         icon: 'code',
-        source: `// Flag generations that are too expensive or too slow
-let max_cost := 0.05
-let max_latency := 10
-
-let cost := ifNull(properties.$ai_total_cost_usd, 0)
-let latency := ifNull(properties.$ai_latency, 0)
-
-if (cost > max_cost) {
-    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))
-    return false
-}
-if (latency > max_latency) {
-    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))
-    return false
-}
-print(concat('OK — cost: $', toString(cost), ', latency: ', toString(latency), 's'))
-return true`,
+        source: getHogEvalExample('cost_latency').source,
     },
     {
         key: 'hallucination',

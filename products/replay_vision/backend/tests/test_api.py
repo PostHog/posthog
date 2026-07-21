@@ -864,6 +864,25 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         defaults.update(overrides)
         return ReplayObservation.objects.create(**defaults)
 
+    def test_list_filters_by_date_range(self) -> None:
+        self._create_observation(session_id="recent")
+        old = self._create_observation(session_id="old")
+        ReplayObservation.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=10))
+
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_from=-7d")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["recent"])
+
+        old_day = (timezone.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_from={old_day}&date_to={old_day}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
+
+        # Relative date_to stays an exact bound instead of extending to end of day.
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_to=-1h")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
+
     def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
         observation = self._create_observation(session_id="s-pending")
         self._create_observation(session_id="s-other")
