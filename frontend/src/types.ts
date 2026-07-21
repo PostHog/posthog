@@ -78,6 +78,11 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type {
+    LLMPromptListApi,
+    LLMPromptResolveResponseApi,
+    LLMPromptVersionSummaryApi,
+} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -307,6 +312,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    Toolbar = 'toolbar',
 }
 
 interface UserBaseType {
@@ -5769,6 +5775,7 @@ export const API_SCOPE_OBJECTS = [
     'tagger',
     'ticket',
     'task',
+    'toolbar',
     'tracing',
     'field_note',
     'uploaded_media',
@@ -6011,6 +6018,10 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `stripe.charges`), as opposed to `name` (the storage identifier). */
+    hogql_name?: string
+    /** Serialized columns; omitted when the table was listed with `include_columns=false`. */
+    columns?: DatabaseSchemaField[]
     format: DataWarehouseTableTypes
     url_pattern: string
     /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
@@ -7766,6 +7777,8 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** All labels on the prompt with the version each points to. Only present on list responses. */
+    all_labels?: LLMPromptListApi['all_labels']
 }
 
 export interface LLMPromptPublic {
@@ -7789,12 +7802,14 @@ export interface LLMPromptVersionSummary {
     created_by: UserBasicType
     created_at: string
     is_latest: boolean
+    labels?: LLMPromptVersionSummaryApi['labels']
 }
 
 export interface LLMPromptResolveResponse {
     prompt: LLMPrompt
     versions: LLMPromptVersionSummary[]
     has_more: boolean
+    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset
