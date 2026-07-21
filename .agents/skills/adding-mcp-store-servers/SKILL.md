@@ -29,10 +29,11 @@ Adding a server is a small PR to that file.
    ```
 
    The JSON verdict tells you everything the entry needs:
-   - `speaks_mcp: false` → wrong URL or not an MCP server. Stop and re-research; never add an unverified URL.
+   - `speaks_mcp: false` → the probe could not verify MCP. Stop and re-research — with one exception: `reachable: true` plus the error "Initialize was rejected and no OAuth metadata was discovered" is the auth-walled API-key case (last bullet below).
    - `auth_flavor: "oauth_dcr"` with `passed_activation_gate: true` → OAuth with Dynamic Client Registration. The entry is `auth_type="oauth"` and will **activate automatically on merge**.
    - `auth_flavor: "oauth_shared"` → OAuth without DCR. The entry is `auth_type="oauth"` but ships **inactive**; an operator must register an OAuth app with the vendor and paste credentials in Django admin (see the operator checklist below — include it in your PR description).
-   - `auth_flavor: "api_key_or_unknown"` or `"open"` → `auth_type="api_key"`; activates automatically on merge.
+   - `auth_flavor: "open"` → the handshake completed without credentials. `auth_type="api_key"`; activates automatically on merge.
+   - `auth_flavor: "api_key_or_unknown"` with `reachable: true` → an auth-walled API-key server; a bare 401/403 gives the probe no MCP evidence. `auth_type="api_key"`, but the entry ships **inactive** — verify it with a real install (Gate B) before adding it, and note in the PR that an operator flips it active in Django admin per environment (users bring their own key; nothing to provision).
 
 3. **Author the entry** in `catalog.py`, alphabetically by name:
    - `name` — the vendor's own casing ("PagerDuty", not "Pagerduty").

@@ -30,12 +30,13 @@ Only **hosted (remote) MCP servers** on a public HTTPS endpoint speaking the str
 Adds and auto-activates on merge:
 
 - OAuth servers with Dynamic Client Registration — the probe mints a real DCR client and verifies the authorization page.
-- API-key and unauthenticated servers that answer the MCP initialize handshake.
+- API-key and unauthenticated servers that answer the MCP initialize handshake without credentials.
 
 Adds but ships **inactive** until an operator finishes activation (see the runbook below):
 
 - OAuth servers without DCR ("shared creds") — someone must register an OAuth app with the vendor and provision credentials per environment.
 - Vendors whose DCR is gated (initial access token, software statement, partner allowlist) — the probe classifies these as shared-creds too.
+- API-key servers that auth-wall the handshake — a bare 401/403 carries no MCP evidence, so an operator vets and flips them active in admin (nothing to provision; users bring their own key).
 
 Can't be added:
 
