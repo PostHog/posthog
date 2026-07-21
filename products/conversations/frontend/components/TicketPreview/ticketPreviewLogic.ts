@@ -1,5 +1,6 @@
 import { MakeLogicType, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
@@ -15,7 +16,10 @@ export interface TicketPreview {
     // The newest message in the thread, shown after the truncation divider. Null when the
     // whole thread already fits in firstMessages.
     lastMessage: TicketMessageApi | null
-    totalCount: number
+    // How many messages sit between firstMessages and lastMessage (the "+N more" count).
+    hiddenCount: number
+    // True when the fetch failed, so the card can distinguish an error from an empty thread.
+    error: boolean
 }
 
 /** How many of the ticket's first messages the hover preview shows. */
@@ -68,24 +72,34 @@ export const ticketPreviewLogic = kea<ticketPreviewLogicType>([
             null as TicketPreview | null,
             {
                 loadPreview: async (): Promise<TicketPreview> => {
-                    const teamId = String(getCurrentTeamId())
-                    const first = await conversationsTicketsMessagesList(teamId, props.ticketId, {
-                        limit: TICKET_PREVIEW_MESSAGE_COUNT,
-                    })
-                    const totalCount = first.count
-
-                    // The thread is oldest-first, so the newest message lives on the last page.
-                    // Only fetch it when it isn't already in the first batch.
-                    let lastMessage: TicketMessageApi | null = null
-                    if (totalCount > TICKET_PREVIEW_MESSAGE_COUNT) {
-                        const last = await conversationsTicketsMessagesList(teamId, props.ticketId, {
-                            limit: 1,
-                            offset: totalCount - 1,
+                    try {
+                        const teamId = String(getCurrentTeamId())
+                        const first = await conversationsTicketsMessagesList(teamId, props.ticketId, {
+                            limit: TICKET_PREVIEW_MESSAGE_COUNT,
                         })
-                        lastMessage = last.results[0] ?? null
-                    }
 
-                    return { firstMessages: first.results, lastMessage, totalCount }
+                        // Short threads fit entirely in the first batch, so there's no tail to fetch.
+                        if (first.count <= TICKET_PREVIEW_MESSAGE_COUNT) {
+                            return { firstMessages: first.results, lastMessage: null, hiddenCount: 0, error: false }
+                        }
+
+                        // The thread is oldest-first with no reverse ordering, so the newest message is
+                        // the last page. Fetch a short window at the tail and take its last item: if a
+                        // reply lands between the two requests, the stale offset lands one short and the
+                        // window still includes the real newest message. Truncation uses the tail
+                        // response's own (fresher) count, not the first request's.
+                        const tail = await conversationsTicketsMessagesList(teamId, props.ticketId, {
+                            limit: 2,
+                            offset: first.count - 1,
+                        })
+                        const lastMessage = tail.results[tail.results.length - 1] ?? null
+                        const hiddenCount = Math.max(0, tail.count - first.results.length - (lastMessage ? 1 : 0))
+
+                        return { firstMessages: first.results, lastMessage, hiddenCount, error: false }
+                    } catch (e) {
+                        posthog.captureException(e)
+                        return { firstMessages: [], lastMessage: null, hiddenCount: 0, error: true }
+                    }
                 },
             },
         ],

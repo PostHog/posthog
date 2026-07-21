@@ -43,11 +43,13 @@ export function TicketPreviewContent({ ticketId }: { ticketId: string }): JSX.El
         )
     }
 
+    if (preview?.error) {
+        return <span className="text-xs text-muted-alt block p-3">Couldn't load messages</span>
+    }
+
     if (!preview || preview.firstMessages.length === 0) {
         return <span className="text-xs text-muted-alt block p-3">No messages in this ticket yet</span>
     }
-
-    const hiddenCount = preview.totalCount - preview.firstMessages.length - (preview.lastMessage ? 1 : 0)
 
     return (
         <div className="flex flex-col gap-2 p-3 max-w-100">
@@ -56,11 +58,11 @@ export function TicketPreviewContent({ ticketId }: { ticketId: string }): JSX.El
             ))}
             {preview.lastMessage && (
                 <>
-                    {hiddenCount > 0 && (
+                    {preview.hiddenCount > 0 && (
                         <div className="flex items-center gap-2 text-xs text-muted-alt">
                             <div className="flex-1 border-t border-primary" />
                             <span className="shrink-0">
-                                {hiddenCount} more {hiddenCount === 1 ? 'message' : 'messages'}
+                                {preview.hiddenCount} more {preview.hiddenCount === 1 ? 'message' : 'messages'}
                             </span>
                             <div className="flex-1 border-t border-primary" />
                         </div>
