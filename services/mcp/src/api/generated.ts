@@ -12663,6 +12663,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly evaluation_date: string | null;
+      /** Configuration revision used for this evaluation. */
+      readonly configuration_revision: number;
       /**
          * Start of the evaluated billing period.
          * @nullable
@@ -12754,26 +12756,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `1` - 1
-     * * `2` - 2
-     * * `3` - 3
-     * * `4` - 4
-     * * `6` - 6
-     * * `8` - 8
-     * * `12` - 12
      * * `24` - 24
      */
     export type CheckIntervalHoursEnum = typeof CheckIntervalHoursEnum[keyof typeof CheckIntervalHoursEnum];
 
 
     export const CheckIntervalHoursEnum = {
-      Number1: 1,
-      Number2: 2,
-      Number3: 3,
-      Number4: 4,
-      Number6: 6,
-      Number8: 8,
-      Number12: 12,
       Number24: 24,
     } as const;
 
@@ -12794,6 +12782,28 @@ export namespace Schemas {
     export interface BillingAlertDestinationSummary {
       type: NotificationDestinationTypeEnum;
       hog_function_ids: string[];
+    }
+
+    export interface BillingAlertDestinationCreateData {
+      /** Destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
+      slack_workspace_id?: number;
+      slack_channel_id?: string;
+      slack_channel_name?: string;
+      webhook_url?: string;
+    }
+
+    export interface BillingAlertDestinationChanges {
+      /**
+         * @items.minItems 4
+         * @items.maxItems 4
+         */
+      delete?: string[][];
+      create?: BillingAlertDestinationCreateData[];
     }
 
     export interface BillingAlertConfiguration {
@@ -12831,6 +12841,8 @@ export namespace Schemas {
       readonly metric: BillingAlertMetricEnum;
       /** Server-controlled currency for spend values. */
       readonly currency: string;
+      /** Revision incremented whenever evaluation behavior changes. */
+      readonly configuration_revision: number;
       /** Threshold rule type.
        *
        * * `relative_increase` - Relative increase
@@ -12865,15 +12877,8 @@ export namespace Schemas {
          */
       evaluation_delay_hours?: number;
       readonly state: BillingAlertConfigurationStateEnum;
-      /** Supported interval in hours between scheduled evaluations.
+      /** Billing alerts evaluate one UTC billing date per day.
        *
-       * * `1` - 1
-       * * `2` - 2
-       * * `3` - 3
-       * * `4` - 4
-       * * `6` - 6
-       * * `8` - 8
-       * * `12` - 12
        * * `24` - 24 */
       check_interval_hours?: CheckIntervalHoursEnum;
       /**
@@ -12892,6 +12897,8 @@ export namespace Schemas {
       readonly consecutive_failures: number;
       /** Notification destination groups configured for this alert, including their shared HogFunctions. */
       readonly destinations: readonly BillingAlertDestinationSummary[];
+      /** Destination groups to create or delete in the same transaction as this configuration write. */
+      destination_changes?: BillingAlertDestinationChanges;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -12903,20 +12910,17 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
-      /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
-      /** Slack channel ID. Required when type=slack. */
       slack_channel_id?: string;
-      /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
     export interface BillingAlertDeleteDestination {
       /**
          * HogFunction IDs to delete as one atomic destination group.
-         * @minItems 1
+         * @minItems 4
+         * @maxItems 4
          */
       hog_function_ids: string[];
     }
@@ -43409,6 +43413,8 @@ export namespace Schemas {
       readonly metric?: BillingAlertMetricEnum;
       /** Server-controlled currency for spend values. */
       readonly currency?: string;
+      /** Revision incremented whenever evaluation behavior changes. */
+      readonly configuration_revision?: number;
       /** Threshold rule type.
        *
        * * `relative_increase` - Relative increase
@@ -43443,15 +43449,8 @@ export namespace Schemas {
          */
       evaluation_delay_hours?: number;
       readonly state?: BillingAlertConfigurationStateEnum;
-      /** Supported interval in hours between scheduled evaluations.
+      /** Billing alerts evaluate one UTC billing date per day.
        *
-       * * `1` - 1
-       * * `2` - 2
-       * * `3` - 3
-       * * `4` - 4
-       * * `6` - 6
-       * * `8` - 8
-       * * `12` - 12
        * * `24` - 24 */
       check_interval_hours?: CheckIntervalHoursEnum;
       /**
@@ -43470,6 +43469,8 @@ export namespace Schemas {
       readonly consecutive_failures?: number;
       /** Notification destination groups configured for this alert, including their shared HogFunctions. */
       readonly destinations?: readonly BillingAlertDestinationSummary[];
+      /** Destination groups to create or delete in the same transaction as this configuration write. */
+      destination_changes?: BillingAlertDestinationChanges;
       readonly created_at?: string;
       readonly updated_at?: string;
     }

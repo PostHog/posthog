@@ -48,25 +48,11 @@ export const BillingAlertConfigurationStateEnumApi = {
 } as const
 
 /**
- * * `1` - 1
- * * `2` - 2
- * * `3` - 3
- * * `4` - 4
- * * `6` - 6
- * * `8` - 8
- * * `12` - 12
  * * `24` - 24
  */
 export type CheckIntervalHoursEnumApi = (typeof CheckIntervalHoursEnumApi)[keyof typeof CheckIntervalHoursEnumApi]
 
 export const CheckIntervalHoursEnumApi = {
-    Number1: 1,
-    Number2: 2,
-    Number3: 3,
-    Number4: 4,
-    Number6: 6,
-    Number8: 8,
-    Number12: 12,
     Number24: 24,
 } as const
 
@@ -87,6 +73,28 @@ export const NotificationDestinationTypeEnumApi = {
 export interface BillingAlertDestinationSummaryApi {
     type: NotificationDestinationTypeEnumApi
     hog_function_ids: string[]
+}
+
+export interface BillingAlertDestinationCreateDataApi {
+    /** Destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
+    type: NotificationDestinationTypeEnumApi
+    slack_workspace_id?: number
+    slack_channel_id?: string
+    slack_channel_name?: string
+    webhook_url?: string
+}
+
+export interface BillingAlertDestinationChangesApi {
+    /**
+     * @items.minItems 4
+     * @items.maxItems 4
+     */
+    delete?: string[][]
+    create?: BillingAlertDestinationCreateDataApi[]
 }
 
 export interface BillingAlertConfigurationApi {
@@ -124,6 +132,8 @@ export interface BillingAlertConfigurationApi {
     readonly metric: BillingAlertMetricEnumApi
     /** Server-controlled currency for spend values. */
     readonly currency: string
+    /** Revision incremented whenever evaluation behavior changes. */
+    readonly configuration_revision: number
     /** Threshold rule type.
      *
      * * `relative_increase` - Relative increase
@@ -158,15 +168,8 @@ export interface BillingAlertConfigurationApi {
      */
     evaluation_delay_hours?: number
     readonly state: BillingAlertConfigurationStateEnumApi
-    /** Supported interval in hours between scheduled evaluations.
+    /** Billing alerts evaluate one UTC billing date per day.
      *
-     * * `1` - 1
-     * * `2` - 2
-     * * `3` - 3
-     * * `4` - 4
-     * * `6` - 6
-     * * `8` - 8
-     * * `12` - 12
      * * `24` - 24 */
     check_interval_hours?: CheckIntervalHoursEnumApi
     /**
@@ -185,6 +188,8 @@ export interface BillingAlertConfigurationApi {
     readonly consecutive_failures: number
     /** Notification destination groups configured for this alert, including their shared HogFunctions. */
     readonly destinations: readonly BillingAlertDestinationSummaryApi[]
+    /** Destination groups to create or delete in the same transaction as this configuration write. */
+    destination_changes?: BillingAlertDestinationChangesApi
     readonly created_at: string
     readonly updated_at: string
 }
@@ -233,6 +238,8 @@ export interface PatchedBillingAlertConfigurationApi {
     readonly metric?: BillingAlertMetricEnumApi
     /** Server-controlled currency for spend values. */
     readonly currency?: string
+    /** Revision incremented whenever evaluation behavior changes. */
+    readonly configuration_revision?: number
     /** Threshold rule type.
      *
      * * `relative_increase` - Relative increase
@@ -267,15 +274,8 @@ export interface PatchedBillingAlertConfigurationApi {
      */
     evaluation_delay_hours?: number
     readonly state?: BillingAlertConfigurationStateEnumApi
-    /** Supported interval in hours between scheduled evaluations.
+    /** Billing alerts evaluate one UTC billing date per day.
      *
-     * * `1` - 1
-     * * `2` - 2
-     * * `3` - 3
-     * * `4` - 4
-     * * `6` - 6
-     * * `8` - 8
-     * * `12` - 12
      * * `24` - 24 */
     check_interval_hours?: CheckIntervalHoursEnumApi
     /**
@@ -294,6 +294,8 @@ export interface PatchedBillingAlertConfigurationApi {
     readonly consecutive_failures?: number
     /** Notification destination groups configured for this alert, including their shared HogFunctions. */
     readonly destinations?: readonly BillingAlertDestinationSummaryApi[]
+    /** Destination groups to create or delete in the same transaction as this configuration write. */
+    destination_changes?: BillingAlertDestinationChangesApi
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -353,6 +355,8 @@ export interface BillingAlertEventApi {
      * @nullable
      */
     readonly evaluation_date: string | null
+    /** Configuration revision used for this evaluation. */
+    readonly configuration_revision: number
     /**
      * Start of the evaluated billing period.
      * @nullable
@@ -418,13 +422,9 @@ export interface BillingAlertCreateDestinationApi {
      * * `webhook` - webhook
      * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
-    /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
-    /** Slack channel ID. Required when type=slack. */
     slack_channel_id?: string
-    /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
     webhook_url?: string
 }
 
@@ -435,7 +435,8 @@ export interface BillingAlertDestinationResponseApi {
 export interface BillingAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 1
+     * @minItems 4
+     * @maxItems 4
      */
     hog_function_ids: string[]
 }

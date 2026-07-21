@@ -22,6 +22,9 @@ export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsCreateBodyCooldownHoursMin = 0
 export const billingAlertsCreateBodyCooldownHoursMax = 720
 
+export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMin = 4
+export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 4
+
 export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
@@ -54,27 +57,45 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsCreateBodyEvaluationDelayHoursMax)
         .optional(),
     check_interval_hours: zod
-        .union([
-            zod.literal(1),
-            zod.literal(2),
-            zod.literal(3),
-            zod.literal(4),
-            zod.literal(6),
-            zod.literal(8),
-            zod.literal(12),
-            zod.literal(24),
-        ])
-        .describe('\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24')
+        .literal(24)
+        .describe('\* `24` - 24')
         .optional()
-        .describe(
-            'Supported interval in hours between scheduled evaluations.\n\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24'
-        ),
+        .describe('Billing alerts evaluate one UTC billing date per day.\n\n\* `24` - 24'),
     cooldown_hours: zod
         .number()
         .min(billingAlertsCreateBodyCooldownHoursMin)
         .max(billingAlertsCreateBodyCooldownHoursMax)
         .optional(),
     snooze_until: zod.iso.datetime({ offset: true }).nullish(),
+    destination_changes: zod
+        .object({
+            delete: zod
+                .array(
+                    zod
+                        .array(zod.uuid())
+                        .min(billingAlertsCreateBodyDestinationChangesOneDeleteItemMin)
+                        .max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax)
+                )
+                .optional(),
+            create: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['slack', 'webhook', 'teams'])
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+                            .describe(
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+                            ),
+                        slack_workspace_id: zod.number().optional(),
+                        slack_channel_id: zod.string().optional(),
+                        slack_channel_name: zod.string().optional(),
+                        webhook_url: zod.url().optional(),
+                    })
+                )
+                .optional(),
+        })
+        .optional()
+        .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
 export const billingAlertsUpdateBodyNameMax = 160
@@ -89,6 +110,9 @@ export const billingAlertsUpdateBodyEvaluationDelayHoursMax = 72
 
 export const billingAlertsUpdateBodyCooldownHoursMin = 0
 export const billingAlertsUpdateBodyCooldownHoursMax = 720
+
+export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMin = 4
+export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax = 4
 
 export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsUpdateBodyNameMax).describe('Display name for this billing alert.'),
@@ -122,27 +146,45 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsUpdateBodyEvaluationDelayHoursMax)
         .optional(),
     check_interval_hours: zod
-        .union([
-            zod.literal(1),
-            zod.literal(2),
-            zod.literal(3),
-            zod.literal(4),
-            zod.literal(6),
-            zod.literal(8),
-            zod.literal(12),
-            zod.literal(24),
-        ])
-        .describe('\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24')
+        .literal(24)
+        .describe('\* `24` - 24')
         .optional()
-        .describe(
-            'Supported interval in hours between scheduled evaluations.\n\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24'
-        ),
+        .describe('Billing alerts evaluate one UTC billing date per day.\n\n\* `24` - 24'),
     cooldown_hours: zod
         .number()
         .min(billingAlertsUpdateBodyCooldownHoursMin)
         .max(billingAlertsUpdateBodyCooldownHoursMax)
         .optional(),
     snooze_until: zod.iso.datetime({ offset: true }).nullish(),
+    destination_changes: zod
+        .object({
+            delete: zod
+                .array(
+                    zod
+                        .array(zod.uuid())
+                        .min(billingAlertsUpdateBodyDestinationChangesOneDeleteItemMin)
+                        .max(billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax)
+                )
+                .optional(),
+            create: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['slack', 'webhook', 'teams'])
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+                            .describe(
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+                            ),
+                        slack_workspace_id: zod.number().optional(),
+                        slack_channel_id: zod.string().optional(),
+                        slack_channel_name: zod.string().optional(),
+                        webhook_url: zod.url().optional(),
+                    })
+                )
+                .optional(),
+        })
+        .optional()
+        .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
 export const billingAlertsPartialUpdateBodyNameMax = 160
@@ -157,6 +199,9 @@ export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
 
 export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
 export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
+
+export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin = 4
+export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 4
 
 export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -194,27 +239,45 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(billingAlertsPartialUpdateBodyEvaluationDelayHoursMax)
         .optional(),
     check_interval_hours: zod
-        .union([
-            zod.literal(1),
-            zod.literal(2),
-            zod.literal(3),
-            zod.literal(4),
-            zod.literal(6),
-            zod.literal(8),
-            zod.literal(12),
-            zod.literal(24),
-        ])
-        .describe('\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24')
+        .literal(24)
+        .describe('\* `24` - 24')
         .optional()
-        .describe(
-            'Supported interval in hours between scheduled evaluations.\n\n\* `1` - 1\n\* `2` - 2\n\* `3` - 3\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `12` - 12\n\* `24` - 24'
-        ),
+        .describe('Billing alerts evaluate one UTC billing date per day.\n\n\* `24` - 24'),
     cooldown_hours: zod
         .number()
         .min(billingAlertsPartialUpdateBodyCooldownHoursMin)
         .max(billingAlertsPartialUpdateBodyCooldownHoursMax)
         .optional(),
     snooze_until: zod.iso.datetime({ offset: true }).nullish(),
+    destination_changes: zod
+        .object({
+            delete: zod
+                .array(
+                    zod
+                        .array(zod.uuid())
+                        .min(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin)
+                        .max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
+                )
+                .optional(),
+            create: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['slack', 'webhook', 'teams'])
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+                            .describe(
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+                            ),
+                        slack_workspace_id: zod.number().optional(),
+                        slack_channel_id: zod.string().optional(),
+                        slack_channel_name: zod.string().optional(),
+                        webhook_url: zod.url().optional(),
+                    })
+                )
+                .optional(),
+        })
+        .optional()
+        .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
 /**
@@ -225,25 +288,22 @@ export const BillingAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .enum(['slack', 'webhook', 'teams'])
         .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
         .describe('Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
-    slack_workspace_id: zod
-        .number()
-        .optional()
-        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
-    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
-    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod
-        .url()
-        .optional()
-        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
+    slack_workspace_id: zod.number().optional(),
+    slack_channel_id: zod.string().optional(),
+    slack_channel_name: zod.string().optional(),
+    webhook_url: zod.url().optional(),
 })
 
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
+export const billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMin = 4
+export const billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
 
 export const BillingAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
-        .min(1)
+        .min(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMin)
+        .max(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
