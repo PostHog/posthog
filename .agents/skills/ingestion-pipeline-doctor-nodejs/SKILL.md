@@ -52,6 +52,8 @@ See `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for 
 | Composition     | `pipeline-composition-doctor` | Builder chain, concurrency, grouping, branching, retries  |
 | Testing         | `pipeline-testing-doctor`     | Test helpers, assertions, fake timers, doc-test style     |
 
+For fan-out/fan-in usage (`fanOut().via().fanIn()` — per-element sub-work like per-blob uploads), use the dedicated `reviewing-fanout-fanin-pipelines` skill instead.
+
 ## Quick convention reference
 
 **Steps**: Factory function returning a named inner function. Generic `<T extends Input>` for type extension. No `any`. Config via closure.
