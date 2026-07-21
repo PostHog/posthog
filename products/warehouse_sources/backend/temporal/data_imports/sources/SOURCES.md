@@ -411,6 +411,7 @@ the row lists both.
 | payfit                           | HTTP                        | requests                                                        | ✅                          |
 | paystack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                            | HTTP                        | requests                                                        | ✅                          |
+| perigon                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | persistiq                        | HTTP                        | requests                                                        | ✅                          |
 | persona                          | HTTP                        | requests                                                        | ✅                          |
 | personio                         | HTTP                        | requests                                                        | ✅                          |
@@ -861,7 +862,6 @@ doesn't conflict with concurrent PRs.
 - peec_ai
 - pendo
 - pennylane
-- perigon
 - perk
 - pexels
 - phyllo
