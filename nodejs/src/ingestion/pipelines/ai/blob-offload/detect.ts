@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 
+import { decodeCanonicalBase64, isCanonicalBase64 } from './base64'
 import { encodeBlobPointer, isBlobPointer } from './pointer'
 
 export type BlobDetector = 'data_uri' | 'anthropic_source' | 'gemini_inline_data' | 'openai_input_audio'
@@ -24,11 +25,6 @@ const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/
 // Length-capped (RFC 4288 gives each of type/subtype 127 chars): the mime flows into the
 // S3 Content-Type header and the pointer URI, so an unbounded value is a poison pill.
 const MIME = /^(?=.{1,255}$)[\w.+-]+\/[\w.+-]+$/
-// Canonical base64 only (padding only terminal, length % 4 === 0): Buffer.from decodes
-// leniently (stops at the first mid-string `=`), so a looser check would silently replace
-// a payload with a pointer to its truncated decode. Provider `data` fields must match
-// as-is; data-URI bodies may wrap with whitespace and are compacted before the check.
-const CANONICAL_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 interface Extraction {
     blobsByHash: Map<string, DetectedBlob>
@@ -38,14 +34,22 @@ interface Extraction {
     minBase64Length: number
 }
 
-function pointerFor(state: Extraction, base64: string, mime: string, detector: BlobDetector): string | null {
+function pointerFor(
+    state: Extraction,
+    base64: string,
+    mime: string,
+    detector: BlobDetector,
+    countBelowFloor: boolean
+): string | null {
     if (base64.length < state.minBase64Length) {
-        state.belowFloorCount += 1
-        state.belowFloorBytes += Math.floor((base64.length * 3) / 4)
+        if (countBelowFloor && isCanonicalBase64(base64)) {
+            state.belowFloorCount += 1
+            state.belowFloorBytes += Math.floor((base64.length * 3) / 4)
+        }
         return null
     }
-    const bytes = Buffer.from(base64, 'base64')
-    if (bytes.length === 0) {
+    const bytes = decodeCanonicalBase64(base64)
+    if (!bytes || bytes.length === 0) {
         return null
     }
     const hash = createHash('sha256').update(bytes).digest('hex')
@@ -63,20 +67,12 @@ function extractFromString(state: Extraction, value: string): string {
     if (!match || !MIME.test(match[1])) {
         return value
     }
-    const compact = match[2].replace(/\s+/g, '')
-    if (!isBase64String(compact)) {
-        return value
-    }
-    const pointer = pointerFor(state, compact, match[1], 'data_uri')
+    const pointer = pointerFor(state, match[2].replace(/\s+/g, ''), match[1], 'data_uri', true)
     if (pointer) {
         state.savedChars += value.length - pointer.length
         return pointer
     }
     return value
-}
-
-function isBase64String(value: unknown): value is string {
-    return typeof value === 'string' && value.length % 4 === 0 && CANONICAL_BASE64.test(value)
 }
 
 interface ProviderBlob {
@@ -91,13 +87,13 @@ function providerBlob(obj: Record<string, unknown>, parentKey: string | null): P
         obj.type === 'base64' &&
         typeof obj.media_type === 'string' &&
         MIME.test(obj.media_type) &&
-        isBase64String(obj.data)
+        typeof obj.data === 'string'
     ) {
         return { data: obj.data, mime: obj.media_type, detector: 'anthropic_source' }
     }
     const geminiMime =
         typeof obj.mimeType === 'string' ? obj.mimeType : typeof obj.mime_type === 'string' ? obj.mime_type : null
-    if (geminiMime && MIME.test(geminiMime) && isBase64String(obj.data)) {
+    if (geminiMime && MIME.test(geminiMime) && typeof obj.data === 'string') {
         return { data: obj.data, mime: geminiMime, detector: 'gemini_inline_data' }
     }
     // The composed mime is validated as a whole: `format` is attacker-controlled and
@@ -106,7 +102,7 @@ function providerBlob(obj: Record<string, unknown>, parentKey: string | null): P
         parentKey === 'input_audio' &&
         typeof obj.format === 'string' &&
         MIME.test(`audio/${obj.format}`) &&
-        isBase64String(obj.data)
+        typeof obj.data === 'string'
     ) {
         return { data: obj.data, mime: `audio/${obj.format}`, detector: 'openai_input_audio' }
     }
@@ -121,7 +117,7 @@ function extractFromObject(
     let base = obj
     const match = providerBlob(obj, parentKey)
     if (match) {
-        const pointer = pointerFor(state, match.data, match.mime, match.detector)
+        const pointer = pointerFor(state, match.data, match.mime, match.detector, true)
         if (pointer) {
             state.savedChars += match.data.length - pointer.length
             base = { ...obj, data: pointer }

@@ -166,4 +166,12 @@ describe('extractBlobs', () => {
         expect(result.blobs).toHaveLength(0)
         expect((result.value as { image_url: { url: string } }).image_url.url).toBe(url)
     })
+
+    it('compacts whitespace-wrapped base64 inside data URIs and captures exact bytes', () => {
+        const wrapped = PNG_B64.replace(/(.{76})/g, '$1\n')
+        const result = extractBlobs({ image_url: { url: `data:image/png;base64,${wrapped}` } }, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.blobs[0].mime).toBe('image/png')
+        expect(result.blobs[0].bytes.equals(PNG_BYTES)).toBe(true)
+    })
 })
