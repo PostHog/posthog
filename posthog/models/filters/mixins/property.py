@@ -4,9 +4,10 @@ from typing import Any, Optional, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES, PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
-from posthog.models.property import Property, PropertyGroup
+from posthog.models.property import Property, PropertyGroup, PropertyValidationError
 
 
 class PropertyMixin(BaseParamMixin):
@@ -72,7 +73,24 @@ class PropertyMixin(BaseParamMixin):
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
-                    except:
+                    except (PropertyValidationError, TypeError) as e:
+                        # PropertyValidationError covers every failure Property.__init__ itself
+                        # raises; TypeError covers `Property(**prop_params)` failing to unpack
+                        # prop_params as a mapping before __init__ even runs. Dropping an
+                        # unparsable property changes validation behavior for every caller
+                        # (e.g. cohort.properties.flat missing a behavioral leaf lets
+                        # behavioral-cohort checks pass silently), so this must stay visible
+                        # instead of failing silent. Report structure only — never the
+                        # property's own value/event_filters — since those can carry real user
+                        # data (e.g. an exact-match email filter).
+                        prop_fields = prop_params if isinstance(prop_params, dict) else {}
+                        capture_exception(
+                            e,
+                            additional_properties={
+                                "property_type": prop_fields.get("type"),
+                                "property_fields": sorted(prop_fields.keys()) or None,
+                            },
+                        )
                         continue
             return _properties
         if not properties:

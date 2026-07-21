@@ -5484,6 +5484,66 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json().items(),
         )
 
+    @parameterized.expand(
+        [
+            (
+                "multiple_times_suffixed_value",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event_multiple_times",
+                    "negation": False,
+                    "operator": "gte",
+                    "event_type": "events",
+                    "time_value": 3650,
+                    "time_interval": "day",
+                    "operator_value": 1,
+                },
+            ),
+            (
+                "bytecode_only_unbounded_condition",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event",
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+                    "negation": False,
+                    "event_type": "events",
+                    "conditionHash": "f9c616030a87e68f",
+                    "event_filters": [
+                        {"key": "$current_url", "type": "event", "value": "some-path", "operator": "icontains"}
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_creating_feature_flag_with_realtime_style_behavioral_leaf_is_rejected(self, _name, behavioral_leaf):
+        # Regression: both of these leaf shapes used to raise inside Property(**leaf) and
+        # get silently dropped by _parse_properties, so cohort.properties.flat came back
+        # with no behavioral property and this guard never fired — letting the flag save
+        # succeed even with realtime-cohort-flag-targeting off.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={"properties": {"type": "AND", "values": [behavioral_leaf]}},
+            name="realtime-behavioral-cohort",
+        )
+
+        response = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'realtime-behavioral-cohort' with filters on events cannot be used in feature flags.",
+                "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
     def test_creating_feature_flag_with_static_snapshot_cohort_that_preserves_behavioral_filters(self) -> None:
         cohort = Cohort.objects.create(
             team=self.team,
