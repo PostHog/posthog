@@ -197,8 +197,11 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                 toggleFavorite: (state, { view }) =>
                     state.includes(view.short_id) ? state : [...state, view.short_id],
                 viewUpdated: (state, { view }) => state.filter((id) => id !== view.short_id),
-                // updateView clears in-flight state via loadViews() on failure
-                loadViews: () => [],
+                // Clear on load completion (not the trigger) so opening the dropdown/modal
+                // mid-flight doesn't drop the in-flight state early; also covers the
+                // updateView failure path, which reloads views.
+                loadViewsSuccess: () => [],
+                loadViewsFailure: () => [],
             },
         ],
         isModalOpen: [
@@ -249,7 +252,10 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             actions.updateView(view.short_id, { is_favorited: !view.is_favorited })
         },
         openModal: () => {
-            actions.loadViews()
+            // The header dropdown already loads views on open; skip a duplicate GET if one is in flight
+            if (!values.viewsLoading) {
+                actions.loadViews()
+            }
         },
         saveView: () => {
             const name = values.viewName.trim()
