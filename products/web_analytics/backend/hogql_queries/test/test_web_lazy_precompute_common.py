@@ -35,7 +35,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     PerQueryOptedOut,
-    PerQueryOptInNotSet,
     TooManyFilters,
     UnsupportedFilterKey,
     _oom_pin_key,
@@ -103,13 +102,28 @@ class TestCheckCommonEligibilityUnrestricted(BaseTest):
             resolve_date_range=_date_range,
         )
 
-    def test_restricted_team_rejects_untouched_opt_in(self) -> None:
+    def test_restricted_team_untouched_toggle_defaults_on(self) -> None:
+        # Re-introducing the old opt-in requirement would silently send every
+        # enrolled team without the UI toggle back to the raw path.
         with override_settings(
             WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
             WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
         ):
-            with self.assertRaises(PerQueryOptInNotSet):
-                self._check(use_precompute=None)
+            self._check(use_precompute=None)
+            with self.assertRaises(PerQueryOptedOut):
+                self._check(use_precompute=False)
+
+    @override_settings(
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[],
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+    )
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
+    def test_flag_enrolled_team_defaults_on_and_respects_opt_out(self, _flag) -> None:
+        # The fleet-rollout path: enrollment via the org flag alone must grant
+        # default-on reads, and the explicit opt-out must still be honored.
+        self._check(use_precompute=None)
+        with self.assertRaises(PerQueryOptedOut):
+            self._check(use_precompute=False)
 
     def test_unrestricted_team_accepts_untouched_as_opt_out_default(self) -> None:
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
