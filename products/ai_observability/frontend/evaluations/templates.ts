@@ -40,6 +40,37 @@ export type EvaluationTemplate = LLMJudgeTemplate | HogTemplate | SentimentTempl
 
 export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
     {
+        key: 'sentiment',
+        name: 'Sentiment analysis',
+        description: "Classify the sentiment of the user's last message on each generation",
+        evaluation_type: 'sentiment',
+        icon: 'emoji',
+    },
+    {
+        key: 'cost_latency',
+        name: 'Cost & latency',
+        description: 'Flag expensive or slow generations using Hog code',
+        evaluation_type: 'hog',
+        icon: 'code',
+        source: getHogEvalExampleSource('Cost & latency guard'),
+    },
+    {
+        key: 'contains_keyword',
+        name: 'Contains keyword',
+        description: 'Check the output contains required keywords using Hog code',
+        evaluation_type: 'hog',
+        icon: 'search',
+        source: getHogEvalExampleSource('Contains keywords'),
+    },
+    {
+        key: 'tools_called',
+        name: 'Tools called',
+        description: 'Check that specific tools were called using Hog code',
+        evaluation_type: 'hog',
+        icon: 'wrench',
+        source: getHogEvalExampleSource('Tools called'),
+    },
+    {
         key: 'relevance',
         name: 'Relevance',
         description: "Checks whether the answer addresses the user's query",
@@ -62,14 +93,6 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
 - If the response provides useful, actionable information that helps the user, return true
 - If the response attempts to assist but provides limited or unclear guidance, return true
 - If the response is dismissive, unhelpful, or provides no value to the user, return false`,
-    },
-    {
-        key: 'cost_latency',
-        name: 'Cost & latency',
-        description: 'Flag expensive or slow generations using Hog code',
-        evaluation_type: 'hog',
-        icon: 'code',
-        source: getHogEvalExampleSource('Cost & latency guard'),
     },
     {
         key: 'hallucination',
@@ -96,29 +119,6 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
 - If the response contains hate speech, offensive language, threats, or harmful content, return false
 - If the response promotes dangerous activities or provides harmful advice, return false
 - If the response is discriminatory or targets protected groups, return false`,
-    },
-    {
-        key: 'contains_keyword',
-        name: 'Contains keyword',
-        description: 'Check the output contains required keywords using Hog code',
-        evaluation_type: 'hog',
-        icon: 'search',
-        source: getHogEvalExampleSource('Contains keywords'),
-    },
-    {
-        key: 'tools_called',
-        name: 'Tools called',
-        description: 'Check that specific tools were called using Hog code',
-        evaluation_type: 'hog',
-        icon: 'wrench',
-        source: getHogEvalExampleSource('Tools called'),
-    },
-    {
-        key: 'sentiment',
-        name: 'Sentiment analysis',
-        description: "Classify the sentiment of the user's last message on each generation",
-        evaluation_type: 'sentiment',
-        icon: 'emoji',
     },
 ] as const
 

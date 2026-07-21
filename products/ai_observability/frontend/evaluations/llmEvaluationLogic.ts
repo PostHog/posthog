@@ -1,11 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
@@ -31,6 +30,7 @@ import {
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
+import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
@@ -143,6 +143,7 @@ export interface llmEvaluationLogicValues {
     canEnable: boolean
     canEnableReason: string | null
     evaluation: EvaluationConfig | null
+    evaluationBackTarget: EvaluationBackTarget
     evaluationFormSubmitting: boolean
     evaluationLoading: boolean
     evaluationProviderKeyIssue: LLMProviderKey | null
@@ -345,6 +346,7 @@ export interface llmEvaluationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNewEvaluation: (evaluationId: string) => boolean
+        evaluationBackTarget: (isNewEvaluation: boolean, searchParams: Record<string, any>) => EvaluationBackTarget
         modelSelectionRequired: (
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null,
@@ -378,7 +380,12 @@ export interface llmEvaluationLogicMeta {
             filteredEvaluationRuns: EvaluationRun[],
             evaluationSummaryFilter: EvaluationSummaryFilter
         ) => number
-        breadcrumbs: (evaluation: EvaluationConfig | null, searchParams: Record<string, any>) => Breadcrumb[]
+        breadcrumbs: (
+            evaluation: EvaluationConfig | null,
+            isNewEvaluation: boolean,
+            evaluationBackTarget: EvaluationBackTarget,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
         maxContext: (evaluation: EvaluationConfig | null) => MaxContextInput[]
     }
 }
@@ -979,7 +986,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const reportConfigStillLoading =
                         !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport
                     if (reportConfigStillLoading) {
-                        router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                        router.actions.push(getEvaluationBackTarget(false, router.values.searchParams).path)
                         return
                     }
 
@@ -998,7 +1005,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                 }
 
-                router.actions.push(urls.aiObservabilityEvaluations(), router.values.searchParams)
+                router.actions.push(getEvaluationBackTarget(false, router.values.searchParams).path)
             } catch (error) {
                 const message = evaluationErrorMessage(error, 'Failed to save evaluation')
                 lemonToast.error(message)
@@ -1037,6 +1044,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+
+        evaluationBackTarget: [
+            (s) => [s.isNewEvaluation, router.selectors.searchParams],
+            (isNewEvaluation: boolean, searchParams: Record<string, any>): EvaluationBackTarget =>
+                getEvaluationBackTarget(isNewEvaluation, searchParams),
+        ],
 
         modelSelectionRequired: [
             (s, props) => [s.evaluation, s.originalEvaluation, props.evaluationId],
@@ -1166,31 +1179,31 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.evaluation, router.selectors.searchParams],
-            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
-                {
-                    name: 'Evaluations',
-                    path: combineUrl(urls.aiObservabilityEvaluations(), searchParams).url,
-                    key: 'AIObservabilityEvaluations',
-                    iconType: 'llm_evaluations',
-                },
-                // A new evaluation is created from the template picker, so make that its parent.
-                ...(!evaluation?.id
-                    ? [
-                          {
-                              name: 'Templates',
-                              path: combineUrl(urls.aiObservabilityEvaluationTemplates(), searchParams).url,
-                              key: 'AIObservabilityEvaluationTemplates',
-                              iconType: 'llm_evaluations' as const,
-                          },
-                      ]
-                    : []),
-                {
-                    name: evaluation?.name || 'New Evaluation',
-                    key: 'AIObservabilityEvaluationEdit',
-                    iconType: 'llm_evaluations',
-                },
-            ],
+            (s) => [s.evaluation, s.isNewEvaluation, s.evaluationBackTarget, router.selectors.searchParams],
+            (
+                evaluation: EvaluationConfig | null,
+                isNewEvaluation: boolean,
+                evaluationBackTarget: EvaluationBackTarget,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
+                const evaluationsTarget = getEvaluationBackTarget(false, searchParams)
+                const parentBreadcrumbs: Breadcrumb[] =
+                    isNewEvaluation && evaluationBackTarget.name !== 'Evaluations'
+                        ? [
+                              ...(evaluationBackTarget.name === 'Templates' ? [evaluationsTarget] : []),
+                              evaluationBackTarget,
+                          ]
+                        : [evaluationsTarget]
+
+                return [
+                    ...parentBreadcrumbs,
+                    {
+                        name: evaluation?.name || 'New Evaluation',
+                        key: 'AIObservabilityEvaluationEdit',
+                        iconType: 'llm_evaluations',
+                    },
+                ]
+            },
         ],
 
         maxContext: [

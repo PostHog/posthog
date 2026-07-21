@@ -56,6 +56,7 @@ import { EvaluationTarget, EvaluationType } from './types'
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
         evaluation,
+        evaluationBackTarget,
         evaluationLoading,
         evaluationFormSubmitting,
         hasUnsavedChanges,
@@ -225,12 +226,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        // From the create form, Back returns to the template picker; editing an existing
-        // evaluation returns to the evaluations list.
-        const destination = isNewEvaluation
-            ? urls.aiObservabilityEvaluationTemplates()
-            : urls.aiObservabilityEvaluations()
-        push(combineUrl(destination, searchParams).url)
+        push(evaluationBackTarget.path)
     }
 
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
