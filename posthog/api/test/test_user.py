@@ -2140,6 +2140,84 @@ class TestUserAPI(APIBaseTest):
         )
 
 
+class TestUserEffectiveAuthorization(APIBaseTest):
+    """`/api/users/@me/effective_authorization/` reflects the request credential's authoritative,
+    server-verified scopes and org/team restrictions so a resource server never has to parse a token
+    body itself. It must behave uniformly across every credential type accepted on `@me`."""
+
+    ENDPOINT = "/api/users/@me/effective_authorization/"
+
+    def test_reflects_personal_api_key(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=["user:read", "insight:read"],
+            scoped_teams=[self.team.id],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+
+        response = self.client.get(self.ENDPOINT)
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["credential_type"] == "personal_api_key"
+        assert body["scopes"] == ["user:read", "insight:read"]
+        assert body["scoped_teams"] == [self.team.id]
+        assert body["scoped_organizations"] == [str(self.organization.id)]
+
+    def test_reflects_oauth_token(self):
+        application = OAuthApplication.objects.create(
+            name="Test App",
+            client_id="effective_auth_client",
+            client_secret="secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_effective_auth_token",
+            expires=timezone.now() + timedelta(hours=1),
+            # OAuth stores scopes as a space-separated string, not a list.
+            scope="user:read insight:read",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer pha_effective_auth_token")
+
+        response = self.client.get(self.ENDPOINT)
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["credential_type"] == "oauth"
+        assert body["scopes"] == ["user:read", "insight:read"]
+        assert body["scoped_teams"] == [self.team.id]
+        assert body["scoped_organizations"] is None
+
+    def test_session_auth_is_unrestricted(self):
+        # Default client is session-authenticated. Session auth carries no scope/org/team
+        # restrictions — the resource server must see that as fully unrestricted (null).
+        response = self.client.get(self.ENDPOINT)
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["credential_type"] == "session"
+        assert body["scopes"] is None
+        assert body["scoped_organizations"] is None
+        assert body["scoped_teams"] is None
+
+    def test_unauthenticated_is_rejected(self):
+        self.client.logout()
+        response = self.client.get(self.ENDPOINT)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.content
+
+
 class TestSessionAuthEndpoints(APIBaseTest):
     """
     Tests that certain endpoints require session authentication and reject Personal API Keys.

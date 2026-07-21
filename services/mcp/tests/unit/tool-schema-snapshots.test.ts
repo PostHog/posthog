@@ -27,7 +27,7 @@ function createMockContext(): Context {
             // Staff-only tools require their OAuth-hidden scope explicitly on the key
             // (`*` alone does not match) plus a staff user, so grant both here to keep
             // their schemas in the snapshot surface.
-            getApiKey: async () => ({ scopes: ['*', ...OAUTH_SCOPES_HIDDEN] }),
+            getAuthorizationMetadata: async () => ({ scopes: ['*', ...OAUTH_SCOPES_HIDDEN] }),
             getAiConsentGiven: async () => true,
             getUser: async () => ({ is_staff: true }),
         } as any,

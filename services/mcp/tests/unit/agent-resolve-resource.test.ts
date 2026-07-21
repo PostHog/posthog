@@ -17,8 +17,8 @@ const PLAYBOOKS_DIR = resolve(__dirname, '../../playbooks')
 
 // Context whose api key carries the given scopes (drives the live tool surface).
 const ctxWithScopes = (scopes: string[]): Context =>
-    ({ stateManager: { getApiKey: async () => ({ scopes }) } }) as unknown as Context
-// No stateManager → getApiKey throws → handler renders the flat (scope-unknown) surface.
+    ({ stateManager: { getAuthorizationMetadata: async () => ({ scopes }) } }) as unknown as Context
+// No stateManager → getAuthorizationMetadata throws → handler renders the flat (scope-unknown) surface.
 const ctx = {} as Context
 
 describe('agent-resolve-resource', () => {

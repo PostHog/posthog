@@ -40,8 +40,11 @@ export const resolveResourceHandler: ToolBase<typeof schema, Result>['handler'] 
     // a missing/erroring key just renders the flat list with required scopes.
     let scopes: string[] | undefined
     try {
-        scopes = (await context.stateManager.getApiKey()).scopes
+        scopes = (await context.stateManager.getAuthorizationMetadata()).scopes
     } catch {
+        // Intentional best-effort degrade: unlike the catalog paths, a missing
+        // key here just renders the flat scope-unknown surface rather than
+        // failing the request.
         scopes = undefined
     }
     const refs = buildToolSurface(playbook.id, scopes ?? [])

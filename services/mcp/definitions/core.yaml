@@ -681,6 +681,9 @@ tools:
     users-destroy:
         operation: users_destroy
         enabled: false
+    users-effective-authorization-retrieve:
+        operation: users_effective_authorization_retrieve
+        enabled: false
     users-github-login-retrieve:
         operation: users_github_login_retrieve
         enabled: false

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -88,7 +88,7 @@ describe('StateManager', () => {
                 scoped_teams: [456],
             }
 
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(teamScopedApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(teamScopedApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -103,7 +103,7 @@ describe('StateManager', () => {
                 scoped_teams: [123, 456, 789],
             }
 
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(multiTeamApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(multiTeamApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -119,7 +119,7 @@ describe('StateManager', () => {
                 scoped_teams: [123, 789],
             }
 
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(multiTeamApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(multiTeamApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -130,7 +130,7 @@ describe('StateManager', () => {
         })
 
         it("should use user's active org and team when no scoped restrictions", async () => {
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(mockApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -147,7 +147,7 @@ describe('StateManager', () => {
                 scoped_organizations: ['org-2', 'org-1'],
             }
 
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -163,7 +163,7 @@ describe('StateManager', () => {
             }
 
             const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             // Mock the API client organization projects list call
@@ -191,7 +191,7 @@ describe('StateManager', () => {
             }
 
             const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             mockApi._api = {
@@ -224,7 +224,7 @@ describe('StateManager', () => {
             }
             const userWithoutCurrent: ApiUser = { ...mockUser, team: null, organization: null }
 
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(teamScopedApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(teamScopedApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithoutCurrent)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -243,7 +243,7 @@ describe('StateManager', () => {
             const userWithoutCurrent: ApiUser = { ...mockUser, team: null, organization: null }
 
             const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithoutCurrent)
 
             mockApi._api = {
@@ -266,7 +266,7 @@ describe('StateManager', () => {
             // missing-context state rather than crash or fabricate an org id.
             const userWithoutCurrent: ApiUser = { ...mockUser, team: null, organization: null }
 
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(mockApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithoutCurrent)
 
             const result = await stateManager.setDefaultOrganizationAndProject()
@@ -282,7 +282,7 @@ describe('StateManager', () => {
             }
 
             const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
             const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
 
@@ -316,7 +316,7 @@ describe('StateManager', () => {
             }
 
             const mockApi = stateManager as any
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
             const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
 
@@ -430,7 +430,7 @@ describe('StateManager', () => {
         it('returns undefined when no org can be resolved (does not throw)', async () => {
             // Preserves the best-effort contract used by getEnvironmentPrompt and
             // consent checks: if no org is in scope, the call is a no-op.
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue({
                 scopes: ['organization:read'],
                 scoped_organizations: [],
                 scoped_teams: [],
@@ -453,7 +453,7 @@ describe('StateManager', () => {
             // HTTP call so no exception is captured and the org is treated as
             // best-effort missing.
             await cache.set('orgId', 'org-1')
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue({
                 scopes: ['project:read', 'insight:read'],
                 scoped_organizations: [],
                 scoped_teams: [456],
@@ -473,7 +473,7 @@ describe('StateManager', () => {
             'skips the org fetch for project-scoped API keys even when they carry %s',
             async (scope) => {
                 await cache.set('orgId', 'org-1')
-                vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue({
                     scopes: [scope],
                     scoped_organizations: [],
                     scoped_teams: [456],
@@ -491,7 +491,7 @@ describe('StateManager', () => {
         )
 
         it('skips org resolution for project-scoped API keys', async () => {
-            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+            vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue({
                 scopes: ['*'],
                 scoped_organizations: [],
                 scoped_teams: [456],
@@ -515,7 +515,7 @@ describe('StateManager', () => {
             'fetches the org when the API key carries %s',
             async (scope) => {
                 await cache.set('orgId', 'org-1')
-                vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                vi.spyOn(stateManager, 'getAuthorizationMetadata').mockResolvedValue({
                     scopes: [scope],
                     scoped_organizations: [],
                     scoped_teams: [],
@@ -835,6 +835,67 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+    })
+
+    describe('getAuthorizationMetadata (ID-JAG)', () => {
+        // Header-only `typ: at+jwt` marks the token as an ID-JAG access token —
+        // enough for `isIdJagAccessToken` to route it to the resource server.
+        const idJagToken = `${Buffer.from(JSON.stringify({ typ: 'at+jwt' })).toString('base64url')}.${Buffer.from(
+            '{}'
+        ).toString('base64url')}.sig`
+
+        it('resolves ID-JAG scopes from effective_authorization, not the personal-key/OAuth cascade', async () => {
+            // The regression: ID-JAG tokens miss the personal-key lookup and 403
+            // on OAuth introspection, so the old cascade threw INVALID_API_KEY and
+            // served no tools. Scopes must come from the resource server, and
+            // `null` team/org scoping normalizes to [].
+            const effective = vi.fn().mockResolvedValue({
+                success: true,
+                data: {
+                    scopes: ['insight:read', 'dashboard:read'],
+                    scoped_teams: null,
+                    scoped_organizations: ['org-1'],
+                    credential_type: 'id_jag',
+                },
+            })
+            const current = vi.fn().mockResolvedValue({ success: false, error: new Error('not a personal key') })
+            const introspect = vi.fn().mockResolvedValue({ success: false, error: new Error('not oauth') })
+            const api = {
+                config: { apiToken: idJagToken },
+                authorization: () => ({ effective }),
+                apiKeys: () => ({ current }),
+                oauth: () => ({ introspect }),
+            } as unknown as ApiClient
+            const sm = new StateManager(cache, api)
+
+            const result = await sm.getAuthorizationMetadata()
+
+            expect(result).toEqual({
+                scopes: ['insight:read', 'dashboard:read'],
+                scoped_teams: [],
+                scoped_organizations: ['org-1'],
+            })
+            expect(effective).toHaveBeenCalledOnce()
+            expect(current).not.toHaveBeenCalled()
+            expect(introspect).not.toHaveBeenCalled()
+        })
+
+        it('fails closed with INVALID_API_KEY when effective_authorization is unreachable', async () => {
+            // Fail loud, never a silent empty catalog — and never fall back to
+            // trusting the unverified token body.
+            const effective = vi.fn().mockResolvedValue({ success: false, error: new Error('403') })
+            const current = vi.fn()
+            const api = {
+                config: { apiToken: idJagToken },
+                authorization: () => ({ effective }),
+                apiKeys: () => ({ current }),
+                oauth: () => ({ introspect: vi.fn() }),
+            } as unknown as ApiClient
+            const sm = new StateManager(cache, api)
+
+            await expect(sm.getAuthorizationMetadata()).rejects.toThrow(ErrorCode.INVALID_API_KEY)
+            expect(current).not.toHaveBeenCalled()
         })
     })
 

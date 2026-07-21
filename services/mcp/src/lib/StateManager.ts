@@ -8,6 +8,7 @@ import {
     PostHogApiError,
     wrapError,
 } from '@/lib/errors'
+import { isIdJagAccessToken } from '@/lib/id-jag'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -48,7 +49,25 @@ export class StateManager {
         return this._user
     }
 
-    private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
+    private async _fetchAuthorizationMetadata(): Promise<NonNullable<State['authorizationMetadata']>> {
+        // ID-JAG access tokens (short-lived signed JWTs) can't be resolved by
+        // the personal-key lookup or OAuth introspection below. The resource
+        // server exposes their authoritative scopes here — resolve it before the
+        // cascade, and fail closed on any non-200 rather than trusting the
+        // unverified token body.
+        if (isIdJagAccessToken(this._api.config.apiToken)) {
+            const effectiveResult = await this._api.authorization().effective()
+            if (!effectiveResult.success) {
+                throw new Error(ErrorCode.INVALID_API_KEY)
+            }
+            const { scopes, scoped_teams, scoped_organizations } = effectiveResult.data
+            return {
+                scopes: scopes ?? [],
+                scoped_teams: scoped_teams ?? [],
+                scoped_organizations: scoped_organizations ?? [],
+            }
+        }
+
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
             const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
@@ -85,15 +104,15 @@ export class StateManager {
         }
     }
 
-    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
-        let _apiKey = await this._cache.get('apiKey')
+    async getAuthorizationMetadata(): Promise<NonNullable<State['authorizationMetadata']>> {
+        let _authorizationMetadata = await this._cache.get('authorizationMetadata')
 
-        if (!_apiKey) {
-            _apiKey = await this._fetchApiKey()
-            await this._cache.set('apiKey', _apiKey)
+        if (!_authorizationMetadata) {
+            _authorizationMetadata = await this._fetchAuthorizationMetadata()
+            await this._cache.set('authorizationMetadata', _authorizationMetadata)
         }
 
-        return _apiKey
+        return _authorizationMetadata
     }
 
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
@@ -123,7 +142,10 @@ export class StateManager {
         organizationId?: string
         projectId?: number
     }> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
+        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([
+            this.getAuthorizationMetadata(),
+            this.getUser(),
+        ])
         const { organization: activeOrganization, team: activeTeam } = user
 
         // Team-scoped key: prefer the active team if the scope allows it,
@@ -329,7 +351,7 @@ export class StateManager {
     }
 
     async getCachedOrFetchOrg(): Promise<CachedOrg | undefined> {
-        const apiKey = await this.getApiKey()
+        const apiKey = await this.getAuthorizationMetadata()
         // `/api/organizations/{id}/` is not project-nested. Backend permission
         // checks reject project-scoped tokens there even when they carry
         // `organization:read` or `*`, so skip the best-effort fetch entirely.

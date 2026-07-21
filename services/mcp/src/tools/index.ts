@@ -150,10 +150,13 @@ export const getToolsFromContext = async (
         }
     })
 
-    const apiKey = await context.stateManager.getApiKey()
-    const scopes = apiKey?.scopes ?? []
+    // Authorization is required to project the catalog — `getAuthorizationMetadata`
+    // returns a non-null value or throws, so absence is an error that fails the
+    // request, never a silently empty (zero-scope) catalog.
+    const authorizationMetadata = await context.stateManager.getAuthorizationMetadata()
+    const scopes = authorizationMetadata.scopes
 
     const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
 
-    return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
+    return filterStaffOnlyTools(candidates, authorizationMetadata, () => context.stateManager.getUser())
 }

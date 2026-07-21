@@ -12,6 +12,7 @@ import {
 } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
+    ApiEffectiveAuthorization,
     ApiEventDefinition,
     ApiOAuthIntrospection,
     ApiPropertyDefinition,
@@ -553,6 +554,20 @@ export class ApiClient {
         return {
             current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
                 return this.fetchJson<ApiRedactedPersonalApiKey>(`${this.baseUrl}/api/personal_api_keys/@current`)
+            },
+        }
+    }
+
+    authorization(): Endpoint {
+        return {
+            // Resource-server-authoritative scopes for the request's bearer,
+            // resolved for every credential type. `fetchJson` authenticates with
+            // the request's `Authorization: Bearer <apiToken>`, so this is the
+            // only path that can resolve an ID-JAG token's scopes.
+            effective: async (): Promise<Result<ApiEffectiveAuthorization>> => {
+                return this.fetchJson<ApiEffectiveAuthorization>(
+                    `${this.baseUrl}/api/users/@me/effective_authorization/`
+                )
             },
         }
     }
