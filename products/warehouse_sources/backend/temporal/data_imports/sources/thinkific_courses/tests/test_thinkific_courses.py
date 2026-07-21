@@ -15,15 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.thinkific_courses import (
     THINKIFIC_BASE_URL,
     ThinkificCoursesResumeConfig,
+    _client_config,
     _format_incremental_date,
     thinkific_courses_source,
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the thinkific_courses module.
-PROBE_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.thinkific_courses.make_tracked_session"
+# Both the pipeline client (via _client_config) and validate_credentials build their tracked session
+# through make_tracked_session imported into the thinkific_courses module, so patch it there.
+SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.thinkific_courses.make_tracked_session"
 # Retries sleep between attempts; patch the backoff clock so retry paths don't stall the suite.
 SLEEP_PATCH = "tenacity.nap.time.sleep"
 
@@ -80,7 +80,7 @@ def _run(
     **kwargs: Any,
 ) -> tuple[mock.MagicMock, list[dict[str, Any]], list[Any]]:
     """Drive thinkific_courses_source with a mocked client session; return (session, snapshots, pages)."""
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+    with mock.patch(SESSION_PATCH) as MockSession:
         session = MockSession.return_value
         snapshots = _wire(session, responses)
         resp = thinkific_courses_source(
@@ -282,7 +282,7 @@ class TestValidateCredentials:
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_code: int) -> None:
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(PROBE_SESSION_PATCH, return_value=session):
+        with mock.patch(SESSION_PATCH, return_value=session):
             is_valid, code = validate_credentials("key", "sub")
         assert is_valid is expected_valid
         assert code == expected_code
@@ -290,16 +290,31 @@ class TestValidateCredentials:
     def test_exception_returns_none_status(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = Exception("boom")
-        with mock.patch(PROBE_SESSION_PATCH, return_value=session):
+        with mock.patch(SESSION_PATCH, return_value=session):
             is_valid, code = validate_credentials("key", "sub")
         assert is_valid is False
         assert code is None
 
-    def test_probe_disables_redirects_to_protect_api_key(self) -> None:
-        # The X-Auth-API-Key header rides on the probe; the session must be built with redirects
-        # pinned off so a redirect can't replay the key to the redirect target during validation.
+    def test_probe_disables_redirects_and_sample_capture_to_protect_customer_data(self) -> None:
+        # The X-Auth-API-Key header rides on the probe, so redirects are pinned off to stop a redirect
+        # replaying the key off-host. A successful /courses probe also returns real customer data
+        # (student names, free-text notes), so capture is off to keep that body out of HTTP sample storage.
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(PROBE_SESSION_PATCH, return_value=session) as make_session:
+        with mock.patch(SESSION_PATCH, return_value=session) as make_session:
             validate_credentials("key", "sub")
         assert make_session.call_args.kwargs["allow_redirects"] is False
+        assert make_session.call_args.kwargs["capture"] is False
+
+
+class TestPipelineSessionCapture:
+    def test_client_config_disables_sample_capture_and_pins_redirects(self) -> None:
+        # Thinkific rows carry student names/emails and free-text review and coupon notes the name-based
+        # scrubbers can't recognise, so the pipeline session must be built with capture off (bodies stay
+        # out of HTTP sample storage), redirects pinned off (the key can't be replayed off-host), and the
+        # key registered for log redaction.
+        with mock.patch(SESSION_PATCH) as make_session:
+            _client_config("key", "sub")
+        assert make_session.call_args.kwargs["capture"] is False
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+        assert make_session.call_args.kwargs["redact_values"] == ("key",)

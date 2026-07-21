@@ -58,10 +58,16 @@ def _get_headers(api_key: str, subdomain: str) -> dict[str, str]:
 def _client_config(api_key: str, subdomain: str) -> ClientConfig:
     # The API key travels via the framework `auth` config (X-Auth-API-Key) so it's redacted from logs
     # and error messages; only the non-secret subdomain routing header and Accept go on the session.
+    # `capture=False`: Thinkific responses carry student names/emails and free-text review and coupon
+    # notes the name-based sample scrubbers can't recognise, so keep bodies out of HTTP sample storage
+    # entirely (requests are still metered and logged). `redact_values=(api_key,)` masks the key in
+    # logged URLs; `allow_redirects=False` never replays the X-Auth-API-Key header to a redirect target.
+    session = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
     return {
         "base_url": THINKIFIC_BASE_URL,
         "headers": {"X-Auth-Subdomain": subdomain, "Accept": "application/json"},
         "auth": {"type": "api_key", "api_key": api_key, "name": "X-Auth-API-Key", "location": "header"},
+        "session": session,
         # Pin every request (and the X-Auth-API-Key header) to the Thinkific host and refuse to
         # follow a 3xx, so a server-side redirect can never forward the credential headers off-host.
         "allowed_hosts": [],
@@ -238,8 +244,10 @@ def validate_credentials(api_key: str, subdomain: str, endpoint_path: str = "/co
     url = f"{THINKIFIC_BASE_URL}{endpoint_path}?{urlencode({'page': 1, 'limit': 1})}"
     return validate_via_probe(
         # The X-Auth-API-Key header rides on the probe; pin redirects off on the session so one can't
-        # replay it to a redirect target off the Thinkific host during validation.
-        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+        # replay it to a redirect target off the Thinkific host during validation. `capture=False`:
+        # a successful /courses probe response can contain Thinkific customer data (student names,
+        # free-text notes), so keep it out of HTTP sample storage just like the sync path's session.
+        lambda: make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False),
         url,
         headers=_get_headers(api_key, subdomain),
     )
