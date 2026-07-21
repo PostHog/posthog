@@ -398,8 +398,8 @@ tools:
             List the per-scout configs for this project. Each `signals-scout-*` skill has one row with its schedule
             (`run_interval_minutes` and optional project-local `run_time_of_day`), `enabled` flag, and `emit` (dry-run)
             posture. A freshly authored scout appears once its config is registered: immediately via
-            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick.
-            Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with
+            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
+            tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with
             `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
