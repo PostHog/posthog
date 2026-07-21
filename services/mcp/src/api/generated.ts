@@ -29851,6 +29851,12 @@ export namespace Schemas {
     export type HogFlowVariablesItem = {[key: string]: string};
 
     /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type HogFlowActionRedirects = {[key: string]: string} | null;
+
+    /**
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived
@@ -29999,7 +30005,10 @@ export namespace Schemas {
     };
 
     export interface HogFlowAction {
-      /** Unique node ID within the workflow. */
+      /**
+         * Unique node ID within the workflow.
+         * @maxLength 200
+         */
       id: string;
       /**
          * Display name.
@@ -30130,6 +30139,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly draft_updated_at: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects: HogFlowActionRedirects;
     }
 
     /**
@@ -45241,6 +45255,12 @@ export namespace Schemas {
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
     /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type PatchedHogFlowActionRedirects = {[key: string]: string} | null;
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface PatchedHogFlow {
@@ -45298,6 +45318,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly draft_updated_at?: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects?: PatchedHogFlowActionRedirects;
     }
 
     export interface PatchedHogFlowGraphUpdate {
