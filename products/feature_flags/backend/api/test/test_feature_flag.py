@@ -611,10 +611,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
-    def test_can_update_flag_when_sibling_environment_shares_key(self):
-        # A project can span multiple environments (teams) where the same flag key legitimately
-        # exists once per environment. Editing a flag without touching its key must not be blocked
-        # by the sibling row in the other environment.
+    def test_can_update_flag_when_sibling_team_shares_key(self):
+        # A project can have another team where the same flag key legitimately exists.
+        # Editing a flag without touching its key must not be blocked by that other team's flag.
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
         FeatureFlag.objects.create(team=sibling_team, created_by=self.user, key="shared-key")
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="shared-key", name="Original")

@@ -1173,12 +1173,10 @@ class FeatureFlagSerializer(
         instance = cast(Optional[FeatureFlag], self.instance)
 
         # Editing a flag without changing its key can never introduce a duplicate: the row already owns
-        # this key. Skip the uniqueness read entirely in that case, so a sibling row in another
-        # environment or a lagging read replica can't produce a false "key already exists" error on an
-        # edit that never touched the key. (This check is project-scoped, and a project can span
-        # multiple environments where the same key legitimately exists once per environment.) Genuine
-        # collisions on write are still caught by the "unique key for team" DB constraint inside
-        # update()'s locked transaction.
+        # this key. Skip the uniqueness read entirely in that case, so another flag in another team or
+        # a lagging read replica can't produce a false "key already exists" error on an edit that never
+        # touched the key. Genuine collisions on write are still caught by the "unique key for team" DB
+        # constraint inside update()'s locked transaction.
         if instance is None or value != instance.key:
             unique_qs = FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"])
             if instance is not None:
