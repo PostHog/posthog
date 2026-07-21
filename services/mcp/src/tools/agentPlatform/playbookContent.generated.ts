@@ -8,6 +8,7 @@ import costAndQuotaAnalysis from '@shared/playbooks/cost-and-quota-analysis/SKIL
 import debuggingSessions from '@shared/playbooks/debugging-sessions/SKILL.md'
 import designingMcpSurfaces from '@shared/playbooks/designing-mcp-surfaces/SKILL.md'
 import editingAgentsSafely from '@shared/playbooks/editing-agents-safely/SKILL.md'
+import orchestratingLiveAgents from '@shared/playbooks/orchestrating-live-agents/SKILL.md'
 import platformMentalModel from '@shared/playbooks/platform-mental-model/SKILL.md'
 import queryingAiObservability from '@shared/playbooks/querying-ai-observability/SKILL.md'
 import readingAnAgent from '@shared/playbooks/reading-an-agent/SKILL.md'
@@ -25,6 +26,7 @@ export const PLAYBOOK_CONTENT: Record<PlaybookId, string> = {
     'debugging-sessions': debuggingSessions,
     'designing-mcp-surfaces': designingMcpSurfaces,
     'editing-agents-safely': editingAgentsSafely,
+    'orchestrating-live-agents': orchestratingLiveAgents,
     'platform-mental-model': platformMentalModel,
     'querying-ai-observability': queryingAiObservability,
     'reading-an-agent': readingAnAgent,
