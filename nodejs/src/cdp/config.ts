@@ -93,6 +93,12 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    // Integration gateway (credential fetch): route integration reads through the gateway service
+    // behind a per-team rollout, falling back to Postgres. All three must be set for the client to
+    // activate (see createIntegrationGatewayService).
+    CDP_INTEGRATION_GATEWAY_URL: string
+    CDP_INTEGRATION_GATEWAY_JWT_SECRET: string
+    CDP_INTEGRATION_GATEWAY_ROLLOUT: string
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
@@ -250,6 +256,9 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_INTEGRATION_GATEWAY_URL: '',
+        CDP_INTEGRATION_GATEWAY_JWT_SECRET: isDevEnv() || isTestEnv() ? 'integration-gateway-dev-secret' : '',
+        CDP_INTEGRATION_GATEWAY_ROLLOUT: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,

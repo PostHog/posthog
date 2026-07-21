@@ -1,3 +1,4 @@
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
@@ -154,3 +155,17 @@ OAUTH_CLIENT_FALLBACKS: dict[str, dict[str, str]] = {
         "client_secret": BING_ADS_CLIENT_SECRET_FALLBACK,
     },
 }
+
+# Integration gateway — the nodejs service that owns third-party integration credential access and
+# just-in-time OAuth token refresh (rust/integration-gateway is the original reference).
+INTEGRATION_GATEWAY_URL = get_from_env("INTEGRATION_GATEWAY_URL", "")
+# Dedicated per-purpose secret for minting the gateway's scoped JWTs — never reuse JWT_SIGNING_KEY /
+# SECRET_KEY / INTERNAL_API_SECRET. Empty in prod means the mint helper fails closed.
+LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET = "integration-gateway-dev-secret"
+INTEGRATION_GATEWAY_JWT_SECRET = get_from_env(
+    "INTEGRATION_GATEWAY_JWT_SECRET",
+    LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET if DEBUG or TEST else "",
+)
+# Integration kinds whose OAuth refresh is owned by the gateway (comma-separated). Excluded from the
+# Celery refresh_integrations beat so exactly one system refreshes each kind.
+INTEGRATION_GATEWAY_REFRESH_KINDS = get_list(get_from_env("INTEGRATION_GATEWAY_REFRESH_KINDS", ""))

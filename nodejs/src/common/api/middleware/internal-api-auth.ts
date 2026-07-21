@@ -26,6 +26,8 @@ const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/
 const SCOPED_AUTH_PATH_SUFFIXES = [
     // Verified in CdpApi.postHogFlowRescheduleParked against WORKFLOWS_RESCHEDULE_JWT_SECRET.
     '/reschedule_parked',
+    // Verified by the integration gateway against INTEGRATION_GATEWAY_JWT_SECRET (GatewayAuth).
+    '/credentials/fetch',
 ]
 
 export interface InternalApiAuthOptions {

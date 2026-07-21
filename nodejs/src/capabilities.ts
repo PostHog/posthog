@@ -206,5 +206,7 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
+        case PluginServerMode.integration_gateway:
+            throw new Error(`Mode ${mode} is handled by IntegrationGatewayServer, not PluginServer`)
     }
 }

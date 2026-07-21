@@ -189,7 +189,7 @@ export class HogInputsService {
             return {}
         }
 
-        const integrations = await this.integrationManager.getMany(allIds)
+        const integrations = await this.integrationManager.getMany(allIds, hogFunction.team_id)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
