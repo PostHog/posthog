@@ -44,3 +44,20 @@ export function stripUuidFormat(obj) {
         stripUuidFormat(value)
     }
 }
+
+/**
+ * Replace Orval's unconstrained-value schema with Zod's recursive JSON schema.
+ *
+ * `zod.unknown()` is emitted for OpenAPI values whose shape is intentionally
+ * unconstrained. It serializes to an untyped JSON Schema node, so MCP clients
+ * do not learn that they may send structured JSON and commonly stringify
+ * objects or arrays before invoking the tool. `zod.json()` preserves the same
+ * JSON-transportable values while advertising the object and array branches.
+ *
+ * This operates on Orval's generated TypeScript source rather than changing
+ * the OpenAPI document: the source schema is still accurately unconstrained,
+ * and the conversion is specific to MCP's JSON tool-input contract.
+ */
+export function useJsonSchemaForUnconstrainedValues(generatedSource) {
+    return generatedSource.replace(/\bzod\.unknown\(\)/g, 'zod.json()')
+}

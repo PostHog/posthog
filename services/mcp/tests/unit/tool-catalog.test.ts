@@ -138,6 +138,23 @@ describe('ToolCatalog', () => {
 
             expect(result.type).toBe('object')
         })
+
+        it('advertises structured JSON branches for an unconstrained generated input', () => {
+            const result = toMcpInputSchema(z.object({ payload: z.json() })) as Record<string, unknown>
+            const payload = (result.properties as Record<string, Record<string, unknown>>).payload!
+            const reference = payload.$ref as string
+            const definitionName = reference.replace('#/definitions/', '')
+            const definition = (result.definitions as Record<string, Record<string, unknown>>)[definitionName]!
+            const variants = definition.anyOf as Array<Record<string, unknown>>
+
+            expect(reference).toMatch(/^#\/definitions\//)
+            expect(variants).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ type: 'object' }),
+                    expect.objectContaining({ type: 'array' }),
+                ])
+            )
+        })
     })
 
     describe('warmup', () => {
