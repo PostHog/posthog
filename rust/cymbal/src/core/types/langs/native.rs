@@ -312,12 +312,20 @@ impl RawNativeFrame {
     /// and replaced groups agree on the name vocabulary: resolved names feed
     /// fingerprints, so a mismatch splits the same crash across issues when
     /// symbols get uploaded.
+    ///
+    /// `abi0`/`abiinternal` are also valid Go identifiers (`pkg.abi0` can be
+    /// a real function), so the suffix is only dropped when the client
+    /// reported exactly the un-suffixed name for this frame — evidence it is
+    /// toolchain metadata rather than part of the name. Wrappers are physical
+    /// assembly functions, so the client name is present for them.
     fn display_name_for(&self, symbol_info: &SymbolInfo) -> String {
         let name = &symbol_info.display_name;
         if self.lang.as_deref() == Some("go") {
             for suffix in [".abi0", ".abiinternal"] {
                 if let Some(stripped) = name.strip_suffix(suffix) {
-                    return stripped.to_string();
+                    if self.function.as_deref() == Some(stripped) {
+                        return stripped.to_string();
+                    }
                 }
             }
         }
@@ -793,25 +801,57 @@ mod test {
 
     // Go frames drop the toolchain's ABI-wrapper suffix so server-resolved
     // names match what the Go runtime (and so the client's kept frames)
-    // reports; other languages keep the symbol verbatim.
+    // reports — but only when the client's own name confirms the suffix is
+    // toolchain metadata; `pkg.abi0` can be a real function. Other languages
+    // keep the symbol verbatim.
     #[test]
     fn go_resolved_names_drop_abi_wrapper_suffixes() {
         let cases = [
-            (Some("go"), "runtime.goexit.abi0", "runtime.goexit"),
-            (Some("go"), "runtime.main.abiinternal", "runtime.main"),
-            (Some("go"), "main.main", "main.main"),
-            (Some("rust"), "alloc::alloc.abi0", "alloc::alloc.abi0"),
-            (None, "runtime.goexit.abi0", "runtime.goexit.abi0"),
+            (
+                Some("go"),
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit",
+            ),
+            (
+                Some("go"),
+                Some("runtime.main"),
+                "runtime.main.abiinternal",
+                "runtime.main",
+            ),
+            (Some("go"), Some("main.main"), "main.main", "main.main"),
+            // A genuine function named abi0: client and debug info agree, so
+            // nothing is stripped.
+            (Some("go"), Some("pkg.abi0"), "pkg.abi0", "pkg.abi0"),
+            // No client name means no evidence the suffix is a wrapper.
+            (
+                Some("go"),
+                None,
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+            (
+                Some("rust"),
+                Some("alloc::alloc"),
+                "alloc::alloc.abi0",
+                "alloc::alloc.abi0",
+            ),
+            (
+                None,
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
         ];
 
-        for (lang, symbol, expected) in cases {
+        for (lang, client_function, symbol, expected) in cases {
             let frame = RawNativeFrame {
                 instruction_addr: Some("0x1000".to_string()),
                 symbol_addr: None,
                 image_addr: Some("0x1000".to_string()),
                 lang: lang.map(String::from),
                 module: None,
-                function: None,
+                function: client_function.map(String::from),
                 filename: None,
                 lineno: None,
                 colno: None,
