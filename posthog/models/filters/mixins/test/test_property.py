@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import patch
 
+from posthoganalytics.contexts import get_capture_exception_code_variables_context
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import Filter
@@ -315,3 +316,24 @@ def test_property_group_parsing_reports_non_mapping_property():
     args, kwargs = mock_capture_exception.call_args
     assert isinstance(args[0], TypeError)
     assert kwargs["additional_properties"] == {"property_type": None, "property_fields": None}
+
+
+def test_property_group_parsing_disables_code_variable_capture_for_reported_exception():
+    # capture_exception() forwards the exception object to PostHog's error-tracking SDK, which
+    # has code-variable capture enabled globally: it would otherwise attach this frame's locals
+    # -- including the malformed property's raw value/event_filters -- regardless of the
+    # deliberately structure-only additional_properties above. Must be disabled for this call.
+    observed_context_values = []
+
+    def fake_capture_exception(error, additional_properties=None):
+        observed_context_values.append(get_capture_exception_code_variables_context())
+
+    filter = Filter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+
+    with patch(
+        "posthog.models.filters.mixins.property.capture_exception", side_effect=fake_capture_exception
+    ) as mock_capture_exception:
+        _ = filter.property_groups.values
+
+    mock_capture_exception.assert_called_once()
+    assert observed_context_values == [False]

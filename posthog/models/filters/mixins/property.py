@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, Union, cast
 
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES, PropertyOperatorType
@@ -84,15 +85,19 @@ class PropertyMixin(BaseParamMixin):
                         # behavioral-cohort checks pass silently), so this must stay visible
                         # instead of failing silent. Report structure only — never the
                         # property's own value/event_filters — since those can carry real user
-                        # data (e.g. an exact-match email filter).
+                        # data (e.g. an exact-match email filter). Code-variable capture would
+                        # otherwise attach those same values from this frame's locals regardless
+                        # of what we pass as additional_properties, so it's disabled for this call.
                         prop_dict = prop_params if isinstance(prop_params, dict) else {}
-                        capture_exception(
-                            e,
-                            additional_properties={
-                                "property_type": prop_dict.get("type"),
-                                "property_fields": sorted(prop_dict.keys()) or None,
-                            },
-                        )
+                        with posthoganalytics.new_context():
+                            posthoganalytics.set_capture_exception_code_variables_context(False)
+                            capture_exception(
+                                e,
+                                additional_properties={
+                                    "property_type": prop_dict.get("type"),
+                                    "property_fields": sorted(prop_dict.keys()) or None,
+                                },
+                            )
                         continue
             return _properties
         if not properties:
