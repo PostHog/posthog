@@ -2437,9 +2437,7 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
-        _, scoped_team = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
+        _, scoped_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="X",
