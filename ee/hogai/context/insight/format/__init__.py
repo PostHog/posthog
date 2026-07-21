@@ -83,6 +83,13 @@ def format_access_control_warnings(response: dict[str, Any]) -> str:
     return _format_warnings(response, "access_control", "[Access control]")
 
 
+def format_data_catalog_trust_warnings(response: dict[str, Any]) -> str:
+    # The point-of-use trust signal: fires when the query read uncertified warehouse
+    # tables while approved governed metrics exist, so a reader satisficing on a
+    # plausible raw table is corrected in the result itself.
+    return _format_warnings(response, "data_catalog_trust", "[Data catalog]")
+
+
 def format_query_results_for_llm(
     query: BaseModel,
     response: dict[str, Any],
@@ -133,7 +140,11 @@ def format_query_results_for_llm(
 
     if formatted is None:
         return None
-    warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+    warning_prefix = (
+        format_warehouse_sync_warnings(response)
+        + format_access_control_warnings(response)
+        + format_data_catalog_trust_warnings(response)
+    )
     return warning_prefix + formatted if warning_prefix else formatted
 
 
@@ -152,6 +163,7 @@ __all__ = [
     "RevenueAnalyticsTopCustomersResultsFormatter",
     "TRUNCATED_MARKER",
     "format_access_control_warnings",
+    "format_data_catalog_trust_warnings",
     "format_query_results_for_llm",
     "format_warehouse_sync_warnings",
 ]

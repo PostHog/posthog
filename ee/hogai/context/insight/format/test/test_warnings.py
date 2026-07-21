@@ -1,4 +1,4 @@
-from .. import format_access_control_warnings, format_warehouse_sync_warnings
+from .. import format_access_control_warnings, format_data_catalog_trust_warnings, format_warehouse_sync_warnings
 
 _AC = {
     "type": "access_control",
@@ -12,6 +12,12 @@ _SYNC = {
     "source_type": "Stripe",
     "status": "Failed",
     "message": "sync failed",
+}
+_TRUST = {
+    "type": "data_catalog_trust",
+    "uncertified_tables": ["customer_rollup"],
+    "approved_metrics": ["monthly_recurring_revenue"],
+    "message": "This query read warehouse table(s) not certified in the data catalog: customer_rollup.",
 }
 
 
@@ -37,6 +43,15 @@ def test_warning_blocks_split_the_shared_field_by_shape():
 def test_no_access_control_warning_block_when_nothing_filtered():
     assert format_access_control_warnings({"results": [], "warnings": None}) == ""
     assert format_access_control_warnings({"results": [], "warnings": [_SYNC]}) == ""
+
+
+def test_data_catalog_trust_block_surfaces_only_its_own_kind():
+    response = {"warnings": [_SYNC, _AC, _TRUST]}
+    block = format_data_catalog_trust_warnings(response)
+    assert block.startswith("[Data catalog]")
+    assert "- This query read warehouse table(s) not certified" in block
+    assert "sync failed" not in block
+    assert format_data_catalog_trust_warnings({"warnings": [_SYNC, _AC]}) == ""
 
 
 def test_response_warnings_union_round_trips_both_kinds():

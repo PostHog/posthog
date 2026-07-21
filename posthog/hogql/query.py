@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.catalog_trust import build_data_catalog_trust_warning
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -753,6 +754,9 @@ class HogQLQueryExecutor:
             access_control_warning = build_access_control_warning(self.context.access_control_restricted_resources)
             if access_control_warning:
                 warnings.append(access_control_warning)
+        trust_warning = build_data_catalog_trust_warning(self.team, self.user, self._get_select_query_type)
+        if trust_warning:
+            warnings.append(trust_warning)
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
