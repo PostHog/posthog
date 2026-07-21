@@ -6,7 +6,7 @@ from the data_modeling facade. Wired manually in posthog/urls.py.
 """
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -93,6 +93,18 @@ class InternalEndpointSummarySerializer(serializers.ModelSerializer):
             "last_executed_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "name": {"help_text": "Endpoint name, unique per team and used in its run path."},
+            "is_active": {"help_text": "False when the endpoint is disabled and rejects runs."},
+            "current_version": {"help_text": "Version number served by the run path."},
+            "derived_from_insight": {"help_text": "Insight this endpoint was created from, if any."},
+            "last_executed_at": {"help_text": "Last time any version of this endpoint was run."},
+        }
+
+
+class InternalEndpointsOpsPagination(pagination.LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 500
 
 
 class InternalEndpointsOpsViewSet(DataModelingOpsAuthenticationMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -100,12 +112,14 @@ class InternalEndpointsOpsViewSet(DataModelingOpsAuthenticationMixin, TeamAndOrg
 
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
+    pagination_class = InternalEndpointsOpsPagination
 
     @extend_schema(exclude=True)
     def internal_endpoints(self, request: Request, team_id: str) -> Response:
         queryset = Endpoint.objects.filter(team_id=int(team_id)).exclude(deleted=True).order_by("name")
-        serializer = InternalEndpointSummarySerializer(queryset, many=True)
-        return Response({"results": serializer.data})
+        page = self.paginate_queryset(queryset)
+        serializer = InternalEndpointSummarySerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
     @extend_schema(exclude=True)
     def internal_endpoint_detail(self, request: Request, team_id: str, name: str) -> Response:

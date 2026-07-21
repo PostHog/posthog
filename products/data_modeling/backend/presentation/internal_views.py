@@ -7,6 +7,7 @@ OIDC ID tokens (see internal_auth.py).
 """
 
 import uuid
+from typing import cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, QuerySet
@@ -18,7 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import Team
+from posthog.auth import InternalAPIUser
 from posthog.ph_client import feature_enabled_or_false
 
 from products.data_modeling.backend.facade.models import (
@@ -45,17 +46,17 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 DATA_MODELING_OPS_DISTINCT_ID = "data_modeling_ops_internal"
 
 
-def _is_v2_backend_enabled_for_team(team: Team) -> bool:
+def _is_v2_backend_enabled(team_id: int, organization_id: str) -> bool:
     return feature_enabled_or_false(
         "data-modeling-backend-v2",
         DATA_MODELING_OPS_DISTINCT_ID,
         groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
+            "organization": organization_id,
+            "project": str(team_id),
         },
         group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
+            "organization": {"id": organization_id},
+            "project": {"id": str(team_id)},
         },
     )
 
@@ -87,10 +88,11 @@ class InternalDataModelingOpsViewSet(
 
     @extend_schema(exclude=True)
     def internal_overview(self, request: Request, team_id: str) -> Response:
-        # Manual (non-router) paths don't populate the mixin's parents_query_dict, so the
-        # team comes from the URL arg — the auth class already pinned the token to it.
-        team = Team.objects.get(id=int(team_id))
-        saved_queries = DataWarehouseSavedQuery.objects.filter(team_id=team.id).exclude(deleted=True)
+        # Manual (non-router) paths don't populate the mixin's parents_query_dict. The
+        # authenticator already resolved the URL's team, so reuse it instead of re-querying.
+        user = cast(InternalAPIUser, request.user)
+        team_pk = int(team_id)
+        saved_queries = DataWarehouseSavedQuery.objects.filter(team_id=team_pk).exclude(deleted=True)
         saved_query_counts = saved_queries.aggregate(
             total=Count("id"),
             materialized=Count("id", filter=Q(is_materialized=True)),
@@ -100,10 +102,10 @@ class InternalDataModelingOpsViewSet(
         )
         serializer = InternalTeamOverviewSerializer(
             {
-                "team_id": team.id,
-                "v2_backend_enabled": _is_v2_backend_enabled_for_team(team),
-                "dag_count": DAG.objects.filter(team_id=team.id).count(),
-                "node_count": Node.objects.filter(team_id=team.id).count(),
+                "team_id": team_pk,
+                "v2_backend_enabled": _is_v2_backend_enabled(team_pk, str(user.current_organization_id)),
+                "dag_count": DAG.objects.filter(team_id=team_pk).count(),
+                "node_count": Node.objects.filter(team_id=team_pk).count(),
                 "saved_query_count": saved_query_counts["total"],
                 "materialized_saved_query_count": saved_query_counts["materialized"],
                 "failing_saved_query_count": saved_query_counts["failing"],
@@ -200,8 +202,7 @@ class InternalDataModelingOpsViewSet(
     @extend_schema(exclude=True)
     def internal_dags(self, request: Request, team_id: str) -> Response:
         queryset = DAG.objects.filter(team_id=int(team_id)).annotate(node_count=Count("node")).order_by("name")
-        serializer = InternalDAGSummarySerializer(queryset, many=True)
-        return Response({"results": serializer.data})
+        return self._paginate(request, queryset, InternalDAGSummarySerializer)
 
     @extend_schema(exclude=True)
     def internal_dag_detail(self, request: Request, team_id: str, dag_id: str) -> Response:

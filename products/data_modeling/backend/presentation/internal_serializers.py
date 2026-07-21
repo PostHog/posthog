@@ -95,7 +95,8 @@ class InternalSavedQueryDetailSerializer(InternalSavedQuerySummarySerializer):
     )
     backing_tables = serializers.SerializerMethodField(
         help_text="All DataWarehouseTable rows sharing this saved query's name, linked or not. "
-        "More than one entry means duplicate backing tables."
+        "More than one entry means duplicate backing tables — treat as a lead, not proof: the match "
+        "is by name, so an unrelated table of the same name also shows up here."
     )
 
     class Meta(InternalSavedQuerySummarySerializer.Meta):
