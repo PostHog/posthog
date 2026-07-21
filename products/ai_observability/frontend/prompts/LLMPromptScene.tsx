@@ -19,8 +19,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import {
+    PromptCode,
     PromptEditForm,
     PromptExperiments,
+    PromptHeaderMeta,
     PromptRelatedTraces,
     PromptUsage,
     PromptVersionSidebar,
@@ -61,8 +63,7 @@ export function LLMPromptScene(): JSX.Element {
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
     const currentSearchParams = searchParams ?? {}
-    const activeViewTab =
-        searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
+    const activeViewTab = ['code', 'usage', 'experiments'].includes(searchParams?.tab) ? searchParams.tab : 'overview'
 
     const {
         submitPromptForm,
@@ -183,6 +184,8 @@ export function LLMPromptScene(): JSX.Element {
                 }
             />
 
+            <PromptHeaderMeta />
+
             <div className="flex flex-col gap-6 xl:flex-row">
                 <div className="min-w-0 flex-1">
                     {prompt && isPrompt(prompt) ? (
@@ -201,17 +204,22 @@ export function LLMPromptScene(): JSX.Element {
                                 {
                                     key: 'overview',
                                     label: 'Overview',
-                                    content: (
-                                        <>
-                                            <PromptViewDetails />
-                                            <PromptRelatedTraces />
-                                        </>
-                                    ),
+                                    content: <PromptViewDetails />,
+                                },
+                                {
+                                    key: 'code',
+                                    label: 'Code',
+                                    content: <PromptCode prompt={prompt} />,
                                 },
                                 {
                                     key: 'usage',
                                     label: 'Usage',
-                                    content: <PromptUsage prompt={prompt} />,
+                                    content: (
+                                        <>
+                                            <PromptUsage prompt={prompt} />
+                                            <PromptRelatedTraces />
+                                        </>
+                                    ),
                                 },
                                 {
                                     key: 'experiments',
@@ -221,10 +229,7 @@ export function LLMPromptScene(): JSX.Element {
                             ]}
                         />
                     ) : (
-                        <>
-                            <PromptViewDetails />
-                            <PromptRelatedTraces />
-                        </>
+                        <PromptViewDetails />
                     )}
                 </div>
 
