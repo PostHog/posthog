@@ -5302,6 +5302,7 @@ dependencies = [
  "base64 0.22.1",
  "common-alloc",
  "common-metrics",
+ "common-redis",
  "envconfig",
  "fernet",
  "jsonwebtoken",

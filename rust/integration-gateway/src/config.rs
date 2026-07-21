@@ -49,6 +49,59 @@ pub struct Config {
     /// Max integration ids accepted in one /fetch request.
     #[envconfig(default = "100")]
     pub max_batch_size: usize,
+
+    // ---- Token refresh (writer) ----
+    // Off by default: `refresh_kinds` empty => the gateway never refreshes (pure pass-through) and
+    // Django's beat owns all refresh. Enable a kind here AND exclude it from the Django beat
+    // (settings.INTEGRATION_GATEWAY_REFRESH_KINDS) so exactly one system refreshes it.
+    /// Redis used only for the per-integration refresh single-flight lock.
+    #[envconfig(from = "REDIS_URL", default = "redis://localhost:6379/")]
+    pub redis_url: String,
+
+    /// TTL (seconds) of the per-integration refresh lock — an upper bound on one refresh attempt.
+    #[envconfig(default = "30")]
+    pub token_refresh_lock_ttl_seconds: u64,
+
+    /// Integration kinds the gateway refreshes, comma-separated (e.g. "hubspot,salesforce").
+    #[envconfig(from = "INTEGRATION_GATEWAY_REFRESH_KINDS", default = "")]
+    pub refresh_kinds: String,
+
+    /// Timeout (seconds) for outbound OAuth token-refresh HTTP calls.
+    #[envconfig(default = "10")]
+    pub refresh_http_timeout_seconds: u64,
+
+    /// Optional override for the OAuth token endpoint used by ALL refreshes. Empty in prod (the
+    /// per-provider URLs are used); point at a local mock for e2e testing.
+    #[envconfig(default = "")]
+    pub refresh_token_url_override: String,
+
+    // Per-provider OAuth client credentials, sourced from the same env vars as
+    // posthog/settings/integrations.py so a deployment provisions them once. A kind whose
+    // credentials are empty is skipped even if listed in `refresh_kinds`.
+    #[envconfig(from = "HUBSPOT_APP_CLIENT_ID", default = "")]
+    pub hubspot_client_id: String,
+    #[envconfig(from = "HUBSPOT_APP_CLIENT_SECRET", default = "")]
+    pub hubspot_client_secret: String,
+    #[envconfig(from = "SALESFORCE_CONSUMER_KEY", default = "")]
+    pub salesforce_client_id: String,
+    #[envconfig(from = "SALESFORCE_CONSUMER_SECRET", default = "")]
+    pub salesforce_client_secret: String,
+    #[envconfig(from = "GOOGLE_ADS_APP_CLIENT_ID", default = "")]
+    pub google_ads_client_id: String,
+    #[envconfig(from = "GOOGLE_ADS_APP_CLIENT_SECRET", default = "")]
+    pub google_ads_client_secret: String,
+    #[envconfig(from = "GOOGLE_ANALYTICS_APP_CLIENT_ID", default = "")]
+    pub google_analytics_client_id: String,
+    #[envconfig(from = "GOOGLE_ANALYTICS_APP_CLIENT_SECRET", default = "")]
+    pub google_analytics_client_secret: String,
+    #[envconfig(from = "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", default = "")]
+    pub google_search_console_client_id: String,
+    #[envconfig(from = "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET", default = "")]
+    pub google_search_console_client_secret: String,
+    #[envconfig(from = "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", default = "")]
+    pub google_sheets_client_id: String,
+    #[envconfig(from = "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", default = "")]
+    pub google_sheets_client_secret: String,
 }
 
 fn split_csv(raw: &str) -> Vec<String> {
@@ -84,5 +137,10 @@ impl Config {
         let mut keys = split_csv(&self.integration_gateway_jwt_secret);
         keys.extend(split_csv(&self.integration_gateway_jwt_secret_fallbacks));
         keys
+    }
+
+    /// Integration kinds the gateway refreshes. Empty => refresh disabled entirely.
+    pub fn refresh_kinds_list(&self) -> Vec<String> {
+        split_csv(&self.refresh_kinds)
     }
 }

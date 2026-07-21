@@ -14,11 +14,14 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
+use common_redis::{CompressionConfig, RedisClient, RedisValueFormat};
+
 use integration_gateway::app_context::AppState;
 use integration_gateway::cache;
 use integration_gateway::config::Config;
 use integration_gateway::crypto::IntegrationDecryptor;
 use integration_gateway::integrations::IntegrationService;
+use integration_gateway::refresh::RefreshManager;
 use integration_gateway::router as gw_router;
 
 common_alloc::used!();
@@ -70,7 +73,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let cache = cache::build(config.cache_ttl_seconds, config.cache_max_capacity);
-    let service = Arc::new(IntegrationService::new(pool, decryptor, cache));
+
+    // Token refresh (writer) is opt-in per kind. With no kinds configured we skip Redis entirely and
+    // run pure pass-through (Django's beat owns all refresh), keeping the read-only deploy free of a
+    // Redis dependency.
+    let refresh_manager = if config.refresh_kinds_list().is_empty() {
+        info!("No refresh_kinds configured; token refresh disabled (pass-through)");
+        None
+    } else {
+        let redis = RedisClient::with_config(
+            config.redis_url.clone(),
+            CompressionConfig::disabled(),
+            RedisValueFormat::Utf8,
+            Some(Duration::from_millis(500)),
+            Some(Duration::from_secs(5)),
+        )
+        .await?;
+        info!(kinds = ?config.refresh_kinds_list(), "Token refresh enabled");
+        Some(Arc::new(RefreshManager::new(
+            pool.clone(),
+            Arc::new(redis),
+            decryptor.clone(),
+            Arc::new(config.clone()),
+        )))
+    };
+
+    let service = Arc::new(IntegrationService::new(
+        pool,
+        decryptor,
+        cache,
+        refresh_manager,
+    ));
 
     let state = AppState {
         service,

@@ -4,6 +4,8 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -38,6 +40,17 @@ class TestIntegrationsTasks(APIBaseTest):
             refresh_integrations()
             # Both 3 and 4 should be refreshed
             assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
+
+    @override_settings(INTEGRATION_GATEWAY_REFRESH_KINDS=["slack"])
+    def test_refresh_integrations_skips_gateway_owned_kinds(self) -> None:
+        # Dual-writer coordination: a kind the integration-gateway refreshes must be excluded from the
+        # Celery beat, so exactly one system refreshes it. A non-owned kind is still scheduled.
+        self.create_integration("slack", config={"refreshed_at": time.time() - 3600})  # expired, gateway-owned
+        hubspot = self.create_integration("hubspot", config={"refreshed_at": time.time() - 3600})  # expired, not owned
+
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+            refresh_integrations()
+            assert refresh_integration_mock.call_args_list == [((hubspot.id,),)]
 
     @parameterized.expand(
         [

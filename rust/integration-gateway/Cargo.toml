@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# integration-gateway: read-only credential-fetch service (PR 1). See
-# README.md. Decrypts posthog_integration.sensitive_config
-# on behalf of callers behind a scoped-JWT auth boundary + audit trail. Django still owns
-# writes/refresh; this service never writes. Token refresh arrives in PR 2 (feature-flagged).
+# integration-gateway: credential-fetch service. Decrypts posthog_integration.sensitive_config on
+# behalf of callers behind a scoped-JWT auth boundary + audit trail, and (opt-in per kind via
+# INTEGRATION_GATEWAY_REFRESH_KINDS) refreshes OAuth access tokens just-in-time, single-flight via a
+# Redis lock. See README.md.
 
 [dependencies]
 async-trait = { workspace = true }
@@ -18,6 +18,8 @@ fernet = { workspace = true }
 jsonwebtoken = "8.3"
 moka = { workspace = true }
 pbkdf2 = "0.12"
+# Outbound OAuth token-refresh calls (json + stream features come from the workspace).
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
@@ -31,12 +33,8 @@ uuid = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
+common-redis = { path = "../common/redis" }
 serve-metrics = { path = "../common/serve_metrics" }
-
-[dev-dependencies]
-# HTTP client for the seeded-DB integration test (tests/api.rs). tokio (full), sqlx (postgres),
-# serde, serde_json, jsonwebtoken, fernet, base64, uuid are already normal deps and usable in tests.
-reqwest = { workspace = true }
 
 [lints]
 workspace = true
