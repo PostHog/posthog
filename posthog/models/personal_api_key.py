@@ -47,8 +47,8 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
-    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
-    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
     # DEPRECATED: value is no longer persisted; use secure_value for hash of value
     value = deprecate_field(models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True))

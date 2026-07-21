@@ -1,5 +1,7 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
+
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -65,5 +67,14 @@ describe('insight error states', () => {
 
         expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
         expect(container.querySelector('.LemonButtonWithSideAction') !== null).toBe(expectsSideAction)
+    })
+
+    it('shows support without retry guidance for persistent errors', () => {
+        preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+
+        render(<InsightErrorState title="There is a persistent problem." supportOnly />)
+
+        expect(screen.getByText('If this persists, submit a bug report.')).toBeTruthy()
+        expect(screen.queryByText(/try again/i)).toBeNull()
     })
 })

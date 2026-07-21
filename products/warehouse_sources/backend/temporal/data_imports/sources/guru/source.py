@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GuruSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guru import GuruSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru import (
     GuruResumeConfig,
     guru_source,
@@ -124,7 +124,8 @@ You authenticate with your Guru account email and a user API token. A Guru admin
             username=config.username,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
