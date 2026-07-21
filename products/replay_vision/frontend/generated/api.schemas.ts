@@ -795,6 +795,8 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
+    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    readonly credits_this_month: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -877,6 +879,8 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
+    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    readonly credits_this_month?: number
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1439,6 +1443,14 @@ export type VisionObservationsListParams = {
 
 export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1494,7 +1506,7 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
      */
     order_by?: string
     /**
@@ -1533,6 +1545,14 @@ export type VisionScannersImpactRetrieveParams = {
 }
 
 export type VisionScannersObservationsListParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
@@ -1577,6 +1597,14 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsRetrieveParams = {
     /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -1611,6 +1639,14 @@ export type VisionScannersObservationsRetrieveParams = {
 }
 
 export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     */
+    date_to?: string
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */

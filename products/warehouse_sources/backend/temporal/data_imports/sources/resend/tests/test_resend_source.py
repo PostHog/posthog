@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ResendSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import ResendSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import ResendResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
@@ -124,6 +124,8 @@ class TestResendSource:
 
         inputs = mock.MagicMock()
         inputs.schema_name = "audiences"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -131,6 +133,7 @@ class TestResendSource:
         mock_resend_source.assert_called_once_with(
             api_key=self.config.api_key,
             endpoint="audiences",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             resumable_source_manager=manager,
         )

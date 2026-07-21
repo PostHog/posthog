@@ -28,8 +28,9 @@ import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from '
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
+import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isPersistPromptTool } from '../policy/toolPolicy'
+import { defaultPermissionDecision, findAllowOptionId, isFullAutoMode, isPersistPromptTool } from '../policy/toolPolicy'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -2718,17 +2719,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            // Persist/publish tools (dashboards, feature flags, surveys, hog functions, workflows)
-            // must still prompt when this run is a foreground stream (rendered in a surface the user
-            // is watching and can respond in), even though `defaultPermissionDecision` would
+            // In full-auto (`bypassPermissions`) the user opted out of tool approvals entirely, so any
+            // relayed tool request is answered with its allow option — but questions and plan approvals
+            // still surface, since auto-answering those would pick an option on the user's behalf.
+            // Otherwise: persist/publish tools (dashboards, feature flags, surveys, hog functions,
+            // workflows) must still prompt when this run is a foreground stream (rendered in a surface
+            // the user is watching and can respond in), even though `defaultPermissionDecision` would
             // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
+            const fullAuto =
+                isFullAutoMode(values.currentMode) && !record.questions?.length && !isPlanPermissionRequest(record)
             const isForegroundStream = values.foregroundStreamKeys.has(props.streamKey)
-            const forcePromptForForeground = isForegroundStream && isPersistPromptTool(record)
-            if (
-                !replayedFromHistory &&
-                !forcePromptForForeground &&
-                defaultPermissionDecision(record) === 'auto_allow'
-            ) {
+            const forcePromptForForeground = !fullAuto && isForegroundStream && isPersistPromptTool(record)
+            const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
+            if (!replayedFromHistory && !forcePromptForForeground && decision === 'auto_allow') {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {
                     actions.autoApprovePermissionRequest(record, optionId)
@@ -2745,8 +2748,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // effect flushes). Yield one macrotask and re-check; if the stream became foreground,
             // surface the card instead of silently persisting. Plain `delay`, not a kea breakpoint —
             // a breakpoint would let a second rapid frame cancel this listener pre-POST and stall
-            // the agent.
-            if (isPersistPromptTool(record)) {
+            // the agent. Full-auto runs skip the re-check — they never prompt for persist tools.
+            if (!isFullAutoMode(values.currentMode) && isPersistPromptTool(record)) {
                 await delay(0)
                 if (values.foregroundStreamKeys.has(props.streamKey)) {
                     actions.ingestPermissionRequest(record)
@@ -3117,6 +3120,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification,
                 // _posthog/user_message → rendered by the projection. _posthog/console, _posthog/
                 // sandbox_output, _posthog/git_checkpoint, … → no UI. No side effect either way.
+                return
+            }
+            // The session/new request carries the run's starting permission mode in its meta. Seed the
+            // mode fold from it so mode-aware permission routing (full-auto answering in
+            // `bypassPermissions`) works before any `current_mode_update` arrives — the adapter only
+            // emits those on changes.
+            if (method === 'session/new') {
+                const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
+                if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
+                    actions.setCurrentMode(meta.permissionMode)
+                }
                 return
             }
             // session/prompt never renders and the resume-context filter is handled in the projection.

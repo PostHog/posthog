@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
+    TikTokAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TIKTOK_TRANSIENT_ERROR_MESSAGE,

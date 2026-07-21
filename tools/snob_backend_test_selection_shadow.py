@@ -583,6 +583,56 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
     return total
 
 
+_TEMPORAL_PREFIXES = (
+    "posthog/temporal/",
+    "products/batch_exports/backend/tests/temporal/",
+    "products/tasks/backend/temporal/",
+    "products/signals/backend/emission/",
+)
+_POE_PREFIXES = (
+    "posthog/clickhouse/",
+    "posthog/queries/",
+    "ee/clickhouse/",
+    "products/product_analytics/backend/api/test/",
+)
+_CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/")
+
+
+def segments_for_test_file(path: str) -> frozenset[str]:
+    """Which Django matrix segments run a given test file. Mirrors the Core/POE/Temporal
+    partition in ci-backend.yml's select-tests `classify` step — POE files run in both the
+    Core matrix and the person-on-events matrix, so they belong to both segments. An empty
+    result means no draft-narrowable matrix runs the file (a product/turbo test, or an
+    explicitly ignored path)."""
+    if path.startswith(_TEMPORAL_PREFIXES):
+        return frozenset({"temporal"})
+    if path.startswith(_CORE_IGNORED_PREFIXES):
+        return frozenset()
+    is_poe = (
+        path.startswith(_POE_PREFIXES)
+        or path.startswith("posthog/api/test/test_insight")
+        or path == "posthog/api/test/dashboards/test_dashboard.py"
+    )
+    if is_poe:
+        return frozenset({"core", "poe"})
+    if path.startswith(("posthog/", "ee/")):
+        return frozenset({"core"})
+    return frozenset()
+
+
+def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
+    """Total test-execution seconds across the Core/POE/Temporal universe that draft
+    selection can narrow. Excludes product/turbo tests, which run regardless of selection,
+    so this is the honest denominator for how much a draft skipped. This is raw pytest
+    execution time from the sharding-balance file — it is not real CI minutes (no per-job
+    overhead, setup, or concurrency); the minutes model lives downstream in the dashboard."""
+    total = 0.0
+    for test_id, duration in durations.items():
+        if segments_for_test_file(test_id.split("::", 1)[0]):
+            total += duration
+    return total
+
+
 def build_result(base_ref: str) -> dict[str, object]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
@@ -594,6 +644,8 @@ def build_result(base_ref: str) -> dict[str, object]:
     combined_tests = sorted(set(snob_tests) | set(ast_selection.tests))
 
     durations = load_durations()
+    selected_seconds = estimate_duration(combined_tests, durations)
+    baseline_seconds = narrowable_baseline_seconds(durations)
     return {
         "mode": "shadow",
         "base_ref": base_ref,
@@ -604,12 +656,17 @@ def build_result(base_ref: str) -> dict[str, object]:
         "combined": {
             "tests": combined_tests,
             "count": len(combined_tests),
-            "duration_seconds": round(estimate_duration(combined_tests, durations)),
+            "duration_seconds": round(selected_seconds),
         },
         "durations": {
             "snob_seconds": round(estimate_duration(snob_tests, durations)),
             "ast_seconds": round(estimate_duration(ast_selection.tests, durations)),
             "total_seconds": round(sum(durations.values())),
+            # Draft-narrowable universe: the raw pytest execution seconds the selective run
+            # spends vs. skips. Not CI minutes — the dashboard models overhead/concurrency.
+            "narrowable_baseline_seconds": round(baseline_seconds),
+            "selected_seconds": round(selected_seconds),
+            "skipped_seconds": round(max(baseline_seconds - selected_seconds, 0.0)),
         },
     }
 
@@ -632,6 +689,8 @@ def format_summary(result: dict[str, object]) -> str:
         f"| AST-selected tests | {len(ast_data['tests'])} | {durations['ast_seconds']}s |",
         f"| Combined unique tests | {combined['count']} | {combined['duration_seconds']}s |",
         f"| Full duration data | - | {durations['total_seconds']}s |",
+        f"| Narrowable baseline | - | {durations['narrowable_baseline_seconds']}s |",
+        f"| Skipped (test exec) | - | {durations['skipped_seconds']}s |",
         "",
         "| AST group | Test files |",
         "|---|---:|",
