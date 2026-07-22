@@ -2157,6 +2157,8 @@ export interface LLMPromptListApi {
     readonly outline: readonly LLMPromptOutlineEntryApi[]
     /** Names of the labels currently pointing at this version. */
     readonly labels: readonly string[]
+    /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+    readonly activity_item_id: string
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
     readonly all_labels: readonly LLMPromptLabelSummaryApi[]
@@ -2198,6 +2200,8 @@ export interface LLMPromptApi {
     readonly outline: readonly LLMPromptOutlineEntryApi[]
     /** Names of the labels currently pointing at this version. */
     readonly labels: readonly string[]
+    /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+    readonly activity_item_id: string
 }
 
 export interface LLMPromptPublicApi {

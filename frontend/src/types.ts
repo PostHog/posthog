@@ -80,6 +80,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import type {
+    LLMPromptApi,
     LLMPromptListApi,
     LLMPromptResolveResponseApi,
     LLMPromptVersionSummaryApi,
@@ -5983,6 +5984,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -7793,6 +7795,8 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** Key for this prompt's rows in the activity log (History tab). */
+    activity_item_id: LLMPromptApi['activity_item_id']
     /** All labels on the prompt with the version each points to. Only present on list responses. */
     all_labels?: LLMPromptListApi['all_labels']
 }

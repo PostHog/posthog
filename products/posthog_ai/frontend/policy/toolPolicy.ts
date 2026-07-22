@@ -51,6 +51,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'visual-review-runs-finalize-create',
     'workflows-discard-draft',
     'workflows-publish',
+    'workflows-restore-revision',
     'workflows-test-run',
 ])
 
