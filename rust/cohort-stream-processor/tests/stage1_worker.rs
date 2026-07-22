@@ -27,9 +27,10 @@ use cohort_stream_processor::stage1::{
     clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, Stage1State, StateVariant,
     StatefulRecord, TransitionKind,
 };
+use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     Behavioral, BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonPrefix,
-    PersonRecordKey, PersonRecords, StoreConfig, StoreHandle,
+    PersonRecordKey, PersonRecords, Stage2Key, StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
 use serde_json::{json, Value};
@@ -248,6 +249,22 @@ fn person_leaves(store: &CohortStore, person: Uuid) -> Vec<LeafStateKey> {
 
 fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stage1State> {
     record_at(store, lsk, person).map(|record| record.state)
+}
+
+fn membership_register_at(
+    store: &CohortStore,
+    cohort_id: u64,
+    person: Uuid,
+) -> Option<Stage2State> {
+    store
+        .get_stage2(&Stage2Key {
+            partition_id: PARTITION_ID,
+            team_id: TEAM as u64,
+            cohort_id,
+            person_id: person,
+        })
+        .unwrap()
+        .map(|bytes| Stage2State::decode(&bytes).unwrap())
 }
 
 /// The full persisted record (state + per-source-partition applied offsets), for the cross-partition
@@ -1360,6 +1377,14 @@ async fn worker_produces_changes_and_advances_offset() {
     assert_eq!(changes[0].cohort_id, 1);
     assert_eq!(changes[0].status, MembershipStatus::Entered);
     assert_eq!(changes[0].person_id, person(1).to_string());
+    assert_eq!(
+        membership_register_at(&store, 1, person(1)),
+        Some(Stage2State {
+            in_cohort: true,
+            last_evaluated_at_ms: clickhouse_timestamp_to_millis(BASE_TS).unwrap(),
+        }),
+        "the event commit atomically materializes the single-leaf membership register",
+    );
 }
 
 #[tokio::test]
@@ -1913,6 +1938,15 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     assert_eq!(changes[0].status, MembershipStatus::Entered);
     assert_eq!(changes[0].person_id, alice.to_string());
     assert_eq!(changes[1].status, MembershipStatus::Left);
+    assert_eq!(
+        membership_register_at(&store, 1, alice),
+        Some(Stage2State {
+            in_cohort: false,
+            last_evaluated_at_ms: clickhouse_timestamp_to_millis("2026-05-28 10:00:00.000000")
+                .unwrap(),
+        }),
+        "a live-event Left persists an explicit false register row",
+    );
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
         Some(&4),

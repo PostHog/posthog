@@ -19,6 +19,7 @@ not applied here — this surface shows the raw session truth). Callers must pre
 what the session *saw*, not what the experiment analysis counts.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -44,7 +45,15 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
 )
+from products.experiments.backend.metric_events import (
+    MetricEventSource,
+    MetricHit,
+    resolve_metric_events,
+    scan_session_for_metric_events,
+)
 from products.experiments.backend.models.experiment import Experiment
+
+logger = logging.getLogger(__name__)
 
 # Slack around the recording bounds — flag evaluation can be captured slightly outside the
 # replay window (clock skew, events flushed before/after snapshots).
@@ -82,6 +91,8 @@ class ExperimentSessionContextItem:
     first_exposure_timestamp: Optional[datetime]
     experiment_start_date: Optional[datetime]
     experiment_end_date: Optional[datetime]
+    # The experiment's metrics with >=1 matching event in the session, sorted by first occurrence.
+    metrics_in_session: list[MetricHit]
 
 
 def get_session_experiment_context(
@@ -190,7 +201,7 @@ def get_session_experiment_context(
 
     stamped = _query_stamped_flag_properties(team, user, session_id, candidate_keys, window_start, window_end)
 
-    items: list[ExperimentSessionContextItem] = []
+    surfaced: list[tuple[Experiment, str, list[str], Optional[datetime]]] = []
     for experiment in candidates:
         flag_key = experiment.feature_flag.key
         # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
@@ -216,17 +227,58 @@ def get_session_experiment_context(
         else:
             variant = variants_seen[0]
 
+        surfaced.append((experiment, variant, variants_seen, first_exposure_timestamp))
+
+    # Only the experiments that actually surfaced (typically 1–3, not the candidate cap) get
+    # their metrics scanned. One scan covers them all — shared saved metrics dedupe by uuid
+    # inside the scan — and each experiment claims its own metrics' hits back by uuid.
+    # Metric hits are enrichment on top of the exposure context: an unexpected failure here
+    # (one experiment's malformed stored metric, say) must degrade to "no metric hits", never
+    # take down the exposure context that already resolved above.
+    sources_by_experiment: dict[int, list[MetricEventSource]] = {}
+    session_hits: dict[str, MetricHit] = {}
+    try:
+        sources_by_experiment = {experiment.pk: resolve_metric_events(experiment) for experiment, *_ in surfaced}
+        all_sources = [source for sources in sources_by_experiment.values() for source in sources]
+        if all_sources:
+            session_hits = {
+                hit.metric_uuid: hit
+                for hit in scan_session_for_metric_events(
+                    team,
+                    user,
+                    metric_sources=all_sources,
+                    session_id=session_id,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+            }
+    except Exception:
+        logger.exception("Metric-event scan failed for session %s; returning context without metric hits", session_id)
+        sources_by_experiment = {}
+        session_hits = {}
+
+    items: list[ExperimentSessionContextItem] = []
+    for experiment, variant, variants_seen, first_exposure_timestamp in surfaced:
+        metrics_in_session = sorted(
+            {
+                source.metric_uuid: session_hits[source.metric_uuid]
+                for source in sources_by_experiment.get(experiment.pk, [])
+                if source.metric_uuid in session_hits
+            }.values(),
+            key=lambda hit: hit.first_timestamp,
+        )
         items.append(
             ExperimentSessionContextItem(
                 experiment_id=experiment.pk,
                 experiment_name=experiment.name,
-                flag_key=flag_key,
+                flag_key=experiment.feature_flag.key,
                 variant=variant,
                 variants_seen=variants_seen,
                 multiple_variants=len(variants_seen) > 1,
                 first_exposure_timestamp=first_exposure_timestamp,
                 experiment_start_date=experiment.start_date,
                 experiment_end_date=experiment.end_date,
+                metrics_in_session=metrics_in_session,
             )
         )
 

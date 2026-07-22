@@ -17,7 +17,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import (
+        MySQLSourceConfig,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
 
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600

@@ -12,8 +12,6 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
@@ -141,7 +139,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
-        assert metrics.ai_trial_evaluation_count == 3
         assert metrics.ai_llm_judge_evaluation_count == 3
         assert metrics.ai_hog_evaluation_count == 2
         assert metrics.ai_sentiment_evaluation_count == 1
@@ -568,7 +565,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert org_1_report["organization_name"] == self.organization.name
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
-        assert org_1_report["ai_trial_evaluation_count"] == 3
         assert org_1_report["ai_llm_judge_evaluation_count"] == 3
         assert org_1_report["ai_hog_evaluation_count"] == 1
         assert org_1_report["ai_sentiment_evaluation_count"] == 1
@@ -726,7 +722,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         # Counts should be aggregated across both teams
         assert org_report["ai_generation_count"] == 15  # 10 + 5
         assert org_report["ai_evaluation_count"] == 5  # 3 + 2
-        assert org_report["ai_trial_evaluation_count"] == 3
         assert org_report["ai_llm_judge_evaluation_count"] == 3
         assert org_report["ai_hog_evaluation_count"] == 0
         assert org_report["ai_sentiment_evaluation_count"] == 2
@@ -1099,46 +1094,3 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         report_dict = call_args[1]["report_dict"]
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
-
-    @parameterized.expand(
-        [
-            ("mixed", 5, 3, 2, 5),
-            ("only_byok", 0, 4, 0, 0),
-            ("only_posthog", 3, 0, 0, 3),
-            ("no_key_type", 0, 0, 5, 0),
-        ],
-    )
-    def test_trial_evaluation_count(
-        self, _name: str, posthog_count: int, byok_count: int, no_key_count: int, expected: int
-    ) -> None:
-        distinct_id = str(uuid4())
-        _create_person(distinct_ids=[distinct_id], team=self.team)
-
-        period_start, period_end = get_previous_day()
-
-        if posthog_count:
-            self._create_ai_events(
-                self.team,
-                distinct_id,
-                "$ai_evaluation",
-                posthog_count,
-                properties={"$ai_evaluation_key_type": "posthog"},
-            )
-        if byok_count:
-            self._create_ai_events(
-                self.team,
-                distinct_id,
-                "$ai_evaluation",
-                byok_count,
-                properties={"$ai_evaluation_key_type": "byok"},
-            )
-        if no_key_count:
-            self._create_ai_events(self.team, distinct_id, "$ai_evaluation", no_key_count)
-
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
-
-        total = posthog_count + byok_count + no_key_count
-        metrics = all_metrics[self.team.id]
-        assert metrics.ai_evaluation_count == total
-        assert metrics.ai_trial_evaluation_count == expected

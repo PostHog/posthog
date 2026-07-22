@@ -595,6 +595,11 @@ class TaskWriteSerializer(serializers.Serializer):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
+            # Experiments tasks are team-readable, so letting API callers pick this origin
+            # would let them expose an arbitrary task to the whole team. The experiments
+            # flow creates its tasks server-side through the facade, never through here.
+            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
         return value
 
     def validate_repository(self, value):
@@ -647,6 +652,20 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text="Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.",
+    )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text="Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.",
+    )
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
         required=False,
@@ -2071,6 +2090,18 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Reasoning effort to warm the sandbox on for models that expose an effort control.",
     )
+    sandbox_environment_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Optional sandbox environment to provision before the task is submitted.",
+    )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.",
+    )
 
     def validate_repository(self, value: str) -> str:
         normalized = value.strip().lower()
@@ -2294,6 +2325,10 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         if method == "user_message":
             content = params.get("content")
             artifact_ids = params.get("artifact_ids")
+            steer = params.get("steer")
+
+            if steer is not None and not isinstance(steer, bool):
+                raise serializers.ValidationError({"params": "steer must be a boolean when provided"})
 
             normalized_content = None
             if content is not None:
@@ -2655,6 +2690,27 @@ class SandboxCustomImageBuildSerializer(serializers.Serializer):
         default=None,
         help_text="Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.",
     )
+
+
+class SandboxCustomImageUpdateSerializer(serializers.Serializer):
+    """Request body for renaming / re-describing a custom sandbox base image."""
+
+    name = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=255,
+        help_text="New display name for the custom image. Omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New description. Omit to leave unchanged; pass an empty string to clear it.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value
 
 
 class TaskPresenceBeaconRequestSerializer(serializers.Serializer):

@@ -1,44 +1,99 @@
+import json
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo import tempo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import ENDPOINTS, TEMPO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.tempo import (
     PAGE_SIZE,
     TEMPO_BASE_URL,
     TempoResumeConfig,
-    TempoRetryableError,
     _build_initial_params,
     _format_updated_from,
     check_access,
-    get_rows,
     tempo_source,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = tempo._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# check_access builds its own tracked session in the tempo module.
+TEMPO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.tempo.tempo.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: TempoResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TempoResumeConfig] = []
+def _response(
+    results: list[dict[str, Any]], next_url: str | None, *, url: str = f"{TEMPO_BASE_URL}/accounts"
+) -> Response:
+    metadata: dict[str, Any] = {"count": len(results)}
+    if next_url is not None:
+        metadata["next"] = next_url
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"results": results, "metadata": metadata}).encode()
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = url
+    return resp
 
-    def can_resume(self) -> bool:
-        return self._state is not None
 
-    def load_state(self) -> TempoResumeConfig | None:
-        return self._state
+def _raw_response(
+    body: Any, *, status: int = 200, reason: str = "Error", url: str = f"{TEMPO_BASE_URL}/worklogs"
+) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.headers["Content-Type"] = "application/json"
+    resp.reason = reason
+    resp.url = url
+    return resp
 
-    def save_state(self, data: TempoResumeConfig) -> None:
-        self.saved.append(data)
+
+def _make_manager(resume_state: TempoResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wire a mock session; return (param_snapshots, prepared_urls).
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy at prepare time.
+    A real ``prepare_request`` produces a concrete URL so the client's host-pinning check runs against
+    the actual next-page/resume URL, exactly as it would in production.
+    """
+    session.headers = {}
+    real = requests.Session()
+    param_snapshots: list[dict[str, Any]] = []
+    prepared_urls: list[str] = []
+
+    def _prepare(request: Any) -> Any:
+        param_snapshots.append(dict(request.params or {}))
+        prepared = real.prepare_request(request)
+        prepared_urls.append(prepared.url or "")
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots, prepared_urls
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "accounts", **kwargs: Any):
+    return tempo_source("tempo-token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
 
 
 class TestBuildInitialParams:
@@ -122,179 +177,187 @@ class TestFormatUpdatedFrom:
         assert _format_updated_from(value) == expected
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[str, tuple[list[dict], str | None]],
-        endpoint: str = "accounts",
-        **source_kwargs: Any,
-    ) -> tuple[list[dict], list[tuple[str, Any]]]:
-        calls: list[tuple[str, Any]] = []
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_without_next_yields_and_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}], next_url=None)])
 
-        def fake_fetch(session: Any, url: str, params: Any, logger: Any) -> tuple[list[dict], str | None]:
-            calls.append((url, params))
-            return pages[url]
+        manager = _make_manager()
+        rows = _rows(_source(manager))
 
-        monkeypatch.setattr(tempo, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(tempo, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_token="tempo-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            should_use_incremental_field=source_kwargs.get("should_use_incremental_field", False),
-            db_incremental_field_last_value=source_kwargs.get("db_incremental_field_last_value"),
-            incremental_field=source_kwargs.get("incremental_field"),
-        ):
-            rows.extend(batch)
-        return rows, calls
-
-    def test_single_page_without_next_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first_url = f"{TEMPO_BASE_URL}/accounts"
-        rows, _ = self._collect(manager, monkeypatch, {first_url: ([{"id": 1}, {"id": 2}], None)})
         assert rows == [{"id": 1}, {"id": 2}]
-        # No next page, so we stop without persisting resume state.
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        # No `metadata.next`, so we stop without persisting resume state.
+        manager.save_state.assert_not_called()
 
-    def test_follows_next_url_without_resending_params(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first_url = f"{TEMPO_BASE_URL}/accounts"
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_next_url_without_resending_params(self, MockSession) -> None:
+        session = MockSession.return_value
         next_url = f"{TEMPO_BASE_URL}/accounts?limit={PAGE_SIZE}&offset={PAGE_SIZE}"
-        pages = {first_url: ([{"id": 1}], next_url), next_url: ([{"id": 2}], None)}
-        rows, calls = self._collect(manager, monkeypatch, pages)
+        params, urls = _wire(
+            session,
+            [_response([{"id": 1}], next_url=next_url), _response([{"id": 2}], next_url=None)],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == [{"id": 1}, {"id": 2}]
-        # The first request carries built params; the next-page URL already embeds them.
-        assert calls[0] == (first_url, {"limit": PAGE_SIZE})
-        assert calls[1] == (next_url, None)
-        assert [s.next_url for s in manager.saved] == [next_url]
+        # The first request carries the built params; the next-page URL already embeds them, so the
+        # second request sends no params and targets the returned link verbatim.
+        assert params[0] == {"limit": PAGE_SIZE}
+        assert params[1] == {}
+        assert urls[1] == next_url
+        # State saved once, after the first page, carrying the URL that fetches the second page.
+        manager.save_state.assert_called_once_with(TempoResumeConfig(next_url=next_url))
 
-    def test_resumes_from_saved_next_url(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_next_url(self, MockSession) -> None:
+        session = MockSession.return_value
         next_url = f"{TEMPO_BASE_URL}/accounts?limit={PAGE_SIZE}&offset={PAGE_SIZE}"
-        manager = _FakeResumableManager(TempoResumeConfig(next_url=next_url))
-        # The initial page must never be fetched on resume.
-        rows, calls = self._collect(manager, monkeypatch, {next_url: ([{"id": 5}], None)})
+        params, urls = _wire(session, [_response([{"id": 5}], next_url=None)])
+
+        manager = _make_manager(TempoResumeConfig(next_url=next_url))
+        rows = _rows(_source(manager))
+
+        # The initial page must never be fetched on resume — one request, seeded with the saved URL.
         assert rows == [{"id": 5}]
-        assert calls == [(next_url, None)]
+        assert session.send.call_count == 1
+        assert urls[0] == next_url
+        assert params[0] == {}
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first_url = f"{TEMPO_BASE_URL}/accounts"
-        rows, _ = self._collect(manager, monkeypatch, {first_url: ([], None)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], next_url=None)])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_off_host_resume_state_is_rejected(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_request_carries_limit(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _ = _wire(session, [_response([{"id": 1}], next_url=None)])
+
+        _rows(_source(_make_manager()))
+        assert params[0] == {"limit": PAGE_SIZE}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_api_token_not_placed_in_session_headers(self, MockSession) -> None:
+        # The token rides in the framework Bearer auth (redacted from logs/errors), never a hand-set
+        # header — only the non-secret Accept header is on the session.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}], next_url=None)])
+
+        _rows(_source(_make_manager()))
+        assert "tempo-token" not in json.dumps(session.headers)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_host_next_url_is_rejected(self, MockSession) -> None:
+        # metadata.next is server-controlled and the session carries the Bearer token, so a next URL
+        # off the Tempo API host must fail (host-pinning) instead of being followed.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}], next_url="https://evil.example.com/4/accounts")])
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source(_make_manager()))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_host_resume_state_is_rejected(self, MockSession) -> None:
         # Resume state is persisted outside the process; a poisoned next_url must not receive the
         # credentialed request.
-        bad_url = "https://evil.example.com/4/accounts?offset=100"
-        manager = _FakeResumableManager(TempoResumeConfig(next_url=bad_url))
-        with pytest.raises(ValueError, match="does not stay on the Tempo API host"):
-            self._collect(manager, monkeypatch, {bad_url: ([], None)})
+        session = MockSession.return_value
+        _wire(session, [])
+
+        manager = _make_manager(TempoResumeConfig(next_url="https://evil.example.com/4/accounts?offset=100"))
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source(manager))
+        session.send.assert_not_called()
 
 
-class TestFetchPage:
-    def _session_returning(
-        self, status_code: int, body: Any = None, url: str = f"{TEMPO_BASE_URL}/worklogs", reason: str = "Error"
-    ) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"results": [], "metadata": {"count": 0}}
-        response.text = ""
-        response.url = url
-        response.reason = reason
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
+class TestTransportErrors:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(TempoRetryableError):
-            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_are_retried_then_recover(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        transient = _raw_response({"results": []}, status=status)
+        _wire(session, [transient, _response([{"id": 1}], next_url=None)])
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_http_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
+        rows = _rows(_source(_make_manager()))
+        assert rows == [{"id": 1}]
+        # A 429/5xx is retried rather than surfacing — the retry lands on the recovered page.
+        assert session.send.call_count == 2
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_persistent_retryable_status_raises(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_raw_response({"results": []}, status=500) for _ in range(5)])
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source(_make_manager()))
+
+    @parameterized.expand(
+        [("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden"), ("not_found", 404, "Not Found")]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_http_error(self, _name: str, status: int, reason: str, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_raw_response({}, status=status, reason=reason)])
+
         with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
+            _rows(_source(_make_manager()))
 
-    def test_http_error_message_strips_query_string_and_keeps_stable_prefix(self) -> None:
-        # The message becomes the schema's latest_error, so it must not embed query params and it
-        # must keep the prefix get_non_retryable_errors() matches on.
-        session = self._session_returning(
-            401, url=f"{TEMPO_BASE_URL}/worklogs?limit=100&updatedFrom=2026-03-01", reason="Unauthorized"
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_http_error_message_keeps_stable_prefix(self, MockSession) -> None:
+        # The message becomes the schema's latest_error and must keep the prefix
+        # get_non_retryable_errors() matches on. No secret rides in the URL (the token is a header).
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _raw_response(
+                    {},
+                    status=401,
+                    reason="Unauthorized",
+                    url=f"{TEMPO_BASE_URL}/worklogs?limit=100&updatedFrom=2026-03-01",
+                )
+            ],
         )
-        with pytest.raises(
-            requests.HTTPError, match=r"^401 Client Error: Unauthorized for url: https://api\.tempo\.io/4/worklogs$"
-        ):
-            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
 
-    def test_off_host_next_url_is_rejected(self) -> None:
-        # metadata.next is server-controlled and the session carries the Bearer token, so a next
-        # URL pointing off the Tempo API host must fail instead of being followed.
-        body = {"results": [{"id": 1}], "metadata": {"count": 1, "next": "https://evil.example.com/4/worklogs"}}
-        session = self._session_returning(200, body)
-        with pytest.raises(ValueError, match="does not stay on the Tempo API host"):
-            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
+        with pytest.raises(requests.HTTPError) as exc:
+            _rows(_source(_make_manager(), "worklogs"))
+        assert "401 Client Error: Unauthorized for url: https://api.tempo.io" in str(exc.value)
 
-    def test_success_returns_results_and_next_url(self) -> None:
-        body = {
-            "results": [{"tempoWorklogId": 1}],
-            "metadata": {"count": 1, "next": "https://api.tempo.io/4/worklogs?offset=100"},
-        }
-        session = self._session_returning(200, body)
-        results, next_url = _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
-        assert results == [{"tempoWorklogId": 1}]
-        assert next_url == "https://api.tempo.io/4/worklogs?offset=100"
+    @parameterized.expand([("non_dict_body", [{"id": 1}]), ("missing_results_key", {"metadata": {"count": 0}})])
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_payload_is_retried_then_recovers(self, _name: str, bad_body: Any, MockSession, _sleep) -> None:
+        # A 200 whose body isn't the expected {"results": [...]} envelope is a transient bad shape —
+        # retry, don't fail loud.
+        session = MockSession.return_value
+        _wire(session, [_raw_response(bad_body), _response([{"id": 1}], next_url=None)])
 
-    @parameterized.expand(
-        [
-            ("last_page_without_next", {"results": [{"id": 1}], "metadata": {"count": 1}}),
-            ("unpaginated_metadata", {"results": [{"id": 1}], "metadata": {"count": 1, "next": ""}}),
-        ]
-    )
-    def test_missing_or_empty_next_terminates(self, _name: str, body: dict) -> None:
-        session = self._session_returning(200, body)
-        _, next_url = _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/holiday-schemes", None, MagicMock())
-        assert next_url is None
-
-    @parameterized.expand(
-        [
-            ("non_dict_body", [{"id": 1}]),
-            ("missing_results_key", {"metadata": {"count": 0}}),
-        ]
-    )
-    def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
-        session = self._session_returning(200, body)
-        with pytest.raises(TempoRetryableError):
-            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
+        rows = _rows(_source(_make_manager()))
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 2
 
 
 class TestTempoSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = tempo_source(
-            api_token="tempo-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(_make_manager(), endpoint)
         assert response.name == endpoint
         assert response.primary_keys == TEMPO_ENDPOINTS[endpoint].primary_keys
 
     def test_worklogs_response_is_desc_and_partitioned_on_created_at(self) -> None:
-        response = tempo_source(
-            api_token="tempo-token",
-            endpoint="worklogs",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(_make_manager(), "worklogs")
         assert response.primary_keys == ["tempoWorklogId"]
         # orderBy=UPDATED returns newest-update-first; declaring desc defers the watermark commit
         # to sync completion, so a mid-sync crash can't skip rows.
@@ -303,56 +366,33 @@ class TestTempoSourceResponse:
         assert response.partition_keys == ["createdAt"]
 
     def test_full_refresh_endpoints_are_asc_and_unpartitioned(self) -> None:
-        response = tempo_source(
-            api_token="tempo-token",
-            endpoint="accounts",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(_make_manager(), "accounts")
         assert response.sort_mode == "asc"
         assert response.partition_mode is None
 
 
 class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Tempo returned HTTP 500"),
+            ("ok", 200, 200, None),
+            ("unauthorized", 401, 401, None),
+            ("forbidden", 403, 403, None),
+            ("server_error", 500, 500, "Tempo returned HTTP 500"),
         ]
     )
-    @patch(f"{tempo.__name__}.make_tracked_session")
+    @mock.patch(TEMPO_SESSION_PATCH)
     def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
+        self, _name: str, status: int, expected_status: int, expected_message: str | None, mock_session: mock.MagicMock
     ) -> None:
-        response = MagicMock()
+        response = mock.MagicMock()
         response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
+        mock_session.return_value.get.return_value = response
         assert check_access("tempo-token") == (expected_status, expected_message)
 
-    @patch(f"{tempo.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("tempo-token")
-        assert status == 0
-        assert message is not None and "boom" in message
+    @mock.patch(TEMPO_SESSION_PATCH)
+    def test_connection_error_maps_to_zero(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert check_access("tempo-token") == (0, "Could not connect to Tempo")
 
     @parameterized.expand(
         [
@@ -369,17 +409,16 @@ class TestCheckAccess:
             ("server_error", 500, None, (False, "Tempo returned HTTP 500")),
         ]
     )
-    @patch(f"{tempo.__name__}.make_tracked_session")
+    @mock.patch(TEMPO_SESSION_PATCH)
     def test_validate_credentials(
         self,
         _name: str,
         status: int,
         endpoint: str | None,
         expected: tuple[bool, str | None],
-        mock_session: MagicMock,
+        mock_session: mock.MagicMock,
     ) -> None:
-        response = MagicMock()
+        response = mock.MagicMock()
         response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
+        mock_session.return_value.get.return_value = response
         assert validate_credentials("tempo-token", endpoint=endpoint) == expected

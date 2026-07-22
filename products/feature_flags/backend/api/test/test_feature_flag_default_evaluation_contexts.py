@@ -294,7 +294,7 @@ class TestEvaluationContextSuggestions(APIBaseTest):
     def test_hide_is_idempotent(self):
         self._create_context("production")
 
-        with patch("posthog.api.team.report_user_action") as mock_report:
+        with patch("posthog.api.project.report_user_action") as mock_report:
             self.client.post(self.url, {"context_name": "production"}, format="json")
             self.assertEqual(mock_report.call_count, 1)
 
@@ -307,7 +307,7 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         ctx.hidden_from_suggestions = True
         ctx.save()
 
-        with patch("posthog.api.team.report_user_action") as mock_report:
+        with patch("posthog.api.project.report_user_action") as mock_report:
             response = self.client.delete(self.url + "?context_name=production")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(mock_report.call_count, 1)

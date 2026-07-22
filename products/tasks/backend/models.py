@@ -29,6 +29,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -139,6 +140,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ReviewHog PR reviewer — its sandbox steps (chunking/review/validation/dedup) spawn one task each.
         REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
+        # Loop firings: named, cloud-executed agent automations triggered by schedule,
+        # GitHub event or API. See products/tasks/docs/LOOPS.md.
+        LOOP = "loop", "Loop"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -185,6 +189,20 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         blank=True,
         related_name="tasks",
         db_index=False,
+    )
+
+    # Loop firing that spawned this task, if any. NULL for every non-loop task. SET_NULL
+    # so deleting a loop never deletes its historical runs. db_index=False here: the index
+    # is added CONCURRENTLY in a follow-up migration (see 0062), which is a separate DDL
+    # statement Django can't emit as part of a plain AddField.
+    loop = models.ForeignKey(
+        "tasks.Loop",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        db_index=False,
+        db_constraint=True,
     )
 
     # DEPRECATED - do not use
@@ -247,6 +265,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(fields=["loop"], name="posthog_task_loop_idx"),
         ]
 
     def __str__(self):
@@ -296,7 +315,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             surface=DESKTOP_SURFACE,
         )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(
+        self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
+    ) -> None:
+        # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
+        # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
             distinct_id = (
                 str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
@@ -311,7 +334,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
+            (capture_fn or posthoganalytics.capture)(
                 distinct_id=distinct_id,
                 event=event,
                 properties=all_properties,
@@ -442,13 +465,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task.save(update_fields=["state", "updated_at"])
         self.state = state
 
-    def soft_delete(self):
+    def soft_delete(self, capture_fn: Callable[..., None] | None = None):
         self.deleted = True
         self.deleted_at = django_timezone.now()
         self.save()
         self.capture_event(
             "task_deleted",
             {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
+            capture_fn=capture_fn,
         )
 
     def delete(self, *args, **kwargs):
@@ -749,6 +773,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        github_read_access: bool = False,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -783,6 +808,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
 
         run_extra_state = dict(extra_state or {})
+        if github_read_access:
+            # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
+            # GitHub token into the (repo-less) sandbox instead of the full credential path.
+            run_extra_state["github_read_access"] = True
         if start_workflow:
             # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
             # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.
@@ -1055,6 +1084,225 @@ class TaskAutomation(models.Model):
         return self.RunStatus.RUNNING
 
 
+class Loop(ModelActivityMixin, TeamScopedRootMixin):
+    """A named, cloud-executed agent automation: instructions plus model config,
+    fired by schedule/GitHub/API triggers. Each firing spawns an internal Task
+    that runs on the standard tasks pipeline as the loop's owner (created_by).
+    See products/tasks/docs/LOOPS.md."""
+
+    class Visibility(models.TextChoices):
+        PERSONAL = "personal", "Personal"
+        TEAM = "team", "Team"
+
+    class OverlapPolicy(models.TextChoices):
+        SKIP = "skip", "Skip"
+        ALLOW = "allow", "Allow"
+        CANCEL_PREVIOUS = "cancel_previous", "Cancel previous"
+
+    activity_logging_on_delete = True
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    # The original creator, immutable. `created_by` doubles as the current owner and is reassigned by
+    # ownership takeover; `creator` is not, so it stays the authority for the destructive/visibility
+    # operations (delete, un-share) that takeover must not confer on whoever grabbed the loop.
+    creator = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="")
+    visibility = models.CharField(max_length=16, choices=Visibility, default=Visibility.PERSONAL)
+    instructions = models.TextField()
+    runtime_adapter = models.CharField(max_length=32)
+    model = models.CharField(max_length=128, blank=True, default="")
+    reasoning_effort = models.CharField(max_length=32, null=True, blank=True)
+    repositories = models.JSONField(default=list, blank=True)
+    sandbox_environment = models.ForeignKey(
+        "tasks.SandboxEnvironment", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    enabled = models.BooleanField(default=True)
+    overlap_policy = models.CharField(max_length=32, choices=OverlapPolicy, default=OverlapPolicy.SKIP)
+    behaviors = models.JSONField(default=dict, blank=True)
+    connectors = models.JSONField(default=dict, blank=True)
+    notifications = models.JSONField(default=dict, blank=True)
+    # Binding to a context (a "#channel" / desktop folder) this loop is attached to, or {} when
+    # unattached. Shape: {folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}.
+    # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
+    # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
+    context_target = models.JSONField(default=dict, blank=True)
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this loop is for internal use and should not be exposed to end users.",
+    )
+    # What created this loop: `user_created` for loops a person made in the UI/API, other values
+    # mark loops created by a backend flow. Mirrors `Task.origin_product` (attribution, not
+    # ownership; the loop is still team- and owner-scoped via `team`/`created_by`).
+    origin_product = models.CharField(
+        max_length=32,
+        choices=Task.OriginProduct.choices,
+        default=Task.OriginProduct.USER_CREATED,
+        help_text="Which product or flow created this loop.",
+    )
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_run_status = models.CharField(max_length=32, null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    # Why a loop is currently paused when it wasn't the owner who paused it, so the UI can explain
+    # it and a reactivation flow can clear it. Null for a normal owner pause. See loop_lifecycle.py.
+    disabled_reason = models.CharField(max_length=64, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_loop"
+
+    def __str__(self):
+        return self.name
+
+    def _get_before_update(self, **kwargs: Any) -> "Loop | None":
+        # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
+        # TeamScopedManager). Loop saves happen from webhook handlers and Temporal activities
+        # with no ambient team scope, so route the lookup through `.unscoped()` to avoid a
+        # TeamScopeError when logging the change (same pattern as SignalScoutConfig).
+        if not self.pk:
+            return None
+        return type(self).objects.unscoped().filter(pk=self.pk).first()
+
+
+class LoopTrigger(TeamScopedRootMixin):
+    """One firing condition attached to a loop. Schedule triggers are backed by a
+    Temporal Schedule whose identity hangs off this row's id, so trigger rows are
+    updated in place, never delete-and-recreated."""
+
+    class TriggerType(models.TextChoices):
+        SCHEDULE = "schedule", "Schedule"
+        GITHUB = "github", "GitHub"
+        API = "api", "API"
+
+    class ScheduleSyncStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SYNCED = "synced", "Synced"
+        FAILED = "failed", "Failed"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team FK: same hot-table rationale as Loop above.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name="triggers")
+    type = models.CharField(max_length=16, choices=TriggerType)
+    enabled = models.BooleanField(default=True)
+    config = models.JSONField(default=dict)
+    # Denormalized off `config` for `type=github` rows only (see `save()`), so webhook
+    # fan-out matching hits an indexed column instead of scanning the JSON `config` blob.
+    github_integration_id = models.BigIntegerField(null=True, blank=True)
+    repository = models.CharField(max_length=512, null=True, blank=True)
+    event_types = ArrayField(models.CharField(max_length=32), null=True, blank=True)
+    schedule_sync_status = models.CharField(max_length=16, choices=ScheduleSyncStatus, null=True, blank=True)
+    last_fired_at = models.DateTimeField(null=True, blank=True)
+    # Set once a one-time (`run_at`) trigger has fired its single occurrence. Terminal: its spent
+    # Temporal Schedule is torn down and no sync path re-arms it. See loop_service.complete_one_time_trigger.
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_loop_trigger"
+        indexes = [
+            models.Index(fields=["github_integration_id", "repository"], name="task_loop_trigger_gh_repo_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.type} trigger on loop {self.loop_id}"
+
+    def save(self, *args, **kwargs):
+        if self.type == self.TriggerType.GITHUB:
+            config = self.config if isinstance(self.config, dict) else {}
+            github_integration_id = config.get("github_integration_id")
+            try:
+                self.github_integration_id = int(github_integration_id) if github_integration_id is not None else None
+            except (TypeError, ValueError):
+                self.github_integration_id = None
+            repository = config.get("repository")
+            self.repository = repository.strip() if isinstance(repository, str) and repository.strip() else None
+            events = config.get("events")
+            self.event_types = (
+                [event for event in events if isinstance(event, str)] if isinstance(events, list) else None
+            )
+        else:
+            self.github_integration_id = None
+            self.repository = None
+            self.event_types = None
+        super().save(*args, **kwargs)
+
+    @property
+    def schedule_id(self) -> str:
+        return f"loop-trigger-{self.id}"
+
+
+class LoopFire(TeamScopedRootMixin):
+    """Per-fire dedup record, so schedule replays, webhook redeliveries, API retries and
+    double-clicked manual runs never double-spawn a run. Trigger fires dedup on
+    (loop_trigger, fire_key); manual "run now" fires have no trigger and dedup on
+    (loop, fire_key). The fire key is the Temporal workflow id, the X-GitHub-Delivery GUID
+    or the client idempotency key depending on path. The created run's ids and terminal
+    reason are recorded so a dedup hit (a retry) returns the original outcome instead of a
+    bare "deduped"."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team FK: same hot-table rationale as Loop above.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # Always set. Direct FK (not just via loop_trigger) so manual fires have a dedup scope and so
+    # the per-loop rate-cap and retention queries hit an index instead of joining through trigger.
+    loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name="fires", null=True, db_constraint=False)
+    # Null for manual "run now" fires, which have no trigger.
+    # SET_NULL, not CASCADE: replacing a trigger during an ordinary edit must not delete its LoopFire
+    # rows. Those rows carry the per-loop/per-team rate-cap history (counted by `loop`, which survives),
+    # so a CASCADE would let an owner reset their own cost caps just by editing triggers.
+    loop_trigger = models.ForeignKey(
+        LoopTrigger, on_delete=models.SET_NULL, related_name="fires", null=True, blank=True
+    )
+    fire_key = models.CharField(max_length=512)
+    # Outcome of the fire, for returning to a retry that dedups against this row.
+    outcome_reason = models.CharField(max_length=64, null=True, blank=True)
+    outcome_task_id = models.UUIDField(null=True, blank=True)
+    outcome_task_run_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_loop_fire"
+        constraints = [
+            # Trigger fires: unique per (trigger, key). Partial so manual fires (null trigger)
+            # don't all collide on a shared NULL.
+            models.UniqueConstraint(
+                fields=["loop_trigger", "fire_key"],
+                name="task_loop_fire_trigger_key_unique",
+                condition=models.Q(loop_trigger__isnull=False),
+            ),
+            # Manual fires: unique per (loop, key) when there's no trigger.
+            models.UniqueConstraint(
+                fields=["loop", "fire_key"],
+                name="task_loop_fire_loop_key_unique",
+                condition=models.Q(loop_trigger__isnull=True),
+            ),
+        ]
+        indexes = [
+            # Per-loop rate-cap window and retention pruning.
+            models.Index(fields=["loop", "created_at"], name="task_loop_fire_loop_ct_idx"),
+        ]
+
+    def __str__(self):
+        return f"Fire {self.fire_key} on loop {self.loop_id}"
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"
@@ -1213,6 +1461,7 @@ class TaskRun(models.Model):
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
+        state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
         self.state = state
 
@@ -1486,6 +1735,8 @@ class TaskRun(models.Model):
                 "origin_product": self.task.origin_product,
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+                "loop_id": (self.state or {}).get("loop_id"),
+                "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
                 "environment": self.environment,
                 # The bare `environment` property gets clobbered by the analytics
                 # client's deployment-region super-property, so ship the run's
