@@ -257,7 +257,7 @@ def _collect_server(
             with conn.cursor() as cur:
                 fn(cur)
         except Exception as e:
-            logger.warning(f"database_stats: server probe failed, skipping", probe=name, error=str(e))
+            logger.warning("database_stats: server probe failed, skipping", probe=name, error=str(e))
 
     def _version(cur: psycopg.Cursor) -> None:
         cur.execute("SHOW server_version")

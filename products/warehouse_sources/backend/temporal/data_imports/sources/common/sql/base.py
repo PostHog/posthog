@@ -127,7 +127,10 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         with impl.connect(config) as conn:
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
-                return []
+                # Stats schemas aren't discovered tables — a database with no (matching)
+                # user tables, or a names filter listing only stats schemas, must still
+                # surface them when the source opted in.
+                return maybe_append_database_stats_schemas(config, [], names)
             tables = list(columns_by_table.keys())
             primary_keys = impl.get_primary_keys(conn, config, tables)
             row_counts = impl.get_row_counts(conn, config, tables) if with_counts else {}

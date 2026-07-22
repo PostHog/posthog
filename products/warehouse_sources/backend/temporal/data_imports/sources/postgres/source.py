@@ -1103,10 +1103,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
     def database_stats_source(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+            PostHogDatabaseConnectionError,
+        )
 
         # The row is only needed for the SSL policy and the storage folder name; the
-        # collectors read Postgres' statistics catalogs, never a user table.
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        # collectors read Postgres' statistics catalogs, never a user table. Re-wrap a
+        # transient failure reaching our own database for the same reason
+        # source_for_pipeline does: its wording must not collide with the customer-host
+        # non-retryable rules, or a healthy stats sync gets permanently stopped.
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        except DjangoOperationalError as e:
+            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
         response = postgres_database_stats_source(
             tunnel=self.make_ssh_tunnel_func(config, inputs.team_id),
             user=config.user,

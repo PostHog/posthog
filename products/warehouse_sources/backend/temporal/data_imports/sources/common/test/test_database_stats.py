@@ -8,14 +8,19 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    DATABASE_STATS_COLUMNS,
     DATABASE_STATS_SCHEMA_NAMES,
     DATABASE_STATS_SERVER,
     build_database_stats_source_response,
+    build_database_stats_source_schemas,
     database_stats_enabled,
     is_database_stats_schema,
     maybe_append_database_stats_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_default_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 
 logger = structlog.get_logger()
@@ -36,6 +41,30 @@ class TestDatabaseStatsEnabled:
     )
     def test_toggle_states(self, stats_config, expected):
         assert database_stats_enabled(SimpleNamespace(database_stats=stats_config)) is expected
+
+
+class TestBuildDatabaseStatsSourceSchemas:
+    def test_builds_all_four_schemas_with_append_defaults(self):
+        schemas = build_database_stats_source_schemas(["public.users", "orders"])
+
+        assert [s.name for s in schemas] == list(DATABASE_STATS_SCHEMA_NAMES)
+        defaults = build_default_schemas(schemas)
+        for default in defaults:
+            assert default["should_sync"] is True
+            assert default["sync_type"] == "append"
+            assert default["incremental_field"] == "collected_at"
+
+    def test_collision_with_discovered_table_drops_that_schema(self):
+        # Bare↔qualified equivalence: `public.database_stats_server` must collide with the
+        # bare injected name, matching sync_old_schemas_with_new_schemas' matching rules.
+        schemas = build_database_stats_source_schemas(["public.database_stats_server"])
+        assert DATABASE_STATS_SERVER not in [s.name for s in schemas]
+        assert len(schemas) == len(DATABASE_STATS_SCHEMA_NAMES) - 1
+
+    def test_every_schema_declares_snapshot_columns(self):
+        for name in DATABASE_STATS_SCHEMA_NAMES:
+            declared = {column_name for column_name, _, _ in DATABASE_STATS_COLUMNS[name]}
+            assert {"collected_at", "snapshot_id"} <= declared
 
 
 class TestMaybeAppendDatabaseStatsSchemas:
@@ -96,6 +125,24 @@ def _inputs(schema_name: str) -> SourceInputs:
         logger=logger,
         reset_pipeline=False,
     )
+
+
+class TestSQLSourceGetSchemasStatsInjection:
+    def _source_with_empty_listing(self) -> _StubSQLSource:
+        implementation = MagicMock()
+        implementation.get_columns.return_value = {}
+        return _StubSQLSource(implementation)
+
+    def test_empty_listing_still_surfaces_stats_schemas_when_enabled(self):
+        # A database with no (matching) user tables — or a names filter listing only
+        # stats schemas — must still surface them when the source opted in.
+        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
+        schemas = self._source_with_empty_listing().get_schemas(cast(Any, config), team_id=1)
+        assert [s.name for s in schemas] == list(DATABASE_STATS_SCHEMA_NAMES)
+
+    def test_empty_listing_stays_empty_without_toggle(self):
+        schemas = self._source_with_empty_listing().get_schemas(cast(Any, SimpleNamespace()), team_id=1)
+        assert schemas == []
 
 
 class TestSQLSourceStatsRouting:

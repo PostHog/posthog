@@ -20,9 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     DATABASE_STATS_SCHEMA_NAMES,
     DATABASE_STATS_SERVER,
     DATABASE_STATS_TABLES,
-    build_database_stats_source_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresDatabaseStatsConfig,
     PostgresSourceConfig,
@@ -42,29 +40,6 @@ logger = structlog.get_logger()
 
 def _column_names(schema_name: str) -> set[str]:
     return {name for name, _, _ in DATABASE_STATS_COLUMNS[schema_name]}
-
-
-class TestBuildDatabaseStatsSourceSchemas:
-    def test_builds_all_four_schemas_with_append_defaults(self):
-        schemas = build_database_stats_source_schemas(["public.users", "orders"])
-
-        assert [s.name for s in schemas] == list(DATABASE_STATS_SCHEMA_NAMES)
-        defaults = build_default_schemas(schemas)
-        for default in defaults:
-            assert default["should_sync"] is True
-            assert default["sync_type"] == "append"
-            assert default["incremental_field"] == "collected_at"
-
-    def test_collision_with_discovered_table_drops_that_schema(self):
-        # Bare↔qualified equivalence: `public.database_stats_server` must collide with the
-        # bare injected name, matching sync_old_schemas_with_new_schemas' matching rules.
-        schemas = build_database_stats_source_schemas(["public.database_stats_server"])
-        assert DATABASE_STATS_SERVER not in [s.name for s in schemas]
-        assert len(schemas) == len(DATABASE_STATS_SCHEMA_NAMES) - 1
-
-    def test_every_schema_declares_snapshot_columns(self):
-        for name in DATABASE_STATS_SCHEMA_NAMES:
-            assert {"collected_at", "snapshot_id"} <= _column_names(name)
 
 
 def _stats_config(enabled: bool | None) -> PostgresSourceConfig:
