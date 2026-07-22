@@ -4685,6 +4685,7 @@ class TestTaskSandboxUsageReport(APIBaseTest):
             created_at=datetime(2026, 1, 1, 20, tzinfo=UTC),
             user_attributed_at=datetime(2026, 1, 1, 22, tzinfo=UTC),
             ended_at=datetime(2026, 1, 2, 6, tzinfo=UTC),
+            ttl_seconds=24 * 60 * 60,
         )
 
         usage = get_teams_with_task_sandbox_usage_in_period(self.PERIOD_START, self.PERIOD_END)
