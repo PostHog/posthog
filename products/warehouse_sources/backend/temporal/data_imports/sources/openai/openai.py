@@ -1,18 +1,25 @@
 import hashlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.settings import (
     OPENAI_ENDPOINTS,
     OpenAIEndpointConfig,
@@ -28,26 +35,131 @@ ENTITY_PAGE_SIZE = 100
 DEFAULT_START_TIME = datetime(2020, 1, 1, tzinfo=UTC)
 
 
-class OpenAIRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class OpenAIResumeConfig:
     # Opaque pagination cursor: an `after` object id for CURSOR endpoints or a `next_page` token
     # for PAGE endpoints. None means "start at the first page".
     cursor: str | None = None
-    # Project fan-out only: the project whose resources we were paging when we saved state. A
-    # stable id (not a positional index) so projects added/removed between a crash and the retry
-    # can't resume us into the wrong project.
+    # Legacy project fan-out resume field (pre-framework): the project whose resources we were
+    # paging when we saved state. Kept so previously-saved state still parses; the framework's
+    # fan-out checkpoint below supersedes it, and an old-shape state restarts the fan-out fresh.
     project_id: str | None = None
+    # Project fan-out checkpoint from the framework:
+    # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
+    fanout_state: dict | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
+class _EntityPaginator(BasePaginator):
+    """Entity list pagination: an `after` object-id cursor.
+
+    `last_id` drives the next page, falling back to the last item's id (`last_id` isn't documented on
+    every list response) so pagination keeps moving. `has_more` is the authoritative stop signal —
+    the API returns a `last_id` on the final page too, so a missing token alone can't be trusted.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._after: Optional[str] = None
+
+    def _apply(self, request: Request) -> None:
+        if self._after is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["after"] = self._after
+
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume cursor to the first request.
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            self._has_next_page = False
+            return
+        items = data or []
+        last_id = body.get("last_id") or (items[-1].get("id") if items and isinstance(items[-1], dict) else None)
+        if body.get("has_more") and last_id:
+            self._after = last_id
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._after} if self._has_next_page and self._after is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._after = cursor
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return "_EntityPaginator()"
+
+
+class _BucketPaginator(BasePaginator):
+    """Usage/costs pagination: an opaque `next_page` token echoed back as the `page` query param,
+    gated by `has_more`.
+
+    An empty page ends the stream even if `has_more`/`next_page` are still set — the costs endpoint
+    is known to emit a `next_page` token past the last non-empty bucket page, which would otherwise
+    loop forever.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._page: Optional[str] = None
+
+    def _apply(self, request: Request) -> None:
+        if self._page is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["page"] = self._page
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict) or not data:
+            self._has_next_page = False
+            return
+        next_page = body.get("next_page")
+        if body.get("has_more") and next_page:
+            self._page = next_page
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._page} if self._has_next_page and self._page is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._page = cursor
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return "_BucketPaginator()"
+
+
+def _headers() -> dict[str, str]:
+    # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs and
+    # raised errors; only the non-secret accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def _to_unix_seconds(value: Any) -> int:
@@ -60,6 +172,12 @@ def _to_unix_seconds(value: Any) -> int:
     return int(value)
 
 
+def _to_unix_seconds_optional(value: Any) -> Optional[int]:
+    """Like `_to_unix_seconds`, but passes None through so an unset watermark drops the filter param
+    (the client omits None-valued params) instead of raising."""
+    return None if value is None else _to_unix_seconds(value)
+
+
 def _from_unix_seconds(value: Any) -> datetime | None:
     """Convert an epoch-seconds field to a UTC datetime so the column lands as a real timestamp
     (needed for the DateTime incremental watermark and datetime partitioning)."""
@@ -68,55 +186,17 @@ def _from_unix_seconds(value: Any) -> datetime | None:
     return datetime.fromtimestamp(int(value), tz=UTC)
 
 
-def _build_url(path: str, params: dict[str, Any], multi_params: dict[str, list[str]] | None = None) -> str:
-    """Build a fully-encoded URL. `multi_params` values are repeated (e.g. group_by=a&group_by=b),
-    matching the official SDK's query serialization."""
-    query: list[tuple[str, str]] = [(k, str(v)) for k, v in params.items() if v is not None]
-    if multi_params:
-        for key, values in multi_params.items():
-            query.extend((key, v) for v in values)
-    encoded = urlencode(query)
-    url = f"{OPENAI_BASE_URL}{path}"
-    return f"{url}?{encoded}" if encoded else url
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            OpenAIRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    # The usage/costs endpoints have low (undocumented) rate limits, so back off generously on 429.
-    wait=wait_exponential_jitter(initial=2, max=60),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise OpenAIRetryableError(f"OpenAI API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"OpenAI API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
 def validate_credentials(api_key: str) -> bool:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
-    url = _build_url("/v1/organization/projects", {"limit": 1})
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-    except Exception:
-        return False
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
-    return response.status_code in (200, 403)
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{OPENAI_BASE_URL}/v1/organization/projects?limit=1",
+        headers={"Authorization": f"Bearer {api_key}", **_headers()},
+        ok_statuses=(200, 403),
+    )
+    return ok
 
 
 def _row_id(*parts: Any) -> str:
@@ -176,14 +256,6 @@ def _flatten_owner(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def _normalize_entity(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
-    if endpoint in ("admin_api_keys", "project_api_keys"):
-        return _flatten_owner(item)
-    if endpoint == "audit_logs":
-        return _normalize_audit_log(item)
-    return item
-
-
 def _normalize_audit_log(item: dict[str, Any]) -> dict[str, Any]:
     """Give audit log rows a stable column set.
 
@@ -200,247 +272,193 @@ def _normalize_audit_log(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def _bucket_params(
-    config: OpenAIEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> tuple[dict[str, Any], dict[str, list[str]]]:
-    params: dict[str, Any] = {"bucket_width": config.bucket_width}
-    if config.limit is not None:
-        params["limit"] = config.limit
-
-    # `start_time` is required. On an incremental run start from the watermark (already shifted
-    # back by the pipeline's lookback); otherwise fall back to the API launch era to pull all
-    # available history.
-    if should_use_incremental_field and db_incremental_field_last_value:
-        params["start_time"] = _to_unix_seconds(db_incremental_field_last_value)
-    else:
-        params["start_time"] = _to_unix_seconds(DEFAULT_START_TIME)
-
-    multi_params = {"group_by": config.group_by} if config.group_by else {}
-    return params, multi_params
+def _normalize_entity(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
+    if endpoint in ("admin_api_keys", "project_api_keys"):
+        return _flatten_owner(item)
+    if endpoint == "audit_logs":
+        return _normalize_audit_log(item)
+    return item
 
 
-def _iter_bucket_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[OpenAIResumeConfig],
-    config: OpenAIEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Iterator[Any]:
-    params, multi_params = _bucket_params(config, should_use_incremental_field, db_incremental_field_last_value)
+def _make_bucket_data_map(config: OpenAIEndpointConfig) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    # One report page is a list of time buckets, each carrying grouped results — flatten to one row
+    # per result with the bucket window merged in. An empty bucket yields no rows.
+    def _explode(bucket: dict[str, Any]) -> list[dict[str, Any]]:
+        return [_flatten_bucket_result(config, bucket, result) for result in bucket.get("results") or []]
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.cursor:
-        params["page"] = resume.cursor
-        logger.debug(f"OpenAI: resuming {config.name} from page cursor")
-
-    while True:
-        url = _build_url(config.path, params, multi_params)
-        data = _fetch_page(session, url, headers, logger)
-        next_page = data.get("next_page")
-        has_more = bool(data.get("has_more"))
-        buckets = data.get("data", [])
-
-        for bucket in buckets:
-            for result in bucket.get("results", []):
-                batcher.batch(_flatten_bucket_result(config, bucket, result))
-                # A single batch can split into several ready chunks, so drain them all before
-                # the next batch() call (which raises if `_ready` is still populated).
-                while batcher.should_yield():
-                    yield batcher.get_table()
-                    # Save only when a batch is actually committed, pointing at the next page. A
-                    # crash then resumes from a page whose predecessors are all in the yielded
-                    # batch, so no buffered rows are skipped; the overlap merge dedupes on the
-                    # primary key.
-                    if has_more and next_page:
-                        resumable_source_manager.save_state(OpenAIResumeConfig(cursor=next_page))
-
-        # The costs endpoint is known to sometimes return a next_page token for an empty page;
-        # treat an empty page as the end of the stream rather than looping on it.
-        if not buckets:
-            if has_more:
-                logger.debug(f"OpenAI: {config.name} returned an empty page with has_more=true, stopping pagination")
-            break
-        if not has_more or not next_page:
-            break
-        params["page"] = next_page
+    return _explode
 
 
-def _iter_cursor_pages(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    path: str,
-    base_params: dict[str, Any],
-    start_after: str | None = None,
-) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
-    """Yield (items, last_id) for each page of a cursor-paginated entity endpoint."""
-    after = start_after
-    while True:
-        params = {**base_params, "limit": ENTITY_PAGE_SIZE}
-        if after:
-            params["after"] = after
-        url = _build_url(path, params)
-        data = _fetch_page(session, url, headers, logger)
+def _make_fanout_data_map(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # Project-scoped resource ids are only unique within a project, so the composite key carries the
+    # project id (injected by the fan-out as `_projects_id`).
+    def _stamp(row: dict[str, Any]) -> dict[str, Any]:
+        project_id = row.pop("_projects_id", None)
+        row = _normalize_entity(endpoint, row)
+        row["project_id"] = project_id
+        return row
 
-        items = data.get("data", [])
-        # Fall back to the last item's id: `last_id` isn't documented on every list response.
-        last_id = data.get("last_id") or (items[-1].get("id") if items else None)
-        yield items, last_id
-
-        if not data.get("has_more") or not last_id:
-            break
-        after = last_id
+    return _stamp
 
 
-def _iter_entity_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[OpenAIResumeConfig],
-    config: OpenAIEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Iterator[Any]:
-    base_params: dict[str, Any] = {**config.extra_params}
-    if config.name == "audit_logs" and should_use_incremental_field and db_incremental_field_last_value:
-        # Bracket-style nested param, matching the official SDK's query serialization. `gte` (not
-        # `gt`) so same-second events that landed after the watermark was cut aren't skipped;
-        # merge dedupes the boundary overlap on `id`.
-        base_params["effective_at[gte]"] = _to_unix_seconds(db_incremental_field_last_value)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_after = resume.cursor if resume is not None else None
-
-    for items, last_id in _iter_cursor_pages(session, headers, logger, config.path, base_params, start_after):
-        for item in items:
-            batcher.batch(_normalize_entity(config.name, item))
-            while batcher.should_yield():
-                yield batcher.get_table()
-                if last_id:
-                    resumable_source_manager.save_state(OpenAIResumeConfig(cursor=last_id))
-
-
-def _iter_project_fan_out_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[OpenAIResumeConfig],
-    config: OpenAIEndpointConfig,
-) -> Iterator[Any]:
-    """Fan out over every project, emitting the project id on each row for the composite key."""
-    project_ids = _list_all_project_ids(session, headers, logger)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = project_ids
-    resume_after: str | None = None
-    if resume is not None and resume.project_id and resume.project_id in project_ids:
-        remaining = project_ids[project_ids.index(resume.project_id) :]
-        resume_after = resume.cursor
-        logger.debug(f"OpenAI: resuming {config.name} from project_id={resume.project_id}")
-
-    for index, project_id in enumerate(remaining):
-        path = config.path.format(project_id=project_id)
-        after = resume_after
-        resume_after = None  # only the resumed-into project uses the saved cursor
-
-        for items, last_id in _iter_cursor_pages(session, headers, logger, path, {}, after):
-            for item in items:
-                row = {**_normalize_entity(config.name, item), "project_id": project_id}
-                batcher.batch(row)
-                while batcher.should_yield():
-                    yield batcher.get_table()
-                    if last_id:
-                        resumable_source_manager.save_state(OpenAIResumeConfig(cursor=last_id, project_id=project_id))
-
-        # Flush any incomplete batch before checkpointing to the next project, otherwise a crash
-        # between the state save and the final flush would drop this project's buffered rows.
-        while batcher.should_yield(include_incomplete_chunk=True):
-            yield batcher.get_table()
-
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(OpenAIResumeConfig(cursor=None, project_id=remaining[index + 1]))
-
-
-def _list_all_project_ids(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> list[str]:
-    project_ids: list[str] = []
-    for items, _ in _iter_cursor_pages(
-        session, headers, logger, "/v1/organization/projects", {"include_archived": "true"}
-    ):
-        project_ids.extend(item["id"] for item in items if item.get("id"))
-    return project_ids
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OpenAIResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = OPENAI_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
-
+def _incremental_param(config: OpenAIEndpointConfig) -> Optional[tuple[str, dict[str, Any]]]:
+    """Server-side time-filter param for an incremental endpoint, or None for full-refresh lists."""
+    if not config.supports_incremental:
+        return None
     if config.pagination == PaginationType.PAGE:
-        yield from _iter_bucket_rows(
-            session,
-            headers,
-            logger,
-            batcher,
-            resumable_source_manager,
-            config,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-    elif config.fan_out_over_projects:
-        yield from _iter_project_fan_out_rows(session, headers, logger, batcher, resumable_source_manager, config)
-    else:
-        yield from _iter_entity_rows(
-            session,
-            headers,
-            logger,
-            batcher,
-            resumable_source_manager,
-            config,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-
-    while batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+        # `start_time` is required on every usage/costs request; the initial value floors a full
+        # refresh at the API launch era rather than sending no filter at all.
+        return "start_time", {
+            "type": "incremental",
+            "cursor_path": "start_time",
+            "initial_value": DEFAULT_START_TIME,
+            "convert": _to_unix_seconds_optional,
+        }
+    # audit_logs: a bracket-style nested param, matching the official SDK's serialization. Full
+    # refresh has no watermark, so the param resolves to None and is dropped.
+    return "effective_at[gte]", {
+        "type": "incremental",
+        "cursor_path": "effective_at",
+        "initial_value": None,
+        "convert": _to_unix_seconds_optional,
+    }
 
 
 def openai_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[OpenAIResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = OPENAI_ENDPOINTS[endpoint]
 
+    client_config: ClientConfig = {
+        "base_url": OPENAI_BASE_URL,
+        "headers": _headers(),
+        "auth": {"type": "bearer", "token": api_key},
+    }
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.fan_out_over_projects:
+        # Project-scoped resources have no org-wide list endpoint; enumerate every project (archived
+        # included, since they are still referenced by historical usage/cost rows) and fetch the
+        # resource per project.
+        projects_config = OPENAI_ENDPOINTS["projects"]
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [
+                {
+                    "name": "projects",
+                    "endpoint": {
+                        "path": projects_config.path,
+                        "params": {"limit": ENTITY_PAGE_SIZE, **projects_config.extra_params},
+                        "data_selector": "data",
+                        "paginator": _EntityPaginator(),
+                    },
+                },
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": {
+                            "limit": ENTITY_PAGE_SIZE,
+                            "project_id": {"type": "resolve", "resource": "projects", "field": "id"},
+                        },
+                        "data_selector": "data",
+                        "paginator": _EntityPaginator(),
+                    },
+                    "include_from_parent": ["id"],
+                    "data_map": _make_fanout_data_map(endpoint),
+                },
+            ],
+        }
+
+        # Only a framework-shaped checkpoint can seed the fan-out; a legacy (cursor, project_id)
+        # state restarts the fan-out fresh — the overlap merge dedupes on the composite key.
+        initial_fanout_state = resume.fanout_state if resume is not None else None
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(OpenAIResumeConfig(fanout_state=state))
+
+        resources = rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
+        )
+        resource = next(r for r in resources if r.name == endpoint)
+    else:
+        data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
+        params: dict[str, Any]
+        if config.pagination == PaginationType.PAGE:
+            params = {"bucket_width": config.bucket_width}
+            if config.limit is not None:
+                params["limit"] = config.limit
+            if config.group_by:
+                # requests encodes a list value as one repeated query param per element.
+                params["group_by"] = config.group_by
+            paginator: BasePaginator = _BucketPaginator()
+            data_map = _make_bucket_data_map(config)
+        else:
+            params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
+            paginator = _EntityPaginator()
+            data_map = (
+                (lambda item: _normalize_entity(endpoint, item))
+                if endpoint in ("admin_api_keys", "audit_logs")
+                else None
+            )
+
+        incremental = _incremental_param(config)
+        if incremental is not None:
+            params[incremental[0]] = incremental[1]
+
+        endpoint_resource: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {
+                "path": config.path,
+                "params": params,
+                "data_selector": "data",
+                "paginator": paginator,
+            },
+            "data_map": data_map,
+        }
+
+        rest_config = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [endpoint_resource],
+        }
+
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.cursor:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only while a next page remains; the checkpoint is saved AFTER a page is
+            # yielded, pointing at the next page, so a crash resumes from a page whose predecessors
+            # were all yielded — the overlap merge dedupes on the primary key.
+            if state and state.get("cursor"):
+                resumable_source_manager.save_state(OpenAIResumeConfig(cursor=state["cursor"]))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
         partition_count=1,
@@ -448,4 +466,5 @@ def openai_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

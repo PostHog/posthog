@@ -1,29 +1,26 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.settings import PERSISTIQ_ENDPOINTS
 
 # The base URL already includes the `/v1` API version segment; endpoint paths are appended to it.
 PERSISTIQ_BASE_URL = "https://api.persistiq.com/v1"
-# The leads endpoint paginates at 100 records/page. per_page is not a documented parameter, so we
-# only advance `page` and rely on the `has_more` flag to terminate.
-PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint. `/users` is typically the smallest collection.
 DEFAULT_PROBE_PATH = "/users"
-
-
-class PersistiqRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -33,126 +30,118 @@ class PersistiqResumeConfig:
     next_page: int = 1
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"x-api-key": api_key, "Accept": "application/json"}
+def _headers() -> dict[str, str]:
+    # Auth (the `x-api-key` header) is supplied via the framework auth config so its value is
+    # redacted from logs and raised error messages; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
-@retry(
-    retry=retry_if_exception_type((PersistiqRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    page: int,
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.get(
-        f"{PERSISTIQ_BASE_URL}{path}",
-        params={"page": page},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+class PersistiqPaginator(PageNumberPaginator):
+    """PersistIQ paginates its list endpoints by 1-indexed ``page`` and signals whether more pages
+    remain with a body-level ``has_more`` flag rather than a total-pages count, so termination reads
+    that flag (an empty page is a defensive stop). No built-in paginator covers this shape.
+    """
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise PersistiqRetryableError(f"PersistIQ API error (retryable): status={response.status_code}, path={path}")
+    def __init__(self) -> None:
+        super().__init__(base_page=1, page=1, page_param="page")
 
-    if not response.ok:
-        logger.error(f"PersistIQ API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Every list endpoint returns an object envelope (`{"<resource>": [...], "has_more": ...}`);
-    # a bare array or other type means a malformed response.
-    if not isinstance(data, dict):
-        raise PersistiqRetryableError(f"PersistIQ returned an unexpected payload for {path}: {type(data).__name__}")
-    return data
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PersistiqResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = PERSISTIQ_ENDPOINTS[endpoint]
-    # `redact_values` masks the API key in logged URLs and captured samples.
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume else 1
-    if resume and resume.next_page > 1:
-        logger.debug(f"PersistIQ: resuming {endpoint} from page {page}")
-
-    while True:
-        data = _fetch_page(session, config.path, page, logger)
-
-        # The resource key is always present in a well-formed envelope; missing it means a malformed
-        # response, so fail loudly rather than silently advancing the cursor past lost rows.
-        items = data.get(config.list_key)
-        if not isinstance(items, list):
-            raise PersistiqRetryableError(f"PersistIQ response for {endpoint} is missing the '{config.list_key}' list")
-        if items:
-            yield items
-
-        # `has_more` is the authoritative end-of-collection signal; an empty page is a defensive stop.
-        if not data.get("has_more", False) or not items:
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(PersistiqResumeConfig(next_page=page))
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # An empty page ends the collection defensively (mirrors the old `not items` break).
+        if not data:
+            self._has_next_page = False
+            return
+        try:
+            has_more = bool(response.json().get("has_more", False))
+        except Exception:
+            has_more = False
+        # `has_more` is the authoritative end-of-collection signal.
+        if not has_more:
+            self._has_next_page = False
+            return
+        self.page += 1
+        self._has_next_page = True
 
 
 def persistiq_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PersistiqResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = PERSISTIQ_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": PERSISTIQ_BASE_URL,
+            "headers": _headers(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
+            "paginator": PersistiqPaginator(),
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "data_selector": config.list_key,
+                    # A 200 whose body isn't the expected `{list_key: [...]}` envelope (a bare array,
+                    # a missing resource key, or a non-list value) is treated as transient and
+                    # retried — the old source raised a retryable error for exactly these shapes.
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_page > 1:
+            initial_paginator_state = {"page": resume.next_page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the next page (already-yielded pages are persisted) and merge dedupes on the primary key.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(PersistiqResumeConfig(next_page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        column_hints=resource.column_hints,
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single list endpoint to validate the API key.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
-    """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{PERSISTIQ_BASE_URL}{path}", params={"page": 1}, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to PersistIQ: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"PersistIQ returned HTTP {response.status_code}"
-
-    return 200, None
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    """Probe a single list endpoint to validate the account-wide API key.
+
+    The key grants access to every list endpoint, so one probe is enough. Maps the probe result to
+    the same ``(is_valid, message)`` pairs the source has always returned.
+    """
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{PERSISTIQ_BASE_URL}{DEFAULT_PROBE_PATH}?page=1",
+        headers={"x-api-key": api_key, "Accept": "application/json"},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid PersistIQ API key"
-    return False, message or "Could not validate PersistIQ API key"
+    if status is None:
+        return False, "Could not connect to PersistIQ"
+    return False, f"PersistIQ returned HTTP {status}"

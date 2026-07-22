@@ -36,7 +36,9 @@ import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistorica
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
+import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
@@ -216,6 +218,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isLoading,
         canGoBack,
         canGoNext,
+        nextButtonDisabledReason,
         nextButtonText,
         selectedConnector,
         connectors,
@@ -249,15 +252,25 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
     }, [props.initialSource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const isFileUploadSource = selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME
+
     const footer = useCallback(() => {
         if (currentStep === 1) {
+            return null
+        }
+
+        // The file upload form has its own submit button — the wizard's Next would submit the
+        // generic connection form that this source never renders.
+        if (isFileUploadSource) {
             return null
         }
 
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
                 loading={isLoading || manualLinkIsLoading}
-                disabledReason={disabledReason || (!canGoNext && 'Finish this step to continue')}
+                disabledReason={
+                    disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
+                }
                 type="primary"
                 center
                 onClick={() => onSubmit()}
@@ -299,10 +312,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isLoading,
         manualLinkIsLoading,
         canGoNext,
+        nextButtonDisabledReason,
         nextButtonText,
         onSubmit,
         props.hideBackButton,
         isSelfManagedSource,
+        isFileUploadSource,
     ])
 
     return (
@@ -502,6 +517,12 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
         sourceConnectionDetails?.access_method,
         source.access_method
     )
+
+    // File upload owns its whole flow (upload the file, then create the source), so it replaces the
+    // generic connection form and drives its own submit button rather than the wizard footer.
+    if (selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME) {
+        return <FileUploadSourceForm />
+    }
 
     return selectedConnector ? (
         <div className="space-y-4">

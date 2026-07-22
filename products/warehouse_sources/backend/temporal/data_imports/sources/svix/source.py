@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SvixSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.svix import SvixSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.settings import ENDPOINTS, SVIX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import (
     SvixResumeConfig,
@@ -90,6 +90,7 @@ You can create an API key under **Settings → API Access** in the [Svix dashboa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Svix's list endpoints expose no server-side
         # updated-since filter, so there is no incremental cursor to advance.
@@ -108,7 +109,7 @@ You can create an API key under **Settings → API Access** in the [Svix dashboa
         return schemas
 
     def validate_credentials(
-        self, config: SvixSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: SvixSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)
@@ -128,6 +129,8 @@ You can create an API key under **Settings → API Access** in the [Svix dashboa
         return svix_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Svix endpoint is full refresh
         )

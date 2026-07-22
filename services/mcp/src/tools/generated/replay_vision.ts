@@ -9,9 +9,13 @@ import {
     VisionObservationsListQueryParams,
     VisionObservationsRetrieveParams,
     VisionObservationsRetrieveQueryParams,
+    VisionScannersAffectedCohortCreateBody,
+    VisionScannersAffectedCohortCreateParams,
     VisionScannersCreateBody,
     VisionScannersDestroyParams,
     VisionScannersEstimateCreateBody,
+    VisionScannersImpactRetrieveParams,
+    VisionScannersImpactRetrieveQueryParams,
     VisionScannersListQueryParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsListQueryParams,
@@ -23,6 +27,7 @@ import {
     VisionScannersObserveCreateParams,
     VisionScannersPartialUpdateBody,
     VisionScannersPartialUpdateParams,
+    VisionScannersPromptSuggestionsApplyCreateBody,
     VisionScannersPromptSuggestionsApplyCreateParams,
     VisionScannersPromptSuggestionsCurrentRetrieveParams,
     VisionScannersPromptSuggestionsDismissCreateParams,
@@ -115,6 +120,8 @@ const visionObservationsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -140,6 +147,40 @@ const visionQuotaRetrieve = (): ToolBase<typeof VisionQuotaRetrieveSchema, Schem
         const result = await context.api.request<Schemas.VisionQuota>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/quota/`,
+        })
+        return result
+    },
+})
+
+const VisionScannersAffectedCohortCreateSchema = VisionScannersAffectedCohortCreateParams.omit({
+    project_id: true,
+}).extend(VisionScannersAffectedCohortCreateBody.shape)
+
+const visionScannersAffectedCohortCreate = (): ToolBase<
+    typeof VisionScannersAffectedCohortCreateSchema,
+    Schemas.AffectedCohortResponse
+> => ({
+    name: 'vision-scanners-affected-cohort-create',
+    schema: VisionScannersAffectedCohortCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersAffectedCohortCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.window_days !== undefined) {
+            body['window_days'] = params.window_days
+        }
+        if (params.tag !== undefined) {
+            body['tag'] = params.tag
+        }
+        if (params.min_score !== undefined) {
+            body['min_score'] = params.min_score
+        }
+        if (params.max_score !== undefined) {
+            body['max_score'] = params.max_score
+        }
+        const result = await context.api.request<Schemas.AffectedCohortResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/affected_cohort/`,
+            body,
         })
         return result
     },
@@ -260,6 +301,32 @@ const visionScannersGet = (): ToolBase<typeof VisionScannersGetSchema, Schemas.R
     },
 })
 
+const VisionScannersImpactRetrieveSchema = VisionScannersImpactRetrieveParams.omit({ project_id: true }).extend(
+    VisionScannersImpactRetrieveQueryParams.shape
+)
+
+const visionScannersImpactRetrieve = (): ToolBase<
+    typeof VisionScannersImpactRetrieveSchema,
+    Schemas.ScannerImpact
+> => ({
+    name: 'vision-scanners-impact-retrieve',
+    schema: VisionScannersImpactRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersImpactRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScannerImpact>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/impact/`,
+            query: {
+                max_score: params.max_score,
+                min_score: params.min_score,
+                tag: params.tag,
+                window_days: params.window_days,
+            },
+        })
+        return result
+    },
+})
+
 const VisionScannersListSchema = VisionScannersListQueryParams
 
 const visionScannersList = (): ToolBase<
@@ -304,6 +371,8 @@ const visionScannersObservationsGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -334,6 +403,8 @@ const visionScannersObservationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 limit: params.limit,
                 offset: params.offset,
@@ -366,6 +437,8 @@ const visionScannersObservationsStats = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/stats/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 labeled: params.labeled,
                 recent_days: params.recent_days,
                 recording_subject: params.recording_subject,
@@ -382,7 +455,7 @@ const visionScannersObservationsStats = (): ToolBase<
 
 const VisionScannersPromptSuggestionsApplySchema = VisionScannersPromptSuggestionsApplyCreateParams.omit({
     project_id: true,
-})
+}).extend(VisionScannersPromptSuggestionsApplyCreateBody.shape)
 
 const visionScannersPromptSuggestionsApply = (): ToolBase<
     typeof VisionScannersPromptSuggestionsApplySchema,
@@ -392,9 +465,14 @@ const visionScannersPromptSuggestionsApply = (): ToolBase<
     schema: VisionScannersPromptSuggestionsApplySchema,
     handler: async (context: Context, params: z.infer<typeof VisionScannersPromptSuggestionsApplySchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
         const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
+            body,
         })
         return result
     },
@@ -540,10 +618,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-observations-list': visionObservationsList,
     'vision-observations-retrieve': visionObservationsRetrieve,
     'vision-quota-retrieve': visionQuotaRetrieve,
+    'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
     'vision-scanners-create': visionScannersCreate,
     'vision-scanners-delete': visionScannersDelete,
     'vision-scanners-estimate-create': visionScannersEstimateCreate,
     'vision-scanners-get': visionScannersGet,
+    'vision-scanners-impact-retrieve': visionScannersImpactRetrieve,
     'vision-scanners-list': visionScannersList,
     'vision-scanners-observations-get': visionScannersObservationsGet,
     'vision-scanners-observations-list': visionScannersObservationsList,

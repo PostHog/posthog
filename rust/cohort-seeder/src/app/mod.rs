@@ -5,6 +5,7 @@ mod deliver;
 mod execute;
 mod orchestrator;
 mod prepare;
+pub mod reconcile_dispatch;
 pub mod settings;
 
 pub use orchestrator::{SeederOrchestrator, ORCHESTRATOR_LIVENESS_DEADLINE};

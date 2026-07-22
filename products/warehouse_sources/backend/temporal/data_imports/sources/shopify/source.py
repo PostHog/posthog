@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
+    ShopifySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
@@ -123,7 +125,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         )
 
     def validate_credentials(
-        self, config: ShopifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # No schema_name → just probe the token, so connecting isn't blocked by a table the user
         # may not sync. With schema_name → also check that one resource's read scope.
@@ -140,7 +146,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             return False, str(e)
 
     def get_endpoint_permissions(
-        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str]
+        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return check_shopify_endpoint_permissions(
             config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, endpoints
@@ -153,6 +159,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():

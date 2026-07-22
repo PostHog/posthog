@@ -2,8 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { IconCalendar, IconChevronLeft } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSwitch } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
@@ -22,11 +21,18 @@ import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-ge
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
-import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
-import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
-import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
+import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
+import { AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
+import {
+    AlertEditor,
+    AlertEditorFormDetails,
+    AlertEditorLoading,
+    AlertEditorSection,
+} from 'products/alerts/frontend/components/AlertEditor'
+import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
 
 import { SnoozeButton } from '../components/SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
@@ -36,21 +42,69 @@ import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
-import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
+import { AlertHistorySection } from './AlertHistorySection'
+import { EditAlertModalV2 } from './EditAlertModalV2'
 
-interface EditAlertModalProps {
+interface AlertModalCommonProps {
     isOpen: boolean | undefined
+    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
+    onClose?: () => void
+    defaultToAnomalyDetection?: boolean
+    insightName?: string | null
+    useAlertCheckPreview?: boolean
+}
+
+export type AlertModalProps = AlertModalCommonProps &
+    (
+        | {
+              alert: AlertType
+              alertId?: never
+              insightId?: never
+              insightShortId?: never
+              insightLogicProps?: never
+          }
+        | {
+              alert?: never
+              alertId?: AlertType['id']
+              insightId: QueryBasedInsightModel['id']
+              insightShortId: InsightShortId
+              insightLogicProps: InsightLogicProps
+          }
+    )
+
+export interface ResolvedAlertModalProps extends AlertModalCommonProps {
+    initialAlert?: AlertType
     alertId?: AlertType['id']
     insightId: QueryBasedInsightModel['id']
     insightShortId: InsightShortId
-    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
-    onClose?: () => void
     insightLogicProps: InsightLogicProps
-    defaultToAnomalyDetection?: boolean
-    insightName?: string | null
 }
 
-export function EditAlertModal({
+export function EditAlertModal(props: AlertModalProps): JSX.Element {
+    // Redesigned modal (wizard for new alerts, sectioned layout + live preview for edits). The flag
+    // is the single switch: off = legacy modal below, on = V2. Consumers don't change.
+    const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
+    const resolvedProps: ResolvedAlertModalProps = props.alert
+        ? {
+              ...props,
+              initialAlert: props.alert,
+              alertId: props.alert.id,
+              insightId: props.alert.insight.id,
+              insightShortId: props.alert.insight.short_id,
+              insightLogicProps: {
+                  dashboardItemId: props.alert.insight.short_id,
+                  cachedInsight: props.alert.insight,
+              },
+          }
+        : props
+    if (redesigned) {
+        return <EditAlertModalV2 {...resolvedProps} />
+    }
+    return <LegacyEditAlertModal {...resolvedProps} />
+}
+
+function LegacyEditAlertModal({
+    initialAlert,
     isOpen,
     alertId,
     insightId,
@@ -60,9 +114,10 @@ export function EditAlertModal({
     insightLogicProps,
     defaultToAnomalyDetection,
     insightName,
-}: EditAlertModalProps): JSX.Element {
+}: ResolvedAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
-    const { alert, alertLoading } = useValues(_alertLogic)
+    const { alert: loadedAlert, alertLoading } = useValues(_alertLogic)
+    const alert = initialAlert ?? loadedAlert
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
     const _onEditSuccess = useCallback(
@@ -103,6 +158,7 @@ export function EditAlertModal({
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
+        uiVersion: 'legacy' as const,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -216,10 +272,61 @@ export function EditAlertModal({
         can_check_ongoing_interval,
     ])
 
+    const leadingActions = (
+        <div className="flex items-center gap-2">
+            {!creatingNewAlert ? (
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: `Delete "${alertForm.name || 'this alert'}"?`,
+                            description: 'This alert will be permanently deleted. This action cannot be undone.',
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: deleteAlert,
+                                'data-attr': 'alert-delete-confirm',
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }}
+                >
+                    Delete alert
+                </LemonButton>
+            ) : null}
+            {!creatingNewAlert ? (
+                <SnoozeButton
+                    onChange={snoozeAlert}
+                    value={alert?.snoozed_until}
+                    disabledReason={
+                        alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
+                    }
+                />
+            ) : null}
+            {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
+                <LemonButton
+                    type="secondary"
+                    status="default"
+                    onClick={clearSnooze}
+                    tooltip={`Currently snoozed until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
+                >
+                    Clear snooze
+                </LemonButton>
+            ) : null}
+            <div className="ml-auto mr-2">
+                <LemonField name="enabled" className="m-0">
+                    <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+                </LemonField>
+            </div>
+        </div>
+    )
+
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
-                <SpinnerOverlay />
+                <AlertEditorLoading title="Edit alert" onBack={handleClose} />
             ) : (
                 <Form
                     logic={alertFormLogic}
@@ -228,41 +335,33 @@ export function EditAlertModal({
                     enableFormOnSubmit
                     className="LemonModal__layout"
                 >
-                    <LemonModal.Header>
-                        <div className="flex items-center gap-2">
-                            <LemonButton icon={<IconChevronLeft />} onClick={handleClose} size="xsmall" />
-
-                            <h3>{creatingNewAlert ? 'New' : 'Edit '} Alert</h3>
-                        </div>
-                    </LemonModal.Header>
-
-                    <LemonModal.Content>
+                    <AlertEditor
+                        title={creatingNewAlert ? 'New alert' : 'Edit alert'}
+                        className="min-h-0 flex-1 overflow-hidden"
+                        contentClassName="min-h-0 flex-1 overflow-y-auto"
+                        onBack={handleClose}
+                        isEditing={!creatingNewAlert}
+                        isSubmitting={isAlertFormSubmitting}
+                        hasChanges={alertFormChanged}
+                        hasPendingChanges={hasPendingNotifications}
+                        showNoChangesLabel
+                        onSubmitAttempted={setAlertFormSubmitAttempted}
+                        leadingActions={leadingActions}
+                    >
                         <div className="deprecated-space-y-6">
-                            <div className="deprecated-space-y-4">
-                                <div className="flex gap-4 items-center">
-                                    <LemonField className="flex-auto" name="name">
-                                        <LemonInput placeholder="Alert name" data-attr="alertForm-name" />
-                                    </LemonField>
-                                    <LemonField name="enabled">
-                                        <LemonCheckbox
-                                            checked={alertForm?.enabled}
-                                            data-attr="alertForm-enabled"
-                                            fullWidth
-                                            label="Enabled"
+                            <AlertEditorFormDetails
+                                activity={
+                                    alert?.created_by ? (
+                                        <UserActivityIndicator
+                                            at={alert.created_at}
+                                            by={alert.created_by}
+                                            prefix="Created"
                                         />
-                                    </LemonField>
-                                </div>
-                                {alert?.created_by ? (
-                                    <UserActivityIndicator
-                                        at={alert.created_at}
-                                        by={alert.created_by}
-                                        prefix="Created"
-                                    />
-                                ) : null}
-                            </div>
+                                    ) : undefined
+                                }
+                            />
 
-                            <div className="deprecated-space-y-3">
-                                <h3 className="mb-0">Definition</h3>
+                            <AlertEditorSection title="Definition">
                                 <div className="deprecated-space-y-3">
                                     <AlertDefinitionSection
                                         alertForm={alertForm}
@@ -304,23 +403,14 @@ export function EditAlertModal({
                                         onSetAlertFormValue={setAlertFormValue}
                                     />
                                 </div>
-                            </div>
+                            </AlertEditorSection>
 
-                            <div className="text-muted text-sm flex flex-wrap items-start gap-2">
-                                <IconCalendar className="size-4 shrink-0 text-muted mt-0.5" aria-hidden />
-                                <span className="min-w-0">
-                                    Times use your project timezone ({projectTimezone}).{' '}
-                                    <Link
-                                        to={urls.settings('environment-customization', 'date-and-time')}
-                                        target="_blank"
-                                        targetBlankIcon={false}
-                                    >
-                                        Change in settings
-                                    </Link>
-                                </span>
-                            </div>
+                            <AlertTimezoneNotice
+                                timezone={projectTimezone}
+                                settingsUrl={urls.settings('environment-customization', 'date-and-time')}
+                            />
 
-                            <AlertNotificationSection
+                            <InsightAlertNotificationSection
                                 alertForm={alertForm}
                                 alertId={alertId}
                                 insightShortId={insightShortId}
@@ -337,56 +427,12 @@ export function EditAlertModal({
                             />
                         </div>
 
-                        {alertId ? (
-                            alert ? (
+                        {alertId && alert ? (
+                            <div className="mt-6">
                                 <AlertHistorySection alertId={alert.id} />
-                            ) : alertLoading ? (
-                                <AlertHistorySectionSkeleton />
-                            ) : null
-                        ) : null}
-                    </LemonModal.Content>
-
-                    <LemonModal.Footer>
-                        <div className="flex-1">
-                            <div className="flex gap-2">
-                                {!creatingNewAlert ? (
-                                    <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
-                                        Delete alert
-                                    </LemonButton>
-                                ) : null}
-                                {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
-                                    <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
-                                ) : null}
-                                {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
-                                    <LemonButton
-                                        type="secondary"
-                                        status="default"
-                                        onClick={clearSnooze}
-                                        tooltip={`Currently snoozed until ${formatDate(
-                                            dayjs(alert?.snoozed_until),
-                                            'MMM D, HH:mm'
-                                        )}`}
-                                    >
-                                        Clear snooze
-                                    </LemonButton>
-                                ) : null}
                             </div>
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            loading={isAlertFormSubmitting}
-                            disabledReason={
-                                !creatingNewAlert &&
-                                !alertFormChanged &&
-                                !hasPendingNotifications &&
-                                'No changes to save'
-                            }
-                            onClick={() => setAlertFormSubmitAttempted()}
-                        >
-                            {creatingNewAlert ? 'Create alert' : 'Save'}
-                        </LemonButton>
-                    </LemonModal.Footer>
+                        ) : null}
+                    </AlertEditor>
                 </Form>
             )}
         </LemonModal>

@@ -9,6 +9,7 @@ from requests import Request, Session
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce import (
     SalesforceEndpointPaginator,
     SalesforceResumeConfig,
+    get_resource,
     salesforce_source,
 )
 
@@ -246,6 +247,7 @@ class TestSalesforceSourceResumeWiring:
             job_id="job-1",
             db_incremental_field_last_value=None,
             resumable_source_manager=manager,
+            api_version="v61.0",
             should_use_incremental_field=False,
         )
 
@@ -273,6 +275,7 @@ class TestSalesforceSourceResumeWiring:
             job_id="job-1",
             db_incremental_field_last_value=None,
             resumable_source_manager=manager,
+            api_version="v61.0",
             should_use_incremental_field=True,
         )
 
@@ -298,6 +301,7 @@ class TestSalesforceSourceResumeWiring:
             job_id="job-1",
             db_incremental_field_last_value=None,
             resumable_source_manager=manager,
+            api_version="v61.0",
             should_use_incremental_field=True,
         )
 
@@ -325,3 +329,45 @@ class TestSalesforceSourceResumeWiring:
 
         resume_hook({"model_name": "Account"})
         manager.save_state.assert_not_called()
+
+
+class TestSalesforceApiVersionDispatch:
+    @parameterized.expand(
+        [
+            ("legacy", "v61.0", "/services/data/v61.0/query"),
+            ("current", "v67.0", "/services/data/v67.0/query"),
+        ]
+    )
+    def test_get_resource_path_uses_api_version(self, _name: str, api_version: str, expected_path: str) -> None:
+        resource = get_resource("Account", should_use_incremental_field=False, api_version=api_version)
+
+        endpoint = resource["endpoint"]
+        assert isinstance(endpoint, dict)
+        assert endpoint["path"] == expected_path
+
+    @parameterized.expand([("v61.0",), ("v67.0",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.rest_api_resource"
+    )
+    def test_salesforce_source_threads_api_version_into_request_path(
+        self, api_version: str, mock_rest: mock.MagicMock
+    ) -> None:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        manager.load_state.return_value = None
+
+        salesforce_source(
+            instance_url=INSTANCE_URL,
+            access_token="token",
+            refresh_token="refresh",
+            endpoint="Account",
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            resumable_source_manager=manager,
+            api_version=api_version,
+            should_use_incremental_field=False,
+        )
+
+        config = mock_rest.call_args[0][0]
+        assert config["resources"][0]["endpoint"]["path"] == f"/services/data/{api_version}/query"

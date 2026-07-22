@@ -40,6 +40,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
+    GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -159,9 +160,9 @@ class TestLinearIntegrationModel(BaseTest):
                 {"data": {"attachmentCreate": {"success": True}}},
             ],
         ) as mock_query:
+            attachment_url = f'https://us.posthog.com/project/{self.team.id}/error_tracking/issue-id" }} mutation {{'
             result = linear.create_issue(
-                str(self.team.id),
-                'issue-id" } mutation {',
+                attachment_url,
                 {
                     "team_id": 'team-id" } mutation {',
                     "title": 'Title "quoted"',
@@ -539,6 +540,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "REFRESH",
             },
             timeout=10,
+            allow_redirects=False,
         )
 
         assert integration.config["expires_in"] == 1000
@@ -859,6 +861,30 @@ class TestOauthIntegrationModel(BaseTest):
             ("reddit_shape_on_other_kind", 400, {"message": "Bad Request", "error": 400}, "hubspot", "other"),
             ("reddit_5xx", 502, {"message": "Bad Gateway", "error": 502}, "reddit-ads", "http_5xx"),
             ("reddit_oauth_error_code", 400, {"error": "invalid_grant"}, "reddit-ads", "invalid_grant"),
+            (
+                "hubspot_dead_hub_shape",
+                400,
+                {"status": "BAD_HUB", "message": "missing or unknown hub id", "error": "access_denied"},
+                "hubspot",
+                "invalid_grant",
+            ),
+            (
+                "hubspot_shape_on_other_kind",
+                400,
+                {"status": "BAD_HUB", "error": "access_denied"},
+                "salesforce",
+                "other",
+            ),
+            ("hubspot_bad_hub_5xx_is_outage", 502, {"status": "BAD_HUB"}, "hubspot", "http_5xx"),
+            (
+                "hubspot_bad_refresh_token_still_oauth_code",
+                400,
+                {"status": "BAD_REFRESH_TOKEN", "error": "invalid_grant"},
+                "hubspot",
+                "invalid_grant",
+            ),
+            ("rate_limited", 429, {"status": "error", "errorType": "RATE_LIMIT"}, "hubspot", "rate_limited"),
+            ("rate_limited_any_kind", 429, {}, None, "rate_limited"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
@@ -989,6 +1015,78 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_uses_instance_url_for_sandbox(self, mock_post, mock_reload):
+        # Sandbox integrations are stored as kind="salesforce" (the sandbox is a token-exchange
+        # fallback in the OAuth callback), so the config's instance_url is the only signal that
+        # the refresh must go to test.salesforce.com or the org's own host rather than the
+        # hardcoded prod token URL. Salesforce rejects a sandbox refresh_token posted to
+        # login.salesforce.com, which shows up to users as "Authentication token could not be
+        # refreshed. Please reconnect." within a few hours of connecting.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 3600,
+        }
+
+        sandbox_instance_url = "https://ryan-co--sandbox.sandbox.my.salesforce.com"
+        integration = self.create_integration(
+            kind="salesforce",
+            config={"instance_url": sandbox_instance_url},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        called_url = mock_post.call_args.args[0]
+        assert called_url == f"{sandbox_instance_url}/services/oauth2/token"
+
+    @parameterized.expand(
+        [
+            ("attacker_https", "https://attacker.example.com"),
+            ("attacker_lookalike_suffix", "https://salesforce.com.attacker.example"),
+            ("attacker_lookalike_prefix", "https://acmesalesforce.com"),
+            ("http_scheme_downgrade", "http://acme.my.salesforce.com"),
+            ("with_userinfo", "https://user:pass@acme.my.salesforce.com"),
+            ("with_port", "https://acme.my.salesforce.com:8443"),
+            ("invalid_port_raises_valueerror", "https://acme.my.salesforce.com:abc"),
+            ("garbage_value", "not a url"),
+            ("empty_value", ""),
+        ]
+    )
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_rejects_untrusted_instance_url(self, _name, bad_instance_url, mock_post, mock_reload):
+        # If a future write path (a partial_update action, an admin tool, a data migration)
+        # lets an attacker set instance_url, the refresh must not POST client_secret +
+        # refresh_token to that origin - the client_secret is fleet-wide and its leak forces
+        # rotation and reconnect for every Salesforce integration. Any instance_url that isn't
+        # an https .salesforce.com host falls back to the hardcoded prod token URL, and the
+        # refresh must not follow redirects that would move the secret to another host.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 3600,
+        }
+
+        integration = self.create_integration(
+            kind="salesforce",
+            config={"instance_url": bad_instance_url},
+        )
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        called_url = mock_post.call_args.args[0]
+        assert called_url == "https://login.salesforce.com/services/oauth2/token"
+
+        called_kwargs = mock_post.call_args.kwargs
+        assert called_kwargs["allow_redirects"] is False
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -1298,6 +1396,43 @@ class TestGitHubIntegrationModel(BaseTest):
             return mock_response
 
         return _client_request
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_mint_scoped_installation_token_marks_uninstalled_installation(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": 1704110400},
+            {"access_token": "FULL_TOKEN"},
+        )
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        mock_response.json.return_value = {"message": "Not Found"}
+        mock_client_request.return_value = mock_response
+
+        github = GitHubIntegration(integration)
+        with pytest.raises(GitHubIntegrationError):
+            github.mint_scoped_installation_token({"contents": "read"})
+
+        # Without the permanently-gone marker, every scheduled run re-mints a dead installation
+        # forever — the marker is what lets callers skip it until the customer reconnects.
+        integration.refresh_from_db()
+        assert GitHubIntegration(integration).installation_unavailable() is True
+        assert "expires_in" not in integration.config
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):
+        integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"token": "SCOPED_TOKEN", "expires_at": "2024-01-01T13:00:00Z"}
+        mock_client_request.return_value = mock_response
+
+        token = GitHubIntegration(integration).mint_scoped_installation_token({"contents": "read"})
+
+        assert token == "SCOPED_TOKEN"
+        # Without the permissions body the mint returns a FULL-permission token — a silent
+        # privilege escalation for every read-only sandbox.
+        assert mock_client_request.call_args.kwargs["json_body"] == {"permissions": {"contents": "read"}}
+        # The scoped token must never clobber the shared full-permission credential other flows read.
+        integration.refresh_from_db()
+        assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
 
     def test_get_diff_compares_branch_tips(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -2854,6 +2989,190 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         )
         with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
+
+
+class TestGoogleAdsIntegrationModel(BaseTest):
+    def _integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="google_ads_test",
+        )
+
+    @staticmethod
+    def _customer_client(
+        customer_id: str, name: str, level: Optional[str] = None, manager: bool = False, status: str = "ENABLED"
+    ) -> dict:
+        client: dict = {"clientCustomer": f"customers/{customer_id}", "descriptiveName": name, "status": status}
+        # Google's REST responses omit proto3 defaults, so level 0 and manager=false are absent.
+        if level is not None:
+            client["level"] = level
+        if manager:
+            client["manager"] = True
+        return {"customerClient": client}
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_reads_every_search_stream_chunk(self, mock_request):
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158"]}
+        # searchStream's REST body is an array of batches; a large hierarchy spans several.
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [
+            {"results": [self._customer_client("6501924158", "Acme Corp", manager=True)]},
+            {"results": [self._customer_client("1234567890", "Client One", level="1")]},
+        ]
+        mock_request.side_effect = [accessible, stream]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert [account["id"] for account in accounts] == ["6501924158", "1234567890"]
+        assert accounts[0]["manager"] is True
+        assert accounts[1]["parent_id"] == "6501924158"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_dedupes_an_account_reachable_from_two_roots(self, mock_request):
+        # A user with direct access to both a manager and one of its clients gets both in
+        # `resourceNames`, so the client is walked twice: once as a root (level absent, i.e. 0) and once
+        # under the manager (level "1"). Those two levels must be compared as numbers — comparing the raw
+        # values raises TypeError (None vs "1") and 500s the picker.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/1234567890", "customers/6501924158"]}
+        client_walk = MagicMock(status_code=200)
+        client_walk.json.return_value = [{"results": [self._customer_client("1234567890", "Client One")]}]
+        manager_walk = MagicMock(status_code=200)
+        manager_walk.json.return_value = [
+            {
+                "results": [
+                    self._customer_client("6501924158", "Acme Corp", manager=True),
+                    self._customer_client("1234567890", "Client One", level="1"),
+                ]
+            }
+        ]
+        mock_request.side_effect = [accessible, client_walk, manager_walk]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        # The client is kept once, at its shallowest sighting: reachable directly, so it needs no manager
+        # to log in as.
+        assert [account["id"] for account in accounts] == ["1234567890", "6501924158"]
+        assert accounts[0]["level"] is None
+        assert accounts[0]["parent_id"] == "1234567890"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_keeps_enabled_sighting_when_shallower_root_is_disabled(self, mock_request):
+        # The same client is reachable enabled under a manager (level "1") and directly as a disabled root
+        # (level 0). The enabled path is walked first and kept; the disabled shallower root must not evict
+        # it — otherwise the account vanishes from the picker even though Google returned an enabled path.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158", "customers/1234567890"]}
+        manager_walk = MagicMock(status_code=200)
+        manager_walk.json.return_value = [
+            {
+                "results": [
+                    self._customer_client("6501924158", "Acme Corp", manager=True),
+                    self._customer_client("1234567890", "Client One", level="1"),
+                ]
+            }
+        ]
+        disabled_root_walk = MagicMock(status_code=200)
+        disabled_root_walk.json.return_value = [
+            {"results": [self._customer_client("1234567890", "Client One", status="DISABLED")]}
+        ]
+        mock_request.side_effect = [accessible, manager_walk, disabled_root_walk]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        client = next(account for account in accounts if account["id"] == "1234567890")
+        assert client["level"] == "1"
+        assert client["parent_id"] == "6501924158"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_empty_when_login_has_no_accessible_customers(self, mock_request):
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so `resourceNames`
+        # is absent rather than an empty list — this must yield no accounts, not raise KeyError.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {}
+        mock_request.return_value = accessible
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert accounts == []
+
+
+class TestPinterestAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "business",
+                {"id": "1", "username": "13x6ppss87fecv1q790xh1orhyp9th", "business_name": "Posthog Inc"},
+                "Posthog Inc",
+            ),
+            ("personal", {"id": "1", "username": "javierposthog", "business_name": ""}, "javierposthog"),
+            # Older connections predate business_name being stored.
+            ("legacy", {"id": "1", "username": "javierposthog"}, "javierposthog"),
+        ]
+    )
+    def test_display_name_prefers_business_name(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pinterest-ads",
+            config=config,
+            integration_id=config["id"],
+        )
+        assert integration.display_name == expected
+
+
+class TestTikTokAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "email_wins_over_display_name",
+                {
+                    "advertiser_ids": ["7554133187111469074"],
+                    "user_email": "e***g@posthog.com",
+                    "user_display_name": "user1140434302514",
+                },
+                "e***g@posthog.com",
+            ),
+            ("neither_fetched_falls_back_to_id", {"advertiser_ids": ["7554133187111469074"]}, "7554133187111469074"),
+        ]
+    )
+    def test_display_name_prefers_user_email(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="tiktok-ads",
+            config=config,
+            integration_id=",".join(config["advertiser_ids"]),
+        )
+        assert integration.display_name == expected
+
+
+@override_settings(REDDIT_ADS_CLIENT_ID="reddit-client-id", REDDIT_ADS_CLIENT_SECRET="reddit-client-secret")
+class TestRedditAdsIntegrationDisplayName(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "username",
+                {"reddit_user_id": "t2_1tqubocxl4", "data.reddit_username": "javierposthog"},
+                "javierposthog",
+            ),
+            ("legacy", {"reddit_user_id": "t2_1tqubocxl4"}, "t2_1tqubocxl4"),
+        ]
+    )
+    def test_display_name_prefers_username(self, _name: str, config: dict, expected: str) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="reddit-ads",
+            config=config,
+            integration_id=config["reddit_user_id"],
+        )
+        assert integration.display_name == expected
 
 
 class TestSnowflakeIntegrationModel(BaseTest):

@@ -3,12 +3,12 @@ from __future__ import annotations
 import enum
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-if TYPE_CHECKING:
-    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.sources import github_split_schema_name
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class InternalSourceType(str, enum.Enum):
@@ -95,27 +95,69 @@ def register_signal_source(
     _SIGNAL_TABLE_CONFIGS[(source_type.value, schema_name)] = config
 
 
+def _registry_key(source_type: str, schema_name: str) -> tuple[str, str]:
+    """GitHub alone qualifies its schema rows (`owner/repo.issues`); emitters register the bare endpoint."""
+    if source_type == ExternalDataSourceType.GITHUB.value:
+        _, endpoint = github_split_schema_name(schema_name)
+        return (source_type, endpoint)
+    return (source_type, schema_name)
+
+
 def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableConfig | None:
-    return _SIGNAL_TABLE_CONFIGS.get((source_type, schema_name))
+    return _SIGNAL_TABLE_CONFIGS.get(_registry_key(source_type, schema_name))
 
 
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
-    return (source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
+    return _registry_key(source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
 
 
 def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str, str] | None:
-    config = _SIGNAL_TABLE_CONFIGS.get((source_type, schema_name))
+    config = get_signal_config(source_type, schema_name)
     return (config.source_product, config.source_type) if config else None
 
 
 def _register_all_emitters() -> None:
+    # Tier-3 feedback / reviews
+    from products.signals.backend.emission.aha_ideas import AHA_CONFIG
+    from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
+    from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
+    from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
+    from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+    from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
+    from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
+    from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
+    from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
+    from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
+    from products.signals.backend.emission.front_conversations import FRONT_CONFIG
+    from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
+    from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
+    from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
+    from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
+    from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
+    from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
+    from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
+    from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
+    from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
+    from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+
+    # Tier-2 security scanners
+    from products.signals.backend.emission.rapid7_insightvm_vulnerabilities import RAPID7_INSIGHTVM_CONFIG
+    from products.signals.backend.emission.raygun_error_groups import RAYGUN_CONFIG
+    from products.signals.backend.emission.retently_feedback import RETENTLY_CONFIG
+    from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
+    from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
+    from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
+    from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
+    from products.signals.backend.emission.snyk_issues import SNYK_CONFIG
+    from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
+    from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
-    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
@@ -123,6 +165,45 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.JIRA, "issues", JIRA_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.PGANALYZE, "issues", PGANALYZE_ISSUES_CONFIG)
     register_signal_source(InternalSourceType.CONVERSATIONS, "tickets", CONVERSATIONS_TICKETS_CONFIG)
+    # Tier-1 support / helpdesk (record kind: ticket)
+    register_signal_source(ExternalDataSourceType.FRESHDESK, "tickets", FRESHDESK_CONFIG)
+    register_signal_source(ExternalDataSourceType.FRESHSERVICE, "tickets", FRESHSERVICE_CONFIG)
+    register_signal_source(ExternalDataSourceType.FRONT, "conversations", FRONT_CONFIG)
+    register_signal_source(ExternalDataSourceType.GORGIAS, "tickets", GORGIAS_CONFIG)
+    register_signal_source(ExternalDataSourceType.KUSTOMER, "conversations", KUSTOMER_CONFIG)
+    register_signal_source(ExternalDataSourceType.DIXA, "conversations", DIXA_CONFIG)
+    register_signal_source(ExternalDataSourceType.PLAIN, "threads", PLAIN_CONFIG)
+    # Tier-1 issue trackers (record kind: issue)
+    register_signal_source(ExternalDataSourceType.GITLAB, "issues", GITLAB_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITEA, "issues", GITEA_CONFIG)
+    register_signal_source(ExternalDataSourceType.SHORTCUT, "stories", SHORTCUT_CONFIG)
+    # Tier-1 error tracking (record kind: issue)
+    register_signal_source(ExternalDataSourceType.SENTRY, "issues", SENTRY_CONFIG)
+    register_signal_source(ExternalDataSourceType.ROLLBAR, "items", ROLLBAR_CONFIG)
+    register_signal_source(ExternalDataSourceType.BUGSNAG, "errors", BUGSNAG_CONFIG)
+    register_signal_source(ExternalDataSourceType.HONEYBADGER, "faults", HONEYBADGER_CONFIG)
+    register_signal_source(ExternalDataSourceType.RAYGUN, "error_groups", RAYGUN_CONFIG)
+    # Tier-2 security scanners (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.SNYK, "issues", SNYK_CONFIG)
+    register_signal_source(ExternalDataSourceType.SONARQUBE, "issues", SONARQUBE_CONFIG)
+    register_signal_source(ExternalDataSourceType.SEMGREP, "sast_findings", SEMGREP_CONFIG)
+    register_signal_source(ExternalDataSourceType.RAPID7INSIGHTVM, "vulnerabilities", RAPID7_INSIGHTVM_CONFIG)
+    # Tier-3 product feedback / feature requests (record kind: feedback)
+    register_signal_source(ExternalDataSourceType.FEATUREBASE, "posts", FEATUREBASE_CONFIG)
+    register_signal_source(ExternalDataSourceType.FRILL, "ideas", FRILL_CONFIG)
+    register_signal_source(ExternalDataSourceType.AHA, "ideas", AHA_CONFIG)
+    register_signal_source(ExternalDataSourceType.USERVOICE, "suggestions", USERVOICE_CONFIG)
+    register_signal_source(ExternalDataSourceType.PRODUCTBOARD, "notes", PRODUCTBOARD_CONFIG)
+    register_signal_source(ExternalDataSourceType.CANNY, "posts", CANNY_CONFIG)
+    register_signal_source(ExternalDataSourceType.ASKNICELY, "responses", ASKNICELY_CONFIG)
+    register_signal_source(ExternalDataSourceType.RETENTLY, "feedback", RETENTLY_CONFIG)
+    # Tier-3 reviews (record kind: review)
+    register_signal_source(ExternalDataSourceType.APPFIGURES, "reviews", APPFIGURES_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPFOLLOW, "reviews", APPFOLLOW_CONFIG)
+    register_signal_source(ExternalDataSourceType.JUDGEMEREVIEWS, "reviews", JUDGEME_REVIEWS_CONFIG)
+    # OAuth-connected support sources (record kind: ticket)
+    register_signal_source(ExternalDataSourceType.INTERCOM, "conversations", INTERCOM_CONFIG)
+    register_signal_source(ExternalDataSourceType.HUBSPOT, "tickets", HUBSPOT_CONFIG)
 
 
 _register_all_emitters()
