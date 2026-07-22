@@ -9,10 +9,12 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.user_integration import ReauthorizationRequired
+from posthog.models.integration import Integration
+from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
@@ -466,6 +468,10 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> Any:
         sandbox = Sandbox.get_by_id(sandbox_id)
         return sandbox if sandbox.is_running() else None
     except Exception:
+        # This None drives a fail-closed follow-up rejection, so keep the cause: it
+        # distinguishes a genuinely dead sandbox from a transient control-plane lookup
+        # error, which have different remediation.
+        logger.warning("resolve_live_sandbox_failed", sandbox_id=sandbox_id, exc_info=True)
         return None
 
 
@@ -521,15 +527,23 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
             actor_user=actor_user,
             repository=repository,
         )
-    except ReauthorizationRequired as e:
-        # New actor has no usable GitHub access to this repo (missing/invalid integration,
-        # no app installation, or no repo permission), so we log the sandbox out rather than
-        # run under the prior actor's creds. Reauthorization is surfaced elsewhere.
+    except (
+        ReauthorizationRequired,
+        CredentialUnavailableError,
+        Integration.DoesNotExist,
+        UserIntegration.DoesNotExist,
+    ) as e:
+        # The new actor has no usable GitHub credential for this repo: needs reauthorization,
+        # no repo access, or the integration was disconnected mid-run. Log the sandbox out
+        # rather than run under the prior actor's creds, matching the scheduled refresh's
+        # handling. A transient error (network, timeout) is deliberately not caught here so it
+        # propagates and the activity retries.
         logger.info(
-            "refresh_github_actor_reauthorization_required",
+            "refresh_github_actor_credential_unavailable",
             run_id=run_id,
             user_id=actor_user.id,
             repository=repository,
+            error_type=type(e).__name__,
             reason=str(e),
         )
         token = None
@@ -550,8 +564,15 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
 
     # No usable rebind (no token, or the rebind write could not be confirmed): log the sandbox
     # out. Fail closed only if even the clear can't be confirmed — the previous actor's
-    # credentials might still be live.
-    if clear_github_credentials_from_sandbox(sandbox, repository):
+    # credentials might still be live. The sandbox exec can raise (it stopped between the
+    # is_running() check and here, or timed out), so guard it like the rebind above and fail
+    # closed on the exception rather than letting it escape uncontrolled.
+    try:
+        cleared = clear_github_credentials_from_sandbox(sandbox, repository)
+    except Exception:
+        logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, exc_info=True)
+        return False
+    if cleared:
         mark_sandbox_github_identity(scope, actor_user.id)
         logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
         return True
