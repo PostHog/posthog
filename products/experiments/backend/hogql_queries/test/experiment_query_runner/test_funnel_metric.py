@@ -2808,3 +2808,92 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert len(result.variant_results) == 1
         self.assertEqual(result.variant_results[0].number_of_samples, 1)
         self.assertEqual(result.variant_results[0].sum, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-15T12:00:00Z")
+    def test_matured_users_anchor_on_first_exposure(self, name, use_precomputation):
+        # Maturity is anchored on each user's first exposure, not their latest. A user
+        # whose first exposure is old enough for the conversion window to have elapsed is
+        # mature even when a frequently re-evaluated flag keeps emitting fresh exposures.
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            conversion_window=7,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # For each variant: first exposure Jan 2 (window ends Jan 9, matured before now=Jan 15),
+        # plus repeated late exposures Jan 13/Jan 14 that would look immature if maturity
+        # anchored on the latest exposure (Jan 14 + 7d = Jan 21, after now).
+        for variant in ["control", "test"]:
+            distinct_id = f"user_{variant}"
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+            for exposure_ts in ["2020-01-02T12:00:00Z", "2020-01-13T09:00:00Z", "2020-01-14T09:00:00Z"]:
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp=exposure_ts,
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp="2020-01-03T12:00:00Z",
+                properties={feature_flag_property: variant},
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=distinct_id,
+                timestamp="2020-01-03T13:00:00Z",
+                properties={feature_flag_property: variant},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Both users are mature (first exposure Jan 2) and converted within their window.
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 1)
+
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 1)
