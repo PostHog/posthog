@@ -5077,11 +5077,7 @@ snapshots:
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
         hash: v1.k794b7964.e43831aab10f34ebb833d39856c8285ca3ec054b018c07a8eea2dc6551d12119.w0JYkgk5ujwBybY8356Xe93bi6ky_z7Skt5wuoRPX1g
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
-<<<<<<< HEAD
-        hash: v1.k794b7964.3455a8a462eb913f7d478672c16b5fa56fd4591efcc09b5ad1119707842f80b3.FMUgEs84D1HWKB2fVtRZP_Dsk6HYgaz604k3bLZqwFI
-=======
         hash: v1.k794b7964.e338b80ff0cdbd414dc92b76641efb7560f4be240c814a3ff995914f7a34ac5c.gjqnN9mJx2Z2iF34W3oG_UO6slLlN5qNY3XOfMsm0fY
->>>>>>> cb180e3c76b175835832c606fa455c6af600bca7
     replay-tabs-home-filters-banner--product-analytics-under-limit--dark:
         hash: v1.k794b7964.c4cc11f519896f1493409b60c0a04da6023d71a83374094c29c2666c65c205cf.aabEMRgGPdgSlwx4q2x34yULwzqiBwz2CI6LUyV5eak
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
