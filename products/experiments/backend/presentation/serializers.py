@@ -1035,6 +1035,12 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
         allow_null=True,
         help_text="URL of the pull request the task opened, when it opened one.",
     )
+    can_view_task = serializers.BooleanField(
+        help_text=(
+            "Whether the requesting user can open the task in PostHog Code. Cleanup tasks are "
+            "visible to their creator only, so other viewers should not be shown a task link."
+        ),
+    )
 
 
 class ArchiveExperimentSerializer(serializers.Serializer):
@@ -1198,6 +1204,17 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     )
 
 
+class ActiveRecalculationRunSerializer(serializers.Serializer):
+    """Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Status of the executing run (pending or in_progress)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
@@ -1222,6 +1239,16 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    metric_retries = serializers.JSONField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
+        ),
+    )
     trigger = serializers.ChoiceField(
         choices=ExperimentMetricsRecalculation.Trigger.choices,
         read_only=True,
@@ -1241,8 +1268,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
-    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
-    # the metric_errors-vs-errors rename above.
+
+    active_run = ActiveRecalculationRunSerializer(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
+    )
+
     result_source = serializers.ChoiceField(
         choices=["recalculation", "timeseries_fallback"],
         required=False,
@@ -1411,6 +1444,30 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSessionMetricHitSerializer(serializers.Serializer):
+    """One experiment metric with at least one matching event in a session recording."""
+
+    metric_uuid = serializers.CharField(
+        help_text="UUID of the experiment metric (inline primary/secondary or saved) whose events fired."
+    )
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Total number of events in the session matching any of the metric's event/action sources."
+    )
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching the metric."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of the metric's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+
+
 class ExperimentSessionContextItemSerializer(serializers.Serializer):
     """One experiment whose feature flag a session recording saw."""
 
@@ -1449,6 +1506,13 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
     experiment_end_date = serializers.DateTimeField(
         allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+    metrics_in_session = ExperimentSessionMetricHitSerializer(
+        many=True,
+        help_text=(
+            "This experiment's metrics with at least one matching event in the session, sorted by first "
+            "occurrence. Empty when none of the experiment's metric events fired during the session."
+        ),
     )
 
 

@@ -9,7 +9,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
+    AnySource,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -494,7 +495,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
         # Only the schema-level override is judged here; a deprecated source pin surfaces on the
-        # source, not on every schema.
+        # source, not on every schema that follows it.
         if not schema.api_version:
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
@@ -1105,6 +1106,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         return updated_instance
 
+    def _effective_probe_api_version(self, schema: ExternalDataSchema, source_impl: AnySource) -> str | None:
+        """Version the schema will sync with after this request saves.
+
+        An `api_version` in the incoming payload wins over the stored override — a PATCH can change
+        version and sync_type together, and gating capabilities under the old version would approve
+        a sync method the new version doesn't support. Unvalidated payload values fall through to
+        the stored chain (the request 400s in validate() anyway, and the probe must never send an
+        unvetted label to the vendor)."""
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        incoming = data.get("api_version")
+        if "api_version" in data and (incoming is None or incoming in source_impl.supported_versions):
+            return incoming or schema.source.api_version
+        return schema.api_version or schema.source.api_version
+
     def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
         source = schema.source
         if not source.job_inputs:
@@ -1116,7 +1131,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return False
         try:
             config = source_impl.parse_config(source.job_inputs)
-            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+            source_schemas = source_impl.get_schemas(
+                config,
+                schema.team_id,
+                names=[schema.name],
+                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
+            )
         except Exception:
             return False
         return any(s.name == schema.name and s.webhook_only for s in source_schemas)
@@ -1132,7 +1152,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             source_type = ExternalDataSourceType(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
             config = source_impl.parse_config(source.job_inputs)
-            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+            source_schemas = source_impl.get_schemas(
+                config,
+                schema.team_id,
+                names=[schema.name],
+                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
+            )
         except Exception:
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
@@ -1183,7 +1208,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         config = source_impl.parse_config(source.job_inputs)
-        source_schemas = source_impl.get_schemas(config, schema.team_id)
+        # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
+        # rejects it), so there is no per-schema precedence to honor here.
+        effective_api_version = source_impl.resolve_api_version(source.api_version)
+        source_schemas = source_impl.get_schemas(config, schema.team_id, api_version=effective_api_version)
         webhook_source_schemas = {s.name for s in source_schemas if s.supports_webhooks}
 
         if schema.name not in webhook_source_schemas:
@@ -1206,7 +1234,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             if hog_fn_result.hog_function_created:
                 # Only register the webhook if we're creating the hog function when it didn't exist previously
-                result = create_and_register_webhook(source_impl, config, hog_fn_result, schema.team_id)
+                result = create_and_register_webhook(
+                    source_impl, config, hog_fn_result, schema.team_id, api_version=effective_api_version
+                )
                 if not result.success:
                     raise ValidationError(
                         f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
@@ -1221,7 +1251,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 def reconcile() -> None:
                     try:
                         reconcile_result = reconcile_webhook_events(
-                            source_impl, config, hog_fn_result, schema.team_id, [schema.name]
+                            source_impl,
+                            config,
+                            hog_fn_result,
+                            schema.team_id,
+                            [schema.name],
+                            api_version=effective_api_version,
                         )
                         if not reconcile_result.success:
                             logger.warning(
@@ -1343,6 +1378,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
+            if obj.source.is_system_managed:
+                raise PermissionDenied("This schema is managed by PostHog and cannot be changed through this API.")
 
     @extend_schema(exclude=True)
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1595,7 +1636,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
 
-        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id, instance.name)
+        effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
+        credentials_valid, credentials_error = new_source.validate_credentials(
+            config, self.team_id, instance.name, api_version=effective_api_version
+        )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1603,7 +1647,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = new_source.get_schemas(config, self.team_id, names=[instance.name])
+            schemas = new_source.get_schemas(
+                config, self.team_id, names=[instance.name], api_version=effective_api_version
+            )
         except Exception as e:
             capture_exception(e)
             return Response(

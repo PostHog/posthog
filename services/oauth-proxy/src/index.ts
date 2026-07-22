@@ -13,6 +13,7 @@ import { handleMetadata } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
 import { handleToken } from '@/handlers/token'
+import { type Validator, errorResponse, noDuplicateParams, runValidators } from '@/lib/validation'
 
 export interface Env {
     AUTH_KV: KVNamespace
@@ -23,6 +24,7 @@ type Handler = (request: Request, kv: KVNamespace) => Response | Promise<Respons
 interface Route {
     paths: string[]
     method?: string
+    validators?: Validator[]
     handler: Handler
 }
 
@@ -46,6 +48,21 @@ const routes: Route[] = [
     },
     {
         paths: ['/oauth/authorize', '/authorize'],
+        // The proxy reads these with `.get()` (first value) for KV keying but forwards
+        // the last value downstream via `.set()`; a duplicate would split those reads
+        // and let an attacker route a victim's callback to a preloaded redirect URI.
+        // `resource` (RFC 8707) is intentionally excluded — it is allowed to repeat.
+        validators: [
+            noDuplicateParams(
+                'state',
+                'client_id',
+                'redirect_uri',
+                'response_type',
+                'scope',
+                'code_challenge',
+                'code_challenge_method'
+            ),
+        ],
         handler: handleAuthorize,
     },
     {
@@ -84,6 +101,12 @@ export default {
                     continue
                 }
                 if (route.paths.some((p) => normalizePath(p) === normalized)) {
+                    if (route.validators) {
+                        const validationError = runValidators(route.validators, request, url)
+                        if (validationError) {
+                            return errorResponse(validationError)
+                        }
+                    }
                     return await route.handler(request, env.AUTH_KV)
                 }
             }

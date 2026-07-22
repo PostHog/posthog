@@ -1,17 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import (
     PANDADOC_ENDPOINTS,
     PandaDocEndpointConfig,
@@ -20,14 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.s
 PANDADOC_BASE_URL = "https://api.pandadoc.com/public/v1"
 # PandaDoc list pages cap at 100 items.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-# Default rate limit is ~60 req/min (sandbox keys are far lower), so honor 429s
-# with exponential backoff.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class PandaDocRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -38,10 +34,21 @@ class PandaDocResumeConfig:
     page: int
 
 
-def _get_session(api_key: str) -> requests.Session:
-    return make_tracked_session(
-        headers={"Authorization": f"API-Key {api_key}"}, redact_values=(api_key,), retry=Retry(total=0)
-    )
+class PandaDocPagePaginator(PageNumberPaginator):
+    """1-based page paginator that stops as soon as a page returns fewer than PAGE_SIZE rows.
+
+    PandaDoc list responses carry no total, so the hand-rolled source terminated on the first
+    short page rather than paying one extra empty-page request. The built-in only stops on an
+    empty page, so extend it to also stop on a partial page and keep termination identical.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(base_page=1, page_param="page")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if data is not None and len(data) < PAGE_SIZE:
+            self._has_next_page = False
 
 
 def _format_date_filter(value: Any) -> str:
@@ -54,18 +61,22 @@ def _format_date_filter(value: Any) -> str:
     return str(value)
 
 
-def _build_params(
+def _build_query_params(
     config: PandaDocEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
-    page: int,
 ) -> dict[str, Any]:
+    """Static per-run query params — everything except the paginator-managed page number.
+
+    Covers the page size plus, for endpoints that expose server-side date filters (only
+    documents), the incremental filter param and the sort order. These are constant across a
+    run, so they can be injected as endpoint params while the paginator owns the page number.
+    """
     params: dict[str, Any] = {}
 
     if config.paginated:
         params["count"] = PAGE_SIZE
-        params["page"] = page
 
     if not config.incremental_params:
         return params
@@ -86,87 +97,11 @@ def _build_params(
     return params
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    if not params:
-        return f"{PANDADOC_BASE_URL}{path}"
-    return f"{PANDADOC_BASE_URL}{path}?{urlencode(params)}"
-
-
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is valid with a cheap one-document listing probe."""
-    try:
-        response = _get_session(api_key).get(
-            _build_url("/documents", {"count": 1, "page": 1}),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PandaDocResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = PANDADOC_ENDPOINTS[endpoint]
-    session = _get_session(api_key)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume_config.page if resume_config is not None else 1
-    if resume_config is not None:
-        logger.debug(f"PandaDoc: resuming {endpoint} from page {page}")
-
-    @retry(
-        retry=retry_if_exception_type((PandaDocRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise PandaDocRetryableError(
-                f"PandaDoc API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"PandaDoc API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        url = _build_url(
-            config.path,
-            _build_params(
-                config, should_use_incremental_field, db_incremental_field_last_value, incremental_field, page
-            ),
-        )
-        data = fetch_page(url)
-        items = data.get(config.data_key, []) or []
-
-        if items:
-            yield items
-
-        if not config.paginated or len(items) < PAGE_SIZE:
-            break
-
-        page += 1
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(PandaDocResumeConfig(page=page))
-
-
 def pandadoc_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PandaDocResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -174,17 +109,57 @@ def pandadoc_source(
 ) -> SourceResponse:
     config = PANDADOC_ENDPOINTS[endpoint]
 
+    params = _build_query_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+    paginator = PandaDocPagePaginator() if config.paginated else SinglePagePaginator()
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": PANDADOC_BASE_URL,
+            # Auth is supplied via the framework so the key is redacted from logs and errors;
+            # PandaDoc uses an "API-Key <key>" Authorization scheme rather than a bare Bearer.
+            "auth": {"type": "api_key", "api_key": f"API-Key {api_key}", "name": "Authorization"},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Every list endpoint wraps its rows in "results"; a missing key is treated as
+                    # an empty page (matching the hand-rolled source), so this is not required.
+                    "data_selector": config.data_key,
+                    "paginator": paginator,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on primary key) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(PandaDocResumeConfig(page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,
@@ -192,4 +167,15 @@ def pandadoc_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    """Confirm the API key is valid with a cheap one-document listing probe."""
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{PANDADOC_BASE_URL}/documents?count=1&page=1",
+        headers={"Authorization": f"API-Key {api_key}"},
+    )
+    return ok

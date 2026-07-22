@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OptimizelySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
+    OptimizelySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely import (
     optimizely_source,
     validate_credentials as validate_optimizely_credentials,
@@ -86,6 +88,7 @@ An admin can generate a personal access token in Optimizely under Account Settin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No v2 list endpoint has an updated-since filter; the entities are
         # low-volume experiment config, so full refresh is the honest mode.
@@ -106,7 +109,11 @@ An admin can generate a personal access token in Optimizely under Account Settin
         return schemas
 
     def validate_credentials(
-        self, config: OptimizelySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OptimizelySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_optimizely_credentials(config.api_token):
             return True, None
@@ -117,5 +124,6 @@ An admin can generate a personal access token in Optimizely under Account Settin
         return optimizely_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

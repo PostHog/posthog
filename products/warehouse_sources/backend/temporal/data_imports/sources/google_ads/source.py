@@ -47,7 +47,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
@@ -141,6 +143,7 @@ class GoogleAdsSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Deferred so registering this source doesn't import the google-ads SDK — see configs.py.
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
@@ -390,6 +393,7 @@ class GoogleAdsSource(
         config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
             _is_transient_grpc_error,

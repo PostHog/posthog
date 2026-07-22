@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
+    TikTokAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import TIKTOK_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.tiktok_ads import (
     TikTokAdsResumeConfig,
@@ -173,7 +175,11 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
         ]
 
     def validate_credentials(
-        self, config: TikTokAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TikTokAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.advertiser_id or not config.tiktok_integration_id:
             return False, "Advertiser ID and TikTok Ads integration are required"
@@ -192,6 +198,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

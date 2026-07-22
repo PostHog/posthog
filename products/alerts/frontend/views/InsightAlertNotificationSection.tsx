@@ -1,3 +1,5 @@
+import { IconBell } from '@posthog/icons'
+
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { InsightShortId } from '~/types'
@@ -13,6 +15,7 @@ export interface InsightAlertNotificationSectionProps {
     alertId: AlertType['id'] | undefined
     insightShortId: InsightShortId
     inlineNotificationsEnabled: boolean
+    showSectionTitle?: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
@@ -21,6 +24,7 @@ export function InsightAlertNotificationSection({
     alertId,
     insightShortId,
     inlineNotificationsEnabled,
+    showSectionTitle = true,
     onSetAlertFormValue,
 }: InsightAlertNotificationSectionProps): JSX.Element {
     let destinations: JSX.Element
@@ -36,8 +40,8 @@ export function InsightAlertNotificationSection({
         destinations = <div className="text-muted-alt">Save alert first to add destinations (e.g. Slack, Webhooks)</div>
     }
 
-    return (
-        <AlertEditorSection title="Notification">
+    const content = (
+        <>
             <div className="flex gap-4 items-center">
                 <div>E-mail</div>
                 <div className="flex-auto">
@@ -51,6 +55,16 @@ export function InsightAlertNotificationSection({
 
             <h4 className="mt-4">Destinations</h4>
             <div className="mt-4">{destinations}</div>
+        </>
+    )
+
+    if (!showSectionTitle) {
+        return content
+    }
+
+    return (
+        <AlertEditorSection title="Notification" icon={<IconBell className="size-4" />}>
+            {content}
         </AlertEditorSection>
     )
 }

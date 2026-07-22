@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DynatraceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynatrace import (
+    DynatraceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SCHEMA_DESCRIPTIONS: dict[str, str] = {
@@ -126,6 +128,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -143,12 +146,16 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
         return schemas
 
     def validate_credentials(
-        self, config: DynatraceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DynatraceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_dynatrace_credentials(config.environment_url, config.api_token, team_id, schema_name)
 
     def get_endpoint_permissions(
-        self, config: DynatraceSourceConfig, team_id: int, endpoints: list[str]
+        self, config: DynatraceSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         # Dynatrace scopes are granted per API area, so per-table access varies with the token.
         # Probe each scope so the schema picker can flag tables the token can't read.
@@ -168,7 +175,7 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
-            logger=inputs.logger,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
