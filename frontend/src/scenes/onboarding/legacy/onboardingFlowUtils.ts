@@ -7,6 +7,35 @@ const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
     [OnboardingStepKey.LINK_DATA]: 'Import data',
 }
 
+/**
+ * Step keys that can join the flow asynchronously after it first builds: `plans`
+ * appears once billing loads, `invite_teammates` once org invite permissions
+ * resolve, and `link_data` is appended for product-analytics primaries. A URL
+ * requesting one of these must not be self-corrected away just because the step
+ * isn't in the flow yet.
+ */
+const ASYNC_APPENDED_STEP_KEYS: string[] = [
+    OnboardingStepKey.PLANS,
+    OnboardingStepKey.INVITE_TEAMMATES,
+    OnboardingStepKey.LINK_DATA,
+]
+
+/**
+ * Whether a requested step id might still be emitted into the flow once async data
+ * (billing, org membership) loads. Product-provided steps (install, configure, …)
+ * are contributed synchronously the moment the flow builds, so a bare product-level
+ * step key missing from a built flow will never appear — e.g. `?step=install` for a
+ * product whose provider emits no install step — and must be self-corrected instead
+ * of leaving the host on a spinner forever.
+ *
+ * A `?` or `&` means query params fused into the step value (a mangled URL) — never
+ * treat that as pending. Namespaced ids (`install:logs`) are conservatively treated
+ * as pending: they include the namespaced forms of the async-appended steps
+ * (`plans:<product>`), which must keep waiting for billing.
+ */
+export const mayStepAppearLater = (stepId: string): boolean =>
+    !/[?&]/.test(stepId) && (ASYNC_APPENDED_STEP_KEYS.includes(stepId) || stepId.includes(':'))
+
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
     if (!stepKey) {
         return undefined

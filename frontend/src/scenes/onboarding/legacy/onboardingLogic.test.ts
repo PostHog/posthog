@@ -1,13 +1,16 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, type OrganizationType } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { INSTALL_DEDUP_KEYS } from './types'
@@ -606,6 +609,70 @@ describe('onboardingLogic — flow composition', () => {
                     payload: { subscribedDuringOnboarding: true } as any,
                 },
             ])
+        })
+    })
+
+    describe('unresolvable step reconciliation', () => {
+        it('self-corrects ?step=install to the first available step for a product with no install step', async () => {
+            // Conversations' provider emits no product steps, but product selection and
+            // setup-task links route to `?step=install` unconditionally. The requested
+            // step will never exist — the URL must reconcile to flow[0] instead of
+            // leaving `currentFlowStep` null (an infinite spinner with no escape button).
+            router.actions.push('/onboarding/conversations?step=install')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
+            expect(router.values.searchParams.step).toBeUndefined()
+        })
+
+        it('keeps waiting on ?step=plans while billing has not loaded (async-appended step)', async () => {
+            // `plans` joins the flow only after billing loads; reconciling it away would
+            // permanently lose the requested step (e.g. the post-upgrade round-trip
+            // landing before billing settles).
+            router.actions.push('/onboarding/conversations?step=plans')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('plans')
+            expect(logic.values.currentFlowStep).toBeNull()
+            expect(router.values.searchParams.step).toBe('plans')
+        })
+
+        it('leaves a resolvable bare ?step=install untouched for a product that has an install step', async () => {
+            router.actions.push('/onboarding/web_analytics?step=install')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('install')
+            expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+            expect(router.values.searchParams.step).toBe('install')
+        })
+
+        it('reconciles an unresolvable step when the flow builds after the URL was parsed', async () => {
+            // A member without invite rights gets an empty conversations flow until an
+            // async input (org permissions, billing) contributes a shared step. The
+            // setStepId listener can't reconcile against an empty flow, so the flow
+            // subscription must pick it up once steps exist.
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                members_can_invite: false,
+                membership_level: OrganizationMembershipLevel.Member,
+            })
+            logic = onboardingLogic()
+            logic.mount()
+
+            router.actions.push('/onboarding/conversations?step=install')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            expect(logic.values.flow).toEqual([])
+            expect(logic.values.stepId).toBe('install')
+
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                members_can_invite: true,
+            } as OrganizationType)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
         })
     })
 
