@@ -13,3 +13,7 @@ else:
     SES_SECRET_ACCESS_KEY = os.getenv("SES_SECRET_ACCESS_KEY", "") or None
 
 SES_REGION = os.getenv("SES_REGION", "us-east-1")
+
+# Incoming webhook for internal alerts when a team's email reputation goes critical.
+# Unset: Slack alerting is skipped.
+EMAIL_REPUTATION_SLACK_WEBHOOK_URL: str = os.getenv("EMAIL_REPUTATION_SLACK_WEBHOOK_URL", "")

@@ -35,6 +35,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     web_analytics_digest: { Icon: IconPieChart, color: 'text-primary' },
     achievement_unlocked: { Icon: IconStar, color: 'text-warning' },
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
+    email_reputation: { Icon: IconWarning, color: 'text-danger' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

@@ -60,6 +60,7 @@ class NotificationSetting(Enum):
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
     MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
     WEB_ANALYTICS_WEEKLY_DIGEST = "web_analytics_weekly_digest"
+    EMAIL_REPUTATION_DEGRADED = "email_reputation_degraded"
 
 
 NotificationSettingType = Literal[
@@ -71,6 +72,7 @@ NotificationSettingType = Literal[
     "project_api_key_exposed",
     "materialized_view_sync_failed",
     "web_analytics_weekly_digest",
+    "email_reputation_degraded",
 ]
 
 
@@ -198,6 +200,10 @@ def should_send_notification(
 
     elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value:
         return settings.get(notification_type, False)
+
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.EMAIL_REPUTATION_DEGRADED.value:
+        return settings.get(notification_type, True)
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
@@ -577,6 +583,44 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
         subject=f"[Alert] Destination '{hog_function.name}' has been disabled in project '{team}' due to high error rate",
         template_name="hog_function_disabled",
         template_context={"hog_function": hog_function, "team": team},
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_email_reputation_degraded(
+    team_id: int, state: str, bounce_rate: float, complaint_rate: float, evaluated_at: str
+) -> None:
+    """
+    Warn a team's members that their workflow email reputation entered ``warning`` or
+    ``critical``. The campaign key embeds the snapshot's ``evaluated_at``, so the hourly
+    transition scan can re-enqueue safely — MessagingRecord makes repeats a no-op.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = get_members_to_notify(team, "email_reputation_degraded")
+    if not memberships_to_email:
+        return
+
+    is_critical = state == "critical"
+    campaign_key = f"email_reputation_{team_id}_{state}_{evaluated_at}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=(
+            f"[Action required] Email sending for project '{team}' is at risk of suspension"
+            if is_critical
+            else f"[Alert] Email reputation for project '{team}' needs attention"
+        ),
+        template_name="email_reputation_critical" if is_critical else "email_reputation_warning",
+        template_context={
+            "team": team,
+            "bounce_rate": f"{bounce_rate:.2%}",
+            "complaint_rate": f"{complaint_rate:.2%}",
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
