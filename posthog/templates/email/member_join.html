@@ -3,7 +3,7 @@
 {% block section %}
 <!-- prettier-ignore -->
 <p>
-    {{ invitee_first_name }}{% if invitee_last_name %} {{ invitee_last_name }}{% endif %} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization_name }}.
+    {{ invitee_first_name }}{% if invitee_last_name %} {{ invitee_last_name }}{% endif %} (<a href="mailto:{{ invitee_email }}">{{ invitee_email }}</a>) just joined you at {{ organization_name }}.
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri %}">View PostHog insights</a>
