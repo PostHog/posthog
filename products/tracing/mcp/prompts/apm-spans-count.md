@@ -10,6 +10,8 @@ All parameters must be nested inside a `query` object.
 
 This counts **spans**, not traces. A single trace contains many spans, so a count of matching spans will exceed the number of matching traces.
 
+If the count would scan too much data (a wide date range with no filters), the tool returns a 400 asking you to narrow the window or add filters — narrow the `dateRange` or add `serviceNames` / `statusCodes` / `filterGroup`, then retry.
+
 # Parameters
 
 All parameters go inside `query`.

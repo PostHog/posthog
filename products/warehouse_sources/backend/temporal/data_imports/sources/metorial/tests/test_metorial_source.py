@@ -8,7 +8,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetorialSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metorial import (
+    MetorialSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.metorial import MetorialResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source import MetorialSource
 

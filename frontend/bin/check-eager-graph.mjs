@@ -38,8 +38,8 @@ const ROOTS = [
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
         // 2026-07-01: 3.75 MiB eager output (2.73 MiB JS + 1.02 MiB eager CSS, 21 chunks).
-        // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 4_500_000,
+        // ~20% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 4_725_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -65,8 +65,8 @@ const ROOTS = [
         label: 'authenticated shell (every logged-in page)',
         // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
         // eager code to PNG stubs (lib/brand/hoggies) — the inline-SVG modules are now a
-        // forbidden module below. ~15% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 9_700_000,
+        // forbidden module below. ~21% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 10_185_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',

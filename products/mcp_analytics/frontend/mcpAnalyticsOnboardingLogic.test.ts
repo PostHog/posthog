@@ -1,7 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
@@ -68,5 +70,37 @@ describe('mcpAnalyticsOnboardingLogic', () => {
         const logic = mountWith([[1, 0, 0, '1970-01-01T00:00:00Z']])
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.signals?.firstCallAt).toBeNull()
+    })
+
+    // Guards the connect + mapping into the app-wide setup-status layer: if either
+    // breaks, the scene empty-state gate stays on its loading spinner forever.
+    it.each([
+        [[[1, 1, 1, '2026-07-01T00:00:00Z']], 'has-data'],
+        [[[1, 0, 0, '1970-01-01T00:00:00Z']], 'waiting-for-data'],
+        [[[0, 0, 0, '1970-01-01T00:00:00Z']], 'needs-setup'],
+    ])('pushes signal row %j into productSetupStatusLogic as %s', async (results, expected) => {
+        const logic = mountWith(results)
+        await expectLogic(logic).toFinishAllListeners()
+        const setupLogic = productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS })
+        expect(setupLogic.values.status).toBe(expected)
+    })
+
+    // Guards the fail-open path: a persistently failing signal query must publish
+    // `unknown` (gate renders the scene), not leave the gate on its spinner forever.
+    it('publishes unknown when the signal query fails before any answer exists', async () => {
+        jest.spyOn(mockApi, 'query').mockRejectedValue(new Error('query failed'))
+        const logic = mcpAnalyticsOnboardingLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('unknown')
+    })
+
+    it('a failing poll never downgrades an existing answer', async () => {
+        const logic = mountWith([[1, 1, 1, '2026-07-01T00:00:00Z']])
+        await expectLogic(logic).toFinishAllListeners()
+        jest.spyOn(mockApi, 'query').mockRejectedValue(new Error('query failed'))
+        logic.actions.loadSignals()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('has-data')
     })
 })

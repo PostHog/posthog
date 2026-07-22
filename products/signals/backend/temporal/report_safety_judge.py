@@ -99,6 +99,7 @@ async def judge_report_safety(
         validate=validate,
         thinking=True,
         stage="report_safety_judge",
+        ai_product="signals_safety",
     )
 
 
