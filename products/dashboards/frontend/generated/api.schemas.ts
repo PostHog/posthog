@@ -4621,6 +4621,7 @@ export const IntegrationKindApi = {
     BingAds: 'bing-ads',
     Vercel: 'vercel',
     AzureBlob: 'azure-blob',
+    AzureDevops: 'azure-devops',
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
