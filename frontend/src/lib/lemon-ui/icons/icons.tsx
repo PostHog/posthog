@@ -547,6 +547,54 @@ export function IconInsightCalendarHeatmap(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Number (bold number) insights: the 123 glyph in series blue. */
+export function IconInsightNumber(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M7,15H5.5v-4.5H4V9h3V15z M13.5,13.5h-3v-1h2c0.55,0,1-0.45,1-1V10c0-0.55-0.45-1-1-1H9v1.5h3v1h-2c-0.55,0-1,0.45-1,1V15 h4.5V13.5z M19.5,14v-4c0-0.55-0.45-1-1-1H15v1.5h3v1h-2v1h2v1h-3V15h3.5C19.05,15,19.5,14.55,19.5,14z"
+                fill={INSIGHT_BLUE}
+                transform="translate(12 12) scale(1.3) translate(-12 -12)"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Table insights: a solid header row above label/value rows fading down the ranking. */
+export function IconInsightTable(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="4.5" width="16.5" height="3.6" rx="0.75" fill={INSIGHT_BLUE} />
+            <rect x="3.75" y="10" width="5" height="3.6" rx="0.75" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="10.25" y="10" width="10" height="3.6" rx="0.75" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="3.75" y="15.5" width="5" height="3.6" rx="0.75" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+            <rect x="10.25" y="15.5" width="10" height="3.6" rx="0.75" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+        </LemonIconBase>
+    )
+}
+
+/** Pie insights: breakdown slices fading like the chart's series shades. */
+export function IconInsightPie(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path d="M12 12 L12 3.75 A8.25 8.25 0 0 1 12 20.25 Z" fill={INSIGHT_BLUE} />
+            <path d="M12 12 L12 20.25 A8.25 8.25 0 0 1 4.16 9.44 Z" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <path d="M12 12 L4.16 9.44 A8.25 8.25 0 0 1 12 3.75 Z" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+        </LemonIconBase>
+    )
+}
+
+/** World map insights: a globe stroked in series blue at the nav-icon line weight. */
+export function IconInsightWorldMap(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke={INSIGHT_BLUE} strokeWidth="1.5" strokeLinecap="round" {...props}>
+            <circle cx="12" cy="12" r="8.25" strokeWidth="1.75" />
+            <ellipse cx="12" cy="12" rx="3.9" ry="8.25" />
+            <path d="M3.75 12h16.5" />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design 123 icon. */
 export function Icon123(props: LemonIconProps): JSX.Element {
     return (
