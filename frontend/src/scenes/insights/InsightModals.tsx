@@ -115,6 +115,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                     insightShortId={insight.short_id as InsightShortId}
                     insightId={insight.id}
+                    insightName={insight.name}
                     onEditSuccess={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                     insightLogicProps={insightLogicProps}
                 />
