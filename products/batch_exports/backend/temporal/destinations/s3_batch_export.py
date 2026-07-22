@@ -94,6 +94,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "S3CredentialIntegrationError",
+    # The multipart upload was aborted externally (e.g. bucket lifecycle rule) before we finished
+    "S3MultipartUploadNotFoundError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -224,6 +226,24 @@ class NoUploadInProgressError(Exception):
 
     def __init__(self):
         super().__init__("No multi-part upload is in progress. Call 'create' to start one.")
+
+
+class S3MultipartUploadNotFoundError(Exception):
+    """Raised when completing a multipart upload fails because the upload no longer exists.
+
+    S3 returns `NoSuchUpload` when the upload ID we're trying to complete has been aborted
+    externally before we finished — most commonly a destination bucket lifecycle rule that
+    aborts incomplete multipart uploads, or an upload that expired during a slow, long-running
+    export. Retrying can't recover a gone upload, so we surface this as a non-retryable error.
+    """
+
+    def __init__(self, key: str):
+        super().__init__(
+            f"The multipart upload for key '{key}' no longer exists, so it couldn't be completed. "
+            "This usually means the upload was aborted before the export finished — check the "
+            "destination bucket for a lifecycle rule that aborts incomplete multipart uploads, and "
+            "make sure exports have enough time to complete."
+        )
 
 
 class IntermittentUploadPartTimeoutError(Exception):
@@ -1195,12 +1215,18 @@ class ConcurrentS3Consumer(Consumer):
                 "batch_export.s3.num_parts": len(sorted_parts),
             },
         ):
-            await self.s3_client.complete_multipart_upload(
-                Bucket=self.bucket,
-                Key=current_key,
-                UploadId=self.upload_id,
-                MultipartUpload={"Parts": sorted_parts},
-            )
+            try:
+                await self.s3_client.complete_multipart_upload(
+                    Bucket=self.bucket,
+                    Key=current_key,
+                    UploadId=self.upload_id,
+                    MultipartUpload={"Parts": sorted_parts},
+                )
+            except botocore.exceptions.ClientError as err:
+                error_code = err.response.get("Error", {}).get("Code", None)
+                if error_code == "NoSuchUpload":
+                    raise S3MultipartUploadNotFoundError(current_key) from err
+                raise
 
     async def _abort(self):
         """Abort this S3 multi-part upload and cancel any in-flight part uploads."""
