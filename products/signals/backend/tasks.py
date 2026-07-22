@@ -17,7 +17,6 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import SignalReportRefund
-from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 
 logger = structlog.get_logger(__name__)
@@ -70,6 +69,11 @@ def send_reviewer_added_slack_notifications(
     Slack user lookups, chat.postMessage) that must not hold up the reviewer-edit request.
     Best-effort end to end — the dispatcher logs per-destination failures itself.
     """
+    # Imported here rather than at module level: signal_metadata drags posthog.schema and
+    # posthog.hogql.query onto the django.setup() path (tasks are autodiscovered by celery),
+    # which the startup import budget forbids.
+    from products.signals.backend.signal_metadata import fetch_source_products_for_reports  # noqa: PLC0415
+
     team = Team.objects.get(id=team_id)
     # Source products are cosmetic (one metadata line in the message), so a failure fetching
     # them must not suppress the ping itself.
