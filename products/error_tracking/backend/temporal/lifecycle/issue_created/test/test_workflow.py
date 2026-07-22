@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -22,9 +24,11 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.activities
     _decode_token_prefix,
     _fetch_event_properties,
     error_tracking_event_properties_key,
+    generate_issue_created_embedding_activity,
     render_stacktrace,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
+    EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
     GeneratedIssueEmbedding,
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
@@ -107,6 +111,50 @@ def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
     )
 
 
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_embedding_service_timeout_is_classified_as_retryable(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+    render_stacktrace: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    render_stacktrace.return_value = "TypeError: boom"
+    generate_embedding.side_effect = requests.Timeout("embedding timeout")
+
+    with pytest.raises(ApplicationError) as error:
+        generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    assert error.value.type == EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE
+    assert error.value.non_retryable is False
+
+
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.render_stacktrace")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities._fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.get")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.generate_embedding")
+def test_embedding_service_rejected_request_is_non_retryable(
+    generate_embedding: MagicMock,
+    get_team: MagicMock,
+    fetch_event_properties: MagicMock,
+    render_stacktrace: MagicMock,
+) -> None:
+    get_team.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    render_stacktrace.return_value = "TypeError: boom"
+    generate_embedding.side_effect = requests.HTTPError(response=MagicMock(status_code=400))
+
+    with pytest.raises(ApplicationError) as error:
+        generate_issue_created_embedding_activity(_inputs("fingerprint"))
+
+    assert error.value.type == "EmbeddingRequestRejected"
+    assert error.value.non_retryable is True
+
+
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.execute_hogql_query")
 @patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.get_client")
@@ -148,6 +196,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
 
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
+        if inputs.fingerprint == "embedding-unavailable":
+            raise ApplicationError(
+                "embedding unavailable",
+                type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+            )
         return IssueEmbeddingPreparationResult(
             team_exists=True,
             embedding=GeneratedIssueEmbedding(
@@ -194,6 +247,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         ):
             merged_inputs = _inputs("merged")
             unmerged_inputs = _inputs("unmerged")
+            embedding_unavailable_inputs = _inputs("embedding-unavailable")
             merged_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 merged_inputs,
@@ -206,9 +260,22 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            embedding_unavailable_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueCreatedWorkflow.run,
+                embedding_unavailable_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
 
     assert merged_result == IssueCreatedWorkflowResult(merged=True)
     assert unmerged_result == IssueCreatedWorkflowResult(notified=True)
-    assert event_issue_ids == [unmerged_inputs.issue_id]
-    assert signal_issue_ids == [unmerged_inputs.issue_id]
-    assert signal_attempts == {unmerged_inputs.issue_id: 2}
+    assert embedding_unavailable_result == IssueCreatedWorkflowResult(
+        notified=True,
+        embedding_skipped_reason="embedding_service_unavailable",
+    )
+    assert event_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
+    assert signal_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
+    assert signal_attempts == {
+        unmerged_inputs.issue_id: 2,
+        embedding_unavailable_inputs.issue_id: 2,
+    }

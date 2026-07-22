@@ -5,6 +5,8 @@ from typing import cast
 from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
+import httpx
+import requests
 import tiktoken
 import posthoganalytics
 from asgiref.sync import sync_to_async
@@ -12,6 +14,7 @@ from confluent_kafka import KafkaError, KafkaException
 from prometheus_client import Counter, Histogram
 from redis.exceptions import RedisError
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -38,6 +41,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingResultInputs,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
+    EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
     GeneratedIssueEmbedding,
     IssueCreatedWorkflowInputs,
     IssueEmbeddingPreparationResult,
@@ -270,7 +274,25 @@ def generate_issue_created_embedding_activity(
         return IssueEmbeddingPreparationResult(team_exists=True, skipped_reason=skipped_reason)
 
     content = render_stacktrace(event_properties, EMBEDDING_MAX_TOKENS)
-    response = generate_embedding(team, content, model=EMBEDDING_MODEL, no_truncate=True, timeout=60)
+    try:
+        response = generate_embedding(team, content, model=EMBEDDING_MODEL, no_truncate=True, timeout=60)
+    except (requests.RequestException, httpx.HTTPError) as error:
+        status_code = getattr(getattr(error, "response", None), "status_code", None)
+        if status_code is not None and status_code < 500 and status_code != 429:
+            raise ApplicationError(
+                f"Embedding service rejected the request with status {status_code}",
+                type="EmbeddingRequestRejected",
+                non_retryable=True,
+            ) from error
+        raise ApplicationError(
+            "Embedding service is unavailable",
+            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+        ) from error
+    except (KeyError, TypeError) as error:
+        raise ApplicationError(
+            "Embedding service returned an invalid response",
+            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+        ) from error
     return IssueEmbeddingPreparationResult(
         team_exists=True,
         embedding=GeneratedIssueEmbedding(

@@ -2,6 +2,8 @@ import dataclasses
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingResultInputs
 
+EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE = "EmbeddingServiceUnavailable"
+
 
 @dataclasses.dataclass(frozen=True)
 class IssueCreatedSnapshot:

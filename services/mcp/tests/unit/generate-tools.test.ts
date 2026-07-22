@@ -990,6 +990,44 @@ describe('rename_params', () => {
     })
 })
 
+describe('param_overrides aliases', () => {
+    it('wraps the composed schema with normalizeParamAliases and imports the helper', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: {
+                id: { aliases: ['thingId', 'thing_id'] },
+            },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
+        expect(result.code).toContain(
+            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+        )
+    })
+})
+
 describe('x-accepts-stringified-json query params', () => {
     function resolvedWith(parameters: NonNullable<ResolvedOperation['operation']['parameters']>): ResolvedOperation {
         return makeResolved({

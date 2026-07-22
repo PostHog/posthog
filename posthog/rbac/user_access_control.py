@@ -81,6 +81,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "logs",
     "metrics",
     "tracing",
+    "replay_scanner",
     "toolbar",
 )
 
@@ -106,6 +107,10 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
     # AccessControlResourceType.WebAnalytics).
     "marketing_analytics": "web_analytics",
+    # Vision actions are a second data model of the Replay Vision product (the
+    # scanner's "and then…" automations) — configured via the same single
+    # replay_scanner rule rather than a separate resource.
+    "vision_action": "replay_scanner",
 }
 
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(

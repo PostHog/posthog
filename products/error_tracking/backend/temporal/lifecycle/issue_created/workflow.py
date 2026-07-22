@@ -2,11 +2,13 @@ import json
 from datetime import timedelta
 
 from temporalio import common, workflow
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingMergeResult
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
+    EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
     IssueCreatedWorkflowResult,
@@ -21,6 +23,11 @@ ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=10,
 )
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
+EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=15),
+    maximum_attempts=4,
+)
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -42,13 +49,34 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: IssueCreatedWorkflowInputs) -> IssueCreatedWorkflowResult:
-        preparation = await workflow.execute_activity(
-            "generate_issue_created_embedding_activity",
-            inputs,
-            result_type=IssueEmbeddingPreparationResult,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
+        try:
+            preparation = await workflow.execute_activity(
+                "generate_issue_created_embedding_activity",
+                inputs,
+                result_type=IssueEmbeddingPreparationResult,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=EMBEDDING_ACTIVITY_RETRY_POLICY,
+            )
+        except ActivityError as error:
+            if not (
+                isinstance(error.cause, ApplicationError)
+                and error.cause.type == EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE
+            ):
+                raise
+            workflow.logger.warning("Embedding service unavailable; emitting issue-created side effects without merge")
+            (
+                workflow.metric_meter()
+                .with_additional_attributes({"reason": "embedding_service_unavailable"})
+                .create_counter(
+                    "error_tracking_issue_created_embedding_fail_open",
+                    "Issue-created workflows that emitted side effects after embedding became unavailable",
+                )
+                .add(1)
+            )
+            preparation = IssueEmbeddingPreparationResult(
+                team_exists=True,
+                skipped_reason="embedding_service_unavailable",
+            )
         if not preparation.team_exists:
             return IssueCreatedWorkflowResult()
 
