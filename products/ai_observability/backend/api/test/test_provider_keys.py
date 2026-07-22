@@ -1248,6 +1248,31 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertIn("not found", response.data["detail"])
         self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
 
+    def test_delete_with_self_as_replacement_fails(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/?replacement_key_id={key.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("key being deleted", response.data["detail"])
+        self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
+        model_config.refresh_from_db()
+        self.assertEqual(model_config.provider_key, key)
+
     def test_delete_with_other_teams_replacement_key_fails(self):
         other_team = _setup_team()
         key = LLMProviderKey.objects.create(
