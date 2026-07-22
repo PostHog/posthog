@@ -165,7 +165,6 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
@@ -1749,18 +1748,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ]
         return super().get_throttles()
 
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # Wrapped in a span so the source-list load — historically slow enough to be user-visible —
-        # is diagnosable in tracing: source count and total serialized schema count are the two
-        # things that drive its cost.
-        with tracer.start_as_current_span("data_warehouse.external_data_sources.list") as span:
-            span.set_attribute("team_id", self.team_id)
-            response = super().list(request, *args, **kwargs)
-            # Pagination is always on for this endpoint, so `results` is always a list of serialized sources.
-            results = response.data["results"]
-            span.set_attribute("sources.count", len(results))
-            span.set_attribute("schemas.count", sum(len(source.get("schemas") or []) for source in results))
-            return response
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # Tag the request span with the two things that drive source-list load cost — source count and
+        # total serialized schema count — so the historically-slow list endpoint is diagnosable in
+        # tracing. Done here rather than by overriding `list`, since a method named `list` would shadow
+        # the builtin `list[...]` type used in annotations elsewhere in this class. Guarded for shape
+        # because finalize_response also runs for error responses (no `results`) and other actions.
+        if self.action == "list" and isinstance(response.data, dict):
+            results = response.data.get("results")
+            if isinstance(results, list):
+                span = trace.get_current_span()
+                span.set_attribute("data_warehouse.sources.count", len(results))
+                span.set_attribute(
+                    "data_warehouse.sources.schemas.count",
+                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                )
+        return response
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
