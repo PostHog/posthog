@@ -99,15 +99,13 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).toContain('2024-01-31')
         })
 
-        // The spend tab renders two insights off one logic — hiding a series on one must not hide it
-        // on the other, and stale keys must not survive into a redrawn date range.
-        it('toggles hidden series keys per insight and resets them on date change', () => {
+        it('keeps hidden series keyed per insight, so hiding on one of the two spend charts sharing this logic does not hide on the other, and resets them on date change', () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
             mountForKind()
 
             logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
             logic.actions.toggleHiddenSeriesKey('insight-b', 'Recordings-1', 2)
-            expect(logic.values.hiddenSeriesKeysByShortId).toEqual({
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
                 'insight-a': ['Events-0'],
                 'insight-b': ['Recordings-1'],
             })
@@ -118,7 +116,10 @@ describe('accountBillingLogic', () => {
             })
 
             logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
-            expect(logic.values.hiddenSeriesKeysByShortId).toEqual({ 'insight-a': [], 'insight-b': ['Recordings-1'] })
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': [],
+                'insight-b': ['Recordings-1'],
+            })
             expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
                 kind,
                 is_hidden: false,
@@ -126,7 +127,7 @@ describe('accountBillingLogic', () => {
             })
 
             logic.actions.setDateRange('2024-01-01', '2024-01-31')
-            expect(logic.values.hiddenSeriesKeysByShortId).toEqual({})
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({})
         })
 
         // Environments without the saved billing insight (or a failing fetch) must degrade to an

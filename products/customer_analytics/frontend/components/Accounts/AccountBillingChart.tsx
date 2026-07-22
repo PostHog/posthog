@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
+    type ChartTheme,
+    type LegendItem,
     TimeSeriesBarChart,
     TimeSeriesComboChart,
     TimeSeriesLineChart,
@@ -52,6 +54,15 @@ export function canRenderBillingChart(query: Record<string, any> | null): query 
 
 const handleChartError = (error: Error): void => {
     posthog.captureException(error, { scope: 'AccountBillingChart' })
+}
+
+function chipItemsFromChartOwnSeries(
+    yData: LineGraphProps['yData'],
+    visualizationType: ChartDisplayType,
+    theme: ChartTheme
+): LegendItem[] {
+    const ySeriesData = capYSeriesData(yData)
+    return ySeriesData?.length ? legendItemsFromSeries(buildSeries(ySeriesData, visualizationType), theme) : []
 }
 
 function BillingChartByKind({
@@ -160,7 +171,7 @@ export function AccountBillingChart({
     variablesOverride: Record<string, HogQLVariable> | null
 }): JSX.Element {
     const billingLogic = accountBillingLogic(logicProps)
-    const { hiddenSeriesKeysByShortId } = useValues(billingLogic)
+    const { ephemeralHiddenSeriesKeysByShortId } = useValues(billingLogic)
     const { toggleHiddenSeriesKey } = useActions(billingLogic)
 
     const vizLogic = dataVisualizationLogic({
@@ -175,7 +186,7 @@ export function AccountBillingChart({
         useValues(vizLogic)
     const theme = useChartTheme()
 
-    const hiddenKeys = hiddenSeriesKeysByShortId[shortId] ?? []
+    const hiddenKeys = ephemeralHiddenSeriesKeysByShortId[shortId] ?? []
     const chartProps: LineGraphProps = {
         xData,
         yData,
@@ -183,11 +194,7 @@ export function AccountBillingChart({
         chartSettings,
         goalLines: chartSettings.goalLines,
     }
-    // Derived from the same buildSeries output the chart draws, so chip keys and colors can't drift.
-    const ySeriesData = capYSeriesData(yData)
-    const chipItems = ySeriesData?.length
-        ? legendItemsFromSeries(buildSeries(ySeriesData, effectiveVisualizationType), theme)
-        : []
+    const chipItems = chipItemsFromChartOwnSeries(yData, effectiveVisualizationType, theme)
 
     let content: JSX.Element | null
     if (responseError) {
