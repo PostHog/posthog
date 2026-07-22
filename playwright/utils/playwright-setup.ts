@@ -273,40 +273,27 @@ export class PlaywrightSetup {
         return workspace
     }
 
+    // Login via the context's request client rather than an in-page fetch: the app on
+    // /login can trigger a full navigation at any time, destroying an in-flight
+    // page.evaluate. Cookies from the response propagate to the browser context.
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        await page.goto(`${this.baseURL}/login`)
-        await page.waitForLoadState('networkidle')
-        await page.evaluate(
-            async ({ email, password }) => {
-                const maxAttempts = 3
-                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                    try {
-                        const res = await fetch('/api/login/', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ email, password }),
-                        })
-                        if (res.ok) {
-                            return
-                        }
-                        if (attempt === maxAttempts || res.status < 500) {
-                            throw new Error(`Login failed with status ${res.status}`)
-                        }
-                    } catch (e) {
-                        if (attempt === maxAttempts) {
-                            throw e
-                        }
-                    }
-                    await new Promise((r) => setTimeout(r, 500 * attempt))
+        const maxAttempts = 3
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const res = await page.request.post(`${this.baseURL}/api/login/`, {
+                    data: { email: workspace.user_email, password: LOGIN_PASSWORD },
+                })
+                if (res.ok()) {
+                    return
                 }
-            },
-            {
-                email: workspace.user_email,
-                password: LOGIN_PASSWORD,
+                throw new Error(`Login failed with status ${res.status()}`)
+            } catch (e) {
+                if (attempt === maxAttempts) {
+                    throw e
+                }
             }
-        )
+            await this.delay(500 * attempt)
+        }
     }
 
     /**
