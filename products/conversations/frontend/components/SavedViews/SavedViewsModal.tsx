@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
+import { IconHeart, IconHeartFilled } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -113,10 +114,38 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
 }
 
 export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, views, viewsLoading, currentFilters } = useValues(ticketViewsLogic({ id }))
-    const { closeModal, openSaveModal, deleteView, loadView, updateView } = useActions(ticketViewsLogic({ id }))
+    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
+        ticketViewsLogic({ id })
+    )
+    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
+        ticketViewsLogic({ id })
+    )
 
     const columns: LemonTableColumns<SavedTicketView> = [
+        {
+            title: '',
+            key: 'favorite',
+            width: 0,
+            render: (_, view) => (
+                <LemonButton
+                    size="xsmall"
+                    loading={favoritingShortIds.includes(view.short_id)}
+                    onClick={() => toggleFavorite(view)}
+                    icon={
+                        view.is_favorited ? (
+                            <IconHeartFilled className="text-danger" />
+                        ) : (
+                            <IconHeart className="text-secondary" />
+                        )
+                    }
+                    tooltip={
+                        view.is_favorited
+                            ? 'Remove from your favorites (only visible to you)'
+                            : 'Add to your favorites (only visible to you)'
+                    }
+                />
+            ),
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -246,14 +275,23 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     </div>
                 }
             >
-                <LemonTable
-                    columns={columns}
-                    dataSource={views}
-                    rowKey="id"
-                    loading={viewsLoading}
-                    emptyState="No saved views yet."
-                    size="small"
-                />
+                <div className="space-y-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search views"
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        autoFocus
+                    />
+                    <LemonTable
+                        columns={columns}
+                        dataSource={filteredViews}
+                        rowKey="id"
+                        loading={viewsLoading}
+                        emptyState={searchTerm ? 'No matching views.' : 'No saved views yet.'}
+                        size="small"
+                    />
+                </div>
             </LemonModal>
             <SaveViewModal id={id} />
         </>

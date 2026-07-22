@@ -91,7 +91,9 @@ export const getStorybookAppContext = (): AppContext => ({
         activity_log: 'viewer',
         customer_analytics: 'manager',
         llm_analytics: 'manager',
+        toolbar: 'viewer',
         error_tracking: 'manager',
         metrics: 'manager',
+        replay_scanner: 'manager',
     },
 })

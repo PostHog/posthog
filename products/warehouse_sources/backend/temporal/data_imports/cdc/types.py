@@ -56,6 +56,12 @@ class ChangeEvent:
     # flush is inferred as string while a concrete flush is int64, and the two Parquet
     # schemas fail to merge. Shared across all events of one relation; None when unknown.
     column_types: Mapping[str, pa.DataType] | None = None
+    # Columns whose value the change stream did not include because it is unchanged
+    # from the previous row version (Postgres: unchanged TOAST values in UPDATEs).
+    # These are absent from `columns`, but unlike a plain absence they are known to
+    # still hold their previous value — downstream must fill them from the last known
+    # row state instead of writing NULL.
+    omitted_columns: frozenset[str] = frozenset()
 
 
 class CDCStreamReader(Protocol):
