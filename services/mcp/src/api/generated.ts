@@ -42193,6 +42193,9 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface ReplayScanner {
       readonly id: string;
       /**
@@ -42265,6 +42268,11 @@ export namespace Schemas {
       readonly updated_at: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -45525,6 +45533,9 @@ export namespace Schemas {
       prompt_guide?: string;
     }
 
+    /**
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+     */
     export interface VisionAction {
       readonly id: string;
       /**
@@ -50820,6 +50831,9 @@ export namespace Schemas {
       person_id?: string;
     }
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface PatchedReplayScanner {
       readonly id?: string;
       /**
@@ -50892,6 +50906,11 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes?: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedReviewBlindSpotsConfigSelect {
@@ -53119,6 +53138,9 @@ export namespace Schemas {
       configuration?: unknown;
     }
 
+    /**
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+     */
     export interface PatchedVisionAction {
       readonly id?: string;
       /**

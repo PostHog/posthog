@@ -401,7 +401,7 @@ describe('EmailTrackingService', () => {
     })
 
     describe('SES webhook writes to the suppression list', () => {
-        // EmailSuppressionService reads its flags from `hub.EMAIL_SUPPRESSION_*` (via CdpConfig),
+        // EmailSuppressionService reads its threshold from `hub.EMAIL_SUPPRESSION_*` (via CdpConfig),
         // not directly from process.env. The outer beforeEach recreates `hub` per test, so overriding
         // here doesn't leak across tests — no restore in afterEach needed. Threshold=1 keeps the test
         // to a single POST — the counter arithmetic is not what this test is guarding, the write-path
@@ -412,7 +412,6 @@ describe('EmailTrackingService', () => {
         let verifySignatureSpy: jest.SpyInstance
 
         beforeEach(() => {
-            hub.EMAIL_SUPPRESSION_WRITE_ENABLED = true
             hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = 1
 
             api = new CdpApi(hub, createCdpConsumerDeps(hub), {
