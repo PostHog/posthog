@@ -473,6 +473,25 @@ export function formatRunInterval(minutes: number): string {
     return `Every ${minutes} minutes`
 }
 
+/**
+ * "30 9 * * *" → "09:30" when the cron is a plain daily time (the shape the settings form
+ * writes). Anything richer (multiple slots, day-of-week restrictions) returns null and is
+ * displayed as the raw expression instead.
+ */
+export function dailyCronToTime(cron: string | null | undefined): string | null {
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/)
+    if (!match) {
+        return null
+    }
+    return `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}`
+}
+
+/** "09:30" → "30 9 * * *" — the inverse of `dailyCronToTime` for the settings form's time picker. */
+export function timeToDailyCron(time: string): string {
+    const [hours, minutes] = time.split(':')
+    return `${Number(minutes)} ${Number(hours)} * * *`
+}
+
 /** Short form for row badges: "hourly", "every 3h". */
 export function formatRunIntervalShort(minutes: number): string {
     if (minutes === 60) {

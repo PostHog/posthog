@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -36,6 +37,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
@@ -940,6 +942,37 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         }
 
 
+class TestRunCronScheduleValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain_daily", "30 9 * * *", True),
+            ("twice_daily", "0 9,17 * * *", True),
+            ("weekdays_only", "0 9 * * 1-5", True),
+            ("padded_input_is_normalized", "  30 9 * * *  ", True),
+            ("not_a_cron", "not a cron", False),
+            ("minute_out_of_range", "60 9 * * *", False),
+            ("alias_form_rejected", "@daily", False),
+            ("six_field_form_rejected", "0 30 9 * * *", False),
+            ("sub_30_minute_gap_rejected", "*/15 * * * *", False),
+            ("uneven_gap_below_floor_rejected", "0,20 9 * * *", False),
+        ]
+    )
+    def test_run_cron_schedule_validation(self, _name: str, expression: str, valid: bool) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"run_cron_schedule": expression}, partial=True)
+
+        assert serializer.is_valid() is valid
+        if valid:
+            assert serializer.validated_data["run_cron_schedule"] == expression.strip()
+        else:
+            assert "run_cron_schedule" in serializer.errors
+
+    def test_null_clears_without_validation(self) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"run_cron_schedule": None}, partial=True)
+
+        assert serializer.is_valid()
+        assert serializer.validated_data["run_cron_schedule"] is None
+
+
 class TestScoutHarnessConfigAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
@@ -1098,33 +1131,35 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 20}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_partial_update_sets_daily_run_time_and_clears_it_for_other_cadences(self) -> None:
+    def test_partial_update_sets_and_clears_cron_schedule(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
-        daily_response = self.client.patch(
+        set_response = self.client.patch(
             self._detail_url(str(config.id)),
-            data={"run_interval_minutes": 1440, "run_time_of_day": "09:30:00"},
+            data={"run_cron_schedule": "30 9 * * 1-5"},
             format="json",
         )
 
-        assert daily_response.status_code == status.HTTP_200_OK
-        assert daily_response.json()["run_time_of_day"] == "09:30:00"
+        assert set_response.status_code == status.HTTP_200_OK
+        assert set_response.json()["run_cron_schedule"] == "30 9 * * 1-5"
+        config.refresh_from_db()
+        assert config.run_cron_schedule == "30 9 * * 1-5"
 
-        hourly_response = self.client.patch(
-            self._detail_url(str(config.id)), data={"run_interval_minutes": 60}, format="json"
+        clear_response = self.client.patch(
+            self._detail_url(str(config.id)), data={"run_cron_schedule": None}, format="json"
         )
 
-        assert hourly_response.status_code == status.HTTP_200_OK
+        assert clear_response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
-        assert config.run_interval_minutes == 60
-        assert config.run_time_of_day is None
+        assert config.run_cron_schedule is None
 
-    def test_partial_update_rejects_run_time_for_non_daily_cadence(self) -> None:
+    def test_partial_update_rejects_invalid_cron_schedule(self) -> None:
+        # Wiring guard for the serializer-level validation matrix in TestRunCronScheduleValidation.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
         response = self.client.patch(
             self._detail_url(str(config.id)),
-            data={"run_interval_minutes": 60, "run_time_of_day": "09:30:00"},
+            data={"run_cron_schedule": "*/15 * * * *"},
             format="json",
         )
 
@@ -1132,8 +1167,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "A run time can only be set when the cadence is daily (1440 minutes).",
-            "attr": "run_time_of_day",
+            "detail": "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes).",
+            "attr": "run_cron_schedule",
         }
 
     def test_partial_update_cannot_change_skill_name(self) -> None:

@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+from croniter import CroniterError, croniter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -392,25 +393,36 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
     """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
-    if config.run_interval_minutes == 1440 and config.run_time_of_day is not None:
-        # `updated_at` anchors a newly saved schedule so selecting a future daily time waits
-        # for that occurrence instead of immediately catching up against yesterday's slot.
+    if config.run_cron_schedule:
+        # `updated_at` anchors a newly saved schedule so selecting a future slot waits for that
+        # occurrence instead of immediately catching up against a slot from before the edit.
         schedule_reference = max(
             reference for reference in (config.last_run_at, config.updated_at) if reference is not None
         )
         local_schedule_reference = schedule_reference.astimezone(project_timezone)
-        first_unfulfilled_slot = datetime.combine(
-            local_schedule_reference.date(), config.run_time_of_day, project_timezone
-        )
-        if first_unfulfilled_slot <= schedule_reference:
-            first_unfulfilled_slot = datetime.combine(
-                local_schedule_reference.date() + timedelta(days=1), config.run_time_of_day, project_timezone
+        try:
+            # First occurrence strictly after the reference. Iterated in *naive* project-local
+            # time and re-localized afterwards: tz-aware croniter preserves the absolute interval
+            # across a DST change (shifting the local hour), but the contract here is wall-clock —
+            # a 9am schedule stays 9am local through DST transitions.
+            naive_slot = croniter(config.run_cron_schedule, local_schedule_reference.replace(tzinfo=None)).get_next(
+                datetime
             )
-        if now < first_unfulfilled_slot:
-            return None
-        # Keep measuring from the first missed slot until dispatch so bounded coordinator ticks
-        # cannot reset a deferred run's priority when the next daily slot arrives.
-        return (now - first_unfulfilled_slot.astimezone(now.tzinfo)).total_seconds()
+            first_unfulfilled_slot = naive_slot.replace(tzinfo=project_timezone)
+        except CroniterError:
+            # The expression is serializer-validated on write, so this only fires on out-of-band
+            # writes. Fall through to the rolling interval rather than killing the whole tick.
+            logger.warning(
+                "signals_scout_invalid_cron_schedule",
+                config_id=str(config.pk),
+                run_cron_schedule=config.run_cron_schedule,
+            )
+        else:
+            if now < first_unfulfilled_slot:
+                return None
+            # Keep measuring from the first missed slot until dispatch so bounded coordinator ticks
+            # cannot reset a deferred run's priority when the next scheduled slot arrives.
+            return (now - first_unfulfilled_slot).total_seconds()
 
     if config.last_run_at is None:
         return float("inf")

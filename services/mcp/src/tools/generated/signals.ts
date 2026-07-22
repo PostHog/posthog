@@ -512,8 +512,8 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
-        if (params.run_time_of_day !== undefined) {
-            body['run_time_of_day'] = params.run_time_of_day
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
@@ -590,8 +590,8 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
-        if (params.run_time_of_day !== undefined) {
-            body['run_time_of_day'] = params.run_time_of_day
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -976,8 +976,8 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
-        if (params.run_time_of_day !== undefined) {
-            body['run_time_of_day'] = params.run_time_of_day
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
@@ -1063,8 +1063,8 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
         }
-        if (params.run_time_of_day !== undefined) {
-            body['run_time_of_day'] = params.run_time_of_day
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',

@@ -14,7 +14,7 @@ const config: SignalScoutConfigApi = {
     enabled: true,
     emit: true,
     run_interval_minutes: 1440,
-    run_time_of_day: '09:00:00',
+    run_cron_schedule: '0 9 * * *',
     last_run_at: null,
     created_at: '2026-07-21T12:00:00Z',
 }
@@ -33,6 +33,6 @@ describe('ScoutConfigForm', () => {
         expect(onUpdate).not.toHaveBeenCalled()
 
         fireEvent.blur(input!)
-        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_time_of_day: '14:45:00' })
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '45 14 * * *' })
     })
 })

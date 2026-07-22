@@ -381,7 +381,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its schedule (`run_interval_minutes` and optional daily `run_time_of_day`), `enabled`, and `emit` posture. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
+ * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, and `emit` posture. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
@@ -393,7 +393,7 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, daily `run_time_of_day`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
@@ -408,6 +408,8 @@ export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
+
+export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
@@ -430,11 +432,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
-        run_time_of_day: zod.iso
-            .time({})
+        run_cron_schedule: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
             .nullish()
             .describe(
-                'Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically.'
+                "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
     })
     .describe(
@@ -442,7 +445,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes` and optional daily `run_time_of_day`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
@@ -456,6 +459,8 @@ export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
+
+export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -475,11 +480,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Use 1440 for a daily schedule.'),
-        run_time_of_day: zod.iso
-            .time({})
+        run_cron_schedule: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyRunCronScheduleMax)
             .nullish()
             .describe(
-                'Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Set null to return to a rolling 24-hour interval.'
+                "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule."
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')

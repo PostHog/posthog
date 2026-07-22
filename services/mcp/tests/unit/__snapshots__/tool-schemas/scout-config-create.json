@@ -10,23 +10,23 @@
             "description": "Whether this scout runs on its schedule. Defaults to true.",
             "type": "boolean"
         },
-        "run_interval_minutes": {
-            "description": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
-            "maximum": 43200,
-            "minimum": 30,
-            "type": "number"
-        },
-        "run_time_of_day": {
+        "run_cron_schedule": {
             "anyOf": [
                 {
-                    "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?$",
+                    "maxLength": 100,
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically."
+            "description": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+        },
+        "run_interval_minutes": {
+            "description": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "maximum": 43200,
+            "minimum": 30,
+            "type": "number"
         },
         "skill_name": {
             "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",

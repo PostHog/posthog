@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
@@ -8,7 +10,13 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatRunInterval, prettifyScoutSkillName, RUN_INTERVAL_OPTIONS } from '../../../utils/scoutRunsWindow'
+import {
+    dailyCronToTime,
+    formatRunInterval,
+    prettifyScoutSkillName,
+    RUN_INTERVAL_OPTIONS,
+    timeToDailyCron,
+} from '../../../utils/scoutRunsWindow'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -69,7 +77,12 @@ export function ScoutConfigForm({
     deleting,
     updating = false,
 }: ScoutConfigFormProps): JSX.Element {
-    const projectTimezone = teamLogic.values.currentTeam?.timezone ?? 'UTC'
+    const { currentTeam } = useValues(teamLogic)
+    const projectTimezone = currentTeam?.timezone ?? 'UTC'
+    const dailyTime = dailyCronToTime(config.run_cron_schedule)
+    // A cron the simple time picker can't express (e.g. "0 9 * * 1-5", set via the API) — shown
+    // as-is, and never silently overwritten by an untouched picker.
+    const hasCustomCron = Boolean(config.run_cron_schedule) && dailyTime === null
 
     return (
         <div className="flex flex-col gap-2">
@@ -90,7 +103,7 @@ export function ScoutConfigForm({
                         const runIntervalMinutes = Number(value)
                         onUpdate(config.id, {
                             run_interval_minutes: runIntervalMinutes,
-                            ...(runIntervalMinutes === 1440 ? {} : { run_time_of_day: null }),
+                            ...(runIntervalMinutes === 1440 ? {} : { run_cron_schedule: null }),
                         })
                     }}
                 />
@@ -100,24 +113,29 @@ export function ScoutConfigForm({
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Daily run time</span>
                         <span className="text-[11.5px] text-muted">
-                            Optional. Uses the project timezone ({projectTimezone})
+                            {hasCustomCron
+                                ? `Custom schedule "${config.run_cron_schedule}" (set via API)`
+                                : `Optional. Uses the project timezone (${projectTimezone})`}
                         </span>
                     </div>
                     <LemonInput
-                        key={config.run_time_of_day ?? 'unset'}
+                        key={config.run_cron_schedule ?? 'unset'}
                         type="time"
                         step={60}
                         size="small"
-                        defaultValue={config.run_time_of_day?.slice(0, 5) ?? ''}
+                        defaultValue={dailyTime ?? ''}
                         disabledReason={
                             updating ? 'Saving scout settings' : config.enabled ? undefined : 'Enable the scout first'
                         }
                         className="w-36"
                         onBlur={(event) => {
                             const value = event.currentTarget.value
-                            const runTimeOfDay = value ? `${value}:00` : null
-                            if (runTimeOfDay !== config.run_time_of_day) {
-                                onUpdate(config.id, { run_time_of_day: runTimeOfDay })
+                            if (!value && hasCustomCron) {
+                                return
+                            }
+                            const runCronSchedule = value ? timeToDailyCron(value) : null
+                            if (runCronSchedule !== config.run_cron_schedule) {
+                                onUpdate(config.id, { run_cron_schedule: runCronSchedule })
                             }
                         }}
                     />

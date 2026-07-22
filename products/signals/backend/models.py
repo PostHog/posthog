@@ -1103,7 +1103,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
     emit = models.BooleanField(default=True, db_default=True)
-    # Minutes between runs. Without a daily run time, the coordinator dispatches this scout when
+    # Minutes between runs. Without a cron schedule, the coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
     # no sampling. Floor of 30 keeps one scout from monopolizing the worker pool and matches the
     # tightest cadence the UI offers (RUN_INTERVAL_OPTIONS); default
@@ -1119,10 +1119,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
-    # Optional project-local anchor for daily schedules. The coordinator interprets this
-    # in `team.timezone`, so the configured wall-clock time follows daylight-saving changes
-    # without storing a second timezone on every scout config. Non-daily schedules leave it null.
-    run_time_of_day = models.TimeField(null=True, blank=True)
+    # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
+    # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
+    # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
+    # daylight-saving changes without storing a second timezone on every scout config.
+    # Serializer-validated (croniter + a 30-minute minimum gap between occurrences, matching
+    # the interval floor) — this field is only written through the config API.
+    run_cron_schedule = models.CharField(max_length=100, null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)

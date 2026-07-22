@@ -1437,10 +1437,10 @@ export interface SignalScoutConfigApi {
      */
     readonly run_interval_minutes: number
     /**
-     * Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Null keeps the rolling interval schedule.
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
      * @nullable
      */
-    readonly run_time_of_day: string | null
+    readonly run_cron_schedule: string | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -1472,10 +1472,11 @@ export interface SignalScoutConfigCreateApi {
      */
     run_interval_minutes?: number
     /**
-     * Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically.
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+     * @maxLength 100
      * @nullable
      */
-    run_time_of_day?: string | null
+    run_cron_schedule?: string | null
 }
 
 /**
@@ -1493,10 +1494,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     run_interval_minutes?: number
     /**
-     * Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. The project timezone is used automatically. Set null to return to a rolling 24-hour interval.
+     * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+     * @maxLength 100
      * @nullable
      */
-    run_time_of_day?: string | null
+    run_cron_schedule?: string | null
 }
 
 /**

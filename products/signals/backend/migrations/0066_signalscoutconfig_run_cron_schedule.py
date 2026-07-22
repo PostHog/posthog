@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalscoutconfig",
-            name="run_time_of_day",
-            field=models.TimeField(blank=True, null=True),
+            name="run_cron_schedule",
+            field=models.CharField(blank=True, max_length=100, null=True),
         ),
     ]

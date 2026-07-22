@@ -13,7 +13,12 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import {
+    dailyCronToTime,
+    formatRunIntervalShort,
+    prettifyScoutSkillName,
+    ScoutRollup,
+} from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { ScoutOriginBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -114,11 +119,13 @@ export function ScoutRowCard({
                         </div>
                     </div>
                     <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
+                        {/* A cron schedule overrides the rolling interval, so the badge shows it instead. */}
                         <span>
-                            {formatRunIntervalShort(config.run_interval_minutes)}
-                            {config.run_interval_minutes === 1440 && config.run_time_of_day
-                                ? ` at ${config.run_time_of_day.slice(0, 5)}`
-                                : ''}
+                            {config.run_cron_schedule
+                                ? dailyCronToTime(config.run_cron_schedule)
+                                    ? `daily at ${dailyCronToTime(config.run_cron_schedule)}`
+                                    : config.run_cron_schedule
+                                : formatRunIntervalShort(config.run_interval_minutes)}
                         </span>
                         {rollup && rollup.emittedCount > 0 ? (
                             <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>

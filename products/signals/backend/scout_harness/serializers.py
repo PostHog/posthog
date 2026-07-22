@@ -8,8 +8,9 @@ in `scout_harness/tools/` so the wire shape and Python shape stay in lockstep.
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, datetime
 
+from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -1520,12 +1521,12 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         max_value=43200,
         help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
     )
-    run_time_of_day = serializers.TimeField(
+    run_cron_schedule = serializers.CharField(
         read_only=True,
         allow_null=True,
         help_text=(
-            "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. "
-            "The project timezone is used automatically. Null keeps the rolling interval schedule."
+            "Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. "
+            "Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule."
         ),
     )
     last_run_at = serializers.DateTimeField(
@@ -1558,26 +1559,36 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "emit",
             "run_interval_minutes",
-            "run_time_of_day",
+            "run_cron_schedule",
             "last_run_at",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
 
 
-def _validate_scout_schedule(attrs: dict[str, Any], instance: SignalScoutConfig | None = None) -> dict[str, Any]:
-    run_interval_minutes = attrs.get(
-        "run_interval_minutes",
-        instance.run_interval_minutes if instance is not None else 1440,
-    )
-    requested_run_time = attrs.get("run_time_of_day")
-    if requested_run_time is not None and run_interval_minutes != 1440:
+# Matches the `run_interval_minutes` floor: one scout may not occupy the coordinator more
+# than once per 30 minutes, however the schedule is expressed.
+_CRON_MIN_GAP_SECONDS = 30 * 60
+# Occurrences sampled by the min-gap check. Enough to expose sub-30-minute patterns
+# (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
+_CRON_SAMPLE_OCCURRENCES = 100
+
+
+def _validate_run_cron_schedule(value: str) -> str:
+    expr = value.strip()
+    fields = expr.split()
+    # croniter also accepts 6/7-field (seconds/years) forms and @-aliases; restrict the API to
+    # the plain five-field shape so the stored expressions stay predictable across consumers.
+    if len(fields) != 5 or not croniter.is_valid(expr):
+        raise serializers.ValidationError("Not a valid five-field cron expression, e.g. '30 9 * * *' or '0 9 * * 1-5'.")
+    iterator = croniter(expr, datetime(2026, 1, 1, tzinfo=UTC))
+    occurrences = [iterator.get_next(datetime) for _ in range(_CRON_SAMPLE_OCCURRENCES)]
+    min_gap = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
+    if min_gap < _CRON_MIN_GAP_SECONDS:
         raise serializers.ValidationError(
-            {"run_time_of_day": "A run time can only be set when the cadence is daily (1440 minutes)."}
+            "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes)."
         )
-    if run_interval_minutes != 1440 and instance is not None and instance.run_time_of_day is not None:
-        attrs["run_time_of_day"] = None
-    return attrs
+    return expr
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
@@ -1597,21 +1608,24 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         max_value=43200,
         help_text="Minutes between runs (30–43200). Use 1440 for a daily schedule.",
     )
-    run_time_of_day = serializers.TimeField(
+    run_cron_schedule = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=100,
         help_text=(
-            "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. "
-            "The project timezone is used automatically. Set null to return to a rolling 24-hour interval."
+            "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
+            "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "
+            "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes "
+            "apart. Set null to return to the rolling interval schedule."
         ),
     )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        return _validate_scout_schedule(attrs, self.instance)
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
 
     class Meta:
         model = SignalScoutConfig
-        fields = ["enabled", "emit", "run_interval_minutes", "run_time_of_day"]
+        fields = ["enabled", "emit", "run_interval_minutes", "run_cron_schedule"]
 
 
 class SignalScoutConfigCreateSerializer(serializers.Serializer):
@@ -1645,17 +1659,19 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         max_value=43200,
         help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
-    run_time_of_day = serializers.TimeField(
+    run_cron_schedule = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=100,
         help_text=(
-            "Optional project-local time for a daily (1440-minute) schedule, formatted as HH:MM:SS. "
-            "The project timezone is used automatically."
+            "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
+            "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "
+            "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        return _validate_scout_schedule(attrs)
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_skill_name(self, value: str) -> str:
         # A config for a non-scout skill would never dispatch (the coordinator only considers
