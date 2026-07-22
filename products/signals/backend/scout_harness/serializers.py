@@ -47,8 +47,11 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         help_text="Canonical skill name the run executed (e.g. `signals-scout-general`)."
     )
     skill_version = serializers.IntegerField(help_text="Skill version snapshotted at run start.")
-    status = serializers.CharField(
-        help_text="Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled.",
+    status = serializers.ChoiceField(
+        # Value-only literals so drf-spectacular reuses the existing `RunStatusEnum` override
+        # (label-bearing TaskRun.Status choices would resolve to `TaskRunStatusEnum` instead).
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status from the linked TaskRun.",
     )
     created_at = serializers.CharField(
         help_text=(

@@ -2272,6 +2272,25 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
+
+export const RunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  *
  * Status and timestamps flow from the linked `tasks.TaskRun`.
@@ -2283,8 +2302,15 @@ export interface SignalScoutRunSummaryApi {
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-    status: string
+    /** Status from the linked TaskRun.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status: RunStatusEnumApi
     /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
     created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
@@ -2343,8 +2369,15 @@ export interface SignalScoutRunDetailApi {
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-    status: string
+    /** Status from the linked TaskRun.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status: RunStatusEnumApi
     /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
     created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */

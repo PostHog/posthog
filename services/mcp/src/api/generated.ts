@@ -61253,8 +61253,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
@@ -61313,8 +61320,15 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version snapshotted at run start. */
       skill_version: number;
-      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-      status: string;
+      /** Status from the linked TaskRun.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      status: RunStatusEnum;
       /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
       created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */

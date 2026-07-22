@@ -16,6 +16,7 @@ import {
     signalsScoutConfigUpdate,
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
+    signalsScoutRunsList,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
@@ -326,6 +327,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
             {
                 loadRunsWindow: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.runsWindow
+                    }
                     // Walk the full window newest→oldest, paginating via a `date_to` cursor so
                     // every scout shows its real run history (not just the fleet-wide newest 100).
                     const windowStart = dayjs().subtract(SCOUT_RUNS_WINDOW_HOURS, 'hours').toISOString()
@@ -335,7 +340,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     let complete = false
 
                     for (let page = 0; page < MAX_RUNS_PAGES; page++) {
-                        const pageRuns = await api.signalScout.runs.list({
+                        const pageRuns = await signalsScoutRunsList(String(teamId), {
                             limit: RUNS_PAGE_LIMIT,
                             date_from: windowStart,
                             date_to: cursor,
