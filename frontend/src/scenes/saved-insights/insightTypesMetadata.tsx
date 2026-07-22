@@ -24,7 +24,7 @@ import {
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconAction, IconBracketsChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
@@ -207,7 +207,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.DataVisualizationNode]: {
         name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: false,
     },
     [NodeKind.SavedInsightNode]: {
@@ -231,25 +231,25 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'SQL',
         description: 'Direct SQL query.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
         description: 'Metadata for a SQL query.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
         name: 'SQL Autocomplete',
         description: 'Autocomplete for the SQL query editor.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: false,
     },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
     },
     [NodeKind.RevenueAnalyticsMetricsQuery]: {
@@ -664,7 +664,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
-        icon: IconBrackets,
+        icon: IconBracketsChart,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },

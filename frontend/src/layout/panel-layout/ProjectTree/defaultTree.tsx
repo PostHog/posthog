@@ -4,7 +4,6 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconBrackets,
     IconBug,
     IconCircleDashed,
     IconClock,
@@ -65,7 +64,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { IconStamphog } from 'lib/lemon-ui/icons'
+import { IconBracketsChart, IconStamphog } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -281,7 +280,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-insight-stickiness-light)'],
     },
     'insight/hog': {
-        icon: <IconBrackets />,
+        icon: <IconBracketsChart />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
     team_activity: {
