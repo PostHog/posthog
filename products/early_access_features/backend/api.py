@@ -113,6 +113,10 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         help_text="URL to external documentation for this feature. Shown to users in the opt-in UI.",
     )
     payload = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(
+        read_only=True,
+        help_text="The user who created this early access feature. Null for features created before creator tracking was added.",
+    )
 
     class Meta:
         model = EarlyAccessFeature
@@ -125,9 +129,10 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
             "documentation_url",
             "payload",
             "created_at",
+            "created_by",
             "user_access_level",
         ]
-        read_only_fields = ["id", "feature_flag", "created_at"]
+        read_only_fields = ["id", "feature_flag", "created_at", "created_by"]
 
     @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
@@ -262,12 +267,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "documentation_url",
             "payload",
             "created_at",
+            "created_by",
             "feature_flag_id",
             "feature_flag",
             "_create_in_folder",
             "user_access_level",
         ]
-        read_only_fields = ["id", "feature_flag", "created_at"]
+        read_only_fields = ["id", "feature_flag", "created_at", "created_by"]
 
     def validate(self, data):
         feature_flag_id = data.get("feature_flag_id", None)
@@ -298,6 +304,9 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
+
+        request = self.context["request"]
+        validated_data["created_by"] = request.user if request.user.is_authenticated else None
 
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
@@ -367,7 +376,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
-    queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
+    queryset = EarlyAccessFeature.objects.select_related("feature_flag", "created_by").all()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST":
