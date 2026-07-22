@@ -118,6 +118,11 @@ describe('RerunPaginatorService integration', () => {
             seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
         }
         await seedingService.flush()
+        // Ensure all in-flight messages in librdkafka buffers are durably sent to
+        // the broker before we start polling ClickHouse. Without this, produceRow()
+        // failures are silently swallowed by seedingService.flush()'s .catch() and
+        // rows can be permanently lost.
+        await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
         // test waits for *all* rows (rather than trivially passing on the
