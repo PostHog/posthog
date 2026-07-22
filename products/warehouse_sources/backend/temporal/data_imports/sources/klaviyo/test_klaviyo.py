@@ -8,6 +8,9 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
+    KlaviyoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo import klaviyo
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
     KLAVIYO_API_VERSION_2024_10_15,
@@ -556,7 +559,7 @@ class TestValidateCredentialsResolvedPin:
             "products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source.validate_klaviyo_credentials",
             return_value=True,
         ) as mock_validate:
-            KlaviyoSource().validate_credentials(MagicMock(api_key="pk_test"), 1, api_version=pin)
+            KlaviyoSource().validate_credentials(KlaviyoSourceConfig(api_key="pk_test"), 1, api_version=pin)
 
         assert mock_validate.call_args.args[-1] == expected
 

@@ -199,9 +199,9 @@ class TestValidateCredentialsResolvedPin:
     @pytest.mark.parametrize(
         "pin, expected",
         [
+            # The no-pin (None -> default) case is already covered by test_validate_credentials.
             (BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2019_01_01),
             (BRAINTREE_VERSION_2026_07_14, BRAINTREE_VERSION_2026_07_14),
-            (None, BRAINTREE_VERSION_2026_07_14),
         ],
     )
     @mock.patch(

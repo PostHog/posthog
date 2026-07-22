@@ -168,7 +168,8 @@ def validate_credentials(
     auth: ServiceNowAuth,
     team_id: int,
     table: Optional[str] = None,
-    api_version: str = SERVICENOW_API_VERSION_V1,
+    *,
+    api_version: str,
 ) -> tuple[bool, str | None]:
     try:
         base_url = _resolve_base_url(instance_url, team_id)
