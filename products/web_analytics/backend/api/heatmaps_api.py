@@ -1113,33 +1113,42 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
         enqueue_render = heatmap_type == SavedHeatmap.Type.SCREENSHOT
 
+        screenshot: SavedHeatmap | None = None
+        prewarm_in_flight = False
         if reused_prewarm is not None:
             # Lock the row so this promotion can't interleave with the render task's completion check.
             with transaction.atomic():
-                locked = SavedHeatmap.objects.select_for_update().get(id=reused_prewarm.id)
-                prewarm_in_flight = locked.status == SavedHeatmap.Status.PROCESSING
-                locked.name = name
-                locked.data_url = data_url
-                locked.target_widths = widths
-                locked.type = heatmap_type
-                locked.created_by = cast(User, request.user)
-                locked.is_prewarm = False
-                if not prewarm_in_flight:
-                    locked.status = SavedHeatmap.Status.PROCESSING
-                locked.save()
-                screenshot = locked
-            enqueue_render = enqueue_render and not prewarm_in_flight
-            posthoganalytics.capture(
-                distinct_id=str(self.team.uuid),
-                event="heatmap prewarm used",
-                properties={
-                    "team_id": self.team.id,
-                    "url": url,
-                    "prewarm_in_flight": prewarm_in_flight,
-                },
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            )
-        else:
+                locked = (
+                    SavedHeatmap.objects.select_for_update()
+                    .filter(team=self.team, id=reused_prewarm.id, is_prewarm=True)
+                    .first()
+                )
+                if locked is not None:
+                    prewarm_in_flight = locked.status == SavedHeatmap.Status.PROCESSING
+                    locked.name = name
+                    locked.data_url = data_url
+                    locked.target_widths = widths
+                    locked.type = heatmap_type
+                    locked.created_by = cast(User, request.user)
+                    locked.is_prewarm = False
+                    if not prewarm_in_flight:
+                        locked.status = SavedHeatmap.Status.PROCESSING
+                    locked.save()
+                    screenshot = locked
+            if screenshot is not None:
+                enqueue_render = enqueue_render and not prewarm_in_flight
+                posthoganalytics.capture(
+                    distinct_id=str(self.team.uuid),
+                    event="heatmap prewarm used",
+                    properties={
+                        "team_id": self.team.id,
+                        "url": url,
+                        "prewarm_in_flight": prewarm_in_flight,
+                    },
+                    groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                )
+
+        if screenshot is None:
             screenshot = SavedHeatmap.objects.create(
                 team=self.team,
                 name=name,

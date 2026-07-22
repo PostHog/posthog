@@ -608,6 +608,6 @@ def reap_stale_prewarm_heatmaps() -> int:
     if not stale:
         return 0
     _capture_prewarm_wasted(stale)
-    SavedHeatmap.objects.filter(id__in=[row.id for row in stale]).delete()
+    SavedHeatmap.objects.filter(id__in=[row.id for row in stale], is_prewarm=True, created_at__lt=cutoff).delete()
     logger.info("heatmap_screenshot.reaped_prewarm", reaped_count=len(stale))
     return len(stale)

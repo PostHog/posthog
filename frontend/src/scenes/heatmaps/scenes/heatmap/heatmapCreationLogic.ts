@@ -293,9 +293,6 @@ export interface heatmapCreationLogicActions {
     prewarmScreenshot: () => {
         value: true
     }
-    setLastPrewarmedUrl: (url: string) => {
-        url: string
-    }
     requestPageDataCheck: (trigger: HeatmapDataCheckTrigger) => {
         trigger: HeatmapDataCheckTrigger
     }
@@ -308,6 +305,9 @@ export interface heatmapCreationLogicActions {
     ) => {
         matchingRecordingCount: number
         storageKey: string
+    }
+    setLastPrewarmedUrl: (url: string) => {
+        url: string
     }
     setPageAccess: (pageAccess: HeatmapPageAccess) => {
         pageAccess: HeatmapPageAccess
@@ -327,7 +327,10 @@ export interface heatmapCreationLogicMeta {
             dataUrl: string | null,
             isBrowserUrlValid: boolean
         ) => string | null
-        isDisplayUrlAuthorized: (displayUrl: string | null, checkUrlIsAuthorized: (url: string) => boolean) => boolean
+        isDisplayUrlAuthorized: (
+            displayUrl: string | null,
+            checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlsLogic
+        ) => boolean
         backgroundStepBlockReason: (
             pageAccess: HeatmapPageAccess | null,
             type: HeatmapType,
@@ -740,15 +743,19 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 }
                 const url = values.displayUrl?.trim()
                 const teamId = values.currentTeam?.id
-                if (!url || values.pageStepBlockReason || !teamId || url === values.lastPrewarmedUrl) {
+                if (!url || values.pageStepBlockReason || !teamId) {
                     return
                 }
-                actions.setLastPrewarmedUrl(url)
+                const prewarmKey = `${url}::${values.blockConsentModals}`
+                if (prewarmKey === values.lastPrewarmedUrl) {
+                    return
+                }
                 try {
                     await savedPrewarmCreate(String(teamId), {
                         url,
                         block_consent_modals: values.blockConsentModals,
                     })
+                    actions.setLastPrewarmedUrl(prewarmKey)
                 } catch {
                     // Best-effort: a failed prewarm just means the screenshot renders on create, as before.
                 }
