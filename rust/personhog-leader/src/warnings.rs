@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use metrics::counter;
 use rdkafka::producer::{FutureProducer, FutureRecord};
-use serde_json::{Map, Value};
 use tracing::warn;
 
-use common_ingestion_warnings::direct::build_direct_warning_payload;
 use common_ingestion_warnings::registry::WarningType;
+use common_ingestion_warnings::serializer::Warning as WarningPayload;
 use common_ingestion_warnings::throttle::{ThrottleDecision, WarningThrottle};
 use common_kafka::kafka_producer::KafkaContext;
 
@@ -86,19 +85,11 @@ impl WarningsProducer {
             }
         }
 
-        let mut details = Map::new();
-        details.insert(
-            "personId".to_string(),
-            Value::from(warning.person_uuid.clone()),
-        );
-        details.insert("teamId".to_string(), Value::from(warning.team_id));
-        details.insert("message".to_string(), Value::from(warning.message.clone()));
-        let payload = build_direct_warning_payload(
-            warning.team_id,
-            warning_type,
-            "personhog-leader",
-            details,
-        );
+        // teamId, category, and severity are injected by the terminal.
+        let payload = WarningPayload::new(warning_type)
+            .with_detail("personId", warning.person_uuid.clone())
+            .with_detail("message", warning.message.clone())
+            .into_row(warning.team_id, "personhog-leader");
 
         let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
         let key = warning.team_id.to_string();
