@@ -1051,12 +1051,23 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
         return raw
 
+    def _team_for_warehouse_access_check(self) -> Optional[Team]:
+        # The viewset provides get_team; out-of-viewset constructions (feature flag copy,
+        # experiments) pass "team" or "team_id" instead - resolve all three so the access
+        # check can't be skipped by a context shape.
+        team = self.context.get("get_team", lambda: None)()
+        if team is None:
+            team = self.context.get("team")
+        if team is None and self.context.get("team_id"):
+            team = Team.objects.filter(pk=self.context["team_id"]).first()
+        return team
+
     def _validate_warehouse_access(self, attrs: dict) -> None:
         """Background execution runs the cohort without warehouse access control (the definition
         is team-owned), so access is enforced here instead: the member saving the definition must
         be able to read every warehouse table it resolves through. Covers every way a definition
         can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
-        team = self.context.get("get_team", lambda: None)()
+        team = self._team_for_warehouse_access_check()
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if team is None or user is None or not getattr(user, "is_authenticated", False):
