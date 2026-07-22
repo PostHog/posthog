@@ -5,7 +5,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from temporalio import activity
 
 if TYPE_CHECKING:
@@ -77,7 +77,22 @@ class ScanFinding(BaseModel):
 
 class ScanVerdict(BaseModel):
     passed: bool
-    findings: list[ScanFinding]
+    findings: list[ScanFinding] = Field(default_factory=list)
+
+
+def _parse_scan_verdict(content: str) -> ScanVerdict:
+    candidate = content.strip()
+    if candidate.startswith("```") and candidate.endswith("```"):
+        candidate = "\n".join(candidate.splitlines()[1:-1]).strip()
+
+    try:
+        return ScanVerdict.model_validate_json(candidate)
+    except ValueError:
+        object_start = candidate.find("{")
+        object_end = candidate.rfind("}")
+        if object_start == -1 or object_end <= object_start:
+            raise
+        return ScanVerdict.model_validate_json(candidate[object_start : object_end + 1])
 
 
 def _get_image(input: ImageBuildActivityInput) -> SandboxCustomImage:
@@ -110,7 +125,7 @@ def _judge_spec_safety(spec_yaml: str, team_id: int, repository: str = "") -> Sc
     )
     content = response.choices[0].message.content
     try:
-        verdict = ScanVerdict.model_validate_json(content or "")
+        verdict = _parse_scan_verdict(content or "")
     except ValueError as e:
         raise RuntimeError("Security scan returned an invalid verdict; retry the build") from e
     return ScanImageSpecOutput(

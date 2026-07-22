@@ -1,6 +1,27 @@
 from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.temporal.build_image.activities import SCAN_JUDGE_MODEL, _judge_spec_safety
+from parameterized import parameterized
+
+from products.tasks.backend.temporal.build_image.activities import (
+    SCAN_JUDGE_MODEL,
+    _judge_spec_safety,
+    _parse_scan_verdict,
+)
+
+
+class TestParseScanVerdict:
+    @parameterized.expand(
+        [
+            ("missing_findings", '{"passed":true}'),
+            ("json_fence", '```json\n{"passed":true}\n```'),
+            ("prose_prefix", 'Scan result:\n{"passed":true}'),
+        ]
+    )
+    def test_accepts_valid_verdict_wrappers(self, _name: str, content: str) -> None:
+        verdict = _parse_scan_verdict(content)
+
+        assert verdict.passed is True
+        assert verdict.findings == []
 
 
 @patch("posthog.llm.gateway_client.get_llm_client")
