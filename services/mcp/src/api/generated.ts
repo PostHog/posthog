@@ -15984,6 +15984,35 @@ export namespace Schemas {
     }
 
     /**
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet
+     */
+    export type CreateTableFromUploadFileFormatEnum = typeof CreateTableFromUploadFileFormatEnum[keyof typeof CreateTableFromUploadFileFormatEnum];
+
+
+    export const CreateTableFromUploadFileFormatEnum = {
+      Csv: 'csv',
+      Json: 'json',
+      Parquet: 'parquet',
+    } as const;
+
+    export interface CreateTableFromUpload {
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: CreateTableFromUploadFileFormatEnum;
+      /** Name the resulting table is queried by in HogQL. */
+      table_name: string;
+    }
+
+    /**
      * The PostHog Task created from an observation.
      */
     export interface CreateTaskFromObservationResponse {
@@ -31091,6 +31120,17 @@ export namespace Schemas {
     export interface FileSystemShortcutReorder {
       /** IDs of the current user's shortcuts in the desired display order. */
       ordered_ids: string[];
+    }
+
+    export interface FileUploadResponse {
+      /** Id of the stored upload. Pass it to create_from_upload to build the table. */
+      upload_id: string;
+      /** Sanitized name the file was stored under. */
+      filename: string;
+      /** Format the file will be read as: 'csv', 'json', or 'parquet'. */
+      file_format: string;
+      /** Size of the stored file in bytes. */
+      size_bytes: number;
     }
 
     export interface RunSummary {
@@ -79928,6 +79968,25 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    /**
+     * How the file will be read when the table is created.
+     */
+    export type WarehouseTablesUploadFileCreateBodyFileFormat = typeof WarehouseTablesUploadFileCreateBodyFileFormat[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat];
+
+
+    export const WarehouseTablesUploadFileCreateBodyFileFormat = {
+      Csv: 'csv',
+      Json: 'json',
+      Parquet: 'parquet',
+    } as const;
+
+    export type WarehouseTablesUploadFileCreateBody = {
+      /** The file to upload. */
+      file: Blob;
+      /** How the file will be read when the table is created. */
+      file_format: WarehouseTablesUploadFileCreateBodyFileFormat;
     };
 
     export type WarehouseViewLinkListParams = {
