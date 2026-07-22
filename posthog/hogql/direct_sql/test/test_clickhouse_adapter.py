@@ -59,10 +59,25 @@ class TestClickHouseReadOnlyGuard(SimpleTestCase):
             # A column named like a blocked table function is an identifier, not a call — allowed.
             ("column_named_url", "SELECT url FROM events"),
             ("column_named_file", "SELECT file, count() FROM events"),
+            # A column named `settings` is not a SETTINGS clause (no trailing `<name> =`).
+            ("column_named_settings", "SELECT settings FROM events"),
+            ("settings_in_where", "SELECT * FROM events WHERE settings = 'x'"),
+            ("settings_as_alias", "SELECT 1 AS settings, 2 AS x"),
         ]
     )
     def test_allows_read_only(self, _name, sql):
         self.assertEqual(ensure_read_only_raw_clickhouse_statement(sql), sql)
+
+    @parameterized.expand(
+        [
+            ("max_block_size", "SELECT * FROM numbers(10) SETTINGS max_block_size=1000000000"),
+            ("max_execution_time", "SELECT 1 SETTINGS max_execution_time=0"),
+            ("multiple", "SELECT 1 SETTINGS max_execution_time = 0, max_block_size = 1"),
+        ]
+    )
+    def test_rejects_settings_clause(self, _name, sql):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_read_only_raw_clickhouse_statement(sql)
 
     @parameterized.expand(
         [

@@ -34,7 +34,12 @@ DIRECT_CLICKHOUSE_ROW_CAP_ERROR = (
     f"ClickHouse query returned more than {DIRECT_CLICKHOUSE_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
 DIRECT_CLICKHOUSE_TIMEOUT_ERROR = "ClickHouse query exceeded the execution time limit."
+# Bounds the rows ClickHouse packs into one response block (the ClickHouse default). A block is
+# materialized whole before the streaming loop can check the row cap, so this keeps peak memory
+# per block bounded — and since raw SETTINGS overrides are rejected, a query can't inflate it.
+DIRECT_CLICKHOUSE_MAX_BLOCK_SIZE = 65_536
 RAW_CLICKHOUSE_READ_ONLY_ERROR = "Raw ClickHouse queries must be read-only SELECT statements."
+RAW_CLICKHOUSE_SETTINGS_ERROR = "Raw ClickHouse queries may not set query-level SETTINGS."
 RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR = "This ClickHouse table function is not allowed in direct queries."
 
 # Table functions that read over the network, from the local filesystem, or spawn a process.
@@ -98,6 +103,32 @@ def _iter_function_names(token: TokenList) -> "Iterator[str]":
             yield from _iter_function_names(child)
 
 
+def _has_settings_clause(statement: TokenList) -> bool:
+    """Whether the statement carries a ClickHouse ``SETTINGS <name> = ...`` clause.
+
+    Distinguished from a column literally named ``settings`` by the trailing ``<identifier> =``:
+    the clause is ``SETTINGS`` followed by a setting name and ``=``, whereas ``WHERE settings =``
+    has ``=`` immediately after and ``SELECT settings FROM`` has no ``=`` at all.
+    """
+    significant = [
+        token for token in statement.flatten() if not token.is_whitespace and token.ttype not in sqlparse_tokens.Comment
+    ]
+    for idx, token in enumerate(significant):
+        if token.ttype not in (sqlparse_tokens.Keyword, sqlparse_tokens.Name) or token.value.upper() != "SETTINGS":
+            continue
+        name = significant[idx + 1] if idx + 1 < len(significant) else None
+        equals = significant[idx + 2] if idx + 2 < len(significant) else None
+        if (
+            name is not None
+            and name.ttype in (sqlparse_tokens.Name, sqlparse_tokens.Keyword)
+            and equals is not None
+            and equals.ttype in sqlparse_tokens.Comparison
+            and equals.value == "="
+        ):
+            return True
+    return False
+
+
 def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     """Enforce read-only for raw ClickHouse SQL.
 
@@ -112,6 +143,11 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     a plain SELECT over the source's own tables. String values and quoted identifiers aren't tagged
     DML/DDL and a same-named column isn't a function call, so a literal, alias, or column like
     ``'DELETE'`` / ``url`` is unaffected.
+
+    A query-level ``SETTINGS`` clause is rejected as well: ClickHouse lets it override connection
+    settings, so a raw query could otherwise reset ``max_execution_time`` or inflate
+    ``max_block_size`` to defeat the timeout and per-block memory bounds. HogQL-authored queries
+    don't take this raw path, so they can still set whatever settings the printer emits.
     """
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
@@ -126,6 +162,8 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     for function_name in _iter_function_names(statement):
         if function_name.upper() in _RAW_CLICKHOUSE_BLOCKED_TABLE_FUNCTIONS:
             raise ExposedHogQLError(RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR)
+    if _has_settings_clause(statement):
+        raise ExposedHogQLError(RAW_CLICKHOUSE_SETTINGS_ERROR)
     return sql
 
 
@@ -221,9 +259,14 @@ class ClickHouseAdapter:
                     config,
                     request.team.pk,
                     query_timeout=statement_timeout_seconds,
-                    # A server-side execution cap on top of the socket timeout. `max_execution_time`
-                    # is a standard setting managed servers accept (unlike a readonly override).
-                    settings={"max_execution_time": statement_timeout_seconds},
+                    # Server-side caps on top of the socket timeout and the streaming row cap.
+                    # `max_execution_time` and `max_block_size` are standard settings managed
+                    # servers accept (unlike a readonly override); raw SETTINGS overrides of them
+                    # are rejected in `prepare_raw_sql`, so these bounds hold for raw queries.
+                    settings={
+                        "max_execution_time": statement_timeout_seconds,
+                        "max_block_size": DIRECT_CLICKHOUSE_MAX_BLOCK_SIZE,
+                    },
                 ) as client:
                     rows, column_names, column_types = _fetch_capped_clickhouse_rows(
                         client, request.sql, request.values or None, statement_timeout_seconds
