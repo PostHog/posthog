@@ -23695,6 +23695,7 @@ export namespace Schemas {
      * * `mysql` - mysql
      * * `snowflake` - snowflake
      * * `redshift` - redshift
+     * * `clickhouse` - clickhouse
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -23705,6 +23706,7 @@ export namespace Schemas {
       Mysql: 'mysql',
       Snowflake: 'snowflake',
       Redshift: 'redshift',
+      Clickhouse: 'clickhouse',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -27896,7 +27898,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -30559,7 +30562,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -48308,7 +48312,8 @@ export namespace Schemas {
        * * `postgres` - postgres
        * * `mysql` - mysql
        * * `snowflake` - snowflake
-       * * `redshift` - redshift */
+       * * `redshift` - redshift
+       * * `clickhouse` - clickhouse */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;

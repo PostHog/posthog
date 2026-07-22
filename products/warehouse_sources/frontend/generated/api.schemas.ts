@@ -2929,6 +2929,7 @@ export const AccessMethodEnumApi = {
  * * `mysql` - mysql
  * * `snowflake` - snowflake
  * * `redshift` - redshift
+ * * `clickhouse` - clickhouse
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -2938,6 +2939,7 @@ export const EngineEnumApi = {
     Mysql: 'mysql',
     Snowflake: 'snowflake',
     Redshift: 'redshift',
+    Clickhouse: 'clickhouse',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -2997,7 +2999,8 @@ export interface ExternalDataSourceSerializersApi {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
-     * * `redshift` - redshift */
+     * * `redshift` - redshift
+     * * `clickhouse` - clickhouse */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -4384,7 +4387,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
-     * * `redshift` - redshift */
+     * * `redshift` - redshift
+     * * `clickhouse` - clickhouse */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -4510,7 +4514,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
-     * * `redshift` - redshift */
+     * * `redshift` - redshift
+     * * `clickhouse` - clickhouse */
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
