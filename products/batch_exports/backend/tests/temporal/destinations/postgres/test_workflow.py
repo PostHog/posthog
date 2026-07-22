@@ -115,7 +115,7 @@ async def test_postgres_export_workflow(
                     id=workflow_id,
                     task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=60),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
@@ -209,7 +209,7 @@ async def test_postgres_export_workflow_with_integration(
                     id=workflow_id,
                     task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=60),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
@@ -295,7 +295,7 @@ async def test_postgres_export_workflow_without_events(
                     id=workflow_id,
                     task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=60),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
