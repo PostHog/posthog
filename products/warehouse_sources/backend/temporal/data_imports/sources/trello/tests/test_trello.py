@@ -1,13 +1,14 @@
-import dataclasses
+import json
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
+import pytest
 from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import TRELLO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import (
     TrelloResumeConfig,
@@ -15,65 +16,63 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trello.tre
     _format_incremental_value,
     _get_headers,
     _id_to_created_at,
-    get_rows,
     trello_source,
     validate_credentials,
 )
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the trello module.
+TRELLO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
+)
 
-def _make_response(status: int = 200, body: Any = None) -> mock.Mock:
-    resp = mock.Mock()
+
+def _response(body: Any, status: int = 200) -> Response:
+    resp = Response()
     resp.status_code = status
-    resp.ok = 200 <= status < 300
-    resp.json.return_value = body if body is not None else []
-    resp.text = ""
+    resp._content = json.dumps(body).encode()
     return resp
 
 
-def _make_manager(*, can_resume: bool = False, resume_state: TrelloResumeConfig | None = None) -> mock.Mock:
-    manager = mock.Mock()
+def _make_manager(*, can_resume: bool = False, resume_state: TrelloResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
     manager.can_resume.return_value = can_resume
     manager.load_state.return_value = resume_state
-    manager.save_state = mock.Mock()
     return manager
 
 
-class _ImmediateBatcher:
-    """Test double for Batcher that emits every batched item as its own chunk."""
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[Any, dict[str, Any]]]:
+    """Wire a mock session and capture each request's (url, params) AT SEND TIME.
 
-    def __init__(self) -> None:
-        self._item: Any = None
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[tuple[Any, dict[str, Any]]] = []
 
-    def batch(self, item: Any) -> None:
-        self._item = item
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append((request.url, dict(request.params or {})))
+        return mock.MagicMock()
 
-    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return self._item is not None
-
-    def get_table(self) -> Any:
-        item = self._item
-        self._item = None
-        return item
-
-
-def _patch_batcher() -> Any:
-    return mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.Batcher",
-        autospec=False,
-        side_effect=lambda logger, chunk_size, chunk_size_bytes: _ImmediateBatcher(),
-    )
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
 
 
-def _run(endpoint: str, manager: mock.Mock, get_mock: mock.Mock, **kwargs: Any) -> list[Any]:
-    return list(
-        get_rows(
-            api_key="key",
-            api_token="token",
-            endpoint=endpoint,
-            logger=mock.Mock(),
-            resumable_source_manager=manager,
-            **kwargs,
-        )
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
+    return trello_source(
+        api_key="key",
+        api_token="token",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job",
+        resumable_source_manager=manager,
+        **kwargs,
     )
 
 
@@ -135,9 +134,7 @@ class TestValidateCredentials:
         ]
     )
     def test_status_codes(self, _name: str, status: int, valid: bool, message: str | None) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-        ) as session:
+        with mock.patch(TRELLO_SESSION_PATCH) as session:
             session.return_value.get.return_value = mock.MagicMock(status_code=status)
             result_valid, result_message = validate_credentials("key", "token")
 
@@ -145,9 +142,7 @@ class TestValidateCredentials:
         assert result_message == message
 
     def test_request_exception(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-        ) as session:
+        with mock.patch(TRELLO_SESSION_PATCH) as session:
             session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
             valid, message = validate_credentials("key", "token")
 
@@ -156,9 +151,7 @@ class TestValidateCredentials:
         assert "boom" in message
 
     def test_sends_oauth_header(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-        ) as session:
+        with mock.patch(TRELLO_SESSION_PATCH) as session:
             session.return_value.get.return_value = mock.MagicMock(status_code=200)
             validate_credentials("my-key", "my-token")
 
@@ -167,190 +160,177 @@ class TestValidateCredentials:
 
 
 class TestMemberEndpoint:
-    def test_boards_single_request_injects_created_at(self) -> None:
-        manager = _make_manager()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_boards_single_request_injects_created_at(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         boards = [{"id": "5abbe394c78f17ffa9e10843", "name": "A"}, {"id": "5abbe395c78f17ffa9e10843", "name": "B"}]
+        snapshots = _wire(session, [_response(boards)])
 
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [_make_response(body=boards)]
-            rows = _run("boards", manager, session, should_use_incremental_field=False)
+        manager = _make_manager()
+        rows = _rows(_source("boards", manager))
 
         assert [r["name"] for r in rows] == ["A", "B"]
         assert all("created_at" in r for r in rows)
         # Member endpoints are a single request; no resume checkpoints.
         manager.save_state.assert_not_called()
-        url = session.return_value.get.call_args_list[0].args[0]
-        assert url.startswith("https://api.trello.com/1/members/me/boards")
+        url, params = snapshots[0]
+        assert url == "https://api.trello.com/1/members/me/boards"
+        assert params["limit"] == 1000
 
-    def test_non_list_body_yields_nothing(self) -> None:
-        manager = _make_manager()
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [_make_response(body={"error": "nope"})]
-            rows = _run("organizations", manager, session)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_fails_loud(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "nope"})])
 
-        assert rows == []
+        # A 200 whose body isn't a list means the response shape changed — fail loud rather than
+        # wrapping the stray object as a single row.
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(_source("organizations", _make_manager()))
 
 
 class TestBoardFanOut:
-    def test_lists_fan_out_across_boards(self) -> None:
-        manager = _make_manager()
-        board_ids = [{"id": "board1"}, {"id": "board2"}]
-        lists_b1 = [{"id": "l1"}]
-        lists_b2 = [{"id": "l2"}, {"id": "l3"}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lists_fan_out_across_boards(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "board1"}, {"id": "board2"}]),
+                _response([{"id": "l1"}]),
+                _response([{"id": "l2"}, {"id": "l3"}]),
+            ],
+        )
 
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [
-                _make_response(body=board_ids),
-                _make_response(body=lists_b1),
-                _make_response(body=lists_b2),
-            ]
-            rows = _run("lists", manager, session)
+        manager = _make_manager()
+        rows = _rows(_source("lists", manager))
 
         assert [r["id"] for r in rows] == ["l1", "l2", "l3"]
-        urls = [c.args[0] for c in session.return_value.get.call_args_list]
-        assert "/members/me/boards?fields=id" in urls[0]
-        assert "/boards/board1/lists" in urls[1]
-        assert "/boards/board2/lists" in urls[2]
-        # Each completed board advances the resume index.
-        saved_indices = [c.args[0].board_index for c in manager.save_state.call_args_list]
-        assert saved_indices[-1] == 2
+        urls = [url for url, _ in snapshots]
+        assert urls[0] == "https://api.trello.com/1/members/me/boards"
+        assert snapshots[0][1] == {"fields": "id"}
+        assert urls[1] == "https://api.trello.com/1/boards/board1/lists"
+        assert urls[2] == "https://api.trello.com/1/boards/board2/lists"
+        # Each completed board is checkpointed; the final state records both boards done.
+        final_state = manager.save_state.call_args_list[-1].args[0].fanout_state
+        assert final_state["completed"] == [
+            "/boards/board1/lists",
+            "/boards/board2/lists",
+        ]
+        assert final_state["current"] is None
 
-    def test_resume_skips_completed_boards(self) -> None:
-        manager = _make_manager(can_resume=True, resume_state=TrelloResumeConfig(board_index=1, before_cursor=None))
-        board_ids = [{"id": "board1"}, {"id": "board2"}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_boards(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "board1"}, {"id": "board2"}]),
+                _response([{"id": "l2"}]),
+            ],
+        )
 
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [
-                _make_response(body=board_ids),
-                _make_response(body=[{"id": "l2"}]),
-            ]
-            rows = _run("lists", manager, session)
+        manager = _make_manager(
+            can_resume=True,
+            resume_state=TrelloResumeConfig(
+                fanout_state={"completed": ["/boards/board1/lists"], "current": None, "child_state": None}
+            ),
+        )
+        rows = _rows(_source("lists", manager))
 
-        # Only board2 (index 1) is synced; board1 is skipped.
+        # Only board2 is synced; board1 was already completed and is skipped.
         assert [r["id"] for r in rows] == ["l2"]
-        urls = [c.args[0] for c in session.return_value.get.call_args_list]
+        urls = [url for url, _ in snapshots]
         assert not any("/boards/board1/" in u for u in urls)
-        assert any("/boards/board2/lists" in u for u in urls)
+        assert any(u.endswith("/boards/board2/lists") for u in urls)
 
 
 class TestActionsIncremental:
-    def test_incremental_sends_since_and_limit(self) -> None:
-        manager = _make_manager()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_sends_since_and_limit(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "b1"}]),
+                _response([{"id": "a1", "date": "2026-02-01T00:00:00Z"}]),
+            ],
+        )
         cutoff = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
 
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [
-                _make_response(body=[{"id": "b1"}]),
-                _make_response(body=[{"id": "a1", "date": "2026-02-01T00:00:00Z"}]),
-            ]
-            _run(
-                "actions",
-                manager,
-                session,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=cutoff,
-            )
+        _rows(_source("actions", _make_manager(), db_incremental_field_last_value=cutoff))
 
-        actions_url = session.return_value.get.call_args_list[1].args[0]
-        assert "since=2026-01-15T10" in actions_url
-        assert "limit=1000" in actions_url
+        actions_url, actions_params = snapshots[1]
+        assert actions_url == "https://api.trello.com/1/boards/b1/actions"
+        assert actions_params["since"] == "2026-01-15T10:00:00+00:00"
+        assert actions_params["limit"] == 1000
 
-    def test_full_refresh_omits_since(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_omits_since(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([{"id": "b1"}]), _response([{"id": "a1"}])])
+
+        _rows(_source("actions", _make_manager()))
+
+        assert "since" not in snapshots[1][1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_with_before_cursor(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "b1"}]),
+                _response([{"id": "a1"}, {"id": "a2"}]),  # full page (limit 2) → keep paging
+                _response([{"id": "a3"}]),  # short page → stop
+            ],
+        )
+
         manager = _make_manager()
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [
-                _make_response(body=[{"id": "b1"}]),
-                _make_response(body=[{"id": "a1"}]),
-            ]
-            _run("actions", manager, session, should_use_incremental_field=False)
-
-        actions_url = session.return_value.get.call_args_list[1].args[0]
-        assert "since=" not in actions_url
-
-    def test_paginates_with_before_cursor(self) -> None:
-        # Drive pagination directly with a small page size so we don't need 1000 rows.
-        manager = _make_manager()
-        config = dataclasses.replace(TRELLO_ENDPOINTS["actions"], page_size=2)
-
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import _sync_board_actions
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [
-                _make_response(body=[{"id": "a1"}, {"id": "a2"}]),  # full page → keep paging
-                _make_response(body=[{"id": "a3"}]),  # short page → stop
-            ]
-            batcher = _ImmediateBatcher()
-            rows = list(
-                _sync_board_actions(
-                    board_id="b1",
-                    index=0,
-                    config=config,
-                    headers={},
-                    logger=mock.Mock(),
-                    batcher=cast(Batcher, batcher),
-                    manager=manager,
-                    since=None,
-                    before=None,
-                )
-            )
+        # Drive pagination with a small page size instead of 1000 rows.
+        with mock.patch.object(TRELLO_ENDPOINTS["actions"], "page_size", 2):
+            rows = _rows(_source("actions", manager))
 
         assert [r["id"] for r in rows] == ["a1", "a2", "a3"]
-        urls = [c.args[0] for c in session.return_value.get.call_args_list]
-        assert "before=" not in urls[0]
-        assert "before=a2" in urls[1]
-        # Board fully drained → resume index advances past this board.
-        assert manager.save_state.call_args_list[-1].args[0].board_index == 1
+        # First actions page carries no cursor; the second pages back with before=<oldest of page 1>.
+        assert "before" not in snapshots[1][1]
+        assert snapshots[2][1]["before"] == "a2"
+        # Board fully drained → final checkpoint records it completed, nothing in progress.
+        final_state = manager.save_state.call_args_list[-1].args[0].fanout_state
+        assert final_state["completed"] == ["/boards/b1/actions"]
+        assert final_state["current"] is None
 
-    def test_resume_uses_before_cursor(self) -> None:
-        manager = _make_manager(can_resume=True, resume_state=TrelloResumeConfig(board_index=0, before_cursor="oldest"))
-        with (
-            _patch_batcher(),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-            ) as session,
-        ):
-            session.return_value.get.side_effect = [
-                _make_response(body=[{"id": "b1"}]),
-                _make_response(body=[{"id": "a1"}]),
-            ]
-            _run("actions", manager, session, should_use_incremental_field=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_uses_before_cursor(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([{"id": "b1"}]), _response([{"id": "a1"}])])
 
-        actions_url = session.return_value.get.call_args_list[1].args[0]
-        assert "before=oldest" in actions_url
+        manager = _make_manager(
+            can_resume=True,
+            resume_state=TrelloResumeConfig(
+                fanout_state={
+                    "completed": [],
+                    "current": "/boards/b1/actions",
+                    "child_state": {"before": "oldest"},
+                }
+            ),
+        )
+        _rows(_source("actions", manager))
+
+        assert snapshots[1][1]["before"] == "oldest"
+
+
+class TestRetryClassification:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_limited_status_is_retried(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        boards = [{"id": "5abbe394c78f17ffa9e10843"}]
+        _wire(session, [_response({}, status=429), _response(boards)])
+
+        rows = _rows(_source("boards", _make_manager()))
+
+        # The 429 is retried and the retry (200) yields rows.
+        assert [r["id"] for r in rows] == ["5abbe394c78f17ffa9e10843"]
+        assert session.send.call_count == 2
 
 
 class TestTrelloSourceResponse:
@@ -362,47 +342,16 @@ class TestTrelloSourceResponse:
         ]
     )
     def test_source_response_shape(self, endpoint: str, sort_mode: str, primary_key: str) -> None:
-        response = trello_source(
-            api_key="key",
-            api_token="token",
-            endpoint=endpoint,
-            logger=mock.Mock(),
-            resumable_source_manager=_make_manager(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.sort_mode == sort_mode
         assert response.primary_keys == [primary_key]
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
+        assert response.partition_format == "week"
 
     @parameterized.expand([(name,) for name in TRELLO_ENDPOINTS])
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
-        response = trello_source(
-            api_key="key",
-            api_token="token",
-            endpoint=endpoint,
-            logger=mock.Mock(),
-            resumable_source_manager=_make_manager(),
-        )
+        response = _source(endpoint, _make_manager())
         assert callable(response.items)
         assert response.primary_keys == [TRELLO_ENDPOINTS[endpoint].primary_key]
-
-
-class TestRetryClassification:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise(self, _name: str, status: int) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import (
-            TrelloRetryableError,
-            _fetch,
-        )
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello.make_tracked_session"
-        ) as session:
-            session.return_value.get.return_value = _make_response(status=status)
-            # __wrapped__ skips tenacity so we assert the single-attempt classification.
-            try:
-                _fetch.__wrapped__("https://api.trello.com/1/members/me", {}, mock.Mock())  # type: ignore[attr-defined]
-            except TrelloRetryableError:
-                return
-            raise AssertionError("expected TrelloRetryableError")

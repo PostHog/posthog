@@ -13,7 +13,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LambdaLabsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
+    LambdaLabsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.lambda_labs import (
     LambdaLabsResumeConfig,
 )

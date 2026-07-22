@@ -2687,6 +2687,27 @@ class SandboxCustomImageBuildSerializer(serializers.Serializer):
     )
 
 
+class SandboxCustomImageUpdateSerializer(serializers.Serializer):
+    """Request body for renaming / re-describing a custom sandbox base image."""
+
+    name = serializers.CharField(
+        required=False,
+        min_length=1,
+        max_length=255,
+        help_text="New display name for the custom image. Omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New description. Omit to leave unchanged; pass an empty string to clear it.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value
+
+
 class TaskPresenceBeaconRequestSerializer(serializers.Serializer):
     """Request body for the presence beacon and beacon-leave endpoints.
 

@@ -42,7 +42,7 @@ _dispatch_executor = ThreadPoolExecutor(
 _dispatch_slots = threading.BoundedSemaphore(_DISPATCH_MAX_PENDING)
 
 
-def _domain_from_email(email: str) -> str | None:
+def domain_from_email(email: str) -> str | None:
     _, address = parseaddr(email or "")
     if "@" not in address:
         return None
@@ -50,7 +50,9 @@ def _domain_from_email(email: str) -> str | None:
     return domain or None
 
 
-def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str | None, email: str) -> None:
+def start_signup_enrichment_workflow(
+    *, organization_id: str, distinct_id: str | None, email: str, role_at_organization: str = ""
+) -> None:
     """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
     # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
     # only on the workers, and a keyless worker fails loudly into the launch alert instead of
@@ -61,7 +63,7 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     if get_instance_region() != "US":
         return
 
-    domain = _domain_from_email(email)
+    domain = domain_from_email(email)
     if not domain:
         return
 
@@ -70,12 +72,31 @@ def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str |
     if not work_email or not distinct_id:
         return
 
-    inputs = SignupEnrichmentInputs(organization_id=str(organization_id), distinct_id=distinct_id, domain=domain)
+    inputs = SignupEnrichmentInputs(
+        organization_id=str(organization_id),
+        distinct_id=distinct_id,
+        domain=domain,
+        role_at_organization=role_at_organization or None,
+    )
     # on_commit so the worker never reads the org/enrichment rows before they are committed. The
     # callback fires inline on the signup request thread (it runs after that transaction commits),
     # so dispatch goes to the bounded pool: building the Temporal client must not add latency to
     # the signup response, and the pool caps how much a Temporal outage can pile up.
     transaction.on_commit(lambda: _submit_dispatch(inputs))
+
+
+def dispatch_signup_enrichment(inputs: SignupEnrichmentInputs) -> None:
+    """Synchronous dispatch for operational re-runs (management commands).
+
+    Applies no guards itself — callers own the kill switch and region gate (the backfill
+    command enforces both before dispatching). Unlike the fire-and-forget signup path,
+    dispatch errors propagate so the operator sees them; a still-running workflow for
+    the org counts as dispatched.
+    """
+    try:
+        _start_workflow(inputs)
+    except WorkflowAlreadyStartedError:
+        logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id)
 
 
 def _submit_dispatch(inputs: SignupEnrichmentInputs) -> None:
@@ -106,20 +127,24 @@ def _record_work_email(*, organization_id: str, work_email: bool) -> None:
         capture_exception(e)
 
 
+def _start_workflow(inputs: SignupEnrichmentInputs) -> None:
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "signup-enrichment",
+            inputs,
+            id=f"signup-enrichment-{inputs.organization_id}",
+            # Rides the general-purpose fleet by default; the SIGNUP_ENRICHMENT_TASK_QUEUE env flips
+            # this unauthenticated signup work onto a dedicated, bounded queue once a worker consumes it.
+            task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        )
+    )
+
+
 def _dispatch(inputs: SignupEnrichmentInputs) -> None:
     try:
-        client = sync_connect()
-        asyncio.run(
-            client.start_workflow(
-                "signup-enrichment",
-                inputs,
-                id=f"signup-enrichment-{inputs.organization_id}",
-                # Rides the general-purpose fleet by default; the SIGNUP_ENRICHMENT_TASK_QUEUE env flips
-                # this unauthenticated signup work onto a dedicated, bounded queue once a worker consumes it.
-                task_queue=settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            )
-        )
+        _start_workflow(inputs)
     except WorkflowAlreadyStartedError:
         # A re-signup race hits the still-running workflow id; expected, not an error.
         logger.info("signup_enrichment_dispatch_skipped", organization_id=inputs.organization_id)

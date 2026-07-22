@@ -1050,6 +1050,8 @@ export interface TicketViewApi {
     filters?: TicketViewApiFilters
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface PaginatedTicketViewListApi {
@@ -1075,6 +1077,8 @@ export interface PatchedTicketViewApi {
     filters?: PatchedTicketViewApiFilters
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface ZendeskImportStartApi {

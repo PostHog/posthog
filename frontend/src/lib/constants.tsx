@@ -205,6 +205,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
+    HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
     HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-modeling
@@ -343,10 +344,12 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-ai-observability
     LLM_ANALYTICS_EVALUATIONS_REPORTS: 'llm-analytics-evaluations-reports', // owner: #team-ai-observability
+    LLM_ANALYTICS_EVALUATIONS_START_WITH_AI: 'llm-analytics-evaluations-start-with-ai', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
+    LLM_PROMPT_LABELS: 'prompt-labels', // owner: @jurajmajerik #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_COLUMN_CONFIGURATION: 'logs-column-configuration', // owner: #team-logs
@@ -535,6 +538,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
+    WORKFLOWS_EMAIL_REPUTATION: 'workflows-email-reputation', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_SUPPRESSION_LIST: 'workflows-suppression-list', // owner: #team-workflows
