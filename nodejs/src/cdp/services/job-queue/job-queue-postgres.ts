@@ -302,7 +302,7 @@ function invocationToCyclotronJobUpdate(invocation: CyclotronJobInvocation): Cyc
     return job
 }
 
-function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
+export function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
     const params = job.parameters as CyclotronInvocationQueueParametersType | undefined
 
     if (job.blob && params && params.type === 'fetch') {
