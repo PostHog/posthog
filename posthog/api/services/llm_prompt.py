@@ -158,6 +158,14 @@ def resolve_versions_page(
     return versions[:limit], has_more
 
 
+def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
+    return (
+        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name)
+        .select_related("prompt", "created_by")
+        .order_by("name")
+    )
+
+
 def publish_prompt_version(
     team: Team,
     *,
@@ -273,7 +281,9 @@ def archive_prompt(team: Team, prompt_name: str) -> list[int]:
             is_latest=False,
         )
 
-        LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name).delete()
+        # Instance-level deletes so ModelActivityMixin logs each label removal.
+        for label in LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name):
+            label.delete()
 
         def invalidate_caches_on_commit() -> None:
             invalidate_prompt_latest_cache(team.id, prompt_name)

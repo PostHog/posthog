@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     ENDPOINTS,
     FINNWORLDS_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnworldsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
+    FinnworldsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

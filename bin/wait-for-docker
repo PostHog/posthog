@@ -66,6 +66,11 @@ compose() {
     local compose_file
     local separator
 
+    # Pin the project so `ps` targets the same stack the up command created under
+    # (see generator.py). Without -p, compose derives it from COMPOSE_PROJECT_NAME
+    # or the worktree folder name, which drifts from "posthog" when direnv is off.
+    local project="${COMPOSE_PROJECT_NAME:-posthog}"
+
     if [ -n "${COMPOSE_FILE:-}" ]; then
         separator="${COMPOSE_PATH_SEPARATOR:-:}"
         IFS="$separator" read -r -a compose_files <<< "$COMPOSE_FILE"
@@ -74,9 +79,9 @@ compose() {
                 compose_args+=(-f "$compose_file")
             fi
         done
-        env -u COMPOSE_FILE docker compose ${compose_args[@]+"${compose_args[@]}"} "$@"
+        env -u COMPOSE_FILE docker compose -p "$project" ${compose_args[@]+"${compose_args[@]}"} "$@"
     else
-        docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
+        docker compose -p "$project" -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
 }
 

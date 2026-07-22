@@ -1,7 +1,15 @@
 """Wrap a user message with a `<posthog_context>` block built from per-message
 attached context. See `ContextService`.
 
-The template lives only here, in Python — the frontend never builds it.
+DEPRECATED PATH — do not extend. The attached-context wrap here (`wrap_user_message`,
+`prune_repeated_entity_refs`, `_render_posthog_context_block`) serves only the legacy Max
+conversations bridge (`ee/api/conversation.py` open + `message_routing.py`) and is removed with it.
+The live path builds richer `<posthog_trusted_context>` / `<posthog_untrusted_context>` blocks on
+the frontend (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`); do not port that tiering
+here — the frontend replay stripper keeps understanding this legacy `<posthog_context>` tag until
+the bridge is deleted.
+
+NOT deprecated: `abuild_resumed_legacy_context` (the conversation migration service) stays.
 """
 
 import json

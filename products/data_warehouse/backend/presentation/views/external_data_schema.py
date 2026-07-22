@@ -9,7 +9,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -26,21 +26,13 @@ from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
     external_data_workflow_exists,
+    get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
-    hide_direct_mysql_table,
-    hide_direct_postgres_table,
-    hide_direct_redshift_table,
-    hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
-    is_xmin_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
-    reproject_direct_mysql_table,
-    reproject_direct_postgres_table,
-    reproject_direct_redshift_table,
-    reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -711,17 +703,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 raise ValidationError("CDC is not enabled for this team")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
-        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres, the flag is
-        # on for the team, and the table actually advertises xmin support — otherwise a raw PATCH would
-        # persist an xmin schema that silently degrades to full_refresh.
+        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
+        # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
+        # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            from posthog.models import Team
-
-            if instance.source.source_type != ExternalDataSourceType.POSTGRES:
+            if not SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type)).supports_xmin:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_xmin_enabled_for_team(team):
-                raise ValidationError("xmin replication is not enabled for this team")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
                     f"xmin replication is not available for table '{instance.name}'. "
@@ -977,35 +964,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         )
 
         if source.is_direct_query:
+            direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
             # (2) the column-picker selection changed on an already-exposed row.
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
-            if newly_exposed or projection_needs_refresh:
-                if source.is_direct_postgres:
-                    reproject = reproject_direct_postgres_table
-                elif source.is_direct_snowflake:
-                    reproject = reproject_direct_snowflake_table
-                elif source.is_direct_redshift:
-                    reproject = reproject_direct_redshift_table
-                else:
-                    reproject = reproject_direct_mysql_table
-                validated_data["table"] = reproject(
+            if direct_engine_adapter is not None and (newly_exposed or projection_needs_refresh):
+                validated_data["table"] = direct_engine_adapter.reproject_table(
                     instance,
                     source=source,
                     enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
-            if should_sync is False and instance.should_sync is True:
-                if source.is_direct_postgres:
-                    hide_direct_postgres_table(instance.table)
-                elif source.is_direct_snowflake:
-                    hide_direct_snowflake_table(instance.table)
-                elif source.is_direct_redshift:
-                    hide_direct_redshift_table(instance.table)
-                else:
-                    hide_direct_mysql_table(instance.table)
+            if direct_engine_adapter is not None and should_sync is False and instance.should_sync is True:
+                direct_engine_adapter.hide_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
@@ -1163,6 +1136,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         """
         if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
+
+    def seed_webhook_only_check(self, webhook_only: bool) -> None:
+        """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.
+        bulk sync-defaults filling), so warm_webhook_only_check doesn't re-probe the source."""
+        self.__dict__["_webhook_only_result"] = webhook_only
 
     def _webhook_only_check_applies(self) -> bool:
         # Single source of truth for when the webhook-only check runs, so update() and the
@@ -1325,6 +1303,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
+            if obj.source.is_system_managed:
+                raise PermissionDenied("This schema is managed by PostHog and cannot be changed through this API.")
 
     @extend_schema(exclude=True)
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1550,14 +1534,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
 
         if instance.source.is_direct_query:
-            if instance.source.is_direct_postgres:
-                hide_direct_postgres_table(instance.table)
-            elif instance.source.is_direct_snowflake:
-                hide_direct_snowflake_table(instance.table)
-            elif instance.source.is_direct_redshift:
-                hide_direct_redshift_table(instance.table)
-            else:
-                hide_direct_mysql_table(instance.table)
+            direct_engine_adapter = get_direct_query_engine(instance.source.direct_engine)
+            if direct_engine_adapter is not None:
+                direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
@@ -1611,10 +1590,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
-        # xmin is Postgres-only AND flag-gated, mirroring the database_schema endpoint.
+        # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = (
             schema.supports_xmin
-            if (source.source_type == ExternalDataSourceType.POSTGRES and is_xmin_enabled_for_team(self.team))
+            if SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).supports_xmin
             else None
         )
 

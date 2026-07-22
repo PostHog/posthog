@@ -1639,7 +1639,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hiddenTiles: TileId[]
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
-                const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
                 const uniqueUserSeries: EventsNode = {
                     event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
@@ -1830,7 +1829,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 properties: webAnalyticsFilters,
                                 breakdownBy: breakdownBy,
                                 dateRange,
-                                sampling,
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
@@ -1984,7 +1982,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             interval,
-                            sampling,
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
@@ -2216,7 +2213,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   properties: webAnalyticsFilters,
                                                   dateRange,
                                                   compareFilter,
-                                                  sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
                                                   conversionGoal,
@@ -2866,7 +2862,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       properties: webAnalyticsFilters,
                                       dateRange,
                                       compareFilter,
-                                      sampling,
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
@@ -3323,11 +3318,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (active_hours_tab && active_hours_tab !== values._activeHoursTab) {
                 actions.setActiveHoursTab(active_hours_tab)
             }
-            if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
-                actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+            if (path_cleaning !== undefined) {
+                const parsedPathCleaning = [true, 'true', 1, '1'].includes(path_cleaning)
+                if (parsedPathCleaning !== values._isPathCleaningEnabled) {
+                    actions.setIsPathCleaningEnabled(parsedPathCleaning)
+                }
             }
-            if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
-                actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            if (filter_test_accounts !== undefined) {
+                const parsedFilterTestAccounts = [true, 'true', 1, '1'].includes(filter_test_accounts)
+                if (parsedFilterTestAccounts !== values.shouldFilterTestAccounts) {
+                    actions.setShouldFilterTestAccounts(parsedFilterTestAccounts)
+                }
             }
             if (
                 compare_filter &&

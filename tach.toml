@@ -223,7 +223,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics",
 ]
 layer = "modules"
 
@@ -335,6 +335,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.notifications",
+    "products.signals",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -352,6 +353,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.approvals",
     "products.ai_observability",
@@ -498,9 +500,11 @@ depends_on = [
     "ee",
     "posthog",
     "products.ai_observability",
+    "products.alerts",
     "products.annotations",
     "products.dashboards",
     "products.experiments",
+    "products.exports",
     "products.product_analytics",
 ]
 layer = "modules"
@@ -561,6 +565,7 @@ layer = "modules"
 path = "products.product_tours"
 depends_on = [
     "posthog",
+    "products.approvals",
     "products.feature_flags",
     "products.surveys",
 ]
@@ -595,8 +600,10 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.cohorts",
     "products.exports",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -714,6 +721,7 @@ depends_on = [
     "products.feature_flags",
     "products.ai_observability",
     "products.mcp_store",
+    "products.notifications",
     "products.posthog_ai",
     "products.signals",
     "products.slack_app",
@@ -1029,8 +1037,18 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.event_definitions"]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.logic\\.placeholder.*",
+    "backend\\.models.*",
+    "backend\\.property_type.*",
+]
+from = [
+    "products.event_definitions",
+]
 
 [[interfaces]]
 expose = [

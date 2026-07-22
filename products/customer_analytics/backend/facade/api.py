@@ -23,8 +23,9 @@ from uuid import UUID
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Exists, OuterRef, Prefetch, Q
 
+import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
@@ -37,12 +38,14 @@ from posthog.models.tagged_item import TaggedItem
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.facade.contracts import (
+    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
+)
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
-    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
     apply_option_side_effects,
     coerce_is_big_number,
     normalize_options,
@@ -80,6 +83,8 @@ from . import contracts
 
 # The "Update account property" workflow action (Hog template) stores the custom property values it
 # sets keyed by definition id under its ``properties`` input — the link we resolve into references.
+logger = structlog.get_logger(__name__)
+
 _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
 _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
@@ -247,6 +252,34 @@ def get_account(
     )
 
 
+def get_account_ref_by_slack_channel_id(team_id: int, slack_channel_id: str) -> contracts.AccountRef | None:
+    """Fetch the team's account whose ``slack_channel_id`` property matches the given channel.
+
+    The channel → account mapping is expected to be one-to-one; the property has no
+    uniqueness constraint, so if several accounts claim the same channel the mapping is
+    ambiguous (an import or config mistake) and attributing to any one of them risks
+    tagging tickets with the wrong customer — return None instead.
+    """
+    if not slack_channel_id:
+        return None
+    rows = list(
+        Account.objects.for_team(team_id)
+        .filter(_properties__slack_channel_id=slack_channel_id)
+        .values("id", "name", "external_id")[:2]
+    )
+    if not rows:
+        return None
+    if len(rows) > 1:
+        logger.warning(
+            "multiple_accounts_claim_slack_channel",
+            team_id=team_id,
+            slack_channel_id=slack_channel_id,
+        )
+        return None
+    row = rows[0]
+    return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
+
+
 # --- External (CDP worker) account API ---
 #
 # The data access, transactional write, org-membership resolution, tag
@@ -324,6 +357,71 @@ def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAc
     if account is None:
         return None
     return _to_external_account(account)
+
+
+def list_external_accounts(
+    team_id: int,
+    *,
+    organization_id: UUID,
+    cursor: str | None = None,
+    limit: int = 100,
+    assigned_only: bool = False,
+) -> contracts.ExternalAccountListPage:
+    """Page through the team's accounts for the external API, ordered by id.
+
+    Account ids are time-ordered UUIDs, so ``id__gt`` is a stable cursor.
+    Accounts without an external id are excluded — external consumers key on
+    it. Only active relationship assignments to current members of the team's
+    organization are exposed. With ``assigned_only``, only accounts holding at
+    least one such assignment are returned; a consumer reconciling by absence
+    still sees the complete assigned set. Assignments mirror the single-account
+    endpoint's ``relationships`` shape (keyed by definition name), with the
+    user's current display name added.
+    """
+    active_relationships = AccountRelationship.objects.for_team(team_id).filter(
+        ended_at__isnull=True,
+        user__isnull=False,
+        user__organization_membership__organization_id=organization_id,
+    )
+    queryset = (
+        Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="").order_by("id")
+    )
+    if assigned_only:
+        queryset = queryset.filter(Exists(active_relationships.filter(account=OuterRef("pk"))))
+    if cursor:
+        queryset = queryset.filter(id__gt=cursor)
+
+    page_accounts = list(queryset[: limit + 1])
+    accounts = page_accounts[:limit]
+
+    relationships_by_account: dict[UUID, dict[str, list[contracts.ExternalAccountAssignment]]] = {}
+    for relationship in (
+        active_relationships.filter(account__in=accounts)
+        .select_related("definition", "user")
+        .order_by("definition__name", "user__email")
+    ):
+        user = relationship.user
+        assert user is not None
+        relationships_by_account.setdefault(relationship.account_id, {}).setdefault(
+            relationship.definition.name, []
+        ).append(
+            contracts.ExternalAccountAssignment(
+                user_id=user.id,
+                email=user.email,
+                name=f"{user.first_name} {user.last_name}".strip() or None,
+            )
+        )
+
+    results = [
+        contracts.ExternalAccountListItem(
+            external_id=cast(str, account.external_id),
+            name=account.name,
+            relationships=relationships_by_account.get(account.id, {}),
+        )
+        for account in accounts
+    ]
+    next_cursor = str(accounts[-1].id) if accounts and len(page_accounts) > limit else None
+    return contracts.ExternalAccountListPage(results=results, next_cursor=next_cursor)
 
 
 def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
