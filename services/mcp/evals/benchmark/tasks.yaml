@@ -115,7 +115,10 @@ tasks:
       success_criteria: 'Lists the actual people who dropped off entering the second step (drop-off step semantics, not a converted-through step), rather than just re-plotting the funnel conversion rate.'
       probe:
           # Repeated-pageview steps keep the probe runnable in any seeded demo
-          # project; funnelStep -2 = dropped off entering step 2.
+          # project; funnelStep -2 = dropped off entering step 2. Probe mode
+          # only guards arg acceptance, tool errors, and latency — an empty
+          # actor list still passes. Step SEMANTICS (returning the right
+          # people) are judged in agent mode via success_criteria.
           tool: query-funnel-actors
           args:
               funnelStep: -2
