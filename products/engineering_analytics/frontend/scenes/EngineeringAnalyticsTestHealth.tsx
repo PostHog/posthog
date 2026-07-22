@@ -408,7 +408,7 @@ function ActiveTestHealthQueue(): JSX.Element {
                     {row.classification !== 'quarantined' && (
                         <span className="text-secondary">
                             {row.sameCommitRecoveryRunCount > 0
-                                ? `The same commit recovered in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
+                                ? `Recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
                                 : 'No recovery recorded'}
                         </span>
                     )}

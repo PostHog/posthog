@@ -15,6 +15,7 @@ T_EXPORTS_RECOVERED = "products/batch_exports/backend/tests/test_snowflake/TestS
 T_UNOWNED = "posthog/api/test/test_shared/TestShared::test_unowned"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_RESTAMPED = "products/moved/backend/tests/test_moved/TestMoved::test_restamped"
+T_PASS_ONLY = "products/quiet/backend/tests/test_quiet/TestQuiet::test_pass_only"
 
 
 class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
@@ -79,6 +80,11 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(16, T_RESTAMPED, "failed", ts=cls.current_b, owner="team-new", run="602", pr="602"),
             # No owner stamp: buckets under the literal 'unowned'.
             cls._span(12, T_UNOWNED, "rerun_passed", ts=cls.current_b, owner="", run="401", pr="401"),
+            # A re-run pass with no same-run failure: a shard re-executed alongside the flaky one.
+            # It pairs with nothing, so its team must not appear in the roster at all.
+            cls._span(
+                17, T_PASS_ONLY, "passed", ts=cls.current_b, owner="team-quiet", run="701", attempt="2", pr="701"
+            ),
             # A non-CI service must never reach the roster (the scan is fenced by service_name).
             cls._span(
                 13,
@@ -165,6 +171,8 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
         # The foreign-service span's team must not appear at all.
         assert "ghost-team" not in rows
+        # A re-run pass that pairs with no failure is not evidence: no phantom all-zero team row.
+        assert "team-quiet" not in rows
 
     def test_restamped_test_lands_under_its_latest_owner_in_roster_and_drill_in(self):
         rows = {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}

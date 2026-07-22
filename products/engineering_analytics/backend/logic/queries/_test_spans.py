@@ -79,6 +79,9 @@ _RUN_EVIDENCE = """
         GROUP BY nodeid, run_id, attempt
     )
     GROUP BY nodeid, run_id
+    -- The scan admits re-run passes so they can pair with a failure above; unpaired they are not
+    -- evidence, and a pass-only row would surface as an all-zero test everywhere downstream.
+    HAVING failed_in_run OR recovered_in_run OR quarantined_in_run
 """
 
 
