@@ -28,7 +28,7 @@ def _stub_source_security_gate(source_mock) -> None:
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_qualifies_legacy_warehouse_rows_in_place(self, mock_get_source):
         # A pre-PR warehouse Postgres source had `schema=public` on the source config and
         # `ExternalDataSchema.name="auth_group"` (no schema prefix). After this PR, discovery
@@ -102,7 +102,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         ).values_list("name", flat=True)
         assert list(live_schemas) == ["public.auth_group"]
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_idempotent_on_legacy_warehouse_rows(self, mock_get_source):
         # Calling refresh_schemas twice on a legacy row should be a no-op on the second call —
         # name stays put, schema_metadata stays put, no thrash of updated_at.
@@ -157,7 +157,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         assert metadata.get("source_table_name") == "auth_group"
         assert schema.s3_folder_name == "auth_group"
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_refreshes_legacy_warehouse_metadata_when_columns_change(self, mock_get_source):
         # available_columns must keep up with upstream changes for legacy unqualified rows.
         # Without resolving the row by source location, reconcile_postgres_schemas would only
@@ -221,7 +221,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         column_names = [c["name"] for c in metadata_columns]
         assert column_names == ["id", "new_column"]
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_writes_metadata_for_new_other_schema_table_after_schema_cleared(self, mock_get_source):
         # Scenario reported by users:
         #   1. Source created on master with `job_inputs={schema: "public"}` — limits sync to the
@@ -302,7 +302,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         )
         assert new_metadata.get("source_table_name") == "example_table"
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_clearing_postgres_schema_pins_legacy_rows_to_old_default_schema(self, mock_get_source):
         # Repro for "lost data after clearing schema". Source had schema=poblic, legacy unqualified
         # rows were synced from poblic.<name>. When user clears the schema field, the next refresh
@@ -388,7 +388,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
         ).exists()
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_clearing_postgres_schema_drops_duplicate_qualified_row(self, mock_get_source):
         # A prior refresh (before this migration landed) might have created `poblic.example_table`
         # as a separate row. When the user clears the schema, the legacy unqualified row gets
@@ -481,7 +481,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         orphan.refresh_from_db()
         assert orphan.deleted is True
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_persists_detected_primary_key_for_cdc(self, mock_get_source):
         # A table added after source creation is discovered via refresh. Its detected primary key
         # must be persisted to sync_type_config.primary_key_columns so it can later be switched to
@@ -526,7 +526,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         assert schema.sync_type_config.get("primary_key_columns") == ["id"]
         assert schema.primary_key_columns == ["id"]
 
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_does_not_clobber_existing_primary_key(self, mock_get_source):
         # A user-set / previously-stored PK must survive refresh even if discovery detects a
         # different one — the explicit choice wins.

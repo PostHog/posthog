@@ -120,6 +120,7 @@ Make sure to grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
@@ -157,9 +158,13 @@ Make sure to grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: KlaviyoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: KlaviyoSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_klaviyo_credentials(config.api_key):
+        if validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Klaviyo API key"

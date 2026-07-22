@@ -25,6 +25,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef, Prefetch, Q
 
+import structlog
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
@@ -33,7 +34,9 @@ from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
 
+from products.conversations.backend.facade.api import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
@@ -41,6 +44,7 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.logic import (
+    announcements as _announcements_logic,
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
 )
@@ -59,6 +63,7 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
     AccountRelationshipDefinition,
+    Announcement,
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
@@ -67,6 +72,7 @@ from products.customer_analytics.backend.models import (
     TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
+from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,
@@ -82,8 +88,12 @@ from . import contracts
 
 # The "Update account property" workflow action (Hog template) stores the custom property values it
 # sets keyed by definition id under its ``properties`` input — the link we resolve into references.
+logger = structlog.get_logger(__name__)
+
 _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
 _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -247,6 +257,34 @@ def get_account(
         properties=_to_account_properties(account.properties),
         created_at=account.created_at,
     )
+
+
+def get_account_ref_by_slack_channel_id(team_id: int, slack_channel_id: str) -> contracts.AccountRef | None:
+    """Fetch the team's account whose ``slack_channel_id`` property matches the given channel.
+
+    The channel → account mapping is expected to be one-to-one; the property has no
+    uniqueness constraint, so if several accounts claim the same channel the mapping is
+    ambiguous (an import or config mistake) and attributing to any one of them risks
+    tagging tickets with the wrong customer — return None instead.
+    """
+    if not slack_channel_id:
+        return None
+    rows = list(
+        Account.objects.for_team(team_id)
+        .filter(_properties__slack_channel_id=slack_channel_id)
+        .values("id", "name", "external_id")[:2]
+    )
+    if not rows:
+        return None
+    if len(rows) > 1:
+        logger.warning(
+            "multiple_accounts_claim_slack_channel",
+            team_id=team_id,
+            slack_channel_id=slack_channel_id,
+        )
+        return None
+    row = rows[0]
+    return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
 
 
 # --- External (CDP worker) account API ---
@@ -2067,3 +2105,73 @@ def end_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return None
     return _to_account_relationship(relationship)
+
+
+# --- Announcements ---
+
+
+def _to_announcement_delivery_view(delivery) -> contracts.AnnouncementDeliveryView:
+    return contracts.AnnouncementDeliveryView(
+        id=delivery.id,
+        slack_channel_id=delivery.slack_channel_id,
+        slack_channel_name=delivery.slack_channel_name,
+        status=delivery.status,
+        error=delivery.error,
+        slack_message_ts=delivery.slack_message_ts,
+        sent_at=delivery.sent_at,
+    )
+
+
+def _to_announcement_view(announcement) -> contracts.AnnouncementView:
+    return contracts.AnnouncementView(
+        id=announcement.id,
+        short_id=announcement.short_id,
+        message=announcement.message,
+        status=announcement.status,
+        total_channels=announcement.total_channels,
+        sent_count=announcement.sent_count,
+        failed_count=announcement.failed_count,
+        sent_at=announcement.sent_at,
+        created_at=announcement.created_at,
+        created_by=_to_user_basic_info(announcement.created_by),
+        deliveries=[_to_announcement_delivery_view(d) for d in announcement.deliveries.all()],
+    )
+
+
+def _announcements_queryset(team_id: int):
+    return (
+        Announcement.objects.for_team(team_id)
+        .select_related("created_by")
+        .prefetch_related("deliveries")
+        .order_by("-created_at")
+    )
+
+
+def list_announcements(team_id: int, offset: int, limit: int) -> tuple[list[contracts.AnnouncementView], int]:
+    queryset = _announcements_queryset(team_id)
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_announcement_view(a) for a in page], total_count
+
+
+def get_announcement(team_id: int, short_id: str) -> contracts.AnnouncementView | None:
+    announcement = _announcements_queryset(team_id).filter(short_id=short_id).first()
+    return _to_announcement_view(announcement) if announcement is not None else None
+
+
+def create_announcement(*, team_id: int, user: "User", message: str, channels: list[str]) -> contracts.AnnouncementView:
+    team = Team.objects.get(id=team_id)
+    announcement = _announcements_logic.create_announcement(team, user, message, channels)
+    # Dispatch only after the delivery rows commit; a rollback must not leave a phantom task.
+    transaction.on_commit(lambda: send_announcement.delay(str(announcement.id), team_id))
+    return _to_announcement_view(announcement)
+
+
+def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChannelView]:
+    try:
+        return _announcements_logic.list_channels(team_id)
+    except SupportSlackNotConfigured:
+        return []
+    except SupportSlackChannelsUnavailable:
+        logger.warning("announcement_channels_unavailable", team_id=team_id)
+        return []

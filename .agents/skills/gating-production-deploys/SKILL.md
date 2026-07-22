@@ -24,7 +24,7 @@ publishes/deploys from the wrong place.
 
 - Release/distribution workflows — GitHub release, npm, crate, Homebrew (e.g.
   `build-phrocs.yml`, `release-cli.yml`). They publish from public; leave them.
-- `pull_request` / `merge_group` validation builds (gating them breaks contributor CI).
+- `pull_request` validation builds (gating them breaks contributor CI).
 - change-detection / setup jobs (use the org check only, not the variable).
 
 The test is "pushes a prod image or triggers a deploy" — not "builds on master".
@@ -53,7 +53,7 @@ if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && 
 # push step, master-only:
 push: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
 # push step, `push: true` (also pushes on PR for validation):
-push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
 
 # reusable that pushes — add a `push` boolean input (default true), pass from caller:
 #   with: { push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }} }
