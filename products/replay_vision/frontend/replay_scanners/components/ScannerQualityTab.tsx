@@ -20,11 +20,9 @@ import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type {
@@ -35,6 +33,7 @@ import type {
 } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCredits } from '../../utils/credits'
 import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
 import { readConfidence } from '../../utils/observation'
@@ -45,10 +44,11 @@ import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
 import { ConfigChangeCards } from './ConfigChangeCards'
 import { versionTag } from './ScannerObservationsTable'
 
-const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
-    { value: 'unrated', label: 'Unrated' },
-    { value: 'rated', label: 'Rated' },
-    { value: 'all', label: 'All' },
+// data-attr must live on each option: LemonSegmentedButton renders no element of its own that takes one.
+const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string; 'data-attr': string }[] = [
+    { value: 'unrated', label: 'Unrated', 'data-attr': 'vision-quality-rated-filter-unrated' },
+    { value: 'rated', label: 'Rated', 'data-attr': 'vision-quality-rated-filter-rated' },
+    { value: 'all', label: 'All', 'data-attr': 'vision-quality-rated-filter-all' },
 ]
 
 const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string; tooltip: string }> = {
@@ -243,7 +243,12 @@ function SuggestionEvaluationPanel({
                                 title: 'Session',
                                 key: 'session',
                                 render: (_, result) => (
-                                    <Link to={urls.replaySingle(result.session_id)} className="font-mono">
+                                    // New tab like the results table links, so reviewers keep their place.
+                                    <Link
+                                        to={urls.replaySingle(result.session_id)}
+                                        target="_blank"
+                                        className="font-mono"
+                                    >
                                         {result.session_id.slice(0, 8)}…
                                     </Link>
                                 ),
@@ -318,10 +323,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const creditsPerTestSession = scanner ? (OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? 0) : 0
     const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
-    const editDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.SessionRecording,
-        AccessControlLevel.Editor
-    )
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     const pastSuggestions = suggestionHistory.filter((s) => s.id !== currentSuggestion?.id)
 
@@ -579,16 +581,18 @@ function VersionBadgeBridge({
 
 type ChartMode = 'session' | 'rating'
 
-const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[] = [
+const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string; 'data-attr': string }[] = [
     {
         value: 'session',
         label: 'By session day',
         tooltip: 'Ratings placed on the day the session was scanned: how scanner quality trends over time',
+        'data-attr': 'vision-quality-chart-mode-session',
     },
     {
         value: 'rating',
         label: 'By rating day',
         tooltip: "Ratings placed on the day they were given or changed: the team's rating activity",
+        'data-attr': 'vision-quality-chart-mode-rating',
     },
 ]
 
@@ -648,13 +652,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                         : `last ${LABEL_CHART_DAYS} days`}
                 </span>
                 <div className="ml-auto">
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={mode}
-                        onChange={setMode}
-                        options={CHART_MODE_OPTIONS}
-                        data-attr="vision-quality-chart-mode"
-                    />
+                    <LemonSegmentedButton size="xsmall" value={mode} onChange={setMode} options={CHART_MODE_OPTIONS} />
                 </div>
             </div>
             {versionAccuracy.length > 0 && (
@@ -820,8 +818,11 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             key: 'session',
             width: 260,
             render: (_, obs) => (
+                // Open in a new tab so labelers keep their place in the list while reviewing a recording.
                 <Link
                     to={urls.replayVisionObservation(obs.id)}
+                    target="_blank"
+                    targetBlankIcon={false}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -832,7 +833,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                <Link to={urls.replayVisionObservation(obs.id)} target="_blank" className="block">
                     <div className="min-w-[16rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>
@@ -865,6 +866,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
+                    scannerUserAccessLevel={scanner?.user_access_level}
                 />
             ),
         },
@@ -877,6 +879,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
+                    scannerUserAccessLevel={scanner?.user_access_level}
                 />
             ),
         },
@@ -914,6 +917,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     type="secondary"
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
+                    targetBlank
                     className="whitespace-nowrap"
                     data-attr="vision-quality-view-recording"
                 >
@@ -927,7 +931,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
                 Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
-                ratings power the PostHog AI prompt recommendation below.
+                ratings power the PostHog AI recommendation below.
             </p>
 
             <ConfigRecommendationPanel scannerId={scannerId} />
@@ -949,7 +953,6 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                             value={ratedFilter}
                             onChange={setRatedFilter}
                             options={RATED_FILTER_OPTIONS}
-                            data-attr="vision-quality-rated-filter"
                         />
                     </div>
                 </div>
@@ -968,6 +971,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         entryCount: total,
                         onForward: () => setPage(page + 1),
                         onBackward: () => setPage(page - 1),
+                        // Page state lives in scannerQualityLogic; without this the control also pushes a
+                        // `page` URL param that nothing reads and that goes stale on filter or tab changes.
+                        useUrl: false,
                     }}
                     sorting={sort}
                     onSort={(next) => setSort(next)}

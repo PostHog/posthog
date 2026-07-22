@@ -1577,6 +1577,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
+        self._flush_deferred_constraint_triggers()
         executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
@@ -1585,12 +1586,22 @@ class BaseTestMigrations(QueryMatchingTest):
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
 
+        self._flush_deferred_constraint_triggers()
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
             executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
+
+    @staticmethod
+    def _flush_deferred_constraint_triggers() -> None:
+        # Fixture inserts (e.g. BaseTest teams) queue deferred FK checks in the open test
+        # transaction; (un)applying a migration that adds or drops an FK on those tables then
+        # fails with "cannot ALTER TABLE ... because it has pending trigger events". Firing
+        # the checks now clears the queue.
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
