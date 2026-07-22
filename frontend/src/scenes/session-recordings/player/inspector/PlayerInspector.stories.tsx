@@ -18,11 +18,6 @@ type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Components/PlayerInspector',
     component: PlayerInspector,
-    parameters: {
-        // Loads a large recording and renders the async event/log list, which settles slower than the
-        // suite-wide default. Keep the pre-existing 1s cushion so both themes capture a fully rendered list.
-        testOptions: { snapshotSettleTimeMs: 1000 },
-    },
     decorators: [
         mswDecorator({
             get: {
