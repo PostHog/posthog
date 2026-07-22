@@ -15,10 +15,13 @@ from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
+from posthog.settings import CLICKHOUSE_CLUSTER
 
+from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import BACKGROUND_WARMING_TRIGGERS
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 WARMING_SHAPES_SELECTED_GAUGE = Gauge(
@@ -28,7 +31,7 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    ["outcome"],  # warmed | skipped_fresh | failed
+    ["outcome"],  # warmed | skipped_fresh | failed | unsupported
 )
 
 cache_warming_retry_policy = RetryPolicy(
@@ -48,6 +51,24 @@ LAZY_PRECOMPUTE_QUERY_KINDS = frozenset(
 # single tenant can claim by running many distinct shapes past the demand threshold
 # (the queries replay outside the tenant's own request throttles).
 MAX_SHAPES_PER_TEAM = 100
+
+# Demand is selected by API query kind, not by query_type tag: the tag
+# vocabulary is a growing zoo of strategy variants (no_join, session_id_set,
+# lazy reads, per-breakdown inserts, …) and enumerating it would silently drop
+# new variants from warming. Every kind in the web analytics family starts with
+# "Web" (WebOverviewQuery, WebStatsTableQuery, WebVitalsQuery, …).
+WARMABLE_QUERY_KIND_PREFIX = "Web"
+
+# Web-family kinds with no get_query_runner branch (they execute through other
+# paths). Excluded in the selection so they don't consume the capped slots or
+# inflate dry-run counts; warm_queries_op's `unsupported` outcome remains the
+# backstop for any future runnerless kind not yet listed here.
+UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
+
+# Internal helper rows of a single API call (bucket builds, id-set preflights);
+# counting them would double-count demand for teams on those strategies.
+INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
+_INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
 
 
 def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
@@ -69,7 +90,7 @@ def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
 
 
 def queries_to_keep_fresh(
-    context: dagster.OpExecutionContext, days: int = 7, minimum_query_count: int = 10, max_shapes: int = 20000
+    context: dagster.OpExecutionContext, days: int = 2, minimum_query_count: int = 10, max_shapes: int = 20000
 ) -> list[dict]:
     """Fleet-wide demand selection: every (team, query shape) with at least
     `minimum_query_count` runs in the window, hottest first, capped at
@@ -84,44 +105,57 @@ def queries_to_keep_fresh(
         f"in the last {days} days (cap {max_shapes} shapes)."
     )
 
+    # Selection reads system.query_log across the whole cluster: Dagster connects
+    # to offline nodes, while the user traffic we want to replay lands on other
+    # replicas. (metrics_query_log_mv only looks usable — its DDL in
+    # posthog/models/query_metrics/sql.py was never migrated, the table does not
+    # exist in production.) Grouping by the query JSON alone (hash only kept for
+    # logging) collapses strategy variants of one shape into one replay, and
+    # demand is counted as distinct query_ids so duplicated log rows for one
+    # request can't inflate it. The
+    # trigger/feature exclusions keep the warmer's own replays — and every other
+    # background warmer — out of the demand counts, otherwise a once-warmed shape
+    # would keep itself hot forever. LIKE literals are %%-escaped because
+    # clickhouse_driver %-formats the query when params are passed.
+    # nosemgrep: clickhouse-fstring-param-audit (interpolations are module-level constants from hardcoded tuples, not user input; everything dynamic is parameterized)
     results = sync_execute(
-        """
+        f"""
         SELECT
             team_id,
             query_json_raw,
-            COUNT(*) AS query_count,
-            normalizedQueryHash(query) as normalized_query_hash
+            uniqExact(query_id) AS query_count,
+            any(normalized_query_hash) AS normalized_query_hash
         FROM (
             SELECT
-                team_id,
+                JSONExtractInt(log_comment, 'team_id') AS team_id,
+                JSONExtractString(log_comment, 'query', 'kind') AS query_kind,
+                JSONExtractString(log_comment, 'query_type') AS query_type,
+                JSONExtractString(log_comment, 'trigger') AS trigger,
+                JSONExtractString(log_comment, 'feature') AS feature,
                 JSONExtractRaw(log_comment, 'query') AS query_json_raw,
-                query,
-                exception_code
-            FROM metrics_query_log_mv
+                normalizedQueryHash(query) AS normalized_query_hash,
+                query_id
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
             WHERE
-                timestamp >= now() - INTERVAL %(days)s DAY
-                AND team_id != 0
-                AND (
-                    startsWith(query_type, 'stats_table_')
-                    -- Overview strategy variants get their own tags (no_join today,
-                    -- session_id_set next); prefix-match like stats_table_ so new variants
-                    -- can't silently fall out of warming.
-                    OR startsWith(query_type, 'web_overview_')
-                    OR query_type IN (
-                    'web_goals_query',
-                    'web_stats_paths_lazy_query',
-                    'web_vitals_path_breakdown_query',
-                    'web_vitals_paths_lazy_query',
-                    'external_clicks_query'
-                )
-                )
-                AND query_json_raw != ''
-                AND exception_code = 0
+                event_date >= toDate(now() - INTERVAL %(days)s DAY)
+                AND event_time >= now() - INTERVAL %(days)s DAY
+                AND type = 'QueryFinish'
+                AND is_initial_query
+                -- cheap substring prefilter before any JSON extraction; a
+                -- superset of the kind filter below, false positives re-checked
+                AND log_comment LIKE '%%{WARMABLE_QUERY_KIND_PREFIX}%%'
         ) AS sub
+        WHERE
+            team_id != 0
+            AND query_json_raw != ''
+            AND startsWith(query_kind, %(kind_prefix)s)
+            AND query_kind NOT IN %(unwarmable_kinds)s
+            AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
+            AND trigger NOT IN %(background_triggers)s
+            AND feature != %(cache_warmup_feature)s
         GROUP BY
             team_id,
-            query_json_raw,
-            normalized_query_hash
+            query_json_raw
         HAVING query_count >= %(minimum_query_count)s
         ORDER BY
             query_count DESC
@@ -129,10 +163,15 @@ def queries_to_keep_fresh(
         LIMIT %(max_shapes)s
         """,
         {
+            "cluster": CLICKHOUSE_CLUSTER,
             "days": days,
             "minimum_query_count": minimum_query_count,
             "max_shapes": max_shapes,
             "max_shapes_per_team": MAX_SHAPES_PER_TEAM,
+            "kind_prefix": WARMABLE_QUERY_KIND_PREFIX,
+            "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
+            "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
+            "cache_warmup_feature": Feature.CACHE_WARMUP.value,
         },
     )
 
@@ -173,6 +212,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     queries_warmed = 0
     queries_skipped = 0
     queries_failed = 0
+    queries_unsupported = 0
 
     teams: dict[int, Team | None] = {}
 
@@ -199,11 +239,18 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
 
             query_json = maybe_opt_into_lazy_precompute(query_json)
 
-            runner = get_query_runner(
+            # None only for kinds without a get_query_runner branch — the backstop
+            # for runnerless kinds the selection doesn't know to exclude yet.
+            # Validation errors on supported kinds still raise into the failure path.
+            runner = get_query_runner_or_none(
                 query=query_json,
                 team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
             )
+            if runner is None:
+                WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
+                queries_unsupported += 1
+                continue
 
             cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=runner.get_cache_key())
             cached_data = cache_manager.get_cache_data()
@@ -228,9 +275,17 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             WARMING_QUERIES_COUNTER.labels(outcome="failed").inc()
             queries_failed += 1
 
-    context.log.info(f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, {queries_failed} failed)")
+    context.log.info(
+        f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, "
+        f"{queries_failed} failed, {queries_unsupported} unsupported kinds)"
+    )
     context.add_output_metadata(
-        {"queries_warmed": queries_warmed, "queries_skipped": queries_skipped, "queries_failed": queries_failed}
+        {
+            "queries_warmed": queries_warmed,
+            "queries_skipped": queries_skipped,
+            "queries_failed": queries_failed,
+            "queries_unsupported": queries_unsupported,
+        }
     )
 
 
