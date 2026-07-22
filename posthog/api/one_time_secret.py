@@ -2,13 +2,13 @@ from typing import cast
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.auth import SessionAuthentication
 from posthog.models import User
 from posthog.one_time_secret import consume_one_time_secret, peek_one_time_secret
 

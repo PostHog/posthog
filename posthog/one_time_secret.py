@@ -15,6 +15,16 @@ ONE_TIME_SECRET_TTL_SECONDS = 30 * 60
 
 _REDIS_KEY_PREFIX = "one_time_secret:"
 
+# Delete the key only if it still holds exactly the value we read. This is the atomic burn:
+# the loser of two concurrent reveals finds the value already changed/gone and deletes nothing,
+# so a secret is handed out at most once.
+_COMPARE_AND_DELETE = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
 
 class OneTimeSecretType:
     """The kind of secret being revealed. Drives type-specific copy on the reveal page.
@@ -99,8 +109,15 @@ def consume_one_time_secret(token: str, *, user_id: int) -> Optional[dict]:
     if data.get("created_by_id") != user_id:
         return None
 
-    client.delete(key)
+    # Decrypt before burning: a decryption failure (e.g. an encryption key rotated out during the
+    # secret's lifetime) must not destroy a secret that was never actually revealed.
     value = _cipher().decrypt(data["value"].encode("utf-8")).decode("utf-8")
+
+    # Burn atomically, and only if nobody consumed it between our read and now. If the compare
+    # fails, another concurrent reveal already claimed it — return None rather than a second copy.
+    if not client.eval(_COMPARE_AND_DELETE, 1, key, raw):
+        return None
+
     return {"type": data["type"], "value": value}
 
 
