@@ -1,30 +1,41 @@
-# TODO(migration): the global-secret verification here (verify_provisioning_signature,
-# STRIPE_SIGNING_SECRET) is Stripe-only — removable once Stripe traffic has fully
-# moved to /api/partners/stripe/. _compute_hmac/_get_raw_body/_parse_signature_header
-# must survive: authentication.py uses them for per-partner HMAC.
+"""Stripe request-signature and API-Version verification (APP 0.1d).
 
-import re
+Implements the spec's legacy signing scheme only: ``Stripe-Signature:
+t=<timestamp>,v1=<hex>`` where the signature is HMAC-SHA256 over
+``"{timestamp}.{body}"``, verified against the global
+``settings.STRIPE_SIGNING_SECRET`` with a 300s drift tolerance.
+
+Future work: the spec also defines a preferred ``Stripe-Signature-V2`` scheme -
+an EdDSA-signed JWT (``alg=EdDSA``, ``typ=JWT``, ``kid``) verified against
+Ed25519 keys fetched from ``GET <orchestrator>/v2/provisioning/public_keys``.
+
+When Stripe moves off legacy HMAC, that verification slots in here, next to
+``verify_stripe_signature``. See the Authentication section of
+https://github.com/agentic-provisioning/posthog-spec/blob/master/docs/spec.md.
+
+The verify helpers return a DRF ``Response`` (flat error envelope) on failure
+and ``None`` on success, so views can keep the spec-mandated check ordering
+explicit with ``if error := verify_...(request): return error``.
+"""
+
+from __future__ import annotations
+
 import hmac
-import uuid
 import hashlib
 
 from django.conf import settings
 from django.http.request import RawPostDataException
 
 import structlog
-import posthoganalytics
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 
-logger = structlog.get_logger(__name__)
+from ee.partners.stripe.api.provisioning.analytics import capture_signature_event
+from ee.partners.stripe.api.provisioning.constants import MAX_TIMESTAMP_DRIFT_SECONDS, SUPPORTED_VERSIONS
 
-SUPPORTED_VERSIONS = ["0.1d"]
-API_VERSION = SUPPORTED_VERSIONS[0]
-SIGNATURE_HEADER = "Stripe-Signature"
-API_VERSION_HEADER = "API-Version"
-MAX_TIMESTAMP_DRIFT_SECONDS = 300
+logger = structlog.get_logger(__name__)
 
 
 def verify_api_version(request: Request) -> Response | None:
@@ -34,8 +45,7 @@ def verify_api_version(request: Request) -> Response | None:
     """
     api_version = request.headers.get("api-version", "")
     if api_version not in SUPPORTED_VERSIONS:
-        endpoint = request.path
-        _log_and_capture_event("invalid_api_version", 400, endpoint, api_version=api_version)
+        _log_and_capture_event("invalid_api_version", 400, request.path, api_version=api_version)
         return Response(
             {
                 "error": {
@@ -48,11 +58,10 @@ def verify_api_version(request: Request) -> Response | None:
     return None
 
 
-def verify_provisioning_signature(request: Request) -> Response | None:
-    """Verify the Stripe-Signature HMAC.
+def verify_stripe_signature(request: Request) -> Response | None:
+    """Verify the Stripe-Signature HMAC against the global signing secret.
 
     Returns None if verification passes, or an error Response if it fails.
-    Called at the top of every view (Vercel-style, not middleware).
 
     Delegates to the Stripe SDK, which checks the timestamp and every ``v1``
     signature in the header. During a ``STRIPE_SIGNING_SECRET`` rotation the
@@ -89,8 +98,7 @@ def verify_provisioning_signature(request: Request) -> Response | None:
             status=400,
         )
 
-    # Deferred: the stripe SDK is ~0.45s to import and is only needed on this verify path. Keeping it
-    # out of module scope keeps it off django.setup() (signature.py is reachable from ready() via billing).
+    # Deferred: the stripe SDK is ~0.45s to import and is only needed on this verify path.
     import stripe  # noqa: PLC0415
 
     sig_header = request.headers.get("stripe-signature", "")
@@ -106,14 +114,21 @@ def verify_provisioning_signature(request: Request) -> Response | None:
     return None
 
 
+def verify_stripe_signature_if_present(request: Request) -> Response | None:
+    """Verify the HMAC only when the Stripe-Signature header is present.
+
+    Bearer-authenticated resource endpoints accept the signature as an extra
+    factor when the caller sends one, but do not require it.
+    """
+    if request.headers.get("stripe-signature"):
+        return verify_stripe_signature(request)
+    return None
+
+
 def compute_signature(secret: str, timestamp: int, body: bytes) -> str:
     """Compute HMAC-SHA256 signature for a request body. Exposed for testing."""
-    return _compute_hmac(secret, str(timestamp), body)
-
-
-def _compute_hmac(signing_key: str, timestamp_str: str, body: bytes) -> str:
-    mac = hmac.new(signing_key.encode(), digestmod=hashlib.sha256)
-    mac.update(f"{timestamp_str}.".encode())
+    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+    mac.update(f"{timestamp}.".encode())
     mac.update(body)
     return mac.digest().hex()
 
@@ -141,19 +156,4 @@ def _log_and_capture_event(outcome: str, status_code: int, endpoint: str, **extr
     else:
         logger.info("signature.verification_ok", **log_kwargs)
 
-    posthoganalytics.capture(
-        "agentic_provisioning signature verification",
-        distinct_id=f"agentic_provisioning_{uuid.uuid4().hex[:16]}",
-        properties={"outcome": outcome, "status_code": status_code, "endpoint": endpoint, **extra},
-    )
-
-
-_SIG_RE = re.compile(r"t=(\d+),v1=([0-9a-fA-F]{64})")
-
-
-def _parse_signature_header(header: str) -> tuple[str, str] | None:
-    """Parse 't=<timestamp>,v1=<hex>' into (timestamp_str, hex). Returns None on failure."""
-    m = _SIG_RE.search(header)
-    if not m:
-        return None
-    return m.group(1), m.group(2)
+    capture_signature_event(outcome, status_code, endpoint, **extra)

@@ -1,3 +1,4 @@
+# TODO(migration): Stripe-only coverage - remove once Stripe traffic has fully moved to /api/partners/stripe/ (equivalent tests live in ee/api/partners/stripe/provisioning/test/).
 import time
 
 from unittest.mock import patch
