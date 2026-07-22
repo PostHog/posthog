@@ -60,9 +60,6 @@ class TestAnnouncementAPI(APIBaseTest):
     @patch("products.customer_analytics.backend.logic.announcements.post_support_message")
     @patch(HELPER)
     def test_create_isolates_non_member_channel_and_never_posts_to_it(self, mock_channels, mock_post):
-        # Pentest fix: a caller crafting a channel ID the bot isn't in (a DM, private channel,
-        # App Home) must never be posted to. The channel's delivery row is born failed —
-        # matching a delivery-time loss — while valid channels still deliver.
         mock_channels.return_value = self._member_channels()
         mock_post.return_value = "1.0"
 
