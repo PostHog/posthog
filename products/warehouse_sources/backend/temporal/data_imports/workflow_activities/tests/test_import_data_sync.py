@@ -298,10 +298,11 @@ def _fanout_source() -> mock.MagicMock:
     return source
 
 
-def _parent(should_sync: bool, initial_sync_complete: bool) -> mock.MagicMock:
+def _parent(should_sync: bool, initial_sync_complete: bool, is_append: bool = False) -> mock.MagicMock:
     parent = mock.MagicMock()
     parent.should_sync = should_sync
     parent.initial_sync_complete = initial_sync_complete
+    parent.is_append = is_append
     return parent
 
 
@@ -312,6 +313,7 @@ def _parent(should_sync: bool, initial_sync_complete: bool) -> mock.MagicMock:
         (None, "must be enabled"),
         ("disabled", "must be enabled"),
         ("never_synced", "must complete an initial sync"),
+        ("append_mode", "append sync"),
     ],
 )
 async def test_parent_gate_blocks_child_until_parent_ready(parent, expected_error):
@@ -320,6 +322,8 @@ async def test_parent_gate_blocks_child_until_parent_ready(parent, expected_erro
         parent_obj = _parent(should_sync=False, initial_sync_complete=True)
     elif parent == "never_synced":
         parent_obj = _parent(should_sync=True, initial_sync_complete=False)
+    elif parent == "append_mode":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=True, is_append=True)
 
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),

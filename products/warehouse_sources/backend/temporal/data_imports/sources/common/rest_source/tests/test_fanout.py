@@ -408,7 +408,7 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(mock_reader, mock_
     pages = list(parent_resource["data_iterator"]())
     assert pages == [[{"id": "p1"}]]
     mock_reader.assert_called_once_with(
-        team_id=1, source_id="source-1", parent_name="parents", columns=["id"], page_size=3, dedupe_by="id"
+        team_id=1, source_id="source-1", parent_name="parents", columns=["id"], page_size=3
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 

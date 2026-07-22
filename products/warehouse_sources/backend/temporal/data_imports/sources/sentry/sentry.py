@@ -338,9 +338,11 @@ def _iter_issue_tag_values_rows(
             iter_parent_pages_from_warehouse,
         )
 
-        # Ordered by lastSeen desc to mirror the API's sort=date ordering — both the
-        # incremental early-break and the resume fast-forward below depend on it. Deduped
-        # by id so an append-mode issues table doesn't fan out once per accumulated row.
+        # Streamed unordered scan — the reader must never materialize the table. The
+        # incremental early-break below becomes a per-row filter in this mode (same issue
+        # set, no ordering requirement); the resume fast-forward tolerates order drift via
+        # its skip-limit fallback. Duplicate rows can't occur: append-mode parents are
+        # refused by the dependency gates before a sync reaches this path.
         issues = (
             row
             for page in iter_parent_pages_from_warehouse(
@@ -349,8 +351,6 @@ def _iter_issue_tag_values_rows(
                 parent_name="issues",
                 columns=["id", "lastSeen"],
                 page_size=100,
-                order_by=("lastSeen", "descending"),
-                dedupe_by="id",
             )
             for row in page
         )
@@ -368,6 +368,11 @@ def _iter_issue_tag_values_rows(
         if cutoff_last_seen is not None:
             issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
             if issue_last_seen is not None and issue_last_seen <= cutoff_last_seen:
+                # API mode returns issues sorted by date desc, so the first stale issue ends
+                # the scan. The warehouse scan is unordered (streaming, no global sort), so
+                # stale issues are filtered per row instead — same selected set either way.
+                if use_warehouse_parent:
+                    continue
                 break
 
         issue_id = str(issue["id"])

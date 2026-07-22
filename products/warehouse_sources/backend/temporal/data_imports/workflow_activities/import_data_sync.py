@@ -129,6 +129,13 @@ async def _ensure_required_parents_synced(
                 f"Parent schema '{parent_name}' must be enabled before '{schema.name}' can sync. "
                 f"Enable '{parent_name}' in the source's schema settings."
             )
+        if parent.is_append:
+            # Append parents accumulate duplicate rows per sync; the warehouse reader streams
+            # the table as-is (no dedupe state), so the child would fan out once per duplicate.
+            raise NonRetryableException(
+                f"Parent schema '{parent_name}' uses append sync, so '{schema.name}' can't fan out "
+                f"from its table. Switch '{parent_name}' to incremental or full refresh."
+            )
         if not parent.initial_sync_complete:
             raise NonRetryableException(
                 f"Parent schema '{parent_name}' must complete an initial sync before '{schema.name}' can sync. "

@@ -1037,9 +1037,52 @@ class TestWarehouseParentReuse:
             parent_name="issues",
             columns=["id", "lastSeen"],
             page_size=100,
-            order_by=("lastSeen", "descending"),
-            dedupe_by="id",
         )
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
+    )
+    def test_issue_tag_values_warehouse_cutoff_filters_instead_of_breaking(self, mock_reader, mock_get) -> None:
+        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
+        # Unordered warehouse scan: a stale issue arrives BEFORE a fresh one. API mode breaks
+        # on the first stale row (sorted input); warehouse mode must filter and keep scanning.
+        mock_reader.return_value = iter(
+            [
+                [
+                    {"id": "100", "lastSeen": "2026-03-01T00:00:00Z"},
+                    {"id": "200", "lastSeen": "2026-03-05T00:00:00Z"},
+                ]
+            ]
+        )
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                raise AssertionError("stale issue must be filtered out, not fanned out")
+            if url.endswith("/organizations/acme/issues/200/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
+                return _response([{"value": "Chrome", "lastSeen": "2026-03-05T00:00:00Z"}])
+            return _response([])
+
+        mock_get.return_value.get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="lastSeen",
+        )
+
+        rows = list(cast(Any, resp.items()))
+        assert [row["issue_id"] for row in rows] == ["200"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(

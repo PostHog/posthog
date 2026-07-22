@@ -574,6 +574,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         f"'{instance.name}' syncs using the '{parent_name}' schema's data, "
                         f"but this source has no '{parent_name}' schema."
                     )
+                if parent.is_append:
+                    # Append parents accumulate duplicate rows per sync; the child reads the
+                    # table as-is (strictly streaming, no dedupe), so it would fan out once
+                    # per duplicate.
+                    raise ValidationError(
+                        f"'{instance.name}' syncs using the '{parent_name}' schema's data, "
+                        f"so '{parent_name}' can't use append sync. "
+                        f"Switch '{parent_name}' to incremental or full refresh first."
+                    )
                 if parent.should_sync:
                     continue
                 if parent.sync_type is None and source.supports_scheduled_sync:

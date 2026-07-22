@@ -2331,6 +2331,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 )
                             },
                         )
+                    # Append-mode parents accumulate duplicate rows per sync, which would fan the
+                    # child out once per duplicate — the child reads the parent table as-is.
+                    if parent_entry.get("sync_type") == "append":
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": (
+                                    f"Schema '{child_name}' syncs using the '{parent_name}' schema's data, "
+                                    f"so '{parent_name}' can't use append sync. "
+                                    f"Choose incremental or full refresh for '{parent_name}'."
+                                )
+                            },
+                        )
                     parent_entry["should_sync"] = True
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas

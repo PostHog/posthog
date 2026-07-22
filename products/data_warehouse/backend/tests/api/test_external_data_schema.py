@@ -3664,6 +3664,18 @@ class TestFanoutParentEnforcement(APIBaseTest):
         parent.refresh_from_db()
         assert parent.should_sync is False
 
+    def test_enabling_fanout_child_with_append_parent_errors(self):
+        # Append parents accumulate duplicate rows; the streaming reader has no dedupe,
+        # so the dependency gate must refuse them outright.
+        _, parent, child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.APPEND, parent_should_sync=True
+        )
+
+        response = self._patch_schema(child.id, {"should_sync": True})
+
+        assert response.status_code == 400
+        assert "can't use append sync" in response.json()["detail"]
+
     def test_disabling_parent_with_enabled_fanout_child_errors(self):
         _, parent, _child = self._create_sentry_fanout_pair(
             parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,

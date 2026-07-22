@@ -59,15 +59,6 @@ def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:
     assert all(set(row) == {"id", "lastSeen"} for row in rows)
 
 
-def test_reader_order_by_descending(tmp_path: Path) -> None:
-    uri = _write_parent_table(tmp_path)
-
-    pages = _patched_reader(uri, columns=["id", "lastSeen"], page_size=10, order_by=("lastSeen", "descending"))
-
-    rows = [row for page in pages for row in page]
-    assert [row["id"] for row in rows] == ["2", "3", "1"]
-
-
 def test_reader_raises_when_table_missing(tmp_path: Path) -> None:
     with pytest.raises(WarehouseParentTableNotFoundError, match="no synced table"):
         _patched_reader(str(tmp_path / "does_not_exist"), columns=["id"], page_size=10)
@@ -84,25 +75,14 @@ def test_reader_raises_when_requested_columns_missing(tmp_path: Path) -> None:
         _patched_reader(uri, columns=["id", "definitely_missing"], page_size=10)
 
 
-def test_reader_dedupes_append_mode_duplicates(tmp_path: Path) -> None:
+def test_reader_streams_multiple_fragments(tmp_path: Path) -> None:
     uri = str(tmp_path / "issues")
-    # Append-mode parents accumulate one row per sync per parent id.
-    table = pa.table(
-        {
-            "id": ["1", "2", "1", "3", "2"],
-            "last_seen": ["2026-03-01", "2026-03-02", "2026-03-05", "2026-03-03", "2026-03-04"],
-        }
-    )
-    deltalake.write_deltalake(uri, table)
+    # Two separate Delta commits produce multiple parquet fragments — the streamed scan
+    # must walk them all without materializing the table.
+    deltalake.write_deltalake(uri, pa.table({"id": ["1", "2"], "last_seen": ["a", "b"]}))
+    deltalake.write_deltalake(uri, pa.table({"id": ["3"], "last_seen": ["c"]}), mode="append")
 
-    pages = _patched_reader(
-        uri, columns=["id", "lastSeen"], page_size=10, order_by=("lastSeen", "descending"), dedupe_by="id"
-    )
+    pages = _patched_reader(uri, columns=["id"], page_size=2)
 
-    rows = [row for page in pages for row in page]
-    # One row per id, first (freshest, given descending order) occurrence wins.
-    assert [(row["id"], row["lastSeen"]) for row in rows] == [
-        ("1", "2026-03-05"),
-        ("2", "2026-03-04"),
-        ("3", "2026-03-03"),
-    ]
+    rows = sorted(row["id"] for page in pages for row in page)
+    assert rows == ["1", "2", "3"]

@@ -1,10 +1,9 @@
 import uuid
-from collections.abc import Iterable, Iterator
-from typing import Any, Literal, Optional
+from collections.abc import Iterator
+from typing import Any
 
 from django.conf import settings
 
-import pyarrow as pa
 import deltalake
 
 from products.warehouse_sources.backend.models.external_data_schema import get_schema_if_exists
@@ -42,8 +41,6 @@ def iter_parent_pages_from_warehouse(
     parent_name: str,
     columns: list[str],
     page_size: int,
-    order_by: Optional[tuple[str, Literal["ascending", "descending"]]] = None,
-    dedupe_by: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield fan-out parent rows from the parent schema's already-synced Delta table.
 
@@ -53,15 +50,14 @@ def iter_parent_pages_from_warehouse(
 
     `columns` are API field names (e.g. ``lastSeen``); the Delta writer stores snake_case
     identifiers, so each is normalized to locate the physical column and rows are re-keyed
-    back to the API names. `order_by` sorts the projected rows (an API field name from
-    `columns`) for callers whose iteration semantics depend on parent order — it
-    materializes only the projected columns, so keep `columns` narrow.
+    back to the API names.
 
-    `dedupe_by` keeps only the first row per value of that field. Fan-out callers should
-    always pass their resolve field: an append-mode parent accumulates one row per sync
-    per parent, and without dedupe the child would re-fetch once per duplicate — the exact
-    API cost this reader exists to remove. First occurrence wins, which under a descending
-    `order_by` is also the freshest row.
+    Strictly streaming: the scan holds one projected batch in memory at a time, with column
+    projection pushed down to the parquet read. No sorting, no dedupe state — rows are
+    assumed unique per parent, which holds for merge/full-refresh parents by construction;
+    append-mode parents accumulate duplicates and are refused by the dependency gates
+    before a sync ever reaches this reader. Do not add whole-table materialization here
+    (`to_table`, global sorts, seen-sets) — parents can be arbitrarily large.
     """
     uri = _parent_table_uri(team_id, source_id, parent_name)
     storage_options = get_delta_storage_options()
@@ -92,29 +88,10 @@ def iter_parent_pages_from_warehouse(
     projected = list(dict.fromkeys(physical_by_api_name.values()))
     dataset = delta_table.to_pyarrow_dataset()
 
-    batches: Iterable[pa.RecordBatch]
-    if order_by is not None:
-        order_field, order_direction = order_by
-        if order_field not in physical_by_api_name:
-            raise ValueError(f"order_by field '{order_field}' must be one of the requested columns {columns}")
-        table = dataset.to_table(columns=projected)
-        table = table.sort_by([(physical_by_api_name[order_field], order_direction)])
-        batches = table.to_batches(max_chunksize=page_size)
-    else:
-        batches = dataset.to_batches(columns=projected, batch_size=page_size)
-
-    seen_keys: set[Any] = set()
     page: list[dict[str, Any]] = []
-    for batch in batches:
-        rows = batch.to_pylist()
-        for row in rows:
-            emitted = {api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()}
-            if dedupe_by is not None:
-                key = emitted.get(dedupe_by)
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-            page.append(emitted)
+    for batch in dataset.to_batches(columns=projected, batch_size=page_size):
+        for row in batch.to_pylist():
+            page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
             if len(page) >= page_size:
                 yield page
                 page = []

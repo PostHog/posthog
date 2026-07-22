@@ -136,7 +136,6 @@ def build_dependent_resource(
             parent_name=fanout.parent_name,
             columns=parent_columns,
             page_size=parent_config.page_size,
-            dedupe_by=fanout.resolve_field,
         )
 
     child_path = child_config.path
