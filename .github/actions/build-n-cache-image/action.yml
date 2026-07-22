@@ -86,10 +86,10 @@ runs:
           run: |
               TAGS="posthog/posthog:$COMMIT_SHA"
               if [[ -n "$REGISTRY" ]]; then
-                TAGS="$TAGS,$REGISTRY/posthog-cloud:$COMMIT_SHA"
+                TAGS="$TAGS,$REGISTRY/posthog-cloud-prs:$COMMIT_SHA"
               fi
               if [[ "$PR_NUMBER" != "" ]]; then
-                TAGS="$TAGS,$REGISTRY/posthog-cloud:pr-$PR_NUMBER"
+                TAGS="$TAGS,$REGISTRY/posthog-cloud-prs:pr-$PR_NUMBER"
               fi
               echo "tag=$TAGS" >> $GITHUB_OUTPUT
 
