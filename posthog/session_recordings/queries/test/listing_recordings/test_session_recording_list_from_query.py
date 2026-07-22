@@ -40,6 +40,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
@@ -791,6 +792,202 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             [],
         )
+
+    @parameterized.expand([("AND",), ("OR",)])
+    def test_negated_event_filter_excludes_sessions_containing_event(self, operand: str) -> None:
+        user = "test_negated_event_filter-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_with_purchase = f"with-purchase-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_with_purchase,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_with_purchase, "$window_id": "1"},
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            event_name="purchase",
+            properties={"$session_id": session_with_purchase, "$window_id": "1"},
+        )
+
+        session_without_purchase = f"without-purchase-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_without_purchase,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_without_purchase, "$window_id": "1"},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "operand": operand,
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "purchase", "type": "events", "order": 1, "name": "purchase", "negation": True},
+                ],
+            },
+            [session_without_purchase],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "operand": operand,
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                ],
+            },
+            [session_without_purchase],
+        )
+
+    def test_negated_event_filter_respects_entity_property_filters(self) -> None:
+        user = "test_negated_event_props-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_success = f"success-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_success,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={
+                "$session_id": session_success,
+                "$window_id": "1",
+                "$current_url": "https://app.io/checkout/success",
+            },
+        )
+
+        session_other = f"other-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_other,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={
+                "$session_id": session_other,
+                "$window_id": "1",
+                "$current_url": "https://app.io/pricing",
+            },
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "negation": True,
+                        "properties": [
+                            {
+                                "key": "$current_url",
+                                "value": "/checkout/success",
+                                "operator": "icontains",
+                                "type": "event",
+                            }
+                        ],
+                    }
+                ],
+            },
+            [session_other],
+        )
+
+    def test_negated_action_filter_excludes_sessions_containing_action(self) -> None:
+        user = "test_negated_action-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        action = self.create_action("custom-event")
+
+        session_with_action = f"with-action-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_with_action,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            event_name="custom-event",
+            properties={"$session_id": session_with_action, "$window_id": "1"},
+        )
+
+        session_without_action = f"without-action-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_without_action,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_without_action, "$window_id": "1"},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "actions": [
+                    {"id": action.id, "type": "actions", "order": 0, "name": action.name, "negation": True},
+                ],
+            },
+            [session_without_action],
+        )
+
+    def test_negated_event_filter_does_not_affect_matching_events(self) -> None:
+        user = "test_negated_matching-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        session_id = f"matching-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        pageview_uuid = create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )
+
+        query = RecordingsQuery.model_validate(
+            {
+                "session_ids": [session_id],
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "purchase", "type": "events", "order": 1, "name": "purchase", "negation": True},
+                ],
+            }
+        )
+        result = ReplayFiltersEventsSubQuery(team=self.team, query=query).get_event_ids_for_session()
+        assert [str(row[0]) for row in result.results] == [pageview_uuid]
 
     @snapshot_clickhouse_queries
     def test_event_filter_has_ttl_applied_too(self):
