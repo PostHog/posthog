@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "emit": {
-            "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+            "description": "Whether the scout writes findings to the inbox. False runs the scout without emitting findings.",
             "type": "boolean"
         },
         "enabled": {
@@ -13,8 +13,45 @@
             "description": "A UUID string identifying this Signal scout config.",
             "type": "string"
         },
+        "output_destinations": {
+            "description": "Destinations that receive each finding this scout emits. Pass an empty object to disable delivery.",
+            "properties": {
+                "slack": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "channel": {
+                                    "anyOf": [
+                                        {
+                                            "maxLength": 255,
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                },
+                                "integration_id": {
+                                    "description": "ID of the Slack integration whose bot posts this scout's findings.",
+                                    "minimum": 1,
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["integration_id"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Slack destination for each emitted scout finding. Null or omitted disables Slack delivery."
+                }
+            },
+            "type": "object"
+        },
         "run_interval_minutes": {
-            "description": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+            "description": "Minutes between runs (30–43200).",
             "maximum": 43200,
             "minimum": 30,
             "type": "number"
