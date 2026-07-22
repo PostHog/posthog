@@ -54,7 +54,6 @@ import { isDropResult } from '~/ingestion/framework/results'
 import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
 import {
-    MAX_CONCURRENT_BLOB_UPLOADS,
     OffloadAiBlobsConfig,
     createExtractAiBlobsStep,
     createUploadAiBlobStep,
@@ -232,7 +231,7 @@ export function createAiIngestionPipeline<
                         blob.pipe(createUploadAiBlobStep(aiBlobStore), {
                             retry: { tries: 5, sleepMs: 100, name: 'offload_ai_blobs' },
                         }),
-                    { maxConcurrency: MAX_CONCURRENT_BLOB_UPLOADS }
+                    { maxConcurrency: aiBlobOffloadConfig.uploadMaxConcurrency }
                 )
             )
             .fanIn(mergeAiBlobPointersFanIn)

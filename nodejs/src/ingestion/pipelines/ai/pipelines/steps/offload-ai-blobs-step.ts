@@ -19,6 +19,13 @@ export interface OffloadAiBlobsConfig {
     isTeamEnabled: ValueMatcher<number>
     minBase64Length: number
     maxBlobsPerEvent: number
+    /**
+     * Chunk-wide cap on concurrent blob uploads (applied via the fan-out
+     * stage's `concurrently` block), so a many-blob chunk can't monopolize the
+     * S3 socket pool and per-request timeouts start when a request runs, not
+     * when it's queued.
+     */
+    uploadMaxConcurrency: number
 }
 
 type OffloadAiBlobsInput = {
@@ -32,13 +39,6 @@ function mimeFamily(mime: string): string {
     const family = mime.split('/')[0]
     return MIME_FAMILIES.has(family) ? family : 'other'
 }
-
-/**
- * Bounds how many blob uploads run at once across all events in the chunk, so
- * blob-heavy traffic can't monopolize the S3 socket pool and per-request
- * timeouts start when a request runs, not when it's queued.
- */
-export const MAX_CONCURRENT_BLOB_UPLOADS = 8
 
 /**
  * Everything the extraction step computed that the fan-in needs to finish the

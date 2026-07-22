@@ -220,6 +220,7 @@ export type IngestionConsumerConfig = {
     AI_BLOB_OFFLOAD_TEAMS: string
     AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
     AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
+    AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: number
     AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 
     // Cookieless server hash mode config
@@ -350,6 +351,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
         AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
         AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+        // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
+        // can't monopolize the S3 socket pool.
+        AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
         AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
 
         // Cookieless server hash mode config

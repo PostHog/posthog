@@ -66,6 +66,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_OFFLOAD_TEAMS'
         | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
         | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
+        | 'AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY'
         | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
@@ -169,6 +170,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
         maxBlobsPerEvent: config.AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT,
+        uploadMaxConcurrency: config.AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY,
     }
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>

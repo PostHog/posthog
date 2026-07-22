@@ -47,7 +47,12 @@ function makeInput(properties: Record<string, unknown>): Input {
     }
 }
 
-const CONFIG = { isTeamEnabled: (teamId: number): boolean => teamId === 2, minBase64Length: 8192, maxBlobsPerEvent: 50 }
+const CONFIG = {
+    isTeamEnabled: (teamId: number): boolean => teamId === 2,
+    minBase64Length: 8192,
+    maxBlobsPerEvent: 50,
+    uploadMaxConcurrency: 8,
+}
 
 /** The same extract → fanOut → via(upload) → fanIn wiring the AI pipeline uses. */
 function createOffloadPipeline(store: BlobStore | null, config: OffloadAiBlobsConfig) {
@@ -108,7 +113,12 @@ describe('offloadAiBlobs stage', () => {
         [
             'team not enabled',
             new FakeBlobStore(),
-            { isTeamEnabled: (): boolean => false, minBase64Length: 8192, maxBlobsPerEvent: 50 },
+            {
+                isTeamEnabled: (): boolean => false,
+                minBase64Length: 8192,
+                maxBlobsPerEvent: 50,
+                uploadMaxConcurrency: 8,
+            },
         ],
         ['store not configured', null, CONFIG],
     ])('passes through untouched when %s', async (_name, store, config) => {
