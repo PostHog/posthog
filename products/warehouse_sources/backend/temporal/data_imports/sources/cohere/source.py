@@ -24,13 +24,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CohereSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CohereSource(SimpleSource[CohereSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.cohere.com/reference/about"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -119,5 +122,6 @@ Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-ke
         return cohere_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

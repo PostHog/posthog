@@ -33,13 +33,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settin
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DbtSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.getdbt.com/docs/dbt-cloud-apis/overview"  # coverage spans both Admin API v2 and v3
 
     @property
     def source_type(self) -> ExternalDataSourceType:

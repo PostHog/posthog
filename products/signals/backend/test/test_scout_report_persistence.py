@@ -12,7 +12,12 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
-from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SafetyJudgment
+from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    SafetyJudgment,
+    TaskRunArtefact,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -116,6 +121,18 @@ class TestScoutReportPersistence(BaseTest):
         # Provenance: a note artefact marks the report scout-authored and is attributed to the task.
         note = SignalReportArtefact.objects.get(report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE)
         assert str(note.task_id) == task_id
+
+        # The authoring run itself is linked as a `task_run` artefact — without it the report's Runs
+        # section has no way to surface the scout's transcript.
+        task_run_artefact = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        )
+        content = TaskRunArtefact.model_validate_json(task_run_artefact.content)
+        assert content.task_id == task_id
+        assert content.run_id == str(run.task_run_id)
+        assert content.product == "signals"
+        assert content.type == "scout"
+        assert str(task_run_artefact.task_id) == task_id
 
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]

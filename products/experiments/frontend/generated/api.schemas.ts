@@ -1160,6 +1160,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -1198,6 +1207,7 @@ export interface ExperimentApiExposureConfigApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -1756,6 +1766,8 @@ export interface ExperimentFlagCleanupTaskApi {
      * @nullable
      */
     pr_url: string | null
+    /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+    can_view_task: boolean
 }
 
 /**
@@ -1804,15 +1816,30 @@ export interface RecalculateMetricsRequestApi {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type ExperimentMetricsRecalculationStatusEnumApi =
-    (typeof ExperimentMetricsRecalculationStatusEnumApi)[keyof typeof ExperimentMetricsRecalculationStatusEnumApi]
+export type MetricsRecalculationStatusEnumApi =
+    (typeof MetricsRecalculationStatusEnumApi)[keyof typeof MetricsRecalculationStatusEnumApi]
 
-export const ExperimentMetricsRecalculationStatusEnumApi = {
+export const MetricsRecalculationStatusEnumApi = {
     Pending: 'pending',
     InProgress: 'in_progress',
     Completed: 'completed',
     Failed: 'failed',
 } as const
+
+/**
+ * Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results.
+ */
+export interface ActiveRecalculationRunApi {
+    /** Identifier of the run that is still executing */
+    readonly id: string
+    /** Status of the executing run (pending or in_progress)
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: MetricsRecalculationStatusEnumApi
+}
 
 /**
  * * `recalculation` - recalculation
@@ -1874,7 +1901,7 @@ export interface ExperimentMetricsRecalculationApi {
      * * `in_progress` - In Progress
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: ExperimentMetricsRecalculationStatusEnumApi
+    readonly status: MetricsRecalculationStatusEnumApi
     /** Total number of metrics to recalculate */
     readonly total_metrics: number
     /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
@@ -1883,6 +1910,8 @@ export interface ExperimentMetricsRecalculationApi {
     readonly failed_metrics: number
     /** Map of metric_uuid to error details */
     readonly metric_errors: unknown
+    /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
+    readonly metric_retries: unknown
     /** What triggered this recalculation
      *
      * * `manual` - Manual
@@ -1913,6 +1942,8 @@ export interface ExperimentMetricsRecalculationApi {
     readonly query_to: string | null
     /** True if returning an existing job rather than a newly created one */
     readonly is_existing: boolean
+    /** Run currently executing for this experiment, if any; poll it by id for live progress */
+    readonly active_run: ActiveRecalculationRunApi | null
     /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
      *
      * * `recalculation` - recalculation
@@ -2113,6 +2144,22 @@ export interface CreateFromPromptInputApi {
 }
 
 /**
+ * One experiment metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricHitApi {
+    /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+    metric_uuid: string
+    /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+    metric_name: string
+    /** Total number of events in the session matching any of the metric's event/action sources. */
+    event_count: number
+    /** Timestamp of the first event in the session matching the metric. */
+    first_timestamp: string
+    /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
+}
+
+/**
  * One experiment whose feature flag a session recording saw.
  */
 export interface ExperimentSessionContextItemApi {
@@ -2122,17 +2169,17 @@ export interface ExperimentSessionContextItemApi {
     experiment_name: string
     /** Key of the experiment's feature flag. */
     flag_key: string
-    /** Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one exists, otherwise from the $feature/<key> property stamped on the session's events. */
+    /** Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the $feature/<key> property stamped on the session's events. */
     variant: string
     /** All distinct variant values observed for this flag during the session, sorted alphabetically. Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. More than one value means the session saw multiple variants — a signal of multi-exposure bias. */
     variants_seen: string[]
     /** True when the session saw more than one variant of this flag. */
     multiple_variants: boolean
     /**
-     * Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> properties (e.g. the assignment carried over from an earlier session). For experiments with custom exposure criteria this is not the experiment's exposure moment.
+     * Timestamp of the first event in the session matching the experiment's exposure criteria — the default exposure event ($feature_flag_called), or the configured custom event/action. Null when no event in the session matched the criteria; the variant is then known from flag evaluations or stamped $feature/<key> properties. Session-scoped: the experiment analysis counts exposure per person across the whole run window, so the person's counted first exposure may lie in an earlier session.
      * @nullable
      */
-    first_flag_evaluation_timestamp: string | null
+    first_exposure_timestamp: string | null
     /**
      * When the experiment was launched.
      * @nullable
@@ -2143,6 +2190,8 @@ export interface ExperimentSessionContextItemApi {
      * @nullable
      */
     experiment_end_date: string | null
+    /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+    metrics_in_session: ExperimentSessionMetricHitApi[]
 }
 
 /**

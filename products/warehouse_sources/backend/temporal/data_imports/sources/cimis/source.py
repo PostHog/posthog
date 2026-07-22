@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CimisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -42,6 +42,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to surface
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://et.water.ca.gov/Rest/Index"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HyperspellSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hyperspell import (
+    HyperspellSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell import (
     HyperspellResumeConfig,
     hyperspell_source,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.hyperspell.com/api-reference/introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

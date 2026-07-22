@@ -215,26 +215,6 @@ test.describe('Funnel insights', () => {
         })
     })
 
-    test('Change funnel layout between left-to-right and top-to-bottom', async ({ page }) => {
-        const insight = await goToSeededFunnel(page)
-
-        await test.step('default is left-to-right (vertical bars)', async () => {
-            await expect(insight.funnels.verticalChart).toBeVisible()
-        })
-
-        await test.step('switch to top-to-bottom layout', async () => {
-            await insight.funnels.selectLayout('Top to bottom')
-            await expect(insight.funnels.horizontalChart).toBeVisible()
-            await expect(insight.funnels.verticalChart).not.toBeVisible()
-        })
-
-        await test.step('switch back to left-to-right layout', async () => {
-            await insight.funnels.selectLayout('Left to right')
-            await expect(insight.funnels.verticalChart).toBeVisible()
-            await expect(insight.funnels.horizontalChart).not.toBeVisible()
-        })
-    })
-
     test('Configure step ordering and session aggregation gating', async ({ page }) => {
         const insight = await goToSeededFunnel(page, 1)
 

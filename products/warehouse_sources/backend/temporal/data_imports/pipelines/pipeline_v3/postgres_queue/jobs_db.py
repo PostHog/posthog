@@ -42,6 +42,17 @@ LEASE_TTL_SECONDS = 300
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
+# Oldest a batch may be and still be claimed or recovery-swept. MUST stay below
+# the retention window (RETENTION_DAYS in
+# posthog/temporal/warehouse_sources_queue_partition_management/activities.py):
+# a claimed batch's extraction parquet must still exist in S3, and the half-day
+# margin absorbs clock skew and sweep timing. Applies only to the outer claim
+# candidates and the recovery sweep — never to the head-of-line/failed-run/
+# schema-busy gates, which must keep seeing rows aged past this window for as
+# long as they exist. The duckgres claim path (duckgres/jobs_db.py) has a
+# similar exposure but is deliberately out of scope here.
+CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
+
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as
 # abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
 TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
@@ -51,6 +62,18 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 # window, which is already far past any sane alert threshold.
 FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
 FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
+
+
+class _Unset:
+    """Sentinel for ``update_status_unless_failed(expected_state_changed_at=...)``.
+
+    ``state_changed_at`` is nullable, so ``None`` is a legitimate value to arm the
+    compare-and-swap against. ``_UNSET`` is the only signal for "no CAS wanted",
+    keeping an ordinary write and a CAS against a genuinely-null observation apart.
+    """
+
+
+_UNSET = _Unset()
 
 
 def pending_batch_select_columns(status_alias: str) -> str:
@@ -96,6 +119,31 @@ def pending_batch_predicate(status_alias: str) -> str:
     return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
 
 
+def sync_type_scope_sql(
+    *,
+    sync_types: list[str] | None = None,
+    exclude_sync_types: list[str] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Optional AND-clause partitioning claim/sweep work by ``sourcebatch.sync_type``.
+
+    Lets a consumer fleet own a subset of the queue (e.g. a CDC-only deployment) while a
+    sibling fleet runs with the complement. The clause may only ever scope *which rows a
+    fleet claims or sweeps* — never the run/failed/schema-busy gates, which must keep
+    seeing every class so cross-class runs of one (team_id, schema_id) still serialize
+    (a CDC schema's initial snapshot enqueues ``full_refresh`` batches).
+    """
+    if sync_types and exclude_sync_types:
+        raise ValueError("sync_types and exclude_sync_types are mutually exclusive")
+    if sync_types:
+        return "AND b.sync_type = ANY(%(claim_sync_types)s)", {"claim_sync_types": list(sync_types)}
+    if exclude_sync_types:
+        return (
+            "AND b.sync_type != ALL(%(claim_exclude_sync_types)s)",
+            {"claim_exclude_sync_types": list(exclude_sync_types)},
+        )
+    return "", {}
+
+
 def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
     """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
 
@@ -126,6 +174,68 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
           AND ((b.latest_state, b.latest_attempt) IS DISTINCT FROM (ins.job_state, ins.attempt)
                OR b.state_changed_at IS NULL)
           AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+    """
+
+
+def build_status_dual_write_unless_failed_sql(
+    *, with_batch_created_at: bool, with_expected_state_changed_at: bool = False
+) -> str:
+    """Guarded twin of :func:`build_status_dual_write_sql`: inserts nothing over a
+    terminal 'failed', so a consumer's newer executing/succeeded rows can't
+    un-retire a batch fail_run already failed. A 'failed' carrying
+    ``%(supersedable_failed_error)s`` (the lock-takeover sentinel) stays writable —
+    takeover deliberately lets an in-flight batch finish. Returns the INSERT count
+    (0 = refused); the column UPDATE is a designed no-op for heartbeat re-inserts,
+    so its rowcount can't be the signal.
+
+    ``with_expected_state_changed_at`` arms a compare-and-swap on the caller's
+    observed ``state_changed_at`` — the recovery sweep's fence against a live owner
+    that completed the batch between the stale scan and the re-queue. The predicate
+    rides the ``target`` CTE, so it is evaluated under the same ``FOR UPDATE OF b``
+    row lock that already serializes this write: a stale requeue matches no target,
+    inserts nothing, and reports 0 without racing the owner's denormalized write.
+    """
+    created_at_predicate = (
+        "b.created_at = %(batch_created_at)s"
+        if with_batch_created_at
+        else f"b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'"
+    )
+    cas_predicate = (
+        "\n              AND b.state_changed_at IS NOT DISTINCT FROM %(expected_state_changed_at)s"
+        if with_expected_state_changed_at
+        else ""
+    )
+    return f"""
+        WITH target AS (
+            SELECT b.id
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE b.id = %(batch_id)s
+              AND {created_at_predicate}
+              AND (
+                  b.latest_state IS DISTINCT FROM 'failed'
+                  OR s.error_response->>'error' = %(supersedable_failed_error)s
+              ){cas_predicate}
+            FOR UPDATE OF b
+        ),
+        ins AS (
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT t.id, %(job_state)s, %(attempt)s, now(), %(error_response)s, now()
+            FROM target t
+            RETURNING batch_id, job_state, attempt, created_at
+        ),
+        upd AS (
+            UPDATE {BATCH_TABLE} b
+            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+            FROM ins
+            WHERE b.id = ins.batch_id
+              AND {created_at_predicate}
+              AND ((b.latest_state, b.latest_attempt) IS DISTINCT FROM (ins.job_state, ins.attempt)
+                   OR b.state_changed_at IS NULL)
+              AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+            RETURNING b.id
+        )
+        SELECT count(*) FROM ins
     """
 
 
@@ -174,13 +284,24 @@ FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
 )
 
 
-def _state_claim_candidates_sql() -> str:
+def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """Claimable-batch candidates read from the denormalized state columns.
 
     The claimable scan and every NOT EXISTS gate are answered by the partial
     indexes (sb_claimable_idx, sb_run_gate_idx, sb_schema_busy_idx), so the
     work tracks the claimable set instead of everything retained. 'pending'
     means no status row yet; 'waiting' is deliberately not claimable.
+
+    ``sync_type_scope`` (from :func:`sync_type_scope_sql`) narrows only the outer
+    candidate set to this fleet's classes. It must never be applied inside the
+    NOT EXISTS gates below: they have to see other fleets' batches so one
+    schema's runs stay mutually exclusive across fleets.
+
+    The outer candidate set is likewise bounded by
+    ``CLAIM_ELIGIBILITY_INTERVAL``: a batch older than that may already have
+    lost its parquet to retention, so it must never be claimed. The gates keep
+    ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
+    stays out of them — they must see every row that still exists.
     """
     return f"""
         SELECT
@@ -193,7 +314,8 @@ def _state_claim_candidates_sql() -> str:
             b.created_at
         FROM {BATCH_TABLE} b
         WHERE
-            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+            {sync_type_scope}
             AND (
                 b.latest_state = 'pending'
                 OR (
@@ -243,16 +365,21 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
     The denormalized-column pre-filter keeps the lateral probing only
     currently-executing batches. The lateral itself must stay: heartbeats
     refresh the status log, deliberately not the column, so the grace clock
-    comes from ``s.created_at``.
+    comes from ``s.created_at``. The observed ``state_changed_at`` rides along
+    so the recovery sweep can compare-and-swap its re-queue against it.
+
+    Bounded by ``CLAIM_ELIGIBILITY_INTERVAL``, matching the claim path: a
+    recovered batch gets re-processed, which needs its parquet to still exist.
     """
     return f"""
         SELECT
-            {pending_batch_select_columns("s")}
+            {pending_batch_select_columns("s")},
+            b.state_changed_at
         FROM {BATCH_TABLE} b
         {latest_status_lateral("b", "s", join="INNER")}
         LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
         WHERE
-            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
             AND b.latest_state = 'executing'
             AND s.job_state = 'executing'
             AND s.created_at <= now() - make_interval(secs => %(grace)s)
@@ -302,6 +429,8 @@ class PendingBatch:
     metadata: dict[str, Any]
     latest_attempt: int
     created_at: datetime | None = None
+    # Observed denormalized state clock at read time; None for sinks that don't surface it.
+    state_changed_at: datetime | None = None
 
     def to_export_signal(self) -> dict[str, Any]:
         """Temporary bridge: convert a PendingBatch into an ExportSignalMessage dict
@@ -474,12 +603,15 @@ class BatchQueue:
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+        sync_types: list[str] | None = None,
+        exclude_sync_types: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) group lease is claimable by ``owner_token``.
 
         Candidates come from the denormalized state columns, so poll cost
-        tracks the claimable set rather than everything retained in the
-        14-day window.
+        tracks the claimable set rather than everything retained; candidates
+        are also capped at ``CLAIM_ELIGIBILITY_INTERVAL`` old so a claimed
+        batch's parquet is guaranteed to predate the retention sweep.
 
         Group ownership is a row in ``sourcegrouplease`` keyed by
         (team_id, schema_id). The outer query claims-or-renews the lease for
@@ -526,8 +658,15 @@ class BatchQueue:
         dead weight and fleet concurrency collapses to roughly one window's worth.
         Own-leased groups stay in the window so a pod can keep draining a group it
         already holds.
+
+        ``sync_types`` / ``exclude_sync_types`` partition the queue between consumer
+        fleets (see :func:`sync_type_scope_sql`); leases are shared state, so fleets
+        with overlapping scopes still never process one group concurrently.
         """
-        candidates_sql = _state_claim_candidates_sql()
+        sync_type_scope, scope_params = sync_type_scope_sql(
+            sync_types=sync_types, exclude_sync_types=exclude_sync_types
+        )
+        candidates_sql = _state_claim_candidates_sql(sync_type_scope)
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -573,7 +712,13 @@ class BatchQueue:
                 JOIN claimed USING (team_id, schema_id)
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds, "owner": owner_token, "ttl": lease_ttl_seconds},
+                {
+                    "limit": limit,
+                    "backoff": retry_backoff_base_seconds,
+                    "owner": owner_token,
+                    "ttl": lease_ttl_seconds,
+                    **scope_params,
+                },
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -607,6 +752,47 @@ class BatchQueue:
         )
 
     @staticmethod
+    async def update_status_unless_failed(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        job_state: str,
+        attempt: int = 0,
+        error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
+        supersedable_failed_error: str | None = None,
+        expected_state_changed_at: datetime | None | _Unset = _UNSET,
+    ) -> bool:
+        """Guarded twin of :meth:`update_status`: returns False (writing nothing) over
+        a terminal 'failed' — see :func:`build_status_dual_write_unless_failed_sql`.
+
+        ``expected_state_changed_at`` additionally arms a compare-and-swap on the
+        observed ``state_changed_at`` (pass it, including a genuine ``None``, to
+        require the state to be unchanged; leave it unset for an ordinary write): a
+        stale requeue then writes nothing and returns False, same as a refused one."""
+        arm_cas = not isinstance(expected_state_changed_at, _Unset)
+        params: dict[str, Any] = {
+            "batch_id": batch_id,
+            "job_state": job_state,
+            "attempt": attempt,
+            "error_response": json.dumps(error_response) if error_response else None,
+            "supersedable_failed_error": supersedable_failed_error,
+        }
+        if batch_created_at is not None:
+            params["batch_created_at"] = batch_created_at
+        if arm_cas:
+            params["expected_state_changed_at"] = expected_state_changed_at
+        cursor = await conn.execute(
+            build_status_dual_write_unless_failed_sql(
+                with_batch_created_at=batch_created_at is not None,
+                with_expected_state_changed_at=arm_cas,
+            ),
+            params,
+        )
+        row = await cursor.fetchone()
+        return bool(row and row[0])
+
+    @staticmethod
     async def renew_lease(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -615,18 +801,45 @@ class BatchQueue:
         owner_token: str,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
     ) -> bool:
-        """Extend this owner's group lease. Returns False if the lease was lost (row gone or reclaimed)."""
+        """Extend this owner's live group lease. Expiry is terminal: False means ownership
+        is gone for good (row deleted, reclaimed, or expired) and the owner must abandon.
+
+        The ``expires_at > now()`` predicate makes a lapsed lease unrenewable, so an owner
+        whose lease expired (e.g. a >TTL queue-DB blip during a long write) can't resurrect
+        it and finish over a batch the recovery sweep has already re-queued."""
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 UPDATE {LEASE_TABLE}
                 SET expires_at = now() + make_interval(secs => %(ttl)s), updated_at = now()
                 WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND owner_token = %(owner)s
+                  AND expires_at > now()
                 RETURNING 1
                 """,
                 {"team_id": team_id, "schema_id": schema_id, "owner": owner_token, "ttl": lease_ttl_seconds},
             )
             return (await cur.fetchone()) is not None
+
+    @staticmethod
+    async def delete_expired_lease(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        """Delete the group's lease only if it has already expired; a live lease never matches.
+
+        The recovery sweep claims a corpse with this before re-queueing its batches, so a
+        resurrecting owner's renew matches nothing even on pods still running the permissive
+        (pre-expiry-fence) renew during a rollout.
+        """
+        await conn.execute(
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND expires_at <= now()
+            """,
+            {"team_id": team_id, "schema_id": schema_id},
+        )
 
     @staticmethod
     async def verify_advisory_lock(
@@ -691,6 +904,8 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
+        sync_types: list[str] | None = None,
+        exclude_sync_types: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose group lease is absent or expired (previous pod gone).
 
@@ -703,9 +918,17 @@ class BatchQueue:
 
         ``grace_seconds`` requires the 'executing' status row to be older than
         this threshold before the batch is considered orphaned.
+
+        ``sync_types`` / ``exclude_sync_types`` keep a fleet's sweep on its own
+        classes: each fleet judges staleness against its own grace, so a
+        short-grace fleet must never re-queue a batch a long-grace fleet still
+        considers mid-write.
         """
+        sync_type_scope, scope_params = sync_type_scope_sql(
+            sync_types=sync_types, exclude_sync_types=exclude_sync_types
+        )
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
+            await cur.execute(_stale_executing_sql(sync_type_scope), {"grace": grace_seconds, **scope_params})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]

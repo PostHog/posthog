@@ -798,6 +798,7 @@ const llmaPromptGet = (): ToolBase<typeof LlmaPromptGetSchema, Schemas.LLMPrompt
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             query: {
                 content: params.content,
+                label: params.label,
                 version: params.version,
             },
         })

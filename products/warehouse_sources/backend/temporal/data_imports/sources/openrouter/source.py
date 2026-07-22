@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenRouterSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
+    OpenRouterSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
     OpenRouterResumeConfig,
     get_key_info,
@@ -51,6 +53,8 @@ _NO_ORGANIZATION = (
 @SourceRegistry.register
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://openrouter.ai/docs/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

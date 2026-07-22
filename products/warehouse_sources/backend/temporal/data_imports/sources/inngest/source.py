@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InngestSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
+    InngestSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.inngest import (
     InngestResumeConfig,
     inngest_source,
@@ -37,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://api-docs.inngest.com"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

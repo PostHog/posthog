@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KubecostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kubecost import (
+    KubecostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
     KubecostResumeConfig,
     hostname_of,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KubecostSource(ResumableSource[KubecostSourceConfig, KubecostResumeConfig], ValidateDatabaseHostMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.kubecost.com/apis"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

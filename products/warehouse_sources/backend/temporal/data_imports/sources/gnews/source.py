@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GNewsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gnews import GNewsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.gnews import (
     GNewsResumeConfig,
     gnews_source,
@@ -51,6 +51,10 @@ _CATEGORIES = [
 
 @SourceRegistry.register
 class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://gnews.io/docs/v4"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

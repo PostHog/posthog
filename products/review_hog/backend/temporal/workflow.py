@@ -88,6 +88,18 @@ _FETCH_TIMEOUT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
 # The validate activity's final-attempt fallback keys off the same constant — don't let them drift.
 _VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
+# The one-shot LLM stages (chunking, selection, dedup): provider overload (529) spells last
+# minutes, so back-to-back attempts all land inside the same spell and the run dies in ~2 minutes
+# flat (observed). Spaced escalating attempts ride the spell out — waits total ~7.5m per run, ~2×
+# that with the parent retry. Overload-failed attempts are cheap (the provider call dies before
+# anything persists; a rare failure after persistence redoes the LLM call, superseded latest-wins
+# per issue_key). Non-retryable failures (4xx, max_tokens truncation) still fail fast.
+_ONESHOT_RETRY = RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=4),
+)
 
 
 def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
@@ -162,7 +174,7 @@ class ReviewPerspectivesWorkflow:
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                    retry_policy=_RETRY,
+                    retry_policy=_ONESHOT_RETRY,
                 )
             except ActivityError:
                 # Selection is an optimization; failing it must never cost the review.
@@ -370,7 +382,7 @@ class ReviewPRWorkflow:
         # `already_published` means this exact head was already reviewed AND posted, so re-running the
         # pipeline would recompute the same review and publish would self-skip — burning sandbox cost
         # for no output. New inline comments do NOT force a turn yet (logged in fetch); reacting to
-        # comments lands with the "fix the issues" capability — see ARCHITECTURE.md (Stage 5b / Action
+        # comments lands with the "fix the issues" capability — see DECISIONS.md (Stage 5b / Action
         # plane). A no-publish eval run is never gated here (it has no published head), so the
         # frozen-PR eval loop still recomputes to measure reviewer changes. `empty_diff` is the
         # "pushed nothing → do nothing" rule for branch targets.
@@ -471,7 +483,7 @@ class ReviewPRWorkflow:
                 stage,
                 start_to_close_timeout=_SANDBOX_TIMEOUT,
                 heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_RETRY,
+                retry_policy=_ONESHOT_RETRY,
             )
 
             parent_id = workflow.info().workflow_id
@@ -502,7 +514,7 @@ class ReviewPRWorkflow:
                 stage,
                 start_to_close_timeout=_SANDBOX_TIMEOUT,
                 heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                retry_policy=_RETRY,
+                retry_policy=_ONESHOT_RETRY,
             )
             workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
 

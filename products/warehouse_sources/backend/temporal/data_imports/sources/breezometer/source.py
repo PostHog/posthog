@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BreezometerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
+    BreezometerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -37,6 +39,7 @@ class BreezometerSource(SimpleSource[BreezometerSourceConfig]):
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://developers.google.com/maps/documentation/air-quality"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

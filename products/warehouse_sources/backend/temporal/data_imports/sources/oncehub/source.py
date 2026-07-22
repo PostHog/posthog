@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OncehubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oncehub import (
+    OncehubSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.oncehub import (
     OncehubResumeConfig,
     oncehub_source,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OncehubSource(ResumableSource[OncehubSourceConfig, OncehubResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.oncehub.com/reference/booking-calendars"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -129,6 +134,8 @@ You can generate an API key in [OnceHub](https://app.oncehub.com) under **Settin
         return oncehub_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every OnceHub endpoint is full refresh
         )

@@ -28,12 +28,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CratesIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (
+    CratesIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CratesIOSource(SimpleSource[CratesIOSourceConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://doc.rust-lang.org/cargo/reference/registry-web-api.html"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -1,10 +1,38 @@
 import copy
+import hashlib
 from typing import Any
 
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    ChangeAction,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
+
+ACTIVITY_LOG_ITEM_ID_MAX_LENGTH: int = ActivityLog._meta.get_field("item_id").max_length or 72
+
+
+def prompt_activity_item_id(prompt_name: str) -> str:
+    """Deterministic activity-log key for a prompt, at most 72 chars (item_id is varchar(72)).
+
+    Short names are used as-is. Longer names become a readable prefix plus a sha256 digest
+    of the full name (128 bits kept), so a user cannot craft a second prompt name whose key
+    collides with another prompt's. '#' cannot appear in a prompt name, so hashed keys can't
+    collide with literal ones. The frontend does not mirror this: the History tab reads the
+    key from the API (activity_item_id on the prompt serializer).
+    """
+    if len(prompt_name) <= ACTIVITY_LOG_ITEM_ID_MAX_LENGTH:
+        return prompt_name
+    digest = hashlib.sha256(prompt_name.encode("utf-8")).hexdigest()[:32]
+    prefix = prompt_name[: ACTIVITY_LOG_ITEM_ID_MAX_LENGTH - 33]
+    return f"{prefix}#{digest}"
+
 
 # Lives here, not in api/evaluations.py, so it can wire at AppConfig.ready() without dragging the
 # evaluations viewset (which pulls scipy / google.genai / the ai_observability Temporal worker) onto
@@ -57,5 +85,49 @@ def handle_evaluation_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_log, current=after_log),
             name=after_update.name,
+        ),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=LLMPromptLabel)
+def handle_llm_prompt_label_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # A label move changes which prompt version production traffic receives, with no code
+    # deploy — the from/to version numbers are the audit trail, so build the change by hand
+    # instead of diffing the raw FK (which would only show opaque version-row UUIDs).
+    instance = after_update if after_update is not None else before_update
+    if instance is None:
+        return
+
+    before_version = before_update.prompt.version if before_update is not None else None
+    after_version = after_update.prompt.version if after_update is not None else None
+    action: ChangeAction = "changed"
+    if activity == "created":
+        action = "created"
+    elif activity == "deleted":
+        action = "deleted"
+
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        # The prompt name, not the label row id: the History tab lists all label activity
+        # for one prompt, and label rows are recreated on delete + re-add.
+        item_id=prompt_activity_item_id(instance.prompt_name),
+        scope="LLMPromptLabel",
+        activity=activity,
+        detail=Detail(
+            name=f"{instance.prompt_name}: {instance.name}",
+            changes=[
+                Change(
+                    type="LLMPromptLabel",
+                    action=action,
+                    field="version",
+                    before=before_version,
+                    after=after_version,
+                )
+            ],
         ),
     )

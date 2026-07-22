@@ -19,20 +19,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RssSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.rss import (
     RssResumeConfig,
     rss_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import ENDPOINTS, RSS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    RSS_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class RssSource(ResumableSource[RssSourceConfig, RssResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://api.rss.com/v4/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -93,20 +103,9 @@ The RSS.com API is available on Network plans. You can create an API key under *
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the RSS.com API exposes no server-side timestamp
-        # filter on any list endpoint, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # filter on any list endpoint, so there is no incremental cursor to advance
+        # (INCREMENTAL_FIELDS is empty).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: RssSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -129,6 +128,7 @@ The RSS.com API is available on Network plans. You can create an API key under *
         return rss_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

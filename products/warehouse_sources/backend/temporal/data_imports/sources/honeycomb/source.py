@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HoneycombSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeycomb import (
+    HoneycombSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import (
     HoneycombResumeConfig,
     honeycomb_source,
@@ -40,6 +42,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("1",)  # v1 API, addressed via the /1/ URL path prefix
+    default_version = "1"
+    api_docs_url = "https://docs.honeycomb.io/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

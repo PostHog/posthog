@@ -30,12 +30,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElevenLabsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
+    ElevenLabsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
+    api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -134,7 +137,8 @@ Grant the following read permissions when creating the key:
         return elevenlabs_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
