@@ -3631,6 +3631,7 @@ class AzureDevOpsIntegration:
         )
 
         if response.status_code in (200, 201):
+            # Azure returns the updated refs in ``value``; an empty list means nothing was created.
             values = response.json().get("value") or []
             result = values[0] if values else {}
             if result.get("success") is True:

@@ -63,6 +63,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'apns'
                 | 'aws-s3'
                 | 'azure-blob'
+                | 'azure-devops'
                 | 'bing-ads'
                 | 'clickup'
                 | 'customerio-app'
@@ -113,6 +114,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'apns'
                 | 'aws-s3'
                 | 'azure-blob'
+                | 'azure-devops'
                 | 'bing-ads'
                 | 'clickup'
                 | 'customerio-app'
@@ -194,7 +196,7 @@ export interface visualReviewSettingsSceneLogicMeta {
         hasChanges: (formValues: RepoFormValues, editingRepo: RepoApi | null) => boolean
         availableRepos: (
             integrations: IntegrationType[] | null,
-            getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
+            getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[] // integrationsLogic
         ) => GitHubRepoApi[]
         existingRepoNames: (repos: RepoApi[]) => Set<string>
         githubManageAccessUrl: (integrations: IntegrationType[] | null) => string | null
