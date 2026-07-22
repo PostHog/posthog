@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -1002,6 +1003,7 @@ class TestReconcileFailedRuns:
         consumer = _make_consumer()
         ref = _make_failed_run_ref()
 
+        reconciled_before = RUNS_RECONCILED_TOTAL._value.get()
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
@@ -1020,6 +1022,7 @@ class TestReconcileFailedRuns:
 
         mock_mark.assert_called_once_with(job_id=ref.job_id, team_id=ref.team_id, error=ref.reason)
         mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
+        assert RUNS_RECONCILED_TOTAL._value.get() == reconciled_before + 1
 
     @pytest.mark.asyncio
     async def test_sweeps_stragglers_even_for_already_terminal_run(self):
@@ -1056,10 +1059,43 @@ class TestReconcileFailedRuns:
         assert mock_fail_run.call_args.kwargs["team_id"] == ref.team_id
         assert mock_fail_run.call_args.kwargs["schema_id"] == ref.schema_id
 
+    @pytest.mark.parametrize(
+        "mark_outcome",
+        [False, Exception("db down")],
+        ids=["already_terminal", "status_update_raises"],
+    )
     @pytest.mark.asyncio
-    async def test_skips_already_terminal_run(self):
+    async def test_releases_lock_even_when_job_not_reconciled(self, mark_outcome):
+        # The sweep is the retry for a fail_run whose own lock release failed silently,
+        # so the release must be attempted regardless of the reconcile outcome.
         consumer = _make_consumer()
         ref = _make_failed_run_ref()
+
+        reconciled_before = RUNS_RECONCILED_TOTAL._value.get()
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
+                side_effect=[mark_outcome],
+            ) as mock_mark,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_mark.assert_called_once()
+        mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
+        assert RUNS_RECONCILED_TOTAL._value.get() == reconciled_before  # nothing reconciled
+
+    @pytest.mark.asyncio
+    async def test_no_release_attempt_without_workflow_run_id(self):
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref(workflow_run_id=None)
 
         with (
             patch(
@@ -1069,16 +1105,15 @@ class TestReconcileFailedRuns:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
-                return_value=False,
-            ) as mock_mark,
+                return_value=True,
+            ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
             ) as mock_release,
         ):
             await consumer._reconcile_failed_runs()
 
-        mock_mark.assert_called_once()  # no-op for an already-terminal job, no error
-        mock_release.assert_not_called()  # don't release the lock for a job we didn't reconcile
+        mock_release.assert_not_called()  # no token means nothing to release
 
     @pytest.mark.asyncio
     async def test_continues_after_error_on_one_ref(self):
