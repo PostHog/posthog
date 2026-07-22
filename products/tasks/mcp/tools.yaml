@@ -229,6 +229,12 @@ tools:
     tasks-active-wizard-run-retrieve:
         operation: tasks_active_wizard_run_retrieve
         enabled: false
+    tasks-artifacts-retrieve:
+        operation: tasks_artifacts_retrieve
+        enabled: false
+    tasks-channels-artifacts-list:
+        operation: tasks_channels_artifacts_list
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: true
