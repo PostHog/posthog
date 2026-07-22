@@ -8,7 +8,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { initKeaTests } from '~/test/init'
 import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
 
-import { getPublicSupportSnippet, SUPPORT_MESSAGE_MAX_LENGTH, SupportFormFields, supportLogic } from './supportLogic'
+import { getPublicSupportSnippet, SupportFormFields, supportLogic } from './supportLogic'
 import * as SupportModal from './SupportModal'
 
 // supportLogic and SupportModal import each other, so jest.mock('./SupportModal') leaves supportLogic
@@ -214,23 +214,6 @@ describe('supportLogic', () => {
 
             expect(sendMessage).toHaveBeenCalledTimes(1)
             expect(sendMessage.mock.calls[0][0]).toBe('Just a message')
-        })
-
-        it('blocks an over-limit message client-side instead of letting it fail silently server-side', async () => {
-            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
-            ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
-            enableConversationsFlag()
-
-            await expectLogic(logic, () => {
-                logic.actions.setSendSupportRequestValue('message', 'a'.repeat(SUPPORT_MESSAGE_MAX_LENGTH + 1))
-                logic.actions.submitSendSupportRequest()
-            }).toFinishAllListeners()
-
-            // Validation short-circuits the submit: nothing is sent on either path, and the message
-            // field carries the error the user sees instead of a silent server-side rejection.
-            expect(sendMessage).not.toHaveBeenCalled()
-            expect(zendeskCalls()).toHaveLength(0)
-            expect(logic.values.sendSupportRequestValidationErrors.message).toBeTruthy()
         })
 
         it('does not fall back to Zendesk when sendMessage throws, to avoid double-filing', async () => {

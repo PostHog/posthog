@@ -139,12 +139,6 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
     return !!posthog.conversations?.isAvailable()
 }
 
-// Mirrors the max_length on the conversations widget message endpoint (WidgetMessageSerializer in
-// products/conversations/backend/api/serializers.py) that this form posts through. Kept in sync so an
-// over-limit message fails with a clear error here instead of a silent server-side rejection. The
-// widget cap is kept lower than the authenticated reply/compose endpoints since it is public.
-export const SUPPORT_MESSAGE_MAX_LENGTH = 10000
-
 // Conversations tickets carry just the user's message (like the side panel composer), but for bug
 // reports we still fold the exception in so it survives on email-channel tickets and when the
 // agent's session-scoped exceptions panel can't resolve it. Mirrors how feature-preview feedback
@@ -687,24 +681,14 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: null,
                 message: '',
             } as SupportFormFields,
-            errors: ({ name, email, message, kind, target_area, severity_level, exception_event }) => {
+            errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 // Conversations tickets are just a message, like the side panel composer — the
                 // triage fields only exist on the Zendesk form
                 const requiresTriageFields = !values.conversationsFlagEnabled
-                // The widget endpoint caps the message at SUPPORT_MESSAGE_MAX_LENGTH, so check the full
-                // outgoing payload (message + any appended exception) here — otherwise an over-limit
-                // message (e.g. a long recording URL pasted in) is rejected server-side with no feedback.
-                const tooLong =
-                    values.conversationsFlagEnabled &&
-                    appendExceptionToMessage(message, exception_event).length > SUPPORT_MESSAGE_MAX_LENGTH
                 return {
                     name: !values.user && !name ? 'Please enter your name' : undefined,
                     email: !values.user && !email ? 'Please enter your email' : undefined,
-                    message: !message
-                        ? 'Please enter a message'
-                        : tooLong
-                          ? `Your message is too long (max ${SUPPORT_MESSAGE_MAX_LENGTH.toLocaleString()} characters). If you need more characters, feel free to send a follow-up message!`
-                          : undefined,
+                    message: !message ? 'Please enter a message' : undefined,
                     kind: requiresTriageFields && !kind ? 'Please choose' : undefined,
                     severity_level: requiresTriageFields && !severity_level ? 'Please choose' : undefined,
                     target_area: requiresTriageFields && !target_area ? 'Please choose' : undefined,
