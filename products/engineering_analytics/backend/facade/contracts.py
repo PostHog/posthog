@@ -961,8 +961,11 @@ class MergeActivityBucket:
 @dataclass(frozen=True)
 class MergeActivity:
     """Merged-PR throughput across a window on one bucket granularity: the "PRs merged per
-    day" trend. Counts key on the PR snapshot's merged_at, so they are exact and never lag
-    CI webhooks; bots are excluded per the locked throughput rule (SPEC section 6).
+    day" trend. Counts key on merged_at from the GitHub source's PR snapshot, so they are as
+    fresh as the source's last sync (a merge never un-happens, but a stalled sync zero-fills
+    recent buckets); bots are excluded per the locked throughput rule (SPEC section 6). The
+    window start is floored to its bucket boundary, so every bucket except the trailing
+    in-progress one covers its full span.
     """
 
     # Bucket width of `buckets`: 'hour', 'day', or 'week', chosen from the window length.

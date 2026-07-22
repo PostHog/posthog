@@ -31,8 +31,9 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         pullRequestsLoadError,
         mergedPerDay,
         mergeActivityLoading,
+        mergeActivityStatus,
     } = useValues(engineeringAnalyticsLogic)
-    const { setStateFilter, setCiStatusFilter, setSearch, resetFilters, applyCardFilter, refresh } =
+    const { setStateFilter, setCiStatusFilter, setSearch, resetFilters, applyCardFilter, refresh, loadMergeActivity } =
         useActions(engineeringAnalyticsLogic)
 
     // A 400 means no GitHub source — prompt to connect. A non-400 failure of this scene's data (cards or
@@ -101,7 +102,12 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 />
             </div>
 
-            <MergedPerDayCard data={mergedPerDay} loading={mergeActivityLoading} />
+            <MergedPerDayCard
+                data={mergedPerDay}
+                loading={mergeActivityLoading}
+                error={mergeActivityStatus === 'error'}
+                onRetry={loadMergeActivity}
+            />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput

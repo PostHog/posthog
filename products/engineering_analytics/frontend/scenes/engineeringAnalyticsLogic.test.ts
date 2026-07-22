@@ -794,16 +794,33 @@ describe('engineeringAnalyticsLogic', () => {
         expect(result.map((row) => row.id)).toEqual(expectedIds)
     })
 
+    it('a merge-activity 500 flags its card-level status without erroring the scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
+        mockMergeActivity.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadMergeActivityFailure'])
+
+        expect(logic.values.mergeActivityStatus).toBe('error')
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+    })
+
     it('mergedPerDayOf trims the in-progress day, averages over 7 days, and compares whole weeks', () => {
         // 14 complete days (a 2/day week then a 4/day week) plus today's partial bucket, which must
-        // never reach the series — an untrimmed partial day would end the trend on a false dip.
+        // never reach the series: an untrimmed partial day would end the trend on a false dip. Full
+        // Z-suffixed timestamps mirror the real serializer payload, so the date-portion labeling is
+        // exercised (a browser-local parse would shift labels a day back west of UTC).
         const buckets = [
-            ...Array.from({ length: 7 }, (_, i) => ({ bucket_start: `2026-06-0${i + 1}`, merged_count: 2 })),
             ...Array.from({ length: 7 }, (_, i) => ({
-                bucket_start: `2026-06-${String(8 + i).padStart(2, '0')}`,
+                bucket_start: `2026-06-0${i + 1}T00:00:00Z`,
+                merged_count: 2,
+            })),
+            ...Array.from({ length: 7 }, (_, i) => ({
+                bucket_start: `2026-06-${String(8 + i).padStart(2, '0')}T00:00:00Z`,
                 merged_count: 4,
             })),
-            { bucket_start: '2026-06-15', merged_count: 99 },
+            { bucket_start: '2026-06-15T00:00:00Z', merged_count: 99 },
         ]
 
         const data = mergedPerDayOf({ granularity: 'day', buckets })

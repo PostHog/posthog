@@ -244,7 +244,7 @@ export interface MergedPerDayData {
     /** Merged-PR count per complete day, oldest first (the trailing in-progress day is trimmed). */
     values: number[]
     labels: string[]
-    /** Trailing 7-day average aligned with `values` — the trend line over the noisy daily counts. */
+    /** Trailing 7-day average aligned with `values`: the trend line over the noisy daily counts. */
     trend: number[]
     /** Sum of the last 7 complete days vs the 7 before; null with under 14 complete days or a zero baseline. */
     weekOverWeekPct: number | null
@@ -266,12 +266,15 @@ export function mergedPerDayOf(activity: MergeActivityApi | null): MergedPerDayD
         return null
     }
     const values = complete.map((bucket) => bucket.merged_count)
-    const labels = complete.map((bucket) => dayjs(bucket.bucket_start).format('MMM D'))
+    // Label from the date portion only: the serializer stamps the team-local bucket midnight as
+    // UTC, so parsing the full timestamp browser-locally would shift every label a day back for
+    // viewers west of UTC. The date substring names the bucket's calendar day for everyone.
+    const labels = complete.map((bucket) => dayjs(bucket.bucket_start.slice(0, 10)).format('MMM D'))
+    const sum = (series: number[]): number => series.reduce((total, value) => total + value, 0)
     const trend = values.map((_, index) => {
         const window = values.slice(Math.max(0, index - (MERGE_TREND_WINDOW_DAYS - 1)), index + 1)
-        return Math.round((window.reduce((sum, value) => sum + value, 0) / window.length) * 10) / 10
+        return Math.round((sum(window) / window.length) * 10) / 10
     })
-    const sum = (series: number[]): number => series.reduce((total, value) => total + value, 0)
     const lastWeek = sum(values.slice(-MERGE_TREND_WINDOW_DAYS))
     const previousWeek =
         values.length >= MERGE_TREND_WINDOW_DAYS * 2
@@ -707,6 +710,7 @@ export interface engineeringAnalyticsLogicValues {
     hiddenBrokenTestCount: number
     mergeActivity: MergeActivityApi | null
     mergeActivityLoading: boolean
+    mergeActivityStatus: LoaderStatus
     mergedPerDay: MergedPerDayData | null
     notConnected: boolean
     pullRequests: PullRequestRow[]
@@ -1497,6 +1501,17 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadPullRequests: () => 'ok',
                     loadPullRequestsSuccess: () => 'ok',
                     loadPullRequestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            // The card renders its own error state off this (a failed load must never read as
+            // "no merges", and a stale previous-scope series must never render as current data);
+            // it deliberately does not feed the scene-level gates.
+            mergeActivityStatus: [
+                'ok' as LoaderStatus,
+                {
+                    loadMergeActivity: () => 'ok',
+                    loadMergeActivitySuccess: () => 'ok',
+                    loadMergeActivityFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             workflowHealthStatus: [

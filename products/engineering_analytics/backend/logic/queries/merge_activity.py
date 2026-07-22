@@ -5,6 +5,13 @@ across the whole window: for a count, an empty bucket is a real 0 (nothing merge
 gap, unlike the median series where an empty bucket must stay None. Bots are excluded per
 the locked throughput rule (SPEC section 6); a merged PR is never a draft, so no draft
 filter is needed.
+
+The window start is floored to its bucket boundary before filtering. A raw relative
+date_from lands mid-bucket (relative_date_parse keeps wall-clock time), and filtering
+from there while the zero-fill spine starts at the bucket boundary would silently
+undercount the first bucket: a partial count reads as a real dip, where a partial median
+would still be a valid median. After flooring, every bucket is complete except the
+trailing in-progress one.
 """
 
 from datetime import datetime
@@ -13,6 +20,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import MergeActivity, MergeActivityBucket
 from products.engineering_analytics.backend.logic.queries._buckets import (
+    Granularity,
     bucket_expr,
     normalize_bucket,
     pick_granularity,
@@ -31,6 +39,11 @@ _SELECT = """
 """
 
 
+def _floor_to_bucket(moment: datetime, granularity: Granularity) -> datetime:
+    """Align a window bound down to its bucket start, keeping the timezone the spine drops."""
+    return normalize_bucket(moment, granularity).replace(tzinfo=moment.tzinfo)
+
+
 def query_merge_activity(
     *,
     curated: CuratedGitHubSource,
@@ -38,6 +51,7 @@ def query_merge_activity(
     date_to: datetime | None,
 ) -> MergeActivity:
     granularity = pick_granularity(date_from, date_to)
+    date_from = _floor_to_bucket(date_from, granularity)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
     if date_to is not None:

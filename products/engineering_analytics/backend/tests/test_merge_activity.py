@@ -16,14 +16,17 @@ class TestMergeActivityQuery(ClickhouseTestMixin, BaseTest):
         pr_table = create_github_warehouse_table(self, "github_pull_requests", PULL_REQUESTS_COLUMNS, pr_rows)
         return CuratedGitHubSource(team=team, tables=GitHubTables(pull_requests=pr_table, workflow_runs="unused"))
 
-    def test_bot_exclusion_window_bounds_and_zero_fill(self):
+    def test_bot_exclusion_window_bounds_leading_floor_and_zero_fill(self):
         # Guards the freshly written HogQL plus the zero-fill spine: bot merges and out-of-window
-        # merges must stay out, unmerged PRs must not count, and a day with no merges must appear
-        # as a real 0 (a bucket-keying type mismatch would silently zero the whole series).
+        # merges must stay out, unmerged PRs must not count, a day with no merges must appear as a
+        # real 0 (a bucket-keying type mismatch would silently zero the whole series), and a mid-day
+        # date_from must floor to its bucket so the first bucket is a complete day, not a partial
+        # undercount.
         curated = self._curated(
             self.team,
             pr_rows=[
-                _pr_row(1, "alice", "closed", 0, "2026-01-10 08:00:00", merged_at="2026-01-10 10:00:00"),
+                # Merged before the raw 09:30 date_from but within its floored day bucket: must count.
+                _pr_row(1, "alice", "closed", 0, "2026-01-10 00:30:00", merged_at="2026-01-10 01:00:00"),
                 _pr_row(2, "alice", "closed", 0, "2026-01-10 09:00:00", merged_at="2026-01-10 12:00:00"),
                 _pr_row(3, "bob", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 09:00:00"),
                 # A bot merge on an otherwise-counted day: must not move the count.
@@ -37,7 +40,7 @@ class TestMergeActivityQuery(ClickhouseTestMixin, BaseTest):
 
         result = query_merge_activity(
             curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_from=datetime(2026, 1, 10, 9, 30, tzinfo=UTC),
             date_to=datetime(2026, 1, 13, 12, tzinfo=UTC),
         )
 

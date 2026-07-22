@@ -68,9 +68,10 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Merged pull requests per time bucket across a window (date_from default -30d): the PR throughput "
             "trend. Buckets cover the whole window, oldest first, zero-filled (a 0 means nothing merged); the "
-            "bucket width adapts to the window length (hour / day / week). Bots are excluded, matching the "
-            "default throughput recipe. Counts key on the PR snapshot's merged_at, so they are exact and never "
-            "lag CI webhooks."
+            "bucket width adapts to the window length (hour / day / week), and the window start is floored to "
+            "its bucket boundary so every bucket except the trailing in-progress one covers its full span. "
+            "Bots are excluded. Counts key on merged_at from the GitHub source's PR snapshot, so they are as "
+            "fresh as the source's last sync."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
