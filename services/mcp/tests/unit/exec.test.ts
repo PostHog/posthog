@@ -651,12 +651,16 @@ describe('exec tool', () => {
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
-        function makeFormatterTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+        function makeFormatterTool(
+            received: Record<string, unknown>[],
+            { wrapInPreprocess = false }: { wrapInPreprocess?: boolean } = {}
+        ): Tool<ZodObjectAny> {
+            const objectSchema = z.object({
+                series: z.string().optional().describe('Query series'),
+                output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
+            })
             return makeMockTool({
-                schema: z.object({
-                    series: z.string().optional().describe('Query series'),
-                    output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
-                }),
+                schema: wrapInPreprocess ? z.preprocess((value) => value, objectSchema) : objectSchema,
                 handler: async (_ctx, params) => {
                     received.push(params as Record<string, unknown>)
                     const optimized = (params as { output_format?: string }).output_format !== 'json'
@@ -691,6 +695,14 @@ describe('exec tool', () => {
         it('folds --json into the dispatched output_format so the handler skips the formatter', async () => {
             const received: Record<string, unknown>[] = []
             const exec = createExec([makeFormatterTool(received)])
+            const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
+            expect(received[0]!.output_format).toBe('json')
+            expect(JSON.parse(result).results).toEqual([{ count: 6 }])
+        })
+
+        it('folds --json through a z.preprocess-wrapped schema (id-alias normalization, e.g. insight-query)', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received, { wrapInPreprocess: true })])
             const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
             expect(received[0]!.output_format).toBe('json')
             expect(JSON.parse(result).results).toEqual([{ count: 6 }])
