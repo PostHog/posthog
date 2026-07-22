@@ -858,6 +858,34 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
 
+    def test_person_property_filter_does_not_read_materialized_column(self):
+        # These queries route to the ai_events satellite cluster, whose person-table replica lacks
+        # the materialized columns (e.g. pmat_email) present on the main cluster. Resolving a
+        # person-property filter to such a column hard-fails there with UnknownIdentifier. Single-node
+        # CI can't reproduce the missing column, so only the printed SQL catches the regression: the
+        # runner must disable materialization so the read falls back to the raw JSON that works everywhere.
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            self.skipTest("materialized columns require EE")
+
+        mat_column = materialize("person", "email")
+
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+                properties=[PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)],
+            ),
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=runner.modifiers,
+        )
+        sql, _ = prepare_and_print_ast(runner._build_trace_ids_query(), context, "clickhouse")
+        assert mat_column.name not in sql
+
     def _create_search_fixture(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(

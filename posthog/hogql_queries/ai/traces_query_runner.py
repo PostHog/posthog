@@ -11,6 +11,7 @@ from posthog.schema import (
     IntervalType,
     LLMTrace,
     LLMTraceEvent,
+    MaterializationMode,
     NodeKind,
     TracesQuery,
     TracesQueryResponse,
@@ -91,6 +92,15 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # These queries route to the ai_events satellite cluster (via the LLM_ANALYTICS product
+        # tag below), whose person-table replica lacks the materialized columns (e.g. pmat_email)
+        # that exist on the main cluster. The materialized-column registry is instance-wide and
+        # cluster-blind, so a person-property or test-account filter would otherwise resolve to a
+        # column that doesn't exist there and fail with UnknownIdentifier. Reading properties from
+        # the raw JSON works on every cluster.
+        self.modifiers.materializationMode = MaterializationMode.DISABLED
+
         limit = self.query.limit
         if self.limit_context == LimitContext.EXPORT:
             limit = min(limit or MAX_SELECT_TRACES_LIMIT_EXPORT, MAX_SELECT_TRACES_LIMIT_EXPORT)
