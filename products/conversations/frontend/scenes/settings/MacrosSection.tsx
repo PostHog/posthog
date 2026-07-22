@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { userLogic } from 'scenes/userLogic'
 
 import { SupportEditor, serializeToMarkdown } from '../../components/Editor'
 import { MACRO_VARIABLES } from '../../components/Editor/macroVariables'
@@ -60,8 +61,16 @@ export function MacrosSection(): JSX.Element {
         deleteMacro,
     } = useActions(macrosLogic)
 
+    const { user } = useValues(userLogic)
+
     const editorRef = useRef<RichContentEditorType | null>(null)
     const editingMacro = macros.find((m) => m.short_id === editingShortId) ?? null
+    // Only the creator can turn a shared team macro personal — otherwise it would vanish for
+    // everyone else. Mirrors the server-side guard so the invalid option isn't even offered.
+    const canMakePersonal =
+        !editingMacro ||
+        editingMacro.visibility !== MacroVisibilityEnumApi.Team ||
+        editingMacro.created_by?.id === user?.id
 
     const handleSave = (): void => {
         const richContent = editorRef.current?.getJSON() ?? null
@@ -201,7 +210,13 @@ export function MacrosSection(): JSX.Element {
                             onChange={setVisibility}
                             options={[
                                 { value: MacroVisibilityEnumApi.Team, label: 'Team — shared with everyone' },
-                                { value: MacroVisibilityEnumApi.Personal, label: 'Personal — only you' },
+                                {
+                                    value: MacroVisibilityEnumApi.Personal,
+                                    label: 'Personal — only you',
+                                    disabledReason: canMakePersonal
+                                        ? undefined
+                                        : 'Only the creator can make a shared macro personal',
+                                },
                             ]}
                         />
                     </LemonField.Pure>

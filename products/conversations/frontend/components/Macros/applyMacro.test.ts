@@ -31,6 +31,17 @@ describe('macroToDoc', () => {
         })
     })
 
+    // The canonical empty TipTap doc has a one-paragraph content array; it must not be treated as
+    // real rich content, or it would render blank and mask the plain-text fallback.
+    it('treats an empty rich_content doc as blank and falls back to content', () => {
+        const emptyDoc = { type: 'doc', content: [{ type: 'paragraph', content: [] }] }
+        const doc = macroToDoc(macro({ rich_content: emptyDoc, content: 'from content' }))
+        expect(doc).toEqual({
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'from content' }] }],
+        })
+    })
+
     it('returns an empty paragraph when there is no content at all', () => {
         expect(macroToDoc(macro({ rich_content: {}, content: '' }))).toEqual({
             type: 'doc',

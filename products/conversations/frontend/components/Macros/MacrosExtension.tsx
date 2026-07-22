@@ -76,7 +76,9 @@ export const MacrosExtension = Extension.create<MacrosExtensionOptions>({
                 pluginKey: MacrosPluginKey,
                 editor: this.editor,
                 char: '/',
-                startOfLine: false,
+                // Only trigger when `/` starts a line so it doesn't fire on ordinary reply text
+                // (URLs, "and/or", "24/7"). The toolbar macro button handles mid-text insertion.
+                startOfLine: true,
                 render: () => {
                     let renderer: ReactRenderer<MacroPickerRef>
 

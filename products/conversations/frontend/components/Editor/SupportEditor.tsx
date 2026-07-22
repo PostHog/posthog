@@ -46,7 +46,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { MacroActionsApi } from '../../generated/api.schemas'
 import { applyMacroToEditor } from '../Macros/applyMacro'
-import { MacroPicker } from '../Macros/MacroPicker'
+import { MacroPicker, MacrosKeepAlive } from '../Macros/MacroPicker'
 import { MacrosExtension } from '../Macros/MacrosExtension'
 import { MacroVariableValues } from './macroVariables'
 
@@ -548,6 +548,7 @@ export function SupportEditor({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
+            {enableMacros && <MacrosKeepAlive />}
             <EditorContent
                 editor={editor}
                 className="SupportEditor__content p-2"

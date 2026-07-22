@@ -666,7 +666,10 @@ export interface MacroApi {
      * @maxLength 400
      */
     description?: string
-    /** Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket. */
+    /**
+     * Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket.
+     * @maxLength 50000
+     */
     content?: string
     /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
     rich_content?: unknown
@@ -703,7 +706,10 @@ export interface PatchedMacroApi {
      * @maxLength 400
      */
     description?: string
-    /** Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket. */
+    /**
+     * Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket.
+     * @maxLength 50000
+     */
     content?: string
     /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
     rich_content?: unknown

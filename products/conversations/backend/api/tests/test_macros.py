@@ -57,3 +57,39 @@ class TestMacroAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         macro = Macro.objects.unscoped().get(short_id=response.json()["short_id"])
         self.assertEqual(macro.actions, {"status": "resolved"})
+
+    def test_non_creator_cannot_make_shared_macro_personal(self) -> None:
+        # Regression guard: flipping a team macro to personal as a non-creator would make it vanish
+        # for everyone (kept only by the original author). The serializer must reject it.
+        team_macro = self._create_macro("Shared reply", visibility="team")
+
+        self.client.force_login(self.other_user)
+        response = self.client.patch(
+            f"{self.base_url}{team_macro['short_id']}/", {"visibility": "personal"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(Macro.objects.unscoped().get(short_id=team_macro["short_id"]).visibility, "team")
+
+        # The creator can still make their own macro personal.
+        self.client.force_login(self.user)
+        ok = self.client.patch(f"{self.base_url}{team_macro['short_id']}/", {"visibility": "personal"}, format="json")
+        self.assertEqual(ok.status_code, status.HTTP_200_OK, ok.content)
+
+    def test_update_preserves_assignee_not_editable_in_ui(self) -> None:
+        # Regression guard: the Settings UI can't edit `assignee`, so a partial update that omits it
+        # must not wipe an assignee set via the API.
+        created = self.client.post(
+            self.base_url,
+            {"name": "Route to on-call", "actions": {"assignee": {"type": "user", "id": "42"}}},
+            format="json",
+        ).json()
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/", {"actions": {"status": "open"}}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        macro = Macro.objects.unscoped().get(short_id=created["short_id"])
+        self.assertEqual(macro.actions, {"status": "open", "assignee": {"type": "user", "id": "42"}})
+
+    def test_content_over_cap_is_rejected(self) -> None:
+        response = self.client.post(self.base_url, {"name": "Too long", "content": "x" * 50_001}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)

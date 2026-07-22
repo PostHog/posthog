@@ -158,6 +158,8 @@ export const conversationsMacrosCreateBodyNameMax = 200
 
 export const conversationsMacrosCreateBodyDescriptionMax = 400
 
+export const conversationsMacrosCreateBodyContentMax = 50000
+
 export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsMacrosCreateBodyNameMax).describe('Display name shown in the macro picker.'),
     description: zod
@@ -167,6 +169,7 @@ export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional short description of when to use this macro.'),
     content: zod
         .string()
+        .max(conversationsMacrosCreateBodyContentMax)
         .optional()
         .describe('Plain-text\/markdown body of the reply. May contain {{variables}} filled in from the ticket.'),
     rich_content: zod
@@ -237,6 +240,8 @@ export const conversationsMacrosUpdateBodyNameMax = 200
 
 export const conversationsMacrosUpdateBodyDescriptionMax = 400
 
+export const conversationsMacrosUpdateBodyContentMax = 50000
+
 export const ConversationsMacrosUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsMacrosUpdateBodyNameMax).describe('Display name shown in the macro picker.'),
     description: zod
@@ -246,6 +251,7 @@ export const ConversationsMacrosUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional short description of when to use this macro.'),
     content: zod
         .string()
+        .max(conversationsMacrosUpdateBodyContentMax)
         .optional()
         .describe('Plain-text\/markdown body of the reply. May contain {{variables}} filled in from the ticket.'),
     rich_content: zod
@@ -316,6 +322,8 @@ export const conversationsMacrosPartialUpdateBodyNameMax = 200
 
 export const conversationsMacrosPartialUpdateBodyDescriptionMax = 400
 
+export const conversationsMacrosPartialUpdateBodyContentMax = 50000
+
 export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -329,6 +337,7 @@ export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional short description of when to use this macro.'),
     content: zod
         .string()
+        .max(conversationsMacrosPartialUpdateBodyContentMax)
         .optional()
         .describe('Plain-text\/markdown body of the reply. May contain {{variables}} filled in from the ticket.'),
     rich_content: zod

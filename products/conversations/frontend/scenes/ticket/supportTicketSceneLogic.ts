@@ -732,9 +732,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         macroVariables: [
             (s) => [s.ticket, s.person, s.user],
             (ticket: Ticket | null, person: PersonType | null, user: UserType | null): MacroVariableValues => {
+                // Mirror the customer-name resolution used for message display: prefer the loaded
+                // person, fall back to the ticket's own person, then anonymous traits, then email.
                 const customerName =
                     person?.properties?.name ||
                     person?.properties?.email ||
+                    ticket?.person?.properties?.name ||
+                    ticket?.person?.properties?.email ||
                     ticket?.anonymous_traits?.name ||
                     ticket?.anonymous_traits?.email ||
                     ticket?.email_from ||

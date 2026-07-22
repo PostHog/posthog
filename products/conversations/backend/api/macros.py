@@ -16,6 +16,7 @@ from products.conversations.backend.models.constants import Priority, Status
 
 MAX_RICH_CONTENT_SIZE_BYTES = 100_000
 MAX_ACTIONS_SIZE_BYTES = 10_000
+MAX_CONTENT_SIZE_CHARS = 50_000
 
 
 class MacroAssigneeSerializer(serializers.Serializer):
@@ -67,6 +68,7 @@ class MacroSerializer(serializers.ModelSerializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=MAX_CONTENT_SIZE_CHARS,
         help_text="Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket.",
     )
     rich_content = serializers.JSONField(
@@ -118,6 +120,33 @@ class MacroSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Actions payload is too large.")
         return value
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Only the creator may turn a shared team macro into a personal one. Otherwise a
+        # teammate's edit would make the macro vanish for everyone except its original author
+        # (and for the editor themselves), with no way to reach it again.
+        instance = self.instance
+        if (
+            instance is not None
+            and attrs.get("visibility") == MacroVisibility.PERSONAL
+            and instance.visibility == MacroVisibility.TEAM
+            and instance.created_by_id != self.context["request"].user.id
+        ):
+            raise serializers.ValidationError(
+                {"visibility": "Only the macro's creator can make a shared team macro personal."}
+            )
+        return attrs
+
+    def update(self, instance: Macro, validated_data: dict[str, Any]) -> Macro:
+        # `actions` is a single JSON column, so DRF replaces it wholesale. The Settings UI has no
+        # assignee control, so merge the existing assignee back in to avoid silently dropping one
+        # set via the API. Status/priority/tags stay full-replace so clearing them in the UI sticks.
+        if "actions" in validated_data:
+            new_actions = validated_data["actions"] or {}
+            if "assignee" not in new_actions and instance.actions.get("assignee"):
+                new_actions = {**new_actions, "assignee": instance.actions["assignee"]}
+            validated_data["actions"] = new_actions
+        return super().update(instance, validated_data)
+
     def create(self, validated_data: dict[str, Any]) -> Macro:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -143,7 +172,10 @@ class MacroViewSet(
     lookup_field = "short_id"
 
     def safely_get_queryset(self, queryset: QuerySet[Macro]) -> QuerySet[Macro]:
-        queryset = queryset.filter(team_id=self.team_id).select_related("created_by")
+        # `for_team` resolves child environments to the canonical (parent) team id, matching the
+        # rewrite `RootTeamMixin.save()` performs on write. Filtering by the raw `self.team_id`
+        # would miss macros created in a child environment (stored under the parent).
+        queryset = Macro.objects.for_team(self.team_id).select_related("created_by")
         # Team macros are visible to everyone; personal macros only to their creator.
         return queryset.filter(
             Q(visibility=MacroVisibility.TEAM) | Q(visibility=MacroVisibility.PERSONAL, created_by=self.request.user)

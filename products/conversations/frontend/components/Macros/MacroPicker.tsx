@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { IconBolt } from '@posthog/icons'
@@ -31,9 +31,9 @@ export const MacroPicker = forwardRef<MacroPickerRef, MacroPickerProps>(function
     { onSelect, query: controlledQuery, showSearchInput = false },
     ref
 ): JSX.Element {
-    const { teamMacros, personalMacros, macrosLoading } = useValues(macrosLogic)
+    const { teamMacros, personalMacros, macrosLoading, loadFailed } = useValues(macrosLogic)
     const [internalQuery, setInternalQuery] = useState('')
-    const query = controlledQuery ?? internalQuery
+    const query = (controlledQuery ?? internalQuery).trim()
     const [selectedIndex, setSelectedIndex] = useState(0)
 
     const allMacros = useMemo(() => [...teamMacros, ...personalMacros], [teamMacros, personalMacros])
@@ -77,7 +77,10 @@ export const MacroPicker = forwardRef<MacroPickerRef, MacroPickerProps>(function
                     return true
                 },
                 Enter: (): boolean => {
-                    const macro = filteredMacros[selectedIndex]
+                    // Require a typed query before Enter selects, so a bare `/` + Enter is treated
+                    // as a normal newline rather than silently inserting a macro (and firing its
+                    // ticket actions). Explicit clicks still work with no query.
+                    const macro = query ? filteredMacros[selectedIndex] : undefined
                     if (!macro) {
                         return false
                     }
@@ -90,7 +93,7 @@ export const MacroPicker = forwardRef<MacroPickerRef, MacroPickerProps>(function
             }
             return false
         },
-        [filteredMacros, selectedIndex, execute]
+        [filteredMacros, selectedIndex, execute, query]
     )
 
     useImperativeHandle(ref, () => ({ onKeyDown }), [onKeyDown])
@@ -132,10 +135,25 @@ export const MacroPicker = forwardRef<MacroPickerRef, MacroPickerProps>(function
                 ))}
                 {filteredMacros.length === 0 && (
                     <div className="text-secondary p-2 text-center">
-                        {macrosLoading ? 'Loading macros...' : query ? 'No matching macros' : 'No macros yet'}
+                        {macrosLoading
+                            ? 'Loading macros...'
+                            : loadFailed
+                              ? "Couldn't load macros. Try again."
+                              : query
+                                ? 'No matching macros'
+                                : 'No macros yet'}
                     </div>
                 )}
             </div>
         </div>
     )
 })
+
+/**
+ * Keeps `macrosLogic` mounted for the lifetime of its parent so the macro list is fetched once,
+ * not re-fetched every time the slash-command popup or toolbar picker opens and closes.
+ */
+export function MacrosKeepAlive(): null {
+    useMountedLogic(macrosLogic)
+    return null
+}

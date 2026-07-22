@@ -6,6 +6,17 @@ import { EditorRange } from 'lib/components/RichContentEditor/types'
 import type { MacroActionsApi, MacroApi } from '../../generated/api.schemas'
 import { applyMacroVariablesToRichContent, MacroVariableValues } from '../Editor/macroVariables'
 
+/** True if the TipTap tree contains any non-empty text node or a media node worth rendering. */
+function hasVisibleText(node: JSONContent): boolean {
+    if (typeof node.text === 'string' && node.text.length > 0) {
+        return true
+    }
+    if (node.type === 'image') {
+        return true
+    }
+    return Array.isArray(node.content) && node.content.some(hasVisibleText)
+}
+
 /**
  * Build the TipTap document for a macro. Prefers the stored `rich_content`, falling back to the
  * plain-text `content` (one paragraph per line) so macros created without rich content — e.g. via
@@ -13,7 +24,10 @@ import { applyMacroVariablesToRichContent, MacroVariableValues } from '../Editor
  */
 export function macroToDoc(macro: MacroApi): JSONContent {
     const richContent = macro.rich_content as JSONContent | undefined
-    if (richContent && richContent.type === 'doc' && Array.isArray(richContent.content) && richContent.content.length) {
+    // Require an actual text node, not just a non-empty content array: the canonical "empty"
+    // TipTap doc is `{doc:[{paragraph:[]}]}` (length 1) and would otherwise pass and render blank,
+    // masking the plain-text `content` fallback below.
+    if (richContent && richContent.type === 'doc' && hasVisibleText(richContent)) {
         return richContent
     }
     const text = macro.content ?? ''
