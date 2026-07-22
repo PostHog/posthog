@@ -289,7 +289,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Editor: Story = { render: () => <EditorStory /> }
-export const EditorLoading: Story = { render: () => <EditorLoadingStory /> }
+export const EditorLoading: Story = {
+    render: () => <EditorLoadingStory />,
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
