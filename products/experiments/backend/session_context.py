@@ -228,8 +228,9 @@ def _compute_session_experiment_context(
 
     # The three scans are independent given the pre-rescue candidate set (only the rescue
     # follow-up below consumes another scan's output), so they run concurrently — total wait
-    # is the slowest scan, not the sum.
-    if settings.IN_UNIT_TESTING:
+    # is the slowest scan, not the sum. Sequential under TEST: worker threads open their own
+    # DB connections, which can't see the test transaction's uncommitted data.
+    if settings.TEST:
         flag_evaluations = query_flag_evaluations()
         branch_exposures = query_exposure_branches()
         stamped = query_stamped()
