@@ -409,6 +409,8 @@ export const signalsScoutConfigCreateBodySkillNameMax = 200
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
         skill_name: zod
@@ -430,13 +432,39 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+        output_destinations: zod
+            .object({
+                slack: zod
+                    .union([
+                        zod.object({
+                            integration_id: zod
+                                .number()
+                                .min(1)
+                                .describe("ID of the Slack integration whose bot posts this scout's findings."),
+                            channel: zod
+                                .string()
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax)
+                                .nullish()
+                                .describe(
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.'
+                    ),
+            })
+            .optional()
+            .describe('Destinations that receive each finding this scout emits. Empty by default.'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
     )
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
@@ -451,30 +479,48 @@ export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
-export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
-    .object({
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
-        emit: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.'
-            ),
-        run_interval_minutes: zod
-            .number()
-            .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
-            .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
-            .optional()
-            .describe(
-                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
-            ),
-    })
-    .describe(
-        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
-    )
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
+export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+    emit: zod
+        .boolean()
+        .optional()
+        .describe('Whether the scout writes findings to the inbox. False runs the scout without emitting findings.'),
+    run_interval_minutes: zod
+        .number()
+        .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
+        .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
+        .optional()
+        .describe('Minutes between runs (30–43200).'),
+    output_destinations: zod
+        .object({
+            slack: zod
+                .union([
+                    zod.object({
+                        integration_id: zod
+                            .number()
+                            .min(1)
+                            .describe("ID of the Slack integration whose bot posts this scout's findings."),
+                        channel: zod
+                            .string()
+                            .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax)
+                            .nullish()
+                            .describe(
+                                "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.'),
+        })
+        .optional()
+        .describe('Destinations that receive each finding this scout emits. Pass an empty object to disable delivery.'),
+})
 
 /**
  * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.

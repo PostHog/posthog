@@ -8140,7 +8140,7 @@
         }
     },
     "scout-config-create": {
-        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, `emit` (false = dry-run), and `output_destinations` in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout config",
@@ -8168,7 +8168,7 @@
         }
     },
     "scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -8196,7 +8196,7 @@
         }
     },
     "scout-config-update": {
-        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox), or configure `output_destinations.slack` with a Slack integration and channel. `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update a scout config",

@@ -5,6 +5,7 @@ from django.utils import timezone
 
 import structlog
 from celery import shared_task
+from slack_sdk.errors import SlackApiError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
@@ -15,7 +16,12 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
-from products.signals.backend.models import SignalReportRefund
+from products.signals.backend.models import SignalReportRefund, SignalScoutEmission
+from products.signals.backend.scout_harness.slack_delivery import (
+    ScoutSlackPermanentDeliveryError,
+    post_scout_emission_to_slack,
+    slack_api_error_code,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +47,10 @@ _REFUND_SYNC_SWEEP_MAX_AGE = timedelta(days=7)
 # older), so the sweeper skips these rows and recovery is the documented manual credit path.
 _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync time; credit needs manual recovery"
 
+_SCOUT_SLACK_MAX_RETRIES = 5
+_SCOUT_SLACK_RETRY_BASE_SECONDS = 60
+_SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
+
 
 @shared_task(
     name="products.signals.backend.tasks.close_dismissed_report_pr",
@@ -50,6 +60,121 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 @with_team_scope()
 def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
+
+
+def _slack_retry_after_seconds(exc: Exception) -> int | None:
+    if not isinstance(exc, SlackApiError) or not exc.response:
+        return None
+    headers = exc.response.headers or {}
+    raw_value = headers.get("Retry-After") or headers.get("retry-after")
+    try:
+        retry_after = int(raw_value) if raw_value is not None else None
+    except (TypeError, ValueError):
+        return None
+    return retry_after if retry_after is not None and retry_after > 0 else None
+
+
+def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
+    backoff = min(_SCOUT_SLACK_RETRY_BASE_SECONDS * (2**retries), _SCOUT_SLACK_RETRY_MAX_SECONDS)
+    retry_after = _slack_retry_after_seconds(exc)
+    return min(max(backoff, retry_after or 0), _SCOUT_SLACK_RETRY_MAX_SECONDS)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.deliver_scout_slack_output",
+    ignore_result=True,
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=_SCOUT_SLACK_MAX_RETRIES,
+)
+@with_team_scope(canonical=True)
+def deliver_scout_slack_output(
+    self,
+    team_id: int,
+    emission_id: str,
+    integration_id: int,
+    channel: str,
+) -> None:
+    emission = SignalScoutEmission.objects.select_related("scout_run").filter(id=emission_id).first()
+    if emission is None:
+        logger.warning(
+            "signals_scout.slack_delivery_emission_missing",
+            team_id=team_id,
+            emission_id=emission_id,
+        )
+        return
+
+    context = {
+        "team_id": team_id,
+        "emission_id": emission_id,
+        "integration_id": integration_id,
+    }
+    try:
+        post_scout_emission_to_slack(emission, integration_id=integration_id, channel=channel)
+    except ScoutSlackPermanentDeliveryError as exc:
+        capture_exception(exc, {**context, "error_code": exc.error_code})
+        logger.warning(
+            "signals_scout.slack_delivery_permanent_failure",
+            **context,
+            error_code=exc.error_code,
+        )
+        return
+    except Exception as exc:
+        if self.request.retries < _SCOUT_SLACK_MAX_RETRIES:
+            countdown = _scout_slack_retry_countdown(exc, self.request.retries)
+            logger.warning(
+                "signals_scout.slack_delivery_retrying",
+                **context,
+                error_code=slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None,
+                attempt=self.request.retries + 1,
+                countdown=countdown,
+            )
+            raise self.retry(exc=exc, countdown=countdown)
+
+        capture_exception(
+            exc,
+            {
+                **context,
+                "error_code": slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None,
+                "attempts": self.request.retries + 1,
+            },
+        )
+        logger.exception(
+            "signals_scout.slack_delivery_exhausted",
+            **context,
+            attempts=self.request.retries + 1,
+        )
+        return
+
+    logger.info("signals_scout.slack_delivery_sent", **context)
+
+
+def enqueue_scout_slack_delivery(
+    *,
+    team_id: int,
+    emission_id: str,
+    integration_id: int,
+    channel: str,
+) -> None:
+    """Publish after commit, capturing broker failures without affecting the completed emit."""
+    try:
+        deliver_scout_slack_output.delay(team_id, emission_id, integration_id, channel)
+    except Exception as exc:
+        capture_exception(
+            exc,
+            {
+                "team_id": team_id,
+                "emission_id": emission_id,
+                "integration_id": integration_id,
+            },
+        )
+        logger.exception(
+            "signals_scout.slack_delivery_enqueue_failed",
+            team_id=team_id,
+            emission_id=emission_id,
+            integration_id=integration_id,
+        )
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:

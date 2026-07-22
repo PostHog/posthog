@@ -91,6 +91,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
+    SignalScoutConfigUpdateSerializer,
     SignalScoutEmissionSerializer,
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
@@ -1411,7 +1412,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        serializer = SignalScoutConfigCreateSerializer(data=request.data)
+        serializer = SignalScoutConfigCreateSerializer(data=request.data, context={"team_id": team_id})
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
         if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
@@ -1448,7 +1449,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not created and tunables:
             # The coordinator tick (or a concurrent caller) won the race — apply the provided
             # fields to the existing row so the call still lands the requested settings.
-            update = SignalScoutConfigSerializer(config, data=tunables, partial=True)
+            update = SignalScoutConfigUpdateSerializer(
+                config,
+                data=tunables,
+                partial=True,
+                context={"team_id": team_id},
+            )
             update.is_valid(raise_exception=True)
             save_kwargs = {}
             if not config.enabled and update.validated_data.get("enabled"):
@@ -1461,7 +1467,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @extend_schema(
-        request=SignalScoutConfigSerializer,
+        request=SignalScoutConfigUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Updated config."),
             400: OpenApiResponse(
@@ -1471,9 +1477,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Update a scout config",
         description=(
-            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` "
-            "(dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is "
-            "activity-logged since it drives spend."
+            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, `emit` "
+            "(dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records "
+            "`enabled_by` and is activity-logged since it drives spend."
         ),
         operation_id="signals_scout_config_update",
     )
@@ -1483,7 +1489,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
-        serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
+        serializer = SignalScoutConfigUpdateSerializer(
+            config,
+            data=request.data,
+            partial=True,
+            context={"team_id": team_id},
+        )
         serializer.is_valid(raise_exception=True)
         enabling = not config.enabled and serializer.validated_data.get("enabled")
         if enabling:

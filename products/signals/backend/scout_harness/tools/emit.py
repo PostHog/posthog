@@ -29,6 +29,7 @@ import re
 import uuid
 import logging
 from dataclasses import asdict, dataclass
+from functools import partial
 from typing import Any
 
 from django.db import transaction
@@ -37,6 +38,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
+from products.signals.backend.tasks import enqueue_scout_slack_delivery
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
@@ -449,12 +452,18 @@ def _record_emit(
     the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
     run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
     so the two never drift. The emission row is written in the same atomic block so the tally
-    and the per-finding record never diverge — one row per appended `finding_id`. Uses the
-    unscoped `all_teams` manager because the caller already validated `team`/`run` ownership
-    and emit can run with no team scope set (Temporal activity)."""
+    and the per-finding record never diverge — one row per appended `finding_id`. A configured
+    Slack delivery is queued only after this transaction commits, with the destination snapshotted
+    at emit time. Uses the unscoped `all_teams` manager because the caller already validated
+    `team`/`run` ownership and emit can run with no team scope set (Temporal activity)."""
     try:
         with transaction.atomic():
-            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            run = (
+                SignalScoutRun.all_teams.select_for_update(of=("self",))
+                .select_related("scout_config")
+                .filter(pk=run_id)
+                .first()
+            )
             if run is None:
                 logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
                 return
@@ -462,7 +471,7 @@ def _record_emit(
             run.emitted_finding_ids = finding_ids
             run.emitted_count = len(finding_ids)
             run.save(update_fields=["emitted_finding_ids", "emitted_count"])
-            SignalScoutEmission.all_teams.create(
+            emission = SignalScoutEmission.all_teams.create(
                 team_id=run.team_id,
                 scout_run=run,
                 finding_id=finding_id,
@@ -473,6 +482,20 @@ def _record_emit(
                 source_id=source_id,
                 tags=tags or [],
             )
+            destination = get_scout_slack_destination(
+                run.scout_config.output_destinations if run.scout_config is not None else None
+            )
+            if destination is not None:
+                transaction.on_commit(
+                    partial(
+                        enqueue_scout_slack_delivery,
+                        team_id=run.team_id,
+                        emission_id=str(emission.id),
+                        integration_id=destination.integration_id,
+                        channel=destination.channel,
+                    ),
+                    robust=True,
+                )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on
         # so the emit call returns success rather than a false failure the caller might retry.

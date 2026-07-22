@@ -15,6 +15,7 @@ from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -1090,6 +1091,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
+
+    def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_integration = Integration.objects.create(team=other_team, kind=Integration.IntegrationKind.SLACK)
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={
+                "output_destinations": {"slack": {"integration_id": other_integration.id, "channel": "COTHER|#other"}}
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.output_destinations == {}
+
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}}
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"] == destination
+        config.refresh_from_db()
+        assert config.output_destinations == destination
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

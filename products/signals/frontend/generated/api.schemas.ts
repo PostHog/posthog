@@ -1412,8 +1412,27 @@ export const ScoutOriginEnumApi = {
     Custom: 'custom',
 } as const
 
+export interface SignalScoutSlackDestinationApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+}
+
+export interface SignalScoutOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+}
+
 /**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+ * Read shape for a per-(team, skill) scout config.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
  * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -1427,15 +1446,13 @@ export interface SignalScoutConfigApi {
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-    enabled?: boolean
+    readonly enabled: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-    emit?: boolean
-    /**
-     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
-     * @minimum 30
-     * @maximum 43200
-     */
-    run_interval_minutes?: number
+    readonly emit: boolean
+    /** Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run. */
+    readonly run_interval_minutes: number
+    /** Destinations that receive each finding this scout emits. Empty when no destination is configured. */
+    readonly output_destinations: SignalScoutOutputDestinationsApi
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -1466,38 +1483,23 @@ export interface SignalScoutConfigCreateApi {
      * @maximum 43200
      */
     run_interval_minutes?: number
+    /** Destinations that receive each finding this scout emits. Empty by default. */
+    output_destinations?: SignalScoutOutputDestinationsApi
 }
 
-/**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
- *
- * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
- * when it discovers a scout skill; this serializer lets agents tune the row.
- */
-export interface PatchedSignalScoutConfigApi {
-    readonly id?: string
-    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-    readonly skill_name?: string
-    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-    readonly description?: string
-    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-    readonly scout_origin?: ScoutOriginEnumApi
+export interface PatchedSignalScoutConfigUpdateApi {
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
-    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    /** Whether the scout writes findings to the inbox. False runs the scout without emitting findings. */
     emit?: boolean
     /**
-     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * Minutes between runs (30–43200).
      * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
-    /**
-     * When the coordinator last dispatched this scout. Null if it has never run.
-     * @nullable
-     */
-    readonly last_run_at?: string | null
-    readonly created_at?: string
+    /** Destinations that receive each finding this scout emits. Pass an empty object to disable delivery. */
+    output_destinations?: SignalScoutOutputDestinationsApi
 }
 
 /**

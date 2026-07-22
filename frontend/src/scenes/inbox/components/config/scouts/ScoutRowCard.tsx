@@ -25,6 +25,7 @@ export function ScoutRowCard({
     onUpdate,
     onDelete,
     deleting = false,
+    updating = false,
     asHeader = false,
 }: {
     config: SignalScoutConfig
@@ -35,6 +36,8 @@ export function ScoutRowCard({
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
     deleting?: boolean
+    /** True while this scout's config update is in flight. */
+    updating?: boolean
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
 }): JSX.Element {
@@ -127,7 +130,7 @@ export function ScoutRowCard({
                     </div>
                 ) : null}
                 <div className="flex items-center gap-2 shrink-0">
-                    <ScoutEnabledSwitch config={config} onUpdate={onUpdate} />
+                    <ScoutEnabledSwitch config={config} onUpdate={onUpdate} updating={updating} />
                     <Tooltip title="Scout settings">
                         <LemonButton
                             size="small"
@@ -141,7 +144,13 @@ export function ScoutRowCard({
             </div>
             {settingsOpen ? (
                 <div className="mt-3 border-t border-primary pt-3">
-                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} deleting={deleting} />
+                    <ScoutConfigForm
+                        config={config}
+                        onUpdate={onUpdate}
+                        onDelete={onDelete}
+                        deleting={deleting}
+                        updating={updating}
+                    />
                 </div>
             ) : null}
         </div>

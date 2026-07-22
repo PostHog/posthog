@@ -234,6 +234,8 @@ export const signalsScoutConfigCreateBodySkillNameMax = 200
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
         skill_name: zod
@@ -255,42 +257,86 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+        output_destinations: zod
+            .object({
+                slack: zod
+                    .union([
+                        zod.object({
+                            integration_id: zod
+                                .number()
+                                .min(1)
+                                .describe("ID of the Slack integration whose bot posts this scout's findings."),
+                            channel: zod
+                                .string()
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax)
+                                .nullish()
+                                .describe(
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.'
+                    ),
+            })
+            .optional()
+            .describe('Destinations that receive each finding this scout emits. Empty by default.'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
     )
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
-export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
-    .object({
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
-        emit: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.'
-            ),
-        run_interval_minutes: zod
-            .number()
-            .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
-            .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
-            .optional()
-            .describe(
-                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
-            ),
-    })
-    .describe(
-        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-\*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
-    )
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
+export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+    emit: zod
+        .boolean()
+        .optional()
+        .describe('Whether the scout writes findings to the inbox. False runs the scout without emitting findings.'),
+    run_interval_minutes: zod
+        .number()
+        .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
+        .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
+        .optional()
+        .describe('Minutes between runs (30–43200).'),
+    output_destinations: zod
+        .object({
+            slack: zod
+                .union([
+                    zod.object({
+                        integration_id: zod
+                            .number()
+                            .min(1)
+                            .describe("ID of the Slack integration whose bot posts this scout's findings."),
+                        channel: zod
+                            .string()
+                            .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax)
+                            .nullish()
+                            .describe(
+                                "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.'),
+        })
+        .optional()
+        .describe('Destinations that receive each finding this scout emits. Pass an empty object to disable delivery.'),
+})
 
 /**
  * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.

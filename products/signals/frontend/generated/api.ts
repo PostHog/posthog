@@ -25,7 +25,7 @@ import type {
     PaginatedSignalSourceConfigListApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
-    PatchedSignalScoutConfigApi,
+    PatchedSignalScoutConfigUpdateApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
@@ -526,20 +526,20 @@ export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdate = async (
     projectId: string,
     id: string,
-    patchedSignalScoutConfigApi?: NonReadonly<PatchedSignalScoutConfigApi>,
+    patchedSignalScoutConfigUpdateApi?: PatchedSignalScoutConfigUpdateApi,
     options?: RequestInit
 ): Promise<SignalScoutConfigApi> => {
     return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSignalScoutConfigApi),
+        body: JSON.stringify(patchedSignalScoutConfigUpdateApi),
     })
 }
 

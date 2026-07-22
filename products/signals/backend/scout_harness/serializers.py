@@ -12,6 +12,8 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.models.integration import Integration
+
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -1477,8 +1479,51 @@ class ProjectProfileSerializer(serializers.Serializer):
 # --- Scout config ----------------------------------------------------------
 
 
+class SignalScoutSlackDestinationSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        min_value=1,
+        help_text="ID of the Slack integration whose bot posts this scout's findings.",
+    )
+    channel = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        max_length=255,
+        trim_whitespace=True,
+        help_text=(
+            "Slack channel target in the channel picker's `channel_id|#channel-name` format. "
+            "Null while choosing a channel; no messages are sent until it is set."
+        ),
+    )
+
+
+class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
+    slack = SignalScoutSlackDestinationSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.",
+    )
+
+
+def _validate_output_destinations(value: dict, team_id: int) -> dict:
+    slack = value.get("slack")
+    if slack is None:
+        return {}
+
+    integration_id = slack["integration_id"]
+    if not Integration.objects.filter(
+        id=integration_id,
+        team_id=team_id,
+        kind=Integration.IntegrationKind.SLACK,
+    ).exists():
+        raise serializers.ValidationError(
+            {"slack": {"integration_id": "No Slack integration with this ID exists on this project."}}
+        )
+    return {"slack": slack}
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
-    """Per-(team, skill) scout config: schedule, enablement, and emit posture.
+    """Read shape for a per-(team, skill) scout config.
 
     One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
     when it discovers a scout skill; this serializer lets agents tune the row.
@@ -1505,18 +1550,20 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         ),
     )
     enabled = serializers.BooleanField(
-        required=False,
+        read_only=True,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
     )
     emit = serializers.BooleanField(
-        required=False,
+        read_only=True,
         help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
     )
     run_interval_minutes = serializers.IntegerField(
-        required=False,
-        min_value=30,
-        max_value=43200,
+        read_only=True,
         help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+    )
+    output_destinations = SignalScoutOutputDestinationsSerializer(
+        read_only=True,
+        help_text="Destinations that receive each finding this scout emits. Empty when no destination is configured.",
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
@@ -1548,10 +1595,42 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "emit",
             "run_interval_minutes",
+            "output_destinations",
             "last_run_at",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes findings to the inbox. False runs the scout without emitting findings.",
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=30,
+        max_value=43200,
+        help_text="Minutes between runs (30–43200).",
+    )
+    output_destinations = SignalScoutOutputDestinationsSerializer(
+        required=False,
+        help_text="Destinations that receive each finding this scout emits. Pass an empty object to disable delivery.",
+    )
+
+    def validate_output_destinations(self, value: dict) -> dict:
+        team_id = self.context.get("team_id")
+        if not isinstance(team_id, int):
+            raise RuntimeError("SignalScoutConfigUpdateSerializer requires team_id in its context")
+        return _validate_output_destinations(value, team_id)
+
+    class Meta:
+        model = SignalScoutConfig
+        fields = ["enabled", "emit", "run_interval_minutes", "output_destinations"]
 
 
 class SignalScoutConfigCreateSerializer(serializers.Serializer):
@@ -1585,6 +1664,10 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         max_value=43200,
         help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
+    output_destinations = SignalScoutOutputDestinationsSerializer(
+        required=False,
+        help_text="Destinations that receive each finding this scout emits. Empty by default.",
+    )
 
     def validate_skill_name(self, value: str) -> str:
         # A config for a non-scout skill would never dispatch (the coordinator only considers
@@ -1592,6 +1675,9 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+    def validate_output_destinations(self, value: dict) -> dict:
+        return _validate_output_destinations(value, self.context["team_id"])
 
 
 class SignalScoutManualRunSerializer(serializers.Serializer):
