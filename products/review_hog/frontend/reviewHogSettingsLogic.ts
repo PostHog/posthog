@@ -494,8 +494,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         reviewDetail: [
             null as ReviewDetailApi | null,
             {
-                loadReviewDetail: async (reviewId: string) =>
-                    await reviewHogReviewsRetrieve(currentProjectId(), reviewId),
+                loadReviewDetail: async (reviewId: string, breakpoint) => {
+                    const response = await reviewHogReviewsRetrieve(currentProjectId(), reviewId)
+                    // A newer open (row click, ?review= navigation) dispatched a fresh load
+                    // mid-flight — drop this stale response so out-of-order responses can't
+                    // attach the wrong review's findings to the drawer.
+                    breakpoint()
+                    return response
+                },
             },
         ],
         perspectiveStats: [
