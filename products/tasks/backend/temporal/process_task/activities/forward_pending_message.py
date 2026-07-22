@@ -128,6 +128,7 @@ def forward_pending_user_message(run_id: str) -> None:
             auth_token=auth_token,
             timeout=PENDING_MESSAGE_TIMEOUT_SECONDS,
             message_id=pending_message_id,
+            wait_for_completion=False,
         )
         logger.info(
             "forward_pending_message_attempted",

@@ -101,6 +101,7 @@ class TestForwardPendingUserMessage(TestCase):
         forward_pending_user_message(str(run.id))
 
         mock_send.assert_called_once()
+        assert mock_send.call_args.kwargs["wait_for_completion"] is False
         assert mock_send.call_args[0][1] == "fix the tests"
         assert mock_send.call_args.kwargs["message_id"]
         run.refresh_from_db()
