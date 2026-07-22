@@ -639,7 +639,6 @@ async def execute_and_format_query(
         utc_datetime_display=utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S"),
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
-        currency=None,
         has_truncated_values=has_truncated_values,
         sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
