@@ -2694,6 +2694,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `pi/rpc` - pi/rpc
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -2704,6 +2705,7 @@ export const MethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    PiRpc: 'pi/rpc',
 } as const
 
 /**
@@ -2721,18 +2723,14 @@ export interface TaskRunCommandRequestApi {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response */
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
     id?: unknown
 }
-
-/**
- * Command result on success
- */
-export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
 
 /**
  * Error details on failure
@@ -2748,7 +2746,7 @@ export interface TaskRunCommandResponseApi {
     /** Request ID echoed back (string or number) */
     id?: unknown
     /** Command result on success */
-    result?: TaskRunCommandResponseApiResult
+    result?: unknown
     /** Error details on failure */
     error?: TaskRunCommandResponseApiError
 }
@@ -2813,6 +2811,40 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+export interface TaskSessionResponseApi {
+    id: string
+    download_url: string
+    /** @minimum 0 */
+    revision: number
+}
+
+export interface TaskSessionSyncApi {
+    sandbox_id: string
+    sync_id: string
+    /** @minimum 0 */
+    expected_revision: number
+}
+
+export interface TaskSessionSyncResponseApi {
+    id: string
+    /** @minimum 1 */
+    revision: number
+}
+
+export interface TaskSessionSyncPrepareApi {
+    sandbox_id: string
+    /** @minimum 0 */
+    expected_revision: number
+}
+
+export type TaskSessionSyncPrepareResponseApiUpload = { [key: string]: unknown }
+
+export interface TaskSessionSyncPrepareResponseApi {
+    id: string
+    sync_id: string
+    upload: TaskSessionSyncPrepareResponseApiUpload
 }
 
 /**

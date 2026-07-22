@@ -443,6 +443,8 @@ class TestModalSandboxAgentServer:
         assert f"--repositoryPath {shlex.quote('/tmp/workspace/repos/posthog/posthog')}" in command
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
+        assert f"POSTHOG_SANDBOX_ID={shlex.quote(mock_sandbox.id)}" in command
+        assert "--sandboxId" not in command
         assert f"--mode {shlex.quote('background')}" in command
         assert "--createPr true" in command
         assert "agentsh exec" not in command
@@ -545,6 +547,7 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
+            agent_protocol="pi",
             runtime_adapter="codex",
             provider="openai",
             model="gpt-5.3-codex",
@@ -555,6 +558,7 @@ class TestModalSandboxAgentServer:
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "POSTHOG_AGENT_PROTOCOL=pi" in command
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
