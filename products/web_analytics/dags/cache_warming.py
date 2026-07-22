@@ -23,11 +23,25 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
-from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
-    LazyPrecomputeIneligible,
-    check_common_eligible,
+from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
+    can_use_lazy_precompute as can_use_goals_lazy_precompute,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+    can_use_lazy_precompute as can_use_overview_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    can_use_lazy_precompute as can_use_frustration_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_paths_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_vitals_paths_lazy_precompute,
+)
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 if TYPE_CHECKING:
@@ -148,18 +162,35 @@ def maybe_expand_warming_date_range(query_json: dict) -> dict:
     return {**query_json, "dateRange": {**date_range, "date_from": WARMING_EXPANDED_DATE_FROM}}
 
 
+# Family-level eligibility dispatch, mirroring each runner's own lazy-path
+# entry points (stats_table tries three families; a shape is lazy-served iff
+# any accepts). Keyed by query kind — only LAZY_PRECOMPUTE_QUERY_KINDS appear.
+_LAZY_FAMILY_CHECKS: dict[str, tuple] = {
+    "WebOverviewQuery": (can_use_overview_lazy_precompute,),
+    "WebStatsTableQuery": (
+        can_use_paths_lazy_precompute,
+        can_use_frustration_lazy_precompute,
+        can_use_stats_lazy_precompute,
+    ),
+    "WebGoalsQuery": (can_use_goals_lazy_precompute,),
+    "WebVitalsPathBreakdownQuery": (can_use_vitals_paths_lazy_precompute,),
+}
+
+
 def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRunner"], dict]:
     """Build the runner for a warming replay, widening the date range only for
-    shapes the lazy gate accepts.
+    shapes the lazy path will actually serve.
 
-    The per-query opt-in does not guarantee the lazy path: shapes the gate
-    rejects (conversion goals, sampling, filter shapes, …) execute on the raw
-    path, where a widened replay would be a 30-day scan the tenant never ran —
-    background load outside their request throttles, mintable up to
-    MAX_SHAPES_PER_TEAM per hour. Those shapes replay with their faithful
-    original range instead. Family-specific rejections past the shared gate can
-    still fall through widened, but the shared gate covers the classes a tenant
-    can produce cheaply.
+    The per-query opt-in does not guarantee the lazy path: shapes the gates
+    reject (conversion goals, sampling, unsupported breakdowns/metrics like
+    bounce rate, …) execute on the raw path, where a widened replay would be a
+    30-day scan the tenant never ran — background load outside their request
+    throttles, mintable up to MAX_SHAPES_PER_TEAM per hour. Those shapes replay
+    with their faithful original range instead. Eligibility is decided by the
+    same per-family `can_use_lazy_precompute` dispatch the runner uses, so this
+    check and execution can't disagree. Under the warming tag the enrollment
+    gate is bypassed by design — building buckets for not-yet-enrolled teams is
+    the warmer's purpose — so the decision rests on the shape itself.
     """
     expanded_json = maybe_expand_warming_date_range(query_json)
     if expanded_json is query_json:
@@ -168,11 +199,10 @@ def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRu
     runner = get_query_runner_or_none(query=expanded_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
     if runner is None:
         return None, expanded_json
-    try:
-        check_common_eligible(runner)  # type: ignore[arg-type]
-    except LazyPrecomputeIneligible:
-        return get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC), query_json
-    return runner, expanded_json
+    family_checks = _LAZY_FAMILY_CHECKS.get(expanded_json.get("kind", ""), ())
+    if any(check(runner) for check in family_checks):
+        return runner, expanded_json
+    return get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC), query_json
 
 
 def queries_to_keep_fresh(

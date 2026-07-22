@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
-
 import dagster
 from parameterized import parameterized
+
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 
 from products.web_analytics.dags.cache_warming import (
     build_replay_runner,
@@ -97,7 +97,20 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
 
 
 class TestBuildReplayRunner(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The warm op tags before building runners; the enrollment gate treats
+        # tagged warming requests as enabled, so tests must run under the same
+        # tags to exercise the production decision.
+        tag_queries(team_id=self.team.pk, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+
+    def tearDown(self) -> None:
+        reset_query_tags()
+        super().tearDown()
+
     def test_lazy_eligible_shape_keeps_widened_range(self) -> None:
+        # Under the warming tag even a non-enrolled team widens: building
+        # buckets for not-yet-enrolled teams is the warmer's purpose.
         query = {
             "kind": "WebOverviewQuery",
             "properties": [],
@@ -105,34 +118,50 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
         self.assertEqual(used_json["dateRange"]["date_from"], "-30d")
 
     @parameterized.expand(
         [
-            # Shapes the lazy gate rejects execute on the raw path — a widened
-            # replay there is a 30-day scan the tenant never ran, outside their
-            # request throttles. If this stops falling back, the warmer becomes
-            # a background-load amplifier for mintable ineligible shapes.
-            ("team_not_enrolled", False, {}),
-            ("conversion_goal", True, {"conversionGoal": {"customEventName": "purchase"}}),
+            # Shapes every lazy family rejects execute on the raw path — a
+            # widened replay there is a 30-day scan the tenant never ran,
+            # outside their request throttles. If this stops falling back, the
+            # warmer becomes a background-load amplifier for mintable
+            # ineligible shapes.
+            ("conversion_goal", {"kind": "WebOverviewQuery", "conversionGoal": {"customEventName": "purchase"}}),
+            # Passes the shared gate; rejected by all three stats families
+            # (paths/frustration: wrong breakdown, simple: bounce rate).
+            (
+                "bounce_rate_browser",
+                {"kind": "WebStatsTableQuery", "breakdownBy": "Browser", "includeBounceRate": True},
+            ),
         ]
     )
-    def test_gate_rejected_shape_replays_faithful_range(self, _name: str, enroll: bool, extra: dict) -> None:
+    def test_family_rejected_shape_replays_faithful_range(self, _name: str, extra: dict) -> None:
         query = {
-            "kind": "WebOverviewQuery",
             "properties": [],
             "useWebAnalyticsPrecompute": True,
             "dateRange": {"date_from": "-7d"},
             **extra,
         }
 
-        enrolled_ids = [self.team.pk] if enroll else []
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=enrolled_ids):
-            runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json = build_replay_runner(self.team, query)
+
+        self.assertIsNotNone(runner)
+        self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
+
+    def test_outside_warming_context_gate_fails_closed(self) -> None:
+        reset_query_tags()
+        query = {
+            "kind": "WebOverviewQuery",
+            "properties": [],
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-7d"},
+        }
+
+        runner, used_json = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
