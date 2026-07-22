@@ -3222,6 +3222,20 @@ jobs:
               with:
                   pattern: '{junit-results-backend,product-junit-results}-*'
                   path: /tmp/junit-gate/
+            # Re-run attempts upload under suffixed names, so superseded attempts must be dropped
+            # here or the rollup below lists attempt-1 failures the re-run already recovered.
+            - name: Keep only each shard's latest attempt
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-gate 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
             - name: Check dependency results
               run: |
                   # Per-test failure rollup, emitted from THIS step because GitHub only
@@ -3374,6 +3388,20 @@ jobs:
                   pattern: junit-results-backend-*
                   path: /tmp/junit-results/
               continue-on-error: true
+
+            # Re-run attempts upload under suffixed names; without this the verdict double-counts
+            # re-executed shards and resurrects failures the re-run already recovered.
+            - name: Keep only each shard's latest attempt
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-results 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
 
             # Reuse the selection artifact from the select-tests job rather than
             # re-running the snob script. Falls through if the artifact wasn't
