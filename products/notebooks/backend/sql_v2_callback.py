@@ -10,6 +10,7 @@ import json
 from django.core import signing
 from django.db.models import Q
 from django.http import JsonResponse
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -94,18 +95,31 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         "ok": NotebookNodeRun.Status.DONE,
         "interrupted": NotebookNodeRun.Status.INTERRUPTED,
     }
-    was_running = run.status == NotebookNodeRun.Status.RUNNING
     run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
-    run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+    # Claim the RUNNING -> terminal transition with a status-guarded UPDATE so exactly one
+    # delivery wins it — concurrent re-deliveries must not each report the run's metrics.
+    # A loser still writes the row (the deliberate upsert: a late real result may overwrite
+    # an interrupt placeholder), it just doesn't report.
+    won_transition = bool(
+        NotebookNodeRun.objects.for_team(team_id)
+        .filter(id=run.id, status=NotebookNodeRun.Status.RUNNING)
+        .update(
+            status=run.status,
+            envelope=run.envelope,
+            result_id=run.result_id,
+            error=run.error,
+            updated_at=timezone.now(),
+        )
+    )
+    if not won_transition:
+        run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
     _store_frame_snapshot(run, frames, team_id)
 
-    # Only the callback that won the RUNNING -> terminal transition reports: a re-delivered
-    # or late envelope (the deliberate upsert above) must not double-count the run.
-    if was_running:
+    if won_transition:
         record_node_run_terminal(run, outcome_for_status(run.status))
 
     return JsonResponse({"ok": True})

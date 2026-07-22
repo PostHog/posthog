@@ -2218,6 +2218,26 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         _finish_direct_run(run, NotebookNodeRun.Status.DONE, envelope=None, error=None)
         mock_report.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("still_running_fails", NotebookNodeRun.Status.RUNNING, NotebookNodeRun.Status.FAILED, 1),
+            ("completed_run_is_kept", NotebookNodeRun.Status.DONE, NotebookNodeRun.Status.DONE, 0),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_mark_failed_activity_never_overwrites_a_completed_run(
+        self, _name, initial_status, expected_status, expected_reports, mock_report
+    ):
+        # Dispatch retries can exhaust after a late callback already completed the run; the
+        # stale FAILED must neither clobber the real outcome nor report a second transition.
+        run = self._create_run(status=initial_status)
+        mark_sql_v2_run_failed_activity(
+            SQLV2RunInput(run_id=str(run.id), notebook_short_id=self.notebook.short_id, team_id=self.team.id)
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.status, expected_status)
+        self.assertEqual(mock_report.call_count, expected_reports)
+
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action", side_effect=RuntimeError("boom"))
     def test_metrics_failure_never_fails_the_callback(self, _mock_report):
         run = self._create_run()
