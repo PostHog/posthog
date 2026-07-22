@@ -48,6 +48,35 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('default email channel', () => {
+        const configs = [
+            { id: 'a', from_email: 'a@x.com', domain_verified: true, is_default: true },
+            { id: 'b', from_email: 'b@x.com', domain_verified: true, is_default: false },
+        ] as any[]
+
+        it('moves the primary flag to exactly one channel on setDefaultEmailDone', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners() // let the afterMount load settle first
+            logic.actions.loadEmailConfigsDone(configs)
+            logic.actions.setDefaultEmailDone('b')
+
+            expect(logic.values.emailConfigs.filter((c) => c.is_default).map((c) => c.id)).toEqual(['b'])
+        })
+
+        it('promotes a replacement when the primary is disconnected', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadEmailConfigsDone(configs)
+            logic.actions.disconnectEmailDone('a')
+
+            expect(logic.values.emailConfigs.map((c) => ({ id: c.id, is_default: c.is_default }))).toEqual([
+                { id: 'b', is_default: true },
+            ])
+        })
+    })
+
     describe('aiResolutionChannels selector', () => {
         it('drops flag-gated channels that are no longer available', async () => {
             initKeaTests(true, {

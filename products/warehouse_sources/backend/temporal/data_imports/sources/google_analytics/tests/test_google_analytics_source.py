@@ -6,7 +6,7 @@ from google.auth.exceptions import RefreshError
 
 from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
@@ -146,6 +146,21 @@ def test_validate_credentials_rejects_non_numeric_property_id(bad_property_id):
 
     assert ok is False
     assert "not a valid GA4 property ID" in (message or "")
+
+
+@pytest.mark.parametrize(
+    "wrong_id,expected_substring",
+    [
+        ("G-ABC123XYZ", "Measurement ID"),
+        ("g-abc123xyz", "Measurement ID"),
+        ("UA-12345678-1", "Universal Analytics"),
+    ],
+)
+def test_validate_credentials_names_common_wrong_ids(wrong_id, expected_substring):
+    ok, message = GoogleAnalyticsSource().validate_credentials(_config(wrong_id), team_id=1)
+
+    assert ok is False
+    assert expected_substring in (message or "")
 
 
 def _http_error(status_code: int) -> requests.HTTPError:

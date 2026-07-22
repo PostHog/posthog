@@ -136,6 +136,12 @@ describe('cleanPageURLForDisplay', () => {
             expected: 'posthog.com/files/:id',
         },
         {
+            name: 'decodes an already-cleaned alias after URL parsing',
+            url: 'posthog.com/files/<id>',
+            filters: [{ regex: '\\d+', alias: '<id>' }],
+            expected: 'posthog.com/files/<id>',
+        },
+        {
             name: 'applies rules in order',
             url: 'posthog.com/files/123',
             filters: [

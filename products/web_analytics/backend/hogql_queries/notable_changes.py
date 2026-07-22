@@ -80,7 +80,6 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
         if not response.results:
             return WebNotableChangesQueryResponse(
                 results=[],
-                samplingRate=self._sample_rate,
                 modifiers=self.modifiers,
                 preComputeStrategy=strategy,
             )
@@ -91,7 +90,6 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
 
         return WebNotableChangesQueryResponse(
             results=top_items,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             preComputeStrategy=strategy,
         )

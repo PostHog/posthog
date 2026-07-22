@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ProductboardSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.productboard import (
+    ProductboardSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.productboard.productboard import (
     ProductboardResumeConfig,
     productboard_source,
@@ -48,6 +53,10 @@ def _probe_path(schema_name: Optional[str]) -> str:
 
 @SourceRegistry.register
 class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.productboard.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -74,27 +83,18 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=PRODUCTBOARD_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=PRODUCTBOARD_ENDPOINTS[endpoint].supports_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ProductboardSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ProductboardSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        ok, status, message = validate_productboard_credentials(config.access_token, _probe_path(schema_name))
+        ok, status = validate_productboard_credentials(config.access_token, _probe_path(schema_name))
         if ok:
             return True, None
 
@@ -106,9 +106,9 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
         if status == 403:
             if schema_name is None:
                 return True, None
-            return False, message or "Your access token is missing the required scope for this resource"
+            return False, "Your access token is missing the required scope for this resource"
 
-        return False, message or "Failed to validate Productboard credentials"
+        return False, "Failed to validate Productboard credentials"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ProductboardResumeConfig]:
         return ResumableSourceManager[ProductboardResumeConfig](inputs, ProductboardResumeConfig)
@@ -122,7 +122,8 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
         return productboard_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

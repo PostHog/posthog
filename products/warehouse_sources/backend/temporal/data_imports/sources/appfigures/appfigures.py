@@ -28,6 +28,15 @@ class AppfiguresRetryableError(Exception):
     pass
 
 
+class AppfiguresPageLimitError(Exception):
+    """Appfigures caps offset pagination at page*count <= 10000 on list endpoints (e.g. reviews).
+    Past the cap it returns 400 with a stable "must be less than or equal to 10000" message. `_fetch`
+    raises this so the caller stops paginating and keeps the rows gathered so far, rather than letting
+    a benign end-of-traversable-data response fail the whole sync via `raise_for_status`."""
+
+    pass
+
+
 @dataclasses.dataclass
 class AppfiguresResumeConfig:
     # "paged" endpoints (reviews): the next page number to fetch (1-based).
@@ -61,6 +70,16 @@ def _to_date_str(value: Any) -> str | None:
     return text
 
 
+def _is_page_limit_response(response: requests.Response) -> bool:
+    """Detect the page*count>10000 offset-pagination cap. Appfigures surfaces the message via the
+    HTTP reason phrase (picked up by `raise_for_status`), but check the body too in case it's there
+    instead."""
+    if response.status_code != 400:
+        return False
+    text = f"{response.reason or ''} {response.text or ''}"
+    return "must be less than or equal to 10000" in text.lower()
+
+
 @retry(
     retry=retry_if_exception_type((AppfiguresRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -79,6 +98,9 @@ def _fetch(
     # transient 5xx as retryable. Everything else (including 401/403) raises for the caller.
     if response.status_code == 429 or response.status_code >= 500:
         raise AppfiguresRetryableError(f"Appfigures API error (retryable): status={response.status_code}, url={url}")
+
+    if _is_page_limit_response(response):
+        raise AppfiguresPageLimitError()
 
     if not response.ok:
         logger.error(f"Appfigures API error: status={response.status_code}, body={response.text}, url={url}")
@@ -136,7 +158,12 @@ def _iter_paged(
 
     url = f"{APPFIGURES_BASE_URL}{config.path}"
     while True:
-        data = _fetch(session, url, params, logger)
+        try:
+            data = _fetch(session, url, params, logger)
+        except AppfiguresPageLimitError:
+            logger.info(f"Appfigures: reached page-depth cap, stopping at rows gathered so far: url={url}")
+            break
+
         rows = data.get(config.data_key, []) if config.data_key else []
         total_pages = data.get("pages", 1) or 1
         this_page = data.get("this_page", page) or page

@@ -3,6 +3,7 @@ from typing import Any, NoReturn, cast, get_args
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -10,6 +11,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -24,15 +26,19 @@ from products.replay_vision.backend.feature_flag import (
     ReplayVisionEnabledPermission,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
+    AlertDirection,
+    AlertFrequency,
+    AlertMetric,
     TriggerType,
     VisionAction,
     VisionActionRun,
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
+from products.replay_vision.backend.scanner_access import is_uuid, readable_scanner_ids
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
@@ -89,6 +95,75 @@ class SelectionSerializer(serializers.Serializer):
         return attrs
 
 
+class AlertConfigSerializer(serializers.Serializer):
+    """The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+    notifies about each new match since the previous check; 'on_breach' compares a metric to a
+    threshold over a rolling window and notifies on the transition into breach."""
+
+    frequency = serializers.ChoiceField(
+        choices=AlertFrequency.choices,
+        required=False,
+        default=AlertFrequency.ON_BREACH,
+        help_text=(
+            "'every_match' notifies about every new matching observation (batched per check); "
+            "'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'."
+        ),
+    )
+    metric = serializers.ChoiceField(
+        choices=AlertMetric.choices,
+        required=False,
+        default=AlertMetric.COUNT,
+        help_text=(
+            "What to measure over the window: 'count' of targeted observations, or 'avg_score' "
+            "(the mean scorer score; scorer scanners only). every_match supports 'count' only."
+        ),
+    )
+    threshold = serializers.FloatField(
+        required=False,
+        help_text=(
+            "The alert fires when the metric is at or above ('above') or at or below ('below') this "
+            "value, per 'direction'. Required for on_breach; ignored for every_match."
+        ),
+    )
+    direction = serializers.ChoiceField(
+        choices=AlertDirection.choices,
+        required=False,
+        default=AlertDirection.ABOVE,
+        help_text=(
+            "Which side of the threshold breaches: 'above' fires when the metric is at or above it, "
+            "'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. "
+            "Defaults to 'above'; ignored for every_match."
+        ),
+    )
+    window_days = serializers.ChoiceField(
+        choices=[(d, f"{d} day{'s' if d != 1 else ''}") for d in (1, 3, 7, 14, 30)],
+        required=False,
+        help_text=(
+            "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. "
+            "every_match ignores it (each check covers what's new since the previous one)."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        frequency = attrs.get("frequency", AlertFrequency.ON_BREACH)
+        if frequency == AlertFrequency.EVERY_MATCH:
+            if attrs.get("metric", AlertMetric.COUNT) == AlertMetric.AVG_SCORE:
+                raise serializers.ValidationError(
+                    {"metric": "every_match alerts count new matches; avg_score requires on_breach."}
+                )
+        else:
+            if attrs.get("threshold") is None:
+                raise serializers.ValidationError({"threshold": "on_breach alerts require a threshold."})
+        return attrs
+
+    def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
+        # Non-alert actions store the {} default; represent it as-is rather than KeyErroring on the
+        # required fields. Writes still validate the full shape whenever alert_config is provided.
+        if not instance:
+            return {}
+        return cast(dict[str, Any], super().to_representation(instance))
+
+
 class SynthesisConfigSerializer(serializers.Serializer):
     """Options for the group-summary synthesis step."""
 
@@ -115,7 +190,14 @@ class DeliveryTargetSerializer(serializers.Serializer):
     )
 
 
+# Alerts ride the scanner's sweep, so each enabled alert adds evaluation work to every sweep tick —
+# cap the fan-out one scanner can accumulate.
+MAX_ENABLED_ALERTS_PER_SCANNER = 10
+
+
 class VisionActionSerializer(serializers.ModelSerializer):
+    """A Replay Vision action: a scheduled "and then…" automation over a scanner's observations."""
+
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable action name. Unique within the team.",
@@ -157,6 +239,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Synthesis options for the group summary, e.g. {prompt_guide}.",
     )
+    alert_config = AlertConfigSerializer(
+        required=False,
+        help_text="Alert condition; required when mode is 'alert', ignored otherwise.",
+    )
     delivery_config = DeliveryTargetSerializer(
         many=True,
         required=False,
@@ -197,6 +283,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "trigger_config",
             "selection",
             "synthesis_config",
+            "alert_config",
             "delivery_config",
             "next_run_at",
             "last_run_at",
@@ -222,7 +309,9 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def validate_mode(self, value: str) -> str:
         if value == ActionMode.PER_OBSERVATION:
-            raise serializers.ValidationError("Per-observation mode is not supported yet. Use 'group_summary'.")
+            raise serializers.ValidationError(
+                "Per-observation mode is not supported yet. Use 'group_summary' or 'alert'."
+            )
         return value
 
     def validate_delivery_config(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -242,7 +331,63 @@ class VisionActionSerializer(serializers.ModelSerializer):
         self._validate_schedule(attrs)
         self._validate_unique_name(attrs)
         self._validate_unique_digest(attrs)
+        self._validate_alert(attrs)
+        self._validate_scanner_access(attrs)
         return attrs
+
+    def _validate_scanner_access(self, attrs: dict[str, Any]) -> None:
+        # The engine reads observations as the action's CREATOR (fail-closed run-time gate in
+        # scanner_access.readable_scanner_ids). Without this write-time check, an editor with less
+        # scanner access than the creator could re-point a creator-privileged action at data the
+        # editor can't read and receive it via the delivery channel. Only re-check when the
+        # targeting actually changes, so unrelated edits (rename, disable) don't require it.
+        if "scanner" not in attrs and "selection" not in attrs:
+            return
+        scanner = attrs.get("scanner", getattr(self.instance, "scanner", None))
+        selection = attrs.get("selection", getattr(self.instance, "selection", None)) or {}
+        requested = [str(s) for s in (selection.get("scanner_ids") or ([scanner.id] if scanner else []))]
+        if not requested:
+            return
+        request = self.context.get("request")
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            return
+        team = self.context["get_team"]()
+        readable = set(readable_scanner_ids(request.user, team, requested))
+        if set(requested) - readable:
+            raise serializers.ValidationError(
+                {"scanner": "You don't have access to one or more scanners this action targets."}
+            )
+
+    def _validate_alert(self, attrs: dict[str, Any]) -> None:
+        mode = attrs.get("mode", getattr(self.instance, "mode", ActionMode.GROUP_SUMMARY))
+        if mode != ActionMode.ALERT:
+            return
+        alert_config = attrs.get("alert_config", getattr(self.instance, "alert_config", None)) or {}
+        if not alert_config:
+            raise serializers.ValidationError({"alert_config": "Alert actions require an alert_config."})
+        if alert_config.get("metric") == AlertMetric.AVG_SCORE:
+            scanner = attrs.get("scanner", getattr(self.instance, "scanner", None))
+            if scanner is not None and scanner.scanner_type != ScannerType.SCORER:
+                raise serializers.ValidationError(
+                    {"alert_config": "The avg_score metric only applies to scorer scanners."}
+                )
+        self._validate_alert_cap(attrs)
+
+    def _validate_alert_cap(self, attrs: dict[str, Any]) -> None:
+        # Alerts evaluate on the scanner's sweep, so unbounded alert fan-out multiplies sweep work.
+        # Cap enabled alerts per scanner; disabled ones don't cost anything and don't count.
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", True))
+        scanner = attrs.get("scanner", getattr(self.instance, "scanner", None))
+        if not enabled or scanner is None:
+            return
+        team = self.context["get_team"]()
+        others = VisionAction.objects.for_team(team.id).filter(scanner=scanner, mode=ActionMode.ALERT, enabled=True)
+        if self.instance is not None:
+            others = others.exclude(pk=self.instance.pk)
+        if others.count() >= MAX_ENABLED_ALERTS_PER_SCANNER:
+            raise serializers.ValidationError(
+                {"mode": f"A scanner can have at most {MAX_ENABLED_ALERTS_PER_SCANNER} enabled alerts."}
+            )
 
     def _validate_schedule(self, attrs: dict[str, Any]) -> None:
         trigger_type = attrs.get("trigger_type", getattr(self.instance, "trigger_type", TriggerType.SCHEDULE))
@@ -311,6 +456,32 @@ class VisionActionSerializer(serializers.ModelSerializer):
         raise error
 
 
+def _selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
+    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`."""
+    configured = (selection or {}).get("scanner_ids") or []
+    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
+
+
+def _check_action_scanner_access(
+    view: TeamAndOrgViewSetMixin, scanner: ReplayScanner, selection: dict[str, Any] | None
+) -> None:
+    """Authorize every scanner an action can read from. The bound `scanner` is object-checked at
+    whatever level `view.action` requires (editor to mutate the action, viewer to read it) — unchanged
+    from before. Scanners named only in `selection.scanner_ids` are pure data sources the action never
+    mutates, so they always need just viewer access regardless of `view.action`, the same bar as reading
+    their observations directly — requiring editor there would block legitimately folding a view-only
+    scanner's data into another scanner's summary.
+    """
+    view.check_object_permissions(view.request, scanner)
+    other_ids = _selection_target_ids(scanner.id, selection)
+    if not other_ids:
+        return
+    other_scanners = ReplayScanner.objects.filter(team_id=scanner.team_id, id__in=other_ids)
+    for other_scanner in other_scanners:
+        if not view.user_access_control.check_access_level_for_object(other_scanner, "viewer"):
+            raise PermissionDenied("You don't have access to one or more scanners this action targets.")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -326,6 +497,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
 
+    # Deliberately NOT an AccessControlViewSetMixin: vision_action inherits its access level
+    # from replay_scanner (see RESOURCE_INHERITANCE_MAP) so the product is configured via a
+    # single rule. Exposing `/{id}/access_controls` here would let an object-level grant on
+    # one action bypass that shared resource-level setting.
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
@@ -350,8 +525,29 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
+    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
+        action = get_object_or_404(queryset, pk=self.kwargs["pk"])
+        # Per-scanner object-level grants are stored against `replay_scanner` + the scanner's id, not
+        # `vision_action` + the action's id — the generic check_object_permissions() call the base
+        # get_object() makes against `action` itself can only ever see the resource-level default,
+        # never a scanner-specific override. Check the scanner directly too (mirroring the
+        # `retry`/`label` pattern in observations.py), and every other scanner `selection.scanner_ids`
+        # reads from, so a scanner-specific grant or restriction actually applies.
+        _check_action_scanner_access(self, action.scanner, action.selection)
+        return action
+
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
         queryset = queryset.filter(team_id=self.team_id).select_related("scanner", "created_by")
+        if self.action == "list":
+            # `vision_action` never carries its own object-level access-control rows (see the class
+            # docstring), so the generic queryset filtering in TeamAndOrgViewSetMixin is a no-op for this
+            # model. Filter to the caller's accessible scanners explicitly instead, mirroring the
+            # `creators`/`stats` pattern in scanners.py, so a scanner-level restriction actually hides
+            # that scanner's actions from the list.
+            accessible_scanners = self.user_access_control.filter_queryset_by_access_level(
+                ReplayScanner.objects.filter(team_id=self.team_id)
+            )
+            queryset = queryset.filter(scanner_id__in=accessible_scanners.values_list("id", flat=True))
         # The per-scanner "Actions" tab scopes the list to one scanner.
         scanner_id = self.request.query_params.get("scanner")
         if scanner_id:
@@ -365,6 +561,12 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("name", "id")
 
     def perform_create(self, serializer: BaseSerializer) -> None:
+        # The resource-level check in `has_permission` only reflects the project-wide default; object-check
+        # the target scanner too (and every other scanner `selection.scanner_ids` reads from) so a
+        # scanner-specific restriction blocks new actions that read from it as well.
+        _check_action_scanner_access(
+            self, serializer.validated_data["scanner"], serializer.validated_data.get("selection")
+        )
         # Atomic so a destination-provisioning failure rolls back the action row rather than leaving an
         # action that looks created but never delivers.
         with transaction.atomic():
@@ -373,6 +575,14 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
+        # A PATCH can rebind `scanner`/`selection` to different ones; object-check whichever scanner (and
+        # selection scanners) the action will end up pointing at — falling back to the current values so
+        # an edit that leaves targeting untouched (e.g. delivery_config only) still revalidates against it.
+        # Without the fallback, an editor of scanner A could freely rewrite delivery_config on an action
+        # whose (unrelated, unchanged) selection reads from a scanner B they've never had access to.
+        new_scanner = serializer.validated_data.get("scanner", instance.scanner)
+        new_selection = serializer.validated_data.get("selection", instance.selection)
+        _check_action_scanner_access(self, new_scanner, new_selection)
         # Snapshot the destination-affecting fields BEFORE save() — DRF mutates `instance` in place, so
         # these must be read pre-save for the change comparison to be meaningful.
         old_delivery = instance.delivery_config
@@ -398,7 +608,10 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 # so the abort reasons read correctly under the "failed" banner they actually carry.
 _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
+    "skipped_not_breached": "The alert condition wasn't met in this window.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
+    "not_breached": "The alert condition wasn't met in this window.",
+    "still_breached": "The condition is still met; an earlier check already sent the notification.",
     # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
     # Keep both keys so historical run rows still display a readable reason rather than the raw enum.
     "no_delivery": "No delivery destination is configured for this action.",
@@ -477,6 +690,12 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
     error_reason = serializers.SerializerMethodField(
         help_text="Short human-readable reason a run skipped or failed; null on success.",
     )
+    is_recovery = serializers.SerializerMethodField(
+        help_text=(
+            "True for the run recording an alert's condition clearing after a breach (the recovery "
+            "bookend in run history). False for alert firings and summaries."
+        ),
+    )
 
     class Meta:
         model = VisionActionRun
@@ -486,6 +705,7 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
             "scheduled_at",
             "observation_count",
             "error_reason",
+            "is_recovery",
             "created_at",
             "updated_at",
         ]
@@ -504,6 +724,13 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
         if run.status == VisionActionRunStatus.FAILED:
             return "This run failed while generating the summary."
         return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_recovery(self, run: VisionActionRun) -> bool:
+        # The engine stamps recovery runs with output.recovered (alerts._persist_recovered) — the
+        # marker that distinguishes the bookend from a firing, since both persist a message.
+        output = run.output if isinstance(run.output, dict) else {}
+        return bool(output.get("recovered"))
 
 
 class VisionActionRunSerializer(VisionActionRunListSerializer):
@@ -567,21 +794,57 @@ class VisionActionRunViewSet(
         # The list omits the report body + observations to stay light; retrieve returns the full detail.
         return VisionActionRunListSerializer if self.action == "list" else VisionActionRunSerializer
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        run = self.get_object()
+        self._check_run_observation_scanner_access(run)
+        return Response(self.get_serializer(run).data)
+
+    def _check_run_observation_scanner_access(self, run: VisionActionRun) -> None:
+        # A run's observation_ids reflect whatever the action's `selection` was AT RUN TIME — since
+        # selection.scanner_ids can be edited later, a historical run may have drawn from a scanner the
+        # action no longer targets (or the caller never had access to). Authorize the scanners those
+        # observations actually came from before exposing the synthesized report, rather than trusting
+        # the action's current selection. These scanners are read-only data sources for the report, like
+        # the selection check in `_check_action_scanner_access`, so viewer access is enough.
+        ids = run.observation_ids if isinstance(run.observation_ids, list) else []
+        if not ids:
+            return
+        scanner_ids = set(
+            ReplayObservation.objects.filter(team_id=run.team_id, id__in=ids).values_list("scanner_id", flat=True)
+        )
+        for scanner in ReplayScanner.objects.filter(team_id=self.team_id, id__in=scanner_ids):
+            if not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+                raise PermissionDenied("You don't have access to one or more scanners behind this run's report.")
+
     def _action_for_url(self) -> VisionAction:
         try:
             action_id = uuid.UUID(self.kwargs["parent_lookup_vision_action_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        action = VisionAction.objects.for_team(self.team_id).filter(id=action_id).first()
+        action = VisionAction.objects.for_team(self.team_id).select_related("scanner").filter(id=action_id).first()
         if action is None:
             raise NotFound()
         # Runs expose recording-derived summaries, so reading them inherits the action's RBAC and also
-        # requires session_recording read (mirrors the observations endpoint).
-        self.check_object_permissions(self.request, action)
+        # requires session_recording read (mirrors the observations endpoint). Per-scanner object-level
+        # grants are stored against `replay_scanner` + the scanner's id, not `vision_action` + the action's
+        # id, so check the scanner directly (and every other scanner `selection.scanner_ids` reads from) —
+        # checking `action` itself would only ever see the resource-level default.
+        _check_action_scanner_access(self, action.scanner, action.selection)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading vision action runs requires session_recording read access.")
         return action
 
     def safely_get_queryset(self, queryset: QuerySet[VisionActionRun]) -> QuerySet[VisionActionRun]:
         action = self._action_for_url()
-        return queryset.filter(team_id=self.team_id, vision_action_id=action.id).order_by("-created_at", "id")
+        return (
+            queryset.filter(team_id=self.team_id, vision_action_id=action.id)
+            # Alert-state bookkeeping runs exist so the engine can resolve breach transitions
+            # (alerts._EVALUATED_SKIP_REASONS — literals duplicated here to keep the temporal
+            # package off the API import path). They aren't user-facing outcomes: run history
+            # shows actual firings, failures, and summary skips, not every quiet check.
+            .exclude(
+                status=VisionActionRunStatus.SKIPPED,
+                error__skip_reason__in=["not_breached", "still_breached"],
+            )
+            .order_by("-created_at", "id")
+        )

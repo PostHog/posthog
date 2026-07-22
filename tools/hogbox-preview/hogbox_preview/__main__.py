@@ -181,7 +181,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--web-port", type=int, default=8000, help="in-guest port PostHog serves on")
     p.add_argument("--image", default=PostHogPreviewStack.IMAGE, help="published posthog image")
     p.add_argument(
-        "--name", default="posthog-preview", help="box name (must be unique among live boxes; e.g. preview-pr-123)"
+        "--name",
+        default="posthog-preview",
+        help="pen name / preview identity (e.g. preview-pr-123); boxes get a unique suffix",
     )
     # Sizing MUST match the golden snapshot being restored ("omit to inherit" is
     # broken server-side). Defaults match the preview golden (snap-753bb8b3eeef,

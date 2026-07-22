@@ -261,6 +261,32 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
         )
     }
+
+    public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (!job) {
+                    return
+                }
+                try {
+                    await job.heartbeat()
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err)
+                    if (message.includes('already released')) {
+                        // Benign race with ack/fail/reschedule flipping `released` on the wrapper.
+                        logger.debug('CyclotronV2 heartbeat skipped for released job', { id: inv.id })
+                    } else {
+                        // Real failure (connection error, pool exhaustion, query timeout) —
+                        // surface it so we can act. Don't rethrow: the tick continues for
+                        // the other jobs and the interval keeps firing so a transient blip
+                        // doesn't kill the batch.
+                        logger.warn('CyclotronV2 heartbeat failed', { id: inv.id, error: message })
+                    }
+                }
+            })
+        )
+    }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {
@@ -314,7 +340,7 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
-function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
     let parsed: SerializedJobState = { state: null }
 
     if (job.state) {

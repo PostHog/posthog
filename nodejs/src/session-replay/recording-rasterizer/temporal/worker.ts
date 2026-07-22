@@ -10,10 +10,13 @@ import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/brows
 import { playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { initMetrics, shutdownMetrics } from '~/session-replay/recording-rasterizer/otel-metrics'
 
 import { createActivities } from './activities'
 
 prometheus.collectDefaultMetrics()
+// OTLP push into the PostHog Metrics product; no-op unless OTEL_METRICS_EXPORT_URL/TOKEN are set.
+initMetrics()
 
 const log = createLogger()
 
@@ -152,6 +155,7 @@ async function main(): Promise<void> {
 
     // run() resolves after shutdown drains all in-flight activities
     await pool.shutdown()
+    await shutdownMetrics()
     metricsServer.close()
 }
 

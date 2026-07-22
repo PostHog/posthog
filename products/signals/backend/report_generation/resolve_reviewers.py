@@ -267,7 +267,7 @@ def list_project_members(
 ) -> list[ProjectMemberIdentity]:
     """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
 
-    Backs the `signals-scout-members-list` tool: the cold-start reviewer-routing path for a scout
+    Backs the `scout-members-list` tool: the cold-start reviewer-routing path for a scout
     that can't read an owner off a fetched entity's ``created_by`` and has no cached
     ``reviewer:<area>`` memory or inbox precedent. Scoped via ``Team.all_users_with_access()`` so
     private-project access control is honored — a scout on a private project sees only the people who

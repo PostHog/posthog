@@ -46,7 +46,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
+import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -455,7 +455,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
+function getPlaygroundModelsErrorMessage(errorStatus: number | null): string | null {
     if (errorStatus === null) {
         return null
     }
@@ -467,16 +467,16 @@ function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
 
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { effectiveModelOptions, trialModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
+    const { effectiveModelOptions, playgroundModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
         hasByokKeys,
         providerModelGroups,
-        trialProviderModelGroups,
+        playgroundProviderModelGroups,
         byokModelsLoading,
-        trialModelsLoading,
+        playgroundModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { loadTrialModels } = useActions(modelPickerLogic)
+    const { loadPlaygroundModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
@@ -484,10 +484,10 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     }
 
     const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
-    const errorMessage = !hasByokKeys ? getTrialModelsErrorMessage(trialModelsErrorStatus) : null
-    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !trialModelsLoading
+    const groups = hasByokKeys ? providerModelGroups : playgroundProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : playgroundModelsLoading
+    const errorMessage = !hasByokKeys ? getPlaygroundModelsErrorMessage(playgroundModelsErrorStatus) : null
+    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !playgroundModelsLoading
 
     return (
         <>
@@ -495,12 +495,12 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 model={prompt.model}
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => {
-                    const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
                     posthog.capture('llma playground model changed', {
                         model: modelId,
-                        is_byok: !trialProvider,
+                        is_byok: !playgroundProvider,
                     })
-                    setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
+                    setModel(modelId, playgroundProvider ? undefined : providerKeyId, promptId)
                 }}
                 groups={groups}
                 loading={loading}
@@ -514,7 +514,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                     <button
                         type="button"
                         className="text-xs text-link mt-1 underline"
-                        onClick={() => loadTrialModels()}
+                        onClick={() => loadPlaygroundModels()}
                     >
                         Retry
                     </button>
