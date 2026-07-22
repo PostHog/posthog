@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, Integration
 
 
-def _id_token(audience: str) -> str:
+def _id_token(audience: str | list[str]) -> str:
     payload = base64.urlsafe_b64encode(json.dumps({"aud": audience, "oid": "user-oid"}).encode()).decode().rstrip("=")
     return f"header.{payload}.signature"
 
@@ -24,6 +24,10 @@ class TestFlagLegacyOauthIntegrations(BaseTest):
             ("legacy_client", _id_token("old-app-id"), False, True),
             # Already on the current app - a stale flag here would nag a team with nothing to do.
             ("current_client_clears_stale_flag", _id_token("current-app-id"), True, False),
+            # `aud` is a string or a list per RFC 7519. Reading only the string shape would drop
+            # list-shaped tokens into "unknown", silently leaving those teams out of the campaign.
+            ("legacy_client_in_aud_list", _id_token(["old-app-id"]), False, True),
+            ("current_client_in_aud_list", _id_token(["current-app-id", "other-audience"]), True, False),
             # Nothing to read, so the command must not guess either way.
             ("no_id_token", None, False, False),
         ]

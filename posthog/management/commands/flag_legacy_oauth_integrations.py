@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
-from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, Integration, issuing_oauth_client_id
+from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, Integration, issuing_oauth_client_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -12,6 +12,14 @@ CURRENT_CLIENT_ID_SETTING = {"bing-ads": "BING_ADS_CLIENT_ID"}
 
 
 class Command(BaseCommand):
+    """Classify OAuth connections by the app they were established with.
+
+    Safe to re-run, and worth re-running: this rewrites `config` the same way the refresh sweep
+    does, so a refresh landing mid-pass can overwrite the flag on that row with its own
+    (equally valid) verdict. Both paths converge on the same answer, and a second pass settles
+    any row that lost the race.
+    """
+
     help = "Flag OAuth integrations still connected through a superseded client id, so the product can ask those teams to reconnect before the old app is retired."
 
     def add_arguments(self, parser):
@@ -28,13 +36,13 @@ class Command(BaseCommand):
 
         counts = {"legacy": 0, "current": 0, "unknown": 0}
         for integration in Integration.objects.filter(kind=kind).iterator():
-            client_id = issuing_oauth_client_id(integration)
-            if client_id is None:
+            client_ids = issuing_oauth_client_ids(integration)
+            if not client_ids:
                 # No id_token to read, so the refresh path stays the only signal for this row.
                 counts["unknown"] += 1
                 continue
 
-            is_legacy = client_id != current_client_id
+            is_legacy = current_client_id not in client_ids
             counts["legacy" if is_legacy else "current"] += 1
 
             already_flagged = bool(integration.config.get(CONFIG_LEGACY_OAUTH_CLIENT))

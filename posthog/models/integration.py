@@ -199,24 +199,32 @@ def record_oauth_client_used(integration: "Integration", *, used_fallback: bool)
         integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
 
 
-def issuing_oauth_client_id(integration: "Integration") -> str | None:
-    """The OAuth client id the connection was originally established with, or None if unknown.
+def issuing_oauth_client_ids(integration: "Integration") -> list[str]:
+    """The OAuth client ids the connection was established with. Empty when that can't be read.
 
     OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
     authorization exchange - refreshes only overwrite the access and refresh tokens. So this reads
     the app the customer actually connected through, which is knowable for connections that already
     exist, without waiting for a refresh to reveal it.
+
+    `aud` is a string or a list of strings per RFC 7519, so both shapes are normalized here.
+    Callers should test membership rather than assume a single value: treating a list-shaped
+    audience as unreadable would silently drop those connections from the reconnect campaign.
     """
     id_token = integration.sensitive_config.get("id_token")
     if not id_token:
-        return None
+        return []
     try:
         claims = _decode_jwt_payload(id_token) or {}
     except Exception:
         logger.warning("Failed to decode id_token", integration_id=integration.id, kind=integration.kind)
-        return None
+        return []
     audience = claims.get("aud")
-    return audience if isinstance(audience, str) else None
+    if isinstance(audience, str):
+        return [audience]
+    if isinstance(audience, list):
+        return [entry for entry in audience if isinstance(entry, str)]
+    return []
 
 
 def refresh_backoff_active(integration: "Integration") -> bool:
