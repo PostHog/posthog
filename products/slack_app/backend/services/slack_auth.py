@@ -61,6 +61,22 @@ class SlackIntegrationAuthState:
     checked_at: datetime
 
 
+@dataclass(frozen=True)
+class AuthFilterResult:
+    """Outcome of ``check_integrations_auth_and_filter``.
+
+    ``healthy`` is the candidate list the resolver routes over (freshest verdict
+    first). ``broken`` carries the installs dropped because their bot token
+    failed an auth-class ``auth.test`` (cached ``ok=false``) — the caller uses it
+    to tell the user to reconnect instead of dropping the mention silently.
+    Transiently-unknown installs are NOT surfaced here: a Slack outage isn't a
+    reason to nudge the user toward an OAuth reconnect.
+    """
+
+    healthy: list["Integration"]
+    broken: list["Integration"]
+
+
 def _cache_key(integration_id: int) -> str:
     return f"slack_app:auth_state:v1:{integration_id}"
 
@@ -203,9 +219,10 @@ def check_integrations_auth_and_filter(
     candidates: list["Integration"],
     *,
     slack_user_id: str | None = None,
-) -> list["Integration"]:
-    """Check each candidate's bot-token health and return only the healthy ones,
-    sorted with the freshest verdict first.
+) -> AuthFilterResult:
+    """Check each candidate's bot-token health and return the healthy ones
+    (sorted with the freshest verdict first) plus the installs dropped for a
+    broken bot token.
 
     Single entry point for the resolver: for every candidate the function
     consults the cache, runs ``auth.test`` on miss (populating the cache with
@@ -246,10 +263,13 @@ def check_integrations_auth_and_filter(
     is fine even for orgs with many installs on the same workspace. Concurrent
     mentions racing here just overwrite each other with the same verdict.
 
-    Empty return when every candidate is broken/unknown is intentional and
+    Empty ``healthy`` when every candidate is broken/unknown is intentional and
     upstream code already handles it: ``resolve_region_or_terminal_route``
     routes events to ``ROUTE_NO_INTEGRATION`` when no candidates are present,
-    matching the behavior we'd see if the DB had no rows for this workspace.
+    matching the behavior we'd see if the DB had no rows for this workspace. The
+    ``broken`` list lets the mention path break the silence — when it drops the
+    only viable install for a bad token, the caller posts an in-thread reconnect
+    nudge rather than leaving the user staring at an unanswered mention.
 
     Every failure log includes ``slack_team_id`` (workspace), ``integration_id``
     (the broken install's PK) and ``slack_user_id`` of the mentioning user (when
@@ -258,7 +278,7 @@ def check_integrations_auth_and_filter(
     files of upstream context.
     """
     if not candidates:
-        return candidates
+        return AuthFilterResult(healthy=[], broken=[])
 
     healthy: list[tuple[Integration, datetime]] = []
     unknown: list[Integration] = []
@@ -291,4 +311,4 @@ def check_integrations_auth_and_filter(
             unknown_integration_ids=[c.id for c in unknown],
             healthy_integration_ids=[c.id for c, _ in healthy],
         )
-    return result
+    return AuthFilterResult(healthy=result, broken=broken)

@@ -1,10 +1,12 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -378,3 +380,57 @@ class TestRouteThreadMessage(TestCase):
         assert first.kwargs["posthog_user"].id == self.user.id
         assert second.kwargs["untagged_followup"] is True
         assert second.kwargs["posthog_user"].id == self.user.id
+
+
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
+class TestBrokenTokenMentionNotify(TestCase):
+    """When the auth pre-filter drops the only install for a bad bot token, an
+    explicit ``@PostHog`` mention gets an in-thread reconnect nudge instead of a
+    silent drop. Untagged thread ``message`` follow-ups (far higher wire volume)
+    must stay silent so a broken token doesn't spam every channel reply."""
+
+    def setUp(self):
+        cache.clear()
+        self.factory = RequestFactory()
+
+    def _route(self, event: dict) -> str:
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        return route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+
+    @parameterized.expand([("app_mention", True), ("message", False)])
+    def test_notifies_only_for_explicit_mention(self, event_type: str, should_notify: bool) -> None:
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+        from products.slack_app.backend.services.integration_resolver import ResolutionResult
+
+        broken = MagicMock(spec=Integration)
+        broken.id = 4321
+        # All installs dropped by the auth filter: no healthy candidate remains,
+        # but the broken one is surfaced for the reconnect nudge.
+        resolution = ResolutionResult(integration=None, source="needs_picker", candidates=[], dropped_for_auth=[broken])
+        event = {
+            "type": event_type,
+            "channel": "C001",
+            "user": "U_ALICE",
+            # A ``message`` needs ``ts != thread_ts`` to survive the top-level-post
+            # drop; an ``app_mention`` has no such gate.
+            "ts": "1000.0000" if event_type == "app_mention" else "1001.0000",
+            "thread_ts": "1000.0000",
+            "text": "<@BOT> please fix the export",
+        }
+
+        with (
+            patch("products.slack_app.backend.api.load_integrations", return_value=resolution),
+            patch("products.slack_app.backend.api._notify_slack_auth_broken") as mock_notify,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = self._route(event)
+
+        mock_start.assert_not_called()
+        if should_notify:
+            assert result == ROUTE_HANDLED_LOCALLY
+            mock_notify.assert_called_once()
+            assert mock_notify.call_args.args[0] is broken
+        else:
+            mock_notify.assert_not_called()

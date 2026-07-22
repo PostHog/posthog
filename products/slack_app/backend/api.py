@@ -1221,6 +1221,42 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
+def _notify_slack_auth_broken(integration: Integration, event: dict) -> None:
+    """Best-effort in-thread nudge when a mention can't be answered because the
+    only install for this workspace was dropped for a broken bot token
+    (revoked, expired, or deauthorized — see ``check_integrations_auth_and_filter``).
+
+    The token failed ``auth.test``, but ``chat.postMessage`` sometimes still
+    works for these installs (see the trade-off note in ``services/slack_auth``),
+    so we attempt the reconnect nudge rather than dropping the mention silently.
+    If the post fails too, ``_post_slack_user_feedback`` logs and moves on; the
+    recovery path (OAuth reconnect, which self-heals the cached verdict) is
+    unchanged either way.
+    """
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts") or event.get("ts", "")
+    slack_user_id = event.get("user", "")
+
+    logger.warning(
+        "slack_app_auth_broken_notify",
+        integration_id=integration.id,
+        team_id=integration.team_id,
+    )
+
+    if not channel or not thread_ts or not slack_user_id:
+        return
+
+    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    text = (
+        ":warning: PostHog can't reply because this workspace's Slack connection has expired "
+        "or been revoked.\n"
+        f"A project admin needs to reconnect Slack from project settings: {settings_url}"
+    )
+    _post_slack_user_feedback(
+        SlackIntegration(integration), channel, slack_user_id, thread_ts, text, prefer_thread_message=True
+    )
+
+
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
@@ -1782,6 +1818,18 @@ def route_posthog_code_event_to_relevant_region(
             channel=channel_str,
             thread_ts=thread_ts_str,
         )
+
+        # A mention whose only install(s) were dropped for a broken bot token used to
+        # fall through to a silent ``ROUTE_NO_INTEGRATION`` — the user got no reply and
+        # no hint. Surface the reconnect path instead. Gated to ``app_mention`` (an
+        # explicit invocation): untagged ``message`` follow-ups arrive in far higher
+        # volume and must not each trigger a post. Running before region routing means
+        # the region holding the broken row (US directly, or EU after the proxy hop)
+        # owns the nudge, since each region only sees its own DB rows here.
+        if event_type == "app_mention" and not workspace_result.candidates and workspace_result.dropped_for_auth:
+            _notify_slack_auth_broken(workspace_result.dropped_for_auth[0], event)
+            return ROUTE_HANDLED_LOCALLY
+
         region_route = resolve_region_or_terminal_route(
             request,
             slack_team_id,

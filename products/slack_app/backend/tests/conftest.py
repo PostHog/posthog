@@ -58,9 +58,11 @@ def _bypass_slack_auth_filter():
     # from ``slack_auth``, so we patch at the source module rather than at the
     # resolver's import site (the import re-runs on every call and would miss
     # an import-site patch).
+    from products.slack_app.backend.services.slack_auth import AuthFilterResult
+
     with patch(
         "products.slack_app.backend.services.slack_auth.check_integrations_auth_and_filter",
-        side_effect=lambda candidates, **_: candidates,
+        side_effect=lambda candidates, **_: AuthFilterResult(healthy=candidates, broken=[]),
     ):
         yield
 

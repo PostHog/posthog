@@ -61,6 +61,11 @@ class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
     candidates: list[Integration] = field(default_factory=list)
+    # Installs dropped by the auth pre-filter because their bot token is broken
+    # (see ``check_integrations_auth_and_filter``). Populated by ``load_integrations``
+    # so the mention path can post a reconnect nudge when the token failure left
+    # no healthy candidate; empty on every other resolution path.
+    dropped_for_auth: list[Integration] = field(default_factory=list)
 
 
 def format_project_candidate_list(candidates: list[Integration]) -> str:
@@ -179,15 +184,17 @@ def load_integrations(
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
     )
-    candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
-    return resolve_from_candidates(
-        candidates,
+    auth_result = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
+    result = resolve_from_candidates(
+        auth_result.healthy,
         slack_team_id=slack_team_id,
         slack_user_id=slack_user_id,
         user=user,
         channel=channel,
         thread_ts=thread_ts,
     )
+    result.dropped_for_auth = auth_result.broken
+    return result
 
 
 @dataclass

@@ -630,13 +630,12 @@ class TestLoadIntegrationsAuthStateFilter:
         assert result.candidates[0].id == self.integration_new.id
         assert self.mock_auth_test.call_count == 0  # all cached, no API calls
 
-    def test_all_broken_returns_empty(self):
-        # When every candidate is cached as broken, return an empty list.
-        # Upstream code (``resolve_region_or_terminal_route``) treats an empty
-        # candidate set the same way it'd handle a workspace with no rows at
-        # all — falls through to ``ROUTE_NO_INTEGRATION``. Recovery paths:
-        # the 6h TTL expires, OAuth reconnect invalidates the cache, or a
-        # subsequent ``auth.test`` succeeds.
+    def test_all_broken_returns_empty_but_surfaces_dropped_installs(self):
+        # When every candidate is cached as broken, the resolver returns no
+        # candidates but exposes them on ``dropped_for_auth`` so the mention path
+        # can post a reconnect nudge instead of dropping the mention silently.
+        # Recovery paths still hold: the 6h TTL expires, OAuth reconnect
+        # invalidates the cache, or a subsequent ``auth.test`` succeeds.
         from products.slack_app.backend.services.slack_auth import write_auth_state_broken
 
         write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
@@ -646,6 +645,22 @@ class TestLoadIntegrationsAuthStateFilter:
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
         assert result.candidates == []
+        assert {i.id for i in result.dropped_for_auth} == {
+            self.integration_old.id,
+            self.integration_mid.id,
+            self.integration_new.id,
+        }
+
+    def test_transient_unknown_is_not_surfaced_as_dropped_for_auth(self):
+        # A transient ``auth.test`` failure leaves the cache untouched and the
+        # candidate unknown, not broken. It must NOT land in ``dropped_for_auth``
+        # — a Slack outage is no reason to tell the user to reconnect OAuth.
+        self.mock_auth_test.side_effect = RuntimeError("boom")
+
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        assert result.candidates == []
+        assert result.dropped_for_auth == []
 
     def test_transient_auth_test_error_drops_candidate(self):
         # A transient ``auth.test`` failure (Slack 5xx, network blip) leaves
