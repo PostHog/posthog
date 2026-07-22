@@ -294,7 +294,7 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
  * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
  * the message is stored as an internal note only visible to team members.
  */
-export const conversationsTicketsReplyCreateBodyMessageMax = 5000
+export const conversationsTicketsReplyCreateBodyMessageMax = 50000
 
 export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
 
@@ -376,7 +376,7 @@ export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
 
 export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
 
-export const conversationsTicketsComposeCreateBodyMessageMax = 5000
+export const conversationsTicketsComposeCreateBodyMessageMax = 50000
 
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),

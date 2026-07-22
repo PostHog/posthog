@@ -85,7 +85,7 @@ class TicketReplyRequestSerializer(serializers.Serializer):
     """Payload for posting a reply or internal note to a ticket."""
 
     message = serializers.CharField(
-        max_length=5000,
+        max_length=50000,
         help_text="Reply content in markdown.",
     )
     is_private = serializers.BooleanField(
@@ -146,7 +146,7 @@ class ComposeTicketSerializer(serializers.Serializer):
         help_text="ID of the EmailChannel to send from.",
     )
     message = serializers.CharField(
-        max_length=5000,
+        max_length=50000,
         help_text="Message content in markdown.",
     )
     rich_content = serializers.JSONField(

@@ -924,7 +924,7 @@ export interface PaginatedTicketMessageListApi {
 export interface TicketReplyRequestApi {
     /**
      * Reply content in markdown.
-     * @maxLength 5000
+     * @maxLength 50000
      */
     message: string
     /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
@@ -1017,7 +1017,7 @@ export interface ComposeTicketApi {
     email_config_id: string
     /**
      * Message content in markdown.
-     * @maxLength 5000
+     * @maxLength 50000
      */
     message: string
     /** TipTap rich content JSON for formatted messages. */

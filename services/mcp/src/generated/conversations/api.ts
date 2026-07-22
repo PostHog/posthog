@@ -193,7 +193,7 @@ export const ConversationsTicketsReplyCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const conversationsTicketsReplyCreateBodyMessageMax = 5000
+export const conversationsTicketsReplyCreateBodyMessageMax = 50000
 
 export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
 
