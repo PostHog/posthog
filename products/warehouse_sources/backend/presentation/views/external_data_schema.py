@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from django.db import transaction
+from django.db.models import Model
 
 import structlog
 import temporalio
@@ -484,12 +485,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "supported_api_versions": supported_api_versions,
         }
 
-    def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:
+    def get_user_access_level(self, obj: Model) -> str | None:
         # Most-specific rule wins: the synced table's own rules if any, else the parent source's
         # access (table is null before first sync). Drives the row's sync/delete gating in the UI.
         uac = self.user_access_control
         if uac is None:
             return None
+        schema = cast(ExternalDataSchema, obj)
         return uac.warehouse_table_effective_level(schema.table, schema.source)
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))

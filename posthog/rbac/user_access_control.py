@@ -797,7 +797,7 @@ class UserAccessControl:
         apply to this user, otherwise the source's level. `table` is None before the first sync.
         Used by both the schema serializer and WarehouseTableSyncPermission."""
         if table is not None and self._get_access_controls(
-            self._access_controls_filters_for_object("warehouse_table", str(table.id))
+            self._access_controls_filters_for_object("warehouse_table", str(table.pk))
         ):
             return self.get_user_access_level(table)
         return self.get_user_access_level(source)
