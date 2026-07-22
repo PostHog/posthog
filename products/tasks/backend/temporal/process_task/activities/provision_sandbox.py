@@ -674,15 +674,37 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
                     extra={"branch": input.branch, "stderr": update_result.stderr},
                 )
 
-        depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
-        fetch_and_checkout = (
-            f"cd {shlex.quote(repo_path)} && "
-            f"git fetch{depth_flag} origin -- {shlex.quote(input.branch)} && "
-            f"git checkout -B {shlex.quote(input.branch)} FETCH_HEAD"
-        )
+        branch = shlex.quote(input.branch)
+        branch_ref = shlex.quote(f"refs/heads/{input.branch}")
+        remote_branch_check = f"cd {shlex.quote(repo_path)} && git ls-remote --exit-code --heads origin {branch_ref}"
+        remote_branch_result = sandbox.execute(remote_branch_check, timeout_seconds=30)
+
+        if remote_branch_result.exit_code == 0:
+            depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
+            checkout_command = (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch{depth_flag} origin -- {branch} && "
+                f"git checkout -B {branch} FETCH_HEAD"
+            )
+        elif remote_branch_result.exit_code == 2:
+            if input.used_snapshot:
+                depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
+                checkout_command = (
+                    f"cd {shlex.quote(repo_path)} && "
+                    f"git fetch{depth_flag} origin -- HEAD && "
+                    f"git checkout -B {branch} FETCH_HEAD"
+                )
+            else:
+                checkout_command = f"cd {shlex.quote(repo_path)} && git checkout -B {branch} HEAD"
+        else:
+            logger.warning(
+                "Failed to check whether remote branch exists",
+                extra={"branch": input.branch, "stderr": remote_branch_result.stderr},
+            )
+            raise RuntimeError(f"Failed to check whether branch {input.branch} exists")
 
         with StepTimer("branch_checkout", used_snapshot=input.used_snapshot) as checkout_timer:
-            result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
+            result = sandbox.execute(checkout_command, timeout_seconds=5 * 60)
 
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
