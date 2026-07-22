@@ -146,6 +146,17 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     return sync_wrapper
 
 
+def is_transient_db_connection_error(e: BaseException) -> bool:
+    """True for the pgbouncer/Postgres connection-drop errors that a fresh connection recovers from.
+
+    Long-lived Temporal workers pool connections through pgbouncer, so a pool recycle, failover,
+    or deploy can leave a stale pooled connection that raises ``OperationalError`` /
+    ``InterfaceError`` (e.g. "server closed the connection unexpectedly") the first time it's used.
+    These are self-healing on retry — the same class ``aretry_on_db_connection_drop`` retries.
+    """
+    return isinstance(e, django.db.OperationalError | django.db.InterfaceError)
+
+
 async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, Any, T]]) -> T:
     """Run an async DB read, retrying once on a transient connection drop.
 
