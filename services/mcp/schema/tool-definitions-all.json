@@ -6537,6 +6537,156 @@
             "readOnlyHint": true
         }
     },
+    "loops-create-execute": {
+        "description": "Step 2 of 2 for create loop. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create loop (execute)",
+        "title": "Create loop (execute)",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-create-prepare": {
+        "description": "Step 1 of 2 for create loop. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create loop (prepare)",
+        "title": "Create loop (prepare)",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-destroy": {
+        "description": "Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project admin can delete a loop.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Delete loop",
+        "title": "Delete loop",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-list": {
+        "description": "List loops visible to the current user in the project: personal loops the user owns plus every team-visible loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`, `consecutive_failures`).",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List loops",
+        "title": "List loops",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-partial-update": {
+        "description": "Update an existing loop's config. On a team loop, identity-bearing fields (`instructions`, `repositories`, `connectors`, `behaviors`, `triggers`) are editable only by the current owner: editing them as another member takes ownership and re-validates repositories and connectors against that member's own access. Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update loop",
+        "title": "Update loop",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-preview-create": {
+        "description": "Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's prompt before enabling it.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Preview a loop fire",
+        "title": "Preview a loop fire",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-retrieve": {
+        "description": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get loop",
+        "title": "Get loop",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
+    "loops-review": {
+        "description": "Show the user an interactive review card for a loop that is about to be created, then let them create it. Call this once you have gathered the loop's details, passing the SAME arguments you would pass to loops-create (name, instructions, runtime_adapter, triggers, behaviors, notifications, context_target, etc.). This renders a card summarizing the loop with a 'Create loop' button. Do NOT call loops-create yourself — the card's button creates the loop after the user confirms.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "feature_flag": "loops",
+        "summary": "Review a loop with the user before creating it.",
+        "title": "Review loop before creating",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "loops-run-create": {
+        "description": "Manually fire a loop right now, outside its configured triggers. Creates a fresh task run using the loop's current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as trigger-fired runs.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Manually run a loop",
+        "title": "Manually run a loop",
+        "required_scopes": ["loop:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "loops"
+    },
+    "loops-runs-retrieve": {
+        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List loop runs",
+        "title": "List loop runs",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "loops"
+    },
     "managed-migrations-support-get": {
         "description": "Get one batch import (managed migration) job by id, from any PostHog team, including the raw worker `state` and `import_config` blobs. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope (a full-access `*` key is rejected; OAuth sign-in can never grant it).\n\nAdds to the list fields:\n\n- `state`: the worker-owned progress blob, `{\"parts\": [{\"key\", \"current_offset\", \"total_size\"}]}`. A part is done when `current_offset >= total_size`; parts are processed in order, so the first unfinished part is the one in flight. `current_offset` is a byte offset into the DECOMPRESSED part - only meaningful against the exact byte stream it was measured on.\n- `import_config`: the job's source / data format / sink configuration. It references credentials by secret key NAME only; secret values live in an encrypted column that is never returned by any API.\n- `created_by_email`: who started the migration, when known.\n\nTroubleshooting reminders (same semantics as the list tool): `waiting_to_start` = running with no worker lease yet; `lease_expired: true` on a running job = the worker died or the job is about to be re-claimed; a `paused` job keeps its lease and resuming (a Django admin action - this API is read-only) must clear it; `paused` with an invalid-JSON parse error at the resume point usually means the source bytes changed under the committed offset and the in-flight part needs a reset to offset 0 via Django admin's \"Resume + re-import in-flight part\".",
         "category": "Managed migrations",
@@ -7719,6 +7869,21 @@
             "readOnlyHint": true
         },
         "system_prompt_hint": "Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate"
+    },
+    "query-web-vitals": {
+        "description": "Per-page Core Web Vitals breakdown — one metric at one percentile, with pages bucketed into `good` / `needs_improvements` / `poor` bands. Mirrors the in-product **Web analytics → Web vitals** tab.\n\n# When to use this vs `query-trends` / `execute-sql`\n\nUse `query-web-vitals` for **page-level** vitals questions: \"which pages are slow?\", \"where is LCP bad?\", \"audit our Core Web Vitals\". One call replaces a hand-written percentile query over `$web_vitals` and classifies each page against the band thresholds for you.\n\nUse `query-trends` on the `$web_vitals` event (property math on `$web_vitals_LCP_value` etc.) for a **site-wide trend over time** — this tool has no time axis; it aggregates the whole window.\n\nReach for `execute-sql` only for shapes neither covers (e.g. per-page sample counts, device splits per page, or custom baselines).\n\nRequires the project to capture the `$web_vitals` event (`capture_performance` in posthog-js). If results come back empty, check capture with `read-data-schema` before concluding pages are fine.\n\n# Inputs\n\n- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.\n- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.\n- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:\n\n| Metric | thresholds     |\n| ------ | -------------- |\n| LCP    | `[2500, 4000]` |\n| INP    | `[200, 500]`   |\n| CLS    | `[0.1, 0.25]`  |\n| FCP    | `[1800, 3000]` |\n\n- `dateRange`: defaults to the last 7 days — a good window for a stable percentile; shorter windows get noisy on low-traffic pages.\n- `properties`: event and person filters only (the runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.\n- `filterTestAccounts`, `doPathCleaning`: same semantics as the other web analytics tools.\n\n# Reading the result\n\nEach band lists `{path, value}` pairs. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Percentiles on low-traffic pages wobble — corroborate a surprising result with a sample count via `execute-sql` before making strong claims. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.\n\n# Example\n\nWorst LCP pages at p75, last 7 days, marketing site only:\n\n```json\n{\n  \"metric\": \"LCP\",\n  \"percentile\": \"p75\",\n  \"thresholds\": [2500, 4000],\n  \"properties\": [{ \"type\": \"event\", \"key\": \"$host\", \"operator\": \"exact\", \"value\": [\"example.com\"] }]\n}\n```",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web vitals path breakdown query",
+        "title": "Run a web vitals path breakdown query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor"
     },
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
@@ -10722,7 +10887,7 @@
         }
     },
     "workflows-publish": {
-        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs (people mid-flow who will follow the new config once published) and draft_updated_at, changing nothing. Echo that impact to the user and get their go-ahead, then call again with confirm=true and that exact draft_updated_at; a 409 means the draft changed since you read it, so re-read and re-confirm. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).",
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Publish workflow draft",

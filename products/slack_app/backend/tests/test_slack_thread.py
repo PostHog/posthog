@@ -27,6 +27,29 @@ class TestSlackThreadHandler(SimpleTestCase):
     def test_format_task_error(self, _name: str, error: str, expected: str) -> None:
         assert _format_task_error(error) == expected
 
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stop_status_stream_posts_labeled_mention_as_bare(self, mock_get_client):
+        # The streaming path posts the agent's final answer, which can echo a participant in
+        # the labeled `<@U…|display name>` form. A name with a space renders as inert text when
+        # a bot posts it, so it must be normalized to the bare `<@U…>` that actually notifies.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        handler = SlackThreadHandler(context)
+
+        handler.stop_status_stream(ts="1234.9999", final_markdown="Answering <@U094TR1E59V|Radu Raicea> now.")
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        streamed = "".join(chunk.get("text", "") for chunk in chunks)
+        assert "<@U094TR1E59V>" in streamed
+        assert "Radu Raicea" not in streamed
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_progress_message_has_no_terminate_button(self, mock_get_client, _mock_find_progress):

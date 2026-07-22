@@ -1003,13 +1003,13 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(hogFlowsPublishCreateBodyConfirmDefault)
         .describe(
-            'False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow.'
+            'False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow.'
         ),
-    draft_updated_at: zod.iso
-        .datetime({ offset: true })
+    confirm_token: zod
+        .string()
         .optional()
         .describe(
-            'The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it.'
+            'From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
         ),
 })
 
