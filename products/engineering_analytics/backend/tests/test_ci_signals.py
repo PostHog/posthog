@@ -468,7 +468,9 @@ class TestCISignalEmissionLedger(BaseTest):
 
 
 class TestSyncStatus(BaseTest):
-    def _github_source_with_schemas(self, *, source_id: str, repo: str, statuses: dict[str, str]) -> None:
+    def _github_source_with_schemas(
+        self, *, source_id: str, repo: str, statuses: dict[str, ExternalDataSchema.Status]
+    ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id=source_id,
@@ -496,7 +498,7 @@ class TestSyncStatus(BaseTest):
         ]
     )
     def test_sync_status_resolves_repo_qualified_schema_names(
-        self, _name: str, overrides: dict[str, str], expected: CISignalsSyncStatus
+        self, _name: str, overrides: dict[str, ExternalDataSchema.Status], expected: CISignalsSyncStatus
     ) -> None:
         # Multi-repo sources qualify schema names; a bare-name match would pin the status at
         # RUNNING forever and never surface FAILED.
