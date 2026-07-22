@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -92,6 +93,85 @@ class BatchApplyOperation:
     primary_keys: list[str] | None = None
 
 
+class _DuckgresSessionCache:
+    """Reuse one duckgres connection across consecutive live batches of a group.
+
+    The dominant per-batch costs measured in prod (2026-07-22) are per-SESSION
+    fixed costs, not row volume: worker session create (~0.5-1s), the extended-
+    protocol describe probe's cold catalog enumeration (~5-19s), and the
+    transaction's first-write metadata touch on the target table (~12-19s).
+    All are warm on a reused session, taking a live batch from ~30-40s to ~2s.
+
+    Keyed by (team_id, schema_id): the sink's group lease serializes each key to
+    one pod task at a time, so entries are never used concurrently — the lock
+    guards only the dict. Entries are dropped on any processing error (the
+    connection may hold aborted-transaction state), after IDLE_TTL without
+    reuse, and past MAX_AGE outright (the extract-read secret embeds session
+    credentials that expire; a fresh session re-mints them). Note a cached
+    session pins the group's worker (one session per worker) for up to
+    IDLE_TTL after the group drains — bounded, and the next claim of the
+    group needs that worker warm anyway.
+    """
+
+    IDLE_TTL_SECONDS = 90.0
+    MAX_AGE_SECONDS = 600.0
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._entries: dict[tuple[int, str], tuple[psycopg.Connection[Any], float, float]] = {}
+
+    def acquire(self, team_id: int, schema_id: str) -> tuple[psycopg.Connection[Any] | None, float]:
+        """Return (connection, session_created_at); (None, now) means connect fresh.
+
+        created_at is threaded back through store() so the MAX_AGE credential
+        cap tracks the ORIGINAL session creation across any number of reuses.
+        """
+        key = (team_id, schema_id)
+        now = time.monotonic()
+        with self._lock:
+            entry = self._entries.pop(key, None)
+        if entry is None:
+            return None, now
+        conn, created_at, last_used = entry
+        if now - last_used > self.IDLE_TTL_SECONDS or now - created_at > self.MAX_AGE_SECONDS:
+            self._close_quietly(conn)
+            return None, now
+        return conn, created_at
+
+    def store(self, team_id: int, schema_id: str, conn: psycopg.Connection[Any], created_at: float) -> None:
+        key = (team_id, schema_id)
+        with self._lock:
+            previous = self._entries.get(key)
+            self._entries[key] = (conn, created_at, time.monotonic())
+            stale = [
+                k
+                for k, (_, _, used) in self._entries.items()
+                if k != key and time.monotonic() - used > self.IDLE_TTL_SECONDS
+            ]
+            evicted = [self._entries.pop(k) for k in stale]
+        if previous is not None and previous[0] is not conn:
+            self._close_quietly(previous[0])
+        for other_conn, _, _ in evicted:
+            self._close_quietly(other_conn)
+
+    def clear(self) -> None:
+        with self._lock:
+            entries = list(self._entries.values())
+            self._entries.clear()
+        for conn, _, _ in entries:
+            self._close_quietly(conn)
+
+    @staticmethod
+    def _close_quietly(conn: psycopg.Connection[Any]) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+_session_cache = _DuckgresSessionCache()
+
+
 def process_batch(batch: PendingBatch) -> None:
     # Threads are reused across batches; drop stale app-DB connections so the ORM
     # reads below reconnect instead of failing every attempt after a DB bounce.
@@ -116,39 +196,67 @@ def process_batch(batch: PendingBatch) -> None:
 
     kind = "backfill" if _is_backfill_batch(batch) else "live"
     timings: dict[str, float] = {}
-    # Fresh connect + session + secret is per-batch fixed cost; measured as one
-    # phase so the connection-reuse trade-off is visible against the apply itself.
-    # Recorded in a finally so a slow/failing connect (e.g. cold-tenant activation
-    # timeout) still lands in the phase metric, matching the _timed error-path capture.
+    # Connect + session + secret is a fixed cost; measured as one phase so the
+    # connection-reuse win is visible against the apply itself (a cache hit
+    # records ~0). Recorded in a finally so a slow/failing connect (e.g.
+    # cold-tenant activation timeout) still lands in the phase metric.
     connect_start = time.monotonic()
+    if kind == "backfill":
+        # Backfills are rare, long, and chunk-coalesced already — keep the
+        # simple fresh-connection lifecycle.
+        try:
+            with _connect_to_duckgres(batch.team_id) as conn:
+                # The sink only reads parquet over S3; httpfs is bundled in the duckgres
+                # worker image so INSTALL is a local no-op. Do NOT add extensions that are
+                # not bundled (e.g. delta): egress-restricted workers silently drop the
+                # CDN download and the statement hangs.
+                setup_duckgres_session(conn, extensions=("httpfs",))
+                _create_extract_read_secret(conn)
+                _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
+                try:
+                    _process_backfill_batch(conn, batch, schema, timings=timings)
+                except DuckgresBatchAlreadyAppliedError:
+                    _log_applied_by_concurrent_processor(batch)
+        finally:
+            if "connect_setup" not in timings:
+                _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
+        return
+
+    conn, session_created_at = _session_cache.acquire(batch.team_id, batch.schema_id)
     try:
-        with _connect_to_duckgres(batch.team_id) as conn:
-            # The sink only reads parquet over S3; httpfs is bundled in the duckgres
-            # worker image so INSTALL is a local no-op. Do NOT add extensions that are
-            # not bundled (e.g. delta): egress-restricted workers silently drop the
-            # CDN download and the statement hangs.
+        if conn is None:
+            conn = _connect_to_duckgres(batch.team_id)
             setup_duckgres_session(conn, extensions=("httpfs",))
             _create_extract_read_secret(conn)
-            _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
-            try:
-                if kind == "backfill":
-                    _process_backfill_batch(conn, batch, schema, timings=timings)
-                else:
-                    _process_batch(conn, batch, schema, timings=timings)
-            except DuckgresBatchAlreadyAppliedError:
-                # A concurrent processor (lost advisory-lock session + recovery sweep)
-                # won the marker insert; its committed write is the canonical one and
-                # ours rolled back. Treat as applied.
-                logger.info(
-                    "duckgres_batch_applied_by_concurrent_processor",
-                    team_id=batch.team_id,
-                    schema_id=batch.schema_id,
-                    run_uuid=batch.run_uuid,
-                    batch_index=batch.batch_index,
-                )
+        _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
+        try:
+            _process_batch(conn, batch, schema, timings=timings)
+        except DuckgresBatchAlreadyAppliedError:
+            _log_applied_by_concurrent_processor(batch)
+    except BaseException:
+        # The connection may hold aborted-transaction or half-streamed state;
+        # never cache it. The queue's retry gets a fresh session.
+        if conn is not None:
+            _DuckgresSessionCache._close_quietly(conn)
+        raise
+    else:
+        _session_cache.store(batch.team_id, batch.schema_id, conn, created_at=session_created_at)
     finally:
         if "connect_setup" not in timings:
             _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
+
+
+def _log_applied_by_concurrent_processor(batch: PendingBatch) -> None:
+    # A concurrent processor (lost advisory-lock session + recovery sweep)
+    # won the marker insert; its committed write is the canonical one and
+    # ours rolled back. Treat as applied.
+    logger.info(
+        "duckgres_batch_applied_by_concurrent_processor",
+        team_id=batch.team_id,
+        schema_id=batch.schema_id,
+        run_uuid=batch.run_uuid,
+        batch_index=batch.batch_index,
+    )
 
 
 def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
