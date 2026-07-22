@@ -3,13 +3,14 @@ import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import {
     EventRateOverflowStrategy,
     MergeEventRateOverflowStrategy,
+    OverflowStrategy,
     createAnalyticsOverflowStrategies,
 } from './overflow-strategy'
 
 describe('overflow strategies', () => {
     describe('EventRateOverflowStrategy', () => {
         it.each([['$pageview'], ['$identify'], [undefined]])('counts every event (%s) as one token', (event) => {
-            const strategy = new EventRateOverflowStrategy()
+            const strategy: OverflowStrategy = new EventRateOverflowStrategy()
 
             expect(strategy.countTokens(createTestEventHeaders({ event }))).toBe(1)
         })
