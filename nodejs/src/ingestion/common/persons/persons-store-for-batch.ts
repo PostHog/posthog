@@ -60,6 +60,13 @@ export interface PersonsStoreTransactionForBatch {
     /** Batched deletePerson for folded merges; all persons must belong to one team. */
     deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]>
 
+    /** Distinct-id counts per person id, for the folded-merge limit pre-check. */
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>>
+
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
@@ -251,6 +258,14 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         return this.tx.deletePersons(persons, distinctId)
     }
 
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>> {
+        return this.tx.countDistinctIdsForPersons(teamId, personIds, distinctId)
+    }
+
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
@@ -353,6 +368,15 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
         return this.store.deletePersons(persons, distinctId, tx)
+    }
+
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<Map<string, number>> {
+        return this.store.countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
     }
 
     updateCohortsAndFeatureFlagsForMergeBatch(

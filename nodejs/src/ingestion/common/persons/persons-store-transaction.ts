@@ -113,6 +113,14 @@ export class PersonsStoreTransaction {
         return await this.store.deletePersons(persons, distinctId, this.tx)
     }
 
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>> {
+        return await this.store.countDistinctIdsForPersons(teamID, personIds, distinctId, this.tx)
+    }
+
     async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],

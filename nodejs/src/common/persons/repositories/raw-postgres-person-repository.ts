@@ -81,6 +81,13 @@ export interface RawPostgresPersonRepository {
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 
+    /** Distinct-id counts per person id (single team), for the folded-merge limit pre-check. */
+    countDistinctIdsForPersons(
+        teamId: number,
+        personIds: string[],
+        tx?: TransactionClient
+    ): Promise<Map<string, number>>
+
     fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]>
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>

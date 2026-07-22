@@ -139,6 +139,16 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<PersonMessage[]>
 
     /**
+     * Distinct-id counts per person id, for the folded-merge limit pre-check
+     */
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<Map<string, number>>
+
+    /**
      * Updates cohorts and feature flags for merged persons
      */
     updateCohortsAndFeatureFlagsForMerge(

@@ -77,6 +77,13 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.moveDistinctIdsFromPersons(sources, target, this.transaction)
     }
 
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][]
+    ): Promise<Map<string, number>> {
+        return await this.repository.countDistinctIdsForPersons(teamID, personIds, this.transaction)
+    }
+
     async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
         return await this.repository.fetchPersonDistinctIds(person, limit, this.transaction)
     }

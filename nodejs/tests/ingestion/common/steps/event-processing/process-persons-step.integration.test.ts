@@ -587,8 +587,9 @@ describe('createProcessPersonsStep', () => {
             expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
         })
 
-        it('abandons the fold under LIMIT merge mode and merges sequentially', async () => {
+        it('folds under LIMIT merge mode when sources are within the move limit', async () => {
             await createPersonWithProps('anon-1', { a: 1 })
+            await createPersonWithProps('anon-2', { b: 2 })
             await createPersonWithProps('user-1', {})
             const plan = planFor('user-1', 'anon-1', 'anon-2')
 
@@ -598,11 +599,37 @@ describe('createProcessPersonsStep', () => {
                 PERSON_MERGE_FOLD_ENABLED: true,
             })
 
-            expect(plan.status).toBe('abandoned')
+            expect(plan.status).toBe('executed')
             const persons = await fetchPostgresPersons(infra.postgres, teamId)
             expect(persons).toHaveLength(1)
             const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
-            expect(distinctIds.sort()).toEqual(['anon-1', 'user-1'])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
+        })
+
+        it('abandons the fold when a source exceeds the move limit and merges sequentially', async () => {
+            const bigSource = await createPersonWithProps('anon-1', { a: 1 })
+            await personRepository.addDistinctId(bigSource, 'anon-1-extra-1', 0)
+            await personRepository.addDistinctId(bigSource, 'anon-1-extra-2', 0)
+            await createPersonWithProps('anon-2', { b: 2 })
+            await createPersonWithProps('user-1', {})
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            // LIMIT mode with a limit of 2: anon-1 owns 3 distinct ids, so the
+            // fold must roll back; the sequential path then DLQs anon-1's merge
+            // per-event while anon-2 still merges normally.
+            await runIdentifies([identifyEvent('anon-2', 'user-1')], plan, {
+                ...options,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
+                PERSON_MERGE_FOLD_ENABLED: true,
+            })
+
+            expect(plan.status).toBe('abandoned')
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            // anon-1's person survives untouched; anon-2 merged into user-1
+            expect(persons).toHaveLength(2)
+            const target = persons.find((p) => p.id !== bigSource.id)!
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, target)
+            expect(distinctIds.sort()).toEqual(['anon-2', 'user-1'])
         })
     })
 })

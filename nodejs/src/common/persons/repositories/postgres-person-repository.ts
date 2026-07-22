@@ -869,6 +869,26 @@ export class PostgresPersonRepository
         }
     }
 
+    async countDistinctIdsForPersons(
+        teamId: number,
+        personIds: string[],
+        tx?: TransactionClient
+    ): Promise<Map<string, number>> {
+        if (personIds.length === 0) {
+            return new Map()
+        }
+        const { rows } = await this.postgres.query<{ person_id: string; count: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT person_id, count(*) AS count
+                FROM posthog_persondistinctid
+                WHERE team_id = $1 AND person_id = ANY($2::bigint[])
+                GROUP BY person_id`,
+            [teamId, personIds],
+            'countDistinctIdsForPersons'
+        )
+        return new Map(rows.map((row) => [String(row.person_id), Number(row.count)]))
+    }
+
     async moveDistinctIdsFromPersons(
         sources: InternalPerson[],
         target: InternalPerson,

@@ -99,6 +99,9 @@ const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
     )
 )
 
+/** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
+class MergeFoldLimitError extends Error {}
+
 export const isDistinctIdIllegal = (id: string): boolean => {
     const trimmed = id.trim()
     return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
@@ -388,14 +391,6 @@ export class PersonMergeService {
             return mergeSuccess(plan.mergedPerson, Promise.resolve(), true)
         }
 
-        // Fold only under plain unlimited SYNC mode: LIMIT/ASYNC modes make
-        // per-merge DLQ/redirect decisions that must stay per-event.
-        if (this.context.mergeMode.type !== 'SYNC' || this.context.mergeMode.batchSize) {
-            plan.status = 'abandoned'
-            mergeFoldFallbackCounter.labels({ reason: 'merge_mode' }).inc()
-            return null
-        }
-
         if (isDistinctIdIllegal(plan.targetDistinctId)) {
             // The sequential path emits the per-event warning.
             plan.status = 'abandoned'
@@ -410,14 +405,52 @@ export class PersonMergeService {
             // re-runs its own merge (a no-op if the fold partially landed), and
             // later events in the run process individually with full retries.
             plan.status = 'abandoned'
-            mergeFoldFallbackCounter.labels({ reason: 'error' }).inc()
+            const reason = error instanceof MergeFoldLimitError ? 'limit' : 'error'
+            mergeFoldFallbackCounter.labels({ reason }).inc()
             logger.warn('🤔', 'folded merge failed, falling back to sequential merges', {
                 team_id: this.context.team.id,
                 distinct_id: plan.targetDistinctId,
                 pairs: plan.pairs.length,
+                reason,
                 error,
             })
             return null
+        }
+    }
+
+    /**
+     * Aborts the fold (rolling back the transaction) when the folded move
+     * would violate the merge mode's bounds: a per-source distinct-id count
+     * over the LIMIT/ASYNC move limit (those events need their own per-event
+     * DLQ/redirect decision), or a total move larger than batched SYNC's
+     * per-statement batch size. Typical storm sources have one or two distinct
+     * ids, so this is one cheap indexed GROUP BY that almost never trips.
+     */
+    private async assertFoldWithinMoveBounds(
+        tx: PersonsStoreTransactionForBatch,
+        mergeSources: InternalPerson[]
+    ): Promise<void> {
+        const mergeMode = this.context.mergeMode
+        const limit = mergeMode.type === 'SYNC' ? undefined : mergeMode.limit
+        const batchSize = mergeMode.type === 'SYNC' ? mergeMode.batchSize : undefined
+        if ((limit === undefined && batchSize === undefined) || mergeSources.length === 0) {
+            return
+        }
+
+        const counts = await tx.countDistinctIdsForPersons(
+            this.context.team.id,
+            mergeSources.map((source) => source.id),
+            this.context.distinctId
+        )
+        let total = 0
+        for (const count of counts.values()) {
+            if (limit !== undefined && count > limit) {
+                throw new MergeFoldLimitError('folded merge source exceeds distinct id move limit')
+            }
+            total += count
+        }
+        if (batchSize !== undefined && total > batchSize) {
+            throw new MergeFoldLimitError('folded merge move exceeds sync batch size')
         }
     }
 
@@ -529,6 +562,8 @@ export class PersonMergeService {
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
+                await this.assertFoldWithinMoveBounds(tx, mergeSources)
+
                 let person = currentTarget
                 let updateMessages: PersonMessage[] = []
                 if (mergeSources.length > 0) {

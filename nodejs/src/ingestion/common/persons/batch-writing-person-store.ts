@@ -58,6 +58,7 @@ type MethodName =
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
     | 'fetchPersonsForUpdateByDistinctIds'
+    | 'countDistinctIdsForPersons'
     | 'fetchPersonDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'updateCohortsAndFeatureFlagsForMergeBatch'
@@ -1536,6 +1537,17 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         return response
+    }
+
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<Map<string, number>> {
+        this.incrementCount('countDistinctIdsForPersons', distinctId)
+        this.incrementDatabaseOperation('countDistinctIdsForPersons', distinctId)
+        return await tx.countDistinctIdsForPersons(teamID, personIds)
     }
 
     async fetchPersonDistinctIds(
