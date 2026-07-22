@@ -39,7 +39,7 @@ import dataclasses
 from collections.abc import Callable
 from contextlib import closing
 from datetime import date, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db import DatabaseError
 from django.utils import timezone
@@ -71,6 +71,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.ducklake import team_state
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import (
     DUCKGRES_BUCKET_REGION,
@@ -215,12 +216,14 @@ def _resolve_table_names(team_id: int) -> tuple[str, str]:
     dedicated `events_<suffix>` / `persons_<suffix>` tables so multiple teams sharing one
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
     An unset suffix (legacy single-team ducklings) keeps the shared table names.
+
+    Routed through the team-state accessor so the read source (Django rows vs. the
+    duckgres control plane) follows DUCKGRES_TEAM_STATE_SOURCE.
     """
-    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
-    if not suffix:
-        return "events", "persons"
-    _validate_identifier(suffix)
-    return f"events_{suffix}", f"persons_{suffix}"
+    events_table, persons_table = team_state.resolve_events_persons_tables(team_id)
+    _validate_identifier(events_table)
+    _validate_identifier(persons_table)
+    return events_table, persons_table
 
 
 def _resolve_duckling_target(team_id: int) -> DucklingTarget:
@@ -2859,7 +2862,7 @@ def duckling_events_daily_backfill_sensor(
     run_requests: list[RunRequest] = []
     catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
-    for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
+    for backfill in team_state.list_enabled_backfill_rows("events_daily_backfill_sensor"):
         for partition_date in current_month_dates:
             date_str = partition_date.strftime("%Y-%m-%d")
             partition_key = f"{backfill.team_id}_{date_str}"
@@ -2973,7 +2976,7 @@ EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam) -> None:
+def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam | team_state.CPBackfillRow) -> None:
     """Mirror a freshly resolved earliest_event_date onto the team's duckgres control-plane row.
 
     Dual-write while per-team backfill state moves into the control plane: the Django row
@@ -2990,7 +2993,7 @@ def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam) -> None:
         logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
 
 
-def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam]) -> None:
+def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam | team_state.CPBackfillRow]) -> None:
     """Re-push resolved earliest_event_dates whose control-plane mirror is missing or stale.
 
     The per-row pushes (the provisioning Celery task, the sensor's resolve loop) are
@@ -3133,12 +3136,12 @@ def duckling_events_full_backfill_sensor(
     today = timezone.now().date()
     last_month_end = today.replace(day=1) - timedelta(days=1)
 
-    backfills = list(
-        DuckgresServerTeam.objects.filter(backfill_enabled=True).select_related("server").order_by("team_id")
-    )
+    backfills = team_state.list_enabled_backfill_rows("events_full_backfill_sensor")
     if not backfills:
         context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
+
+    cp_is_read_source = team_state.get_team_state_source() == team_state.SOURCE_CP
 
     # 1. Resolve + cache earliest_event_date for teams that don't have it yet. This is the
     #    only expensive op (one ClickHouse query/team), bounded per tick and cached forever.
@@ -3152,12 +3155,18 @@ def duckling_events_full_backfill_sensor(
         bf.earliest_event_date = resolve_team_earliest_event_date(bf.team_id)
         if bf.earliest_event_date == NO_HISTORY_SENTINEL:
             context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
-        bf.save(update_fields=["earliest_event_date"])
+        if not cp_is_read_source:
+            # In django/dual mode the enumeration yields model rows, never CPBackfillRow.
+            cast(DuckgresServerTeam, bf).save(update_fields=["earliest_event_date"])
+        # In cp mode this push IS the persistence (the CP row is the read source);
+        # otherwise it stays the best-effort dual-write mirror.
         _push_earliest_event_date_to_cp(bf)
 
-    # Heal one-shot pushes that failed: re-mirror any resolved date the control plane
-    # is missing or has stale. Never fails the tick.
-    _reconcile_earliest_event_dates_with_cp(backfills)
+    if not cp_is_read_source:
+        # Heal one-shot pushes that failed: re-mirror any resolved date the control plane
+        # is missing or has stale. Never fails the tick. Pointless in cp mode, where the
+        # control plane is already the read source being enumerated.
+        _reconcile_earliest_event_dates_with_cp(backfills)
 
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
@@ -3272,7 +3281,7 @@ def duckling_persons_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
+    for backfill in team_state.list_enabled_backfill_rows("persons_daily_backfill_sensor"):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -3362,9 +3371,7 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = list(
-        DuckgresServerTeam.objects.filter(backfill_enabled=True).select_related("server").order_by("team_id")
-    )
+    backfills = team_state.list_enabled_backfill_rows("persons_full_backfill_sensor")
     if not backfills:
         context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
