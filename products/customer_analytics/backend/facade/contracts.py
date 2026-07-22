@@ -507,3 +507,46 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+class AnnouncementValidationError(ValueError):
+    def __init__(self, detail: str | dict[str, str]) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementChannelView:
+    id: str
+    name: str
+    is_member: bool
+    customer_name: str | None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementDeliveryView:
+    id: UUID | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    status: str = ""
+    error: str = ""
+    slack_message_ts: str = ""
+    sent_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementView:
+    # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
+    # message + channels; channels is write-only and always returned empty.
+    id: UUID | None = None
+    short_id: str = ""
+    message: str = ""
+    status: str = ""
+    total_channels: int = 0
+    sent_count: int = 0
+    failed_count: int = 0
+    sent_at: datetime | None = None
+    created_at: datetime | None = None
+    created_by: UserBasicInfo | None = None
+    deliveries: list[AnnouncementDeliveryView] = field(default_factory=list)
+    channels: list[str] = field(default_factory=list)

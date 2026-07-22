@@ -25,7 +25,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.data_warehouse.backend.presentation.views.external_data_source import SimpleExternalDataSourceSerializers
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_FILE_UPLOAD_SIZE_BYTES,
@@ -43,6 +42,9 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
     validate_warehouse_table_url_pattern,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    SimpleExternalDataSourceSerializers,
 )
 
 # Whole-request-body ceiling for the upload endpoint, checked from Content-Length before the
@@ -154,7 +156,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
-        from products.data_warehouse.backend.presentation.views.external_data_schema import (
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             SimpleExternalDataSchemaSerializer,
         )
 

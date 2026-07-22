@@ -31,7 +31,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     resolve_github_tables,
 )
-from products.engineering_analytics.backend.tests.test_views import (
+from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     connect_github_source_without_data,
     create_github_source,
