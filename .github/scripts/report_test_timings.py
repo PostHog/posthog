@@ -159,7 +159,7 @@ def derive_suite_segment_and_group(artifact_dir_name: str) -> tuple[str, str, in
 
 def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
     artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir()) or [artifacts_root]
-    parsed = []
+    parsed: list[tuple[Path, str, str, int | None, int]] = []
     for d in artifact_dirs:
         base_name, attempt = split_attempt_suffix(d.name)
         parsed.append((d, *derive_suite_segment_and_group(base_name), attempt))
@@ -382,6 +382,11 @@ def filter_shards(
 ) -> list[Shard]:
     """Prune sub-threshold passing tests; preserve shard wall-time bounds and order."""
     prior_failed_by_job = prior_failed_by_job or {}
+
+    def kept_tests(shard: Shard) -> list[TestCase]:
+        prior_failed = prior_failed_by_job.get(job_trace_key(shard.info), frozenset())
+        return [t for t in shard.tests if should_emit(t, min_duration_seconds, prior_failed)]
+
     return [
         Shard(
             info=s.info,
@@ -390,11 +395,7 @@ def filter_shards(
             end=s.end,
             testcase_seconds=s.testcase_seconds,
             overhead_seconds=s.overhead_seconds,
-            tests=[
-                t
-                for t in s.tests
-                if should_emit(t, min_duration_seconds, prior_failed_by_job.get(job_trace_key(s.info), frozenset()))
-            ],
+            tests=kept_tests(s),
             setup_seconds=s.setup_seconds,
         )
         for s in shards
