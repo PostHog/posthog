@@ -14,7 +14,10 @@ pub use column_families::{
     CF_META, CF_PENDING_TRANSFERS, CF_PERSON_RECORDS, CF_STAGE2,
 };
 pub use handle::{OffloadConfig, OffloadMode, ReadLane, StoreHandle};
-pub use keys::{MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, TombstoneKey};
+pub use keys::{
+    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, Stage2TransferredRegisterKey,
+    Stage2TransferredRegisterPersonPrefix, TombstoneKey,
+};
 pub use keyspace::{
     Behavioral, BehavioralKey, Keyspace, Meta, MetaKey, PersonPrefix, PersonRecordKey,
     PersonRecords,

@@ -495,6 +495,7 @@ async fn spawn_instance(
         seed_tile_sink,
         seed_tracker: Arc::new(OffsetTracker::new()),
         live_watermarks: Arc::new(LiveWatermarks::new()),
+        register_transfer_enabled: false,
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

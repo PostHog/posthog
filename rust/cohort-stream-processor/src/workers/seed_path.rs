@@ -39,6 +39,9 @@ use crate::stage1::pick_state::{EvictionWindow, PredicateOp};
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
+use crate::stage2::{
+    leaf_membership, single_leaf_register_writes, stage_register_writes, MembershipRegisterSource,
+};
 use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
@@ -107,8 +110,8 @@ impl SeedDropReason {
     }
 }
 
-/// One leaf's merge outcome; `Unchanged` (byte-identical post-merge record) is the tile
-/// idempotency.
+/// One leaf's merge outcome; `Unchanged` carries the post-merge record so idempotent seed delivery
+/// can still repair the single-leaf membership register.
 #[must_use]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LeafMergeOutcome {
@@ -118,7 +121,9 @@ pub(crate) enum LeafMergeOutcome {
         /// The recomputed eviction deadline ([`i64::MAX`] = permanent, never scheduled).
         deadline_ms: i64,
     },
-    Unchanged,
+    Unchanged {
+        record: StatefulRecord,
+    },
     Dropped(SeedDropReason),
 }
 
@@ -445,7 +450,7 @@ fn finish(
     deadline_ms: i64,
 ) -> LeafMergeOutcome {
     if prev_state.as_ref() == Some(&record.state) {
-        return LeafMergeOutcome::Unchanged;
+        return LeafMergeOutcome::Unchanged { record };
     }
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
@@ -755,6 +760,19 @@ fn apply_tile_to_leaves(
                 counter!(SEED_TILES_APPLIED_TOTAL, "variant" => record.state.variant().as_str())
                     .increment(1);
                 let key = prefix.behavioral_key(lsk);
+                stage_seed_membership_registers(
+                    &mut application.staged,
+                    filters,
+                    MembershipRegisterSource {
+                        partition_id: prefix.partition_id,
+                        team_id: identity.team_id,
+                        person_id: identity.person_id,
+                        leaf_state_key: identity.lsk,
+                    },
+                    meta,
+                    &record.state,
+                    now_ms,
+                );
                 application.staged.put::<Behavioral>(&key, &record.encode());
                 application.stage2_leaves.push((lsk, person));
                 if let Some(transition) = transition {
@@ -764,9 +782,22 @@ fn apply_tile_to_leaves(
                     application.schedules.push((key, deadline_ms));
                 }
             }
-            LeafMergeOutcome::Unchanged => {
+            LeafMergeOutcome::Unchanged { record } => {
                 counter!(SEED_TILES_UNCHANGED_TOTAL, "variant" => meta.variant.as_str())
                     .increment(1);
+                stage_seed_membership_registers(
+                    &mut application.staged,
+                    filters,
+                    MembershipRegisterSource {
+                        partition_id: prefix.partition_id,
+                        team_id: identity.team_id,
+                        person_id: identity.person_id,
+                        leaf_state_key: identity.lsk,
+                    },
+                    meta,
+                    &record.state,
+                    now_ms,
+                );
                 application.stage2_leaves.push((lsk, person));
             }
             LeafMergeOutcome::Dropped(reason) => {
@@ -775,6 +806,21 @@ fn apply_tile_to_leaves(
         }
     }
     application
+}
+
+fn stage_seed_membership_registers(
+    staged: &mut StagedBatch,
+    filters: &TeamFilters,
+    source: MembershipRegisterSource,
+    meta: &LeafStateMeta,
+    state: &Stage1State,
+    now_ms: i64,
+) {
+    let in_cohort = leaf_membership(Some(state), meta);
+    stage_register_writes(
+        staged,
+        single_leaf_register_writes(filters, source, in_cohort, now_ms),
+    );
 }
 
 fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
@@ -931,9 +977,11 @@ mod tests {
             EvictionWindow::RelativeDays { days: 7 }.earliest_eviction_at_ms(NOW_MS, UTC),
         );
 
-        assert_eq!(
-            merge(&meta, now_day(), 1, Some(record)),
-            LeafMergeOutcome::Unchanged,
+        assert!(
+            matches!(
+                merge(&meta, now_day(), 1, Some(record)),
+                LeafMergeOutcome::Unchanged { .. }
+            ),
             "re-delivery is a structural no-op",
         );
     }
@@ -1115,10 +1163,10 @@ mod tests {
         let (live, _, _) = merged(merge(&meta, now_day(), 3, None));
 
         // A tile counting a subset (late-arrival overlap) is absorbed: max(3, 2) = 3 → Unchanged.
-        assert_eq!(
+        assert!(matches!(
             merge(&meta, now_day(), 2, Some(live.clone())),
-            LeafMergeOutcome::Unchanged,
-        );
+            LeafMergeOutcome::Unchanged { .. }
+        ));
         // A tile counting a superset raises the bucket to the absolute count, never the sum.
         let (after, _, _) = merged(merge(&meta, now_day(), 5, Some(live)));
         let Stage1State::BehavioralDailyBuckets { ref buckets, .. } = after.state else {
@@ -1148,10 +1196,10 @@ mod tests {
             start_of_day_ms_in_tz(now_day() - 30 + 365 + 1, UTC)
         );
 
-        assert_eq!(
+        assert!(matches!(
             merge(&meta, now_day() - 30, 2, Some(record)),
-            LeafMergeOutcome::Unchanged,
-        );
+            LeafMergeOutcome::Unchanged { .. }
+        ));
     }
 
     #[test]
@@ -1692,6 +1740,7 @@ mod tests {
                 seed_tile_sink: Arc::new(seed_sink.clone()),
                 seed_tracker: Arc::new(OffsetTracker::new()),
                 live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+                register_transfer_enabled: false,
             };
             Self {
                 _dir,
@@ -1768,10 +1817,80 @@ mod tests {
         assert_eq!(shell.committable(partition_id), Some(10));
         assert_eq!(shell.queue.len(), 1, "the leaf's eviction was scheduled");
 
-        // Re-delivery: max-merge no-op, no duplicate emission, offset still advances.
+        let register_key = Stage2Key {
+            partition_id,
+            team_id: TEAM.0 as u64,
+            cohort_id: 1,
+            person_id: person,
+        };
+        assert!(
+            Stage2State::decode(&shell.store.get_stage2(&register_key).unwrap().unwrap())
+                .unwrap()
+                .in_cohort,
+            "the seed apply materializes the single-leaf register",
+        );
+
+        shell
+            .store
+            .write_batch(|batch| batch.delete_stage2(&register_key))
+            .unwrap();
+
+        // Re-delivery: max-merge no-op, no duplicate emission, and the missing register self-heals.
         shell.run(partition_id, SeedWork::Tile(tile), 10).await;
         assert_eq!(shell.sink.changes().len(), 1);
         assert_eq!(shell.committable(partition_id), Some(11));
+        assert!(
+            Stage2State::decode(&shell.store.get_stage2(&register_key).unwrap().unwrap())
+                .unwrap()
+                .in_cohort,
+            "an Unchanged seed replay restores the register from its post-merge record",
+        );
+    }
+
+    #[tokio::test]
+    async fn unchanged_non_member_seed_restores_an_explicit_false_register_without_emission() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::new(vec![(1, wrap(vec![multiple_leaf_json(7, "gte", 3)]))]);
+        let tile = tile_for(person, today(), 1);
+        let register_key = Stage2Key {
+            partition_id,
+            team_id: TEAM.0 as u64,
+            cohort_id: 1,
+            person_id: person,
+        };
+
+        shell
+            .run(partition_id, SeedWork::Tile(tile.clone()), 0)
+            .await;
+        let registered = Stage2State::decode(
+            &shell
+                .store
+                .get_stage2(&register_key)
+                .unwrap()
+                .expect("seeded non-member has a register row"),
+        )
+        .unwrap();
+        assert!(!registered.in_cohort);
+        assert!(shell.sink.changes().is_empty());
+
+        shell
+            .store
+            .write_batch(|batch| batch.delete_stage2(&register_key))
+            .unwrap();
+        shell.run(partition_id, SeedWork::Tile(tile), 1).await;
+
+        let restored = Stage2State::decode(
+            &shell
+                .store
+                .get_stage2(&register_key)
+                .unwrap()
+                .expect("Unchanged replay restores the false register"),
+        )
+        .unwrap();
+        assert!(!restored.in_cohort);
+        assert!(shell.sink.changes().is_empty());
+        assert_eq!(shell.committable(partition_id), Some(2));
     }
 
     #[tokio::test]

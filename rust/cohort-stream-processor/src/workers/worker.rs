@@ -38,6 +38,7 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
+use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
 use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
@@ -808,6 +809,19 @@ async fn handle_sweep(
                 EvictionAction::Write(bytes) => staged.put::<Behavioral>(&result.key, bytes),
                 EvictionAction::Delete => staged.delete::<Behavioral>(&result.key),
             }
+            if let Some(transition) = &result.transition {
+                if let Some(filters) = snapshot.team(transition.team_id) {
+                    stage_register_writes(
+                        &mut staged,
+                        single_leaf_transition_register_writes(
+                            filters,
+                            partition_id,
+                            transition,
+                            due_before_ms,
+                        ),
+                    );
+                }
+            }
         }
         let written = handle.commit(staged).await;
         if let Err(error) = written {
@@ -1126,6 +1140,7 @@ mod tombstone_redirect_tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            register_transfer_enabled: false,
         })
     }
 
@@ -1146,6 +1161,7 @@ mod tombstone_redirect_tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            register_transfer_enabled: false,
         })
     }
 
@@ -1170,6 +1186,7 @@ mod tombstone_redirect_tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            register_transfer_enabled: false,
         })
     }
 
@@ -1764,7 +1781,7 @@ mod tombstone_redirect_tests {
     }
 
     /// The `MergeCfGc` arm runs the `cf_stage2` orphan GC only when `stage2_orphan_gc_enabled`: a
-    /// SingleLeaf cohort's row (an orphan) survives with the kill-switch off and is reclaimed with it on.
+    /// catalog-absent cohort's row survives with the kill-switch off and is reclaimed with it on.
     #[tokio::test]
     async fn merge_cf_gc_arm_runs_stage2_orphan_gc_only_when_enabled() {
         for (enabled, expect_present) in [(false, true), (true, false)] {
@@ -1774,7 +1791,7 @@ mod tombstone_redirect_tests {
             let orphan = Stage2Key {
                 partition_id,
                 team_id: TEAM as u64,
-                cohort_id: 1, // SingleLeaf in person_catalog → an orphan
+                cohort_id: 99,
                 person_id: person,
             };
             store

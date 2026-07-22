@@ -22,7 +22,8 @@ use tracing::warn;
 
 use super::column_families::{self, Cf, OpaqueCf};
 use super::keys::{
-    self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, TombstoneKey,
+    self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key,
+    Stage2TransferredRegisterKey, Stage2TransferredRegisterPersonPrefix, TombstoneKey,
 };
 use super::keyspace::{
     BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
@@ -433,6 +434,42 @@ impl CohortStore {
         self.get(Cf::Stage2, &key.encode())
     }
 
+    pub fn get_stage2_transferred_register(
+        &self,
+        key: &Stage2TransferredRegisterKey,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        self.get(Cf::Stage2, &key.encode())
+    }
+
+    /// Batch-read transferred-register inventory values, preserving input order.
+    pub fn multi_get_stage2_transferred_registers(
+        &self,
+        keys: &[Stage2TransferredRegisterKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let handle = self.cf(Cf::Stage2)?;
+        let encoded: Vec<_> = keys.iter().map(|key| key.encode()).collect();
+        let started = Instant::now();
+        let results = self
+            .db
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
+        record_multi_get(started, keys.len());
+        results
+            .into_iter()
+            .map(|result| {
+                result.map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+                    StoreError::Backend {
+                        op: OP_MULTI_GET,
+                        source,
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// Batch-read several `cf_stage2` values in one call, preserving input order.
     pub fn multi_get_stage2(&self, keys: &[Stage2Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
         // An empty batch is not a read: skip it so it records no phantom read-latency sample.
@@ -458,6 +495,38 @@ impl CohortStore {
                 })
             })
             .collect()
+    }
+
+    /// Scan the catalog-independent transferred-register inventory for one person.
+    pub fn scan_stage2_transferred_registers(
+        &self,
+        prefix: Stage2TransferredRegisterPersonPrefix,
+    ) -> Result<Vec<(Stage2TransferredRegisterKey, Vec<u8>)>, StoreError> {
+        let (prefix_start, prefix_end) = prefix.range();
+        let handle = self.cf(Cf::Stage2)?;
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(prefix_end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&prefix_start, Direction::Forward),
+        );
+
+        let mut out = Vec::new();
+        for item in iter {
+            let (key_bytes, value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push((
+                Stage2TransferredRegisterKey::decode(&key_bytes)?,
+                value.to_vec(),
+            ));
+        }
+        Ok(out)
     }
 
     /// Apply writes across CFs in one atomic `WriteBatch`.
@@ -953,6 +1022,19 @@ impl<'db> BatchBuilder<'db> {
         self.batch.delete_cf(self.stage2, key.encode());
     }
 
+    /// Preserve a merge-carried register independently of the receiver's current catalog.
+    pub fn put_stage2_transferred_register(
+        &mut self,
+        key: &Stage2TransferredRegisterKey,
+        value: &[u8],
+    ) {
+        self.batch.put_cf(self.stage2, key.encode(), value);
+    }
+
+    pub fn delete_stage2_transferred_register(&mut self, key: &Stage2TransferredRegisterKey) {
+        self.batch.delete_cf(self.stage2, key.encode());
+    }
+
     /// Stage the Phase 1 idempotence marker for a drained merge message.
     pub fn put_merge_drain_applied(&mut self, key: &MergeDrainKey, value: &[u8]) {
         self.batch
@@ -1426,6 +1508,50 @@ mod tests {
         assert!(
             store.multi_get_stage2(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
+        );
+    }
+
+    #[test]
+    fn transferred_register_inventory_scans_one_person_in_cohort_order() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("transferred-register-scan"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let person_id = Uuid::from_u128(7);
+        let prefix = Stage2TransferredRegisterPersonPrefix::new(3, 7, person_id);
+        store
+            .write_batch(|batch| {
+                for cohort_id in [9, 2, 5] {
+                    batch.put_stage2_transferred_register(
+                        &Stage2TransferredRegisterKey::new(Stage2Key {
+                            partition_id: 3,
+                            team_id: 7,
+                            cohort_id,
+                            person_id,
+                        }),
+                        &[cohort_id as u8],
+                    );
+                }
+                batch.put_stage2_transferred_register(
+                    &Stage2TransferredRegisterKey::new(Stage2Key {
+                        partition_id: 3,
+                        team_id: 7,
+                        cohort_id: 1,
+                        person_id: Uuid::from_u128(8),
+                    }),
+                    b"foreign",
+                );
+            })
+            .unwrap();
+
+        let rows = store.scan_stage2_transferred_registers(prefix).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|(key, value)| (key.stage2_key().cohort_id, value.clone()))
+                .collect::<Vec<_>>(),
+            vec![(2, vec![2]), (5, vec![5]), (9, vec![9])],
         );
     }
 
