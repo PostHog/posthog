@@ -1212,7 +1212,22 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         entry = ActivityLog.objects.get(team_id=self.team.id, scope="LLMPromptLabel")
-        assert entry.item_id == long_name[:72]
+        # Pinned value doubles as a drift tripwire for the mirrored frontend helper
+        # (promptActivityItemId in the prompts frontend pins the same fixture).
+        assert entry.item_id == "a" * 63 + "#0a0bb1d9"
+
+    def test_long_prompt_names_sharing_a_prefix_get_distinct_activity_keys(self):
+        shared_prefix = "b" * 80
+        self.create_prompt_version(name=shared_prefix + "-one", version=1)
+        self.create_prompt_version(name=shared_prefix + "-two", version=1)
+
+        assert self._set_label(shared_prefix + "-one", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label(shared_prefix + "-two", "production", 1).status_code == status.HTTP_201_CREATED
+
+        item_ids = set(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").values_list("item_id", flat=True)
+        )
+        assert len(item_ids) == 2
 
     def test_archive_logs_label_deletion(self):
         self.create_prompt_version(version=1)

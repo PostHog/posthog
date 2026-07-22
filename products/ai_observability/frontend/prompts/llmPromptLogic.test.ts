@@ -14,7 +14,7 @@ import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperat
 
 import { llmPromptsNameLabelsDestroy, llmPromptsNameLabelsUpdate } from '../generated/api'
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
-import { validatePromptLabelName } from './utils'
+import { promptActivityItemId, validatePromptLabelName } from './utils'
 
 jest.mock('../generated/api', () => ({
     llmPromptsNameLabelsUpdate: jest.fn(),
@@ -496,6 +496,14 @@ describe('llmPromptLogic', () => {
     })
 
     // One row per validation rule: allowlisted characters, reserved name, digits-only, lowercase-only.
+    // Pinned fixture shared with the backend test (test_llm_prompt.py) — catches drift
+    // between promptActivityItemId and prompt_activity_item_id, which would silently
+    // empty the History tab for long prompt names.
+    it('computes the same activity item id as the backend for long prompt names', () => {
+        expect(promptActivityItemId('a'.repeat(100))).toBe('a'.repeat(63) + '#0a0bb1d9')
+        expect(promptActivityItemId('short-name')).toBe('short-name')
+    })
+
     it.each([
         ['release-2.1_final', true],
         ['latest', false],

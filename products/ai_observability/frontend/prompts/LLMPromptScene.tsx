@@ -33,10 +33,7 @@ import {
     PublishReviewModal,
     cleanPromptSearchParams,
 } from './promptSceneComponents'
-import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
-
-// Mirrors ActivityLog.item_id's varchar(72) — see the backend's activity_logging.py.
-const ACTIVITY_LOG_ITEM_ID_MAX_LENGTH = 72
+import { openArchivePromptDialog, openDuplicatePromptDialog, promptActivityItemId } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
@@ -247,9 +244,7 @@ export function LLMPromptScene(): JSX.Element {
                                               content: (
                                                   <ActivityLog
                                                       scope={ActivityScope.LLM_PROMPT_LABEL}
-                                                      // Truncated to match the backend: prompt names go up to
-                                                      // 255 chars, activity item_id is varchar(72).
-                                                      id={prompt.name.slice(0, ACTIVITY_LOG_ITEM_ID_MAX_LENGTH)}
+                                                      id={promptActivityItemId(prompt.name)}
                                                   />
                                               ),
                                           },

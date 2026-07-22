@@ -30,6 +30,28 @@ export const PROMPT_LABEL_MAX_LENGTH = 128
 // Mirrors validate_prompt_label_name_value in posthog/api/llm_prompt_serializers.py; the backend stays authoritative.
 const PROMPT_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/
 
+// ActivityLog.item_id is varchar(72).
+const ACTIVITY_LOG_ITEM_ID_MAX_LENGTH = 72
+
+function fnv1a32(value: string): string {
+    let hash = 0x811c9dc5
+    for (const byte of new TextEncoder().encode(value)) {
+        hash ^= byte
+        hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    return hash.toString(16).padStart(8, '0')
+}
+
+// Mirrors prompt_activity_item_id in the backend's activity_logging.py — keep in sync.
+// Long prompt names become a readable prefix plus a hash of the full name, so two prompts
+// sharing a 72-char prefix don't share a history.
+export function promptActivityItemId(promptName: string): string {
+    if (promptName.length <= ACTIVITY_LOG_ITEM_ID_MAX_LENGTH) {
+        return promptName
+    }
+    return `${promptName.slice(0, ACTIVITY_LOG_ITEM_ID_MAX_LENGTH - 9)}#${fnv1a32(promptName)}`
+}
+
 export function validatePromptLabelName(name: string): string | undefined {
     const trimmed = name.trim()
     if (!trimmed) {
