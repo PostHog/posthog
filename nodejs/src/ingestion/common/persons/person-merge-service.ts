@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
@@ -13,6 +13,7 @@ import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
+import type { MergeFoldPair, MergeFoldPlan } from './person-merge-fold'
 import {
     PersonMergeLimitExceededError,
     PersonMergeRaceConditionError,
@@ -41,6 +42,23 @@ export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
+})
+
+export const mergeFoldExecutedCounter = new Counter({
+    name: 'person_merge_fold_executed_total',
+    help: 'Number of folded merge transactions executed.',
+})
+
+export const mergeFoldFallbackCounter = new Counter({
+    name: 'person_merge_fold_fallback_total',
+    help: 'Number of merge folds abandoned in favor of the sequential path.',
+    labelNames: ['reason'],
+})
+
+export const mergeFoldSizeHistogram = new Histogram({
+    name: 'person_merge_fold_size',
+    help: 'Number of merge pairs folded into one transaction.',
+    buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -124,8 +142,15 @@ export class PersonMergeService {
                 this.context.event.event === '$identify' &&
                 '$anon_distinct_id' in this.context.eventProperties
             ) {
+                const anonDistinctId = String(this.context.eventProperties['$anon_distinct_id'])
+                // Only await the fold path when a plan exists: an extra microtask
+                // here measurably shifts event interleaving for plain merges.
+                const foldResult = this.context.mergeFoldPlan ? await this.tryFoldedMerge(anonDistinctId) : null
+                if (foldResult !== null) {
+                    return foldResult
+                }
                 return await this.merge(
-                    String(this.context.eventProperties['$anon_distinct_id']),
+                    anonDistinctId,
                     this.context.distinctId,
                     this.context.team.id,
                     this.context.timestamp
@@ -337,6 +362,231 @@ export class PersonMergeService {
                 return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
             })
         }
+    }
+
+    /**
+     * Folded-merge entry for $identify events that are part of a MergeFoldPlan.
+     * Returns null when the event should fall through to the sequential merge
+     * path (no plan, pair not planned, plan abandoned, or fold not applicable).
+     */
+    private async tryFoldedMerge(anonDistinctId: string): Promise<PersonMergeResult | null> {
+        const plan = this.context.mergeFoldPlan
+        if (
+            !plan ||
+            plan.targetDistinctId !== this.context.distinctId ||
+            !plan.pairs.some((pair) => pair.anonDistinctId === anonDistinctId)
+        ) {
+            return null
+        }
+
+        if (plan.status === 'abandoned') {
+            return null
+        }
+
+        if (plan.status === 'executed') {
+            this.context.updateIsIdentified = true
+            return mergeSuccess(plan.mergedPerson, Promise.resolve(), true)
+        }
+
+        // Fold only under plain unlimited SYNC mode: LIMIT/ASYNC modes make
+        // per-merge DLQ/redirect decisions that must stay per-event.
+        if (this.context.mergeMode.type !== 'SYNC' || this.context.mergeMode.batchSize) {
+            plan.status = 'abandoned'
+            mergeFoldFallbackCounter.labels({ reason: 'merge_mode' }).inc()
+            return null
+        }
+
+        if (isDistinctIdIllegal(plan.targetDistinctId)) {
+            // The sequential path emits the per-event warning.
+            plan.status = 'abandoned'
+            mergeFoldFallbackCounter.labels({ reason: 'illegal_target' }).inc()
+            return null
+        }
+
+        try {
+            return await this.executeFoldedMerge(plan, anonDistinctId)
+        } catch (error) {
+            // Any failure falls back to the sequential path: the current event
+            // re-runs its own merge (a no-op if the fold partially landed), and
+            // later events in the run process individually with full retries.
+            plan.status = 'abandoned'
+            mergeFoldFallbackCounter.labels({ reason: 'error' }).inc()
+            logger.warn('🤔', 'folded merge failed, falling back to sequential merges', {
+                team_id: this.context.team.id,
+                distinct_id: plan.targetDistinctId,
+                pairs: plan.pairs.length,
+                error,
+            })
+            return null
+        }
+    }
+
+    private async executeFoldedMerge(plan: MergeFoldPlan, currentAnonDistinctId: string): Promise<PersonMergeResult> {
+        const teamId = this.context.team.id
+        this.context.updateIsIdentified = true
+
+        let target = await this.context.personStore.fetchForUpdate(teamId, plan.targetDistinctId)
+        let pairsToFold = plan.pairs
+
+        if (!target) {
+            // Cold start: no target person yet. Bootstrap it through the
+            // sequential path for the current event's pair (which creates the
+            // person or attaches the distinct_id), then fold the remaining pairs.
+            const bootstrap = await promiseRetry(
+                () =>
+                    this.mergeDistinctIds(currentAnonDistinctId, plan.targetDistinctId, teamId, this.context.timestamp),
+                'merge_distinct_ids'
+            )
+            if (!bootstrap.success || !bootstrap.person) {
+                throw new Error('merge fold bootstrap did not produce a target person')
+            }
+            target = bootstrap.person
+            pairsToFold = plan.pairs.filter((pair) => pair.anonDistinctId !== currentAnonDistinctId)
+        }
+
+        const sources = await this.context.personStore.fetchPersonsForUpdateByDistinctIds(
+            teamId,
+            pairsToFold.map((pair) => pair.anonDistinctId)
+        )
+        const sourceByDistinctId = new Map(sources.map((source) => [source.distinct_id, source]))
+
+        // Partition pairs, preserving pair order for property-merge precedence.
+        const mergeSources: InternalPerson[] = []
+        const seenSourceIds = new Set<string>([target.id])
+        const missingPairs: MergeFoldPair[] = []
+        for (const pair of pairsToFold) {
+            if (isDistinctIdIllegal(pair.anonDistinctId)) {
+                await emitIngestionWarning(this.context.outputs, teamId, {
+                    type: 'cannot_merge_with_illegal_distinct_id',
+                    details: {
+                        illegalDistinctId: pair.anonDistinctId,
+                        otherDistinctId: plan.targetDistinctId,
+                        distinctId: plan.targetDistinctId,
+                        eventUuid: pair.eventUuid,
+                    },
+                    pipelineStep: 'person-merge',
+                    alwaysSend: true,
+                })
+                continue
+            }
+            const source = sourceByDistinctId.get(pair.anonDistinctId)
+            if (!source) {
+                missingPairs.push(pair)
+                continue
+            }
+            if (seenSourceIds.has(source.id)) {
+                continue
+            }
+            if (source.is_identified) {
+                // $identify never merges an already-identified source. One
+                // warning per folded pair (pairs are deduped), not per event.
+                await emitIngestionWarning(this.context.outputs, teamId, {
+                    type: 'cannot_merge_already_identified',
+                    details: {
+                        sourcePersonDistinctId: pair.anonDistinctId,
+                        targetPersonDistinctId: plan.targetDistinctId,
+                        distinctId: plan.targetDistinctId,
+                        eventUuid: pair.eventUuid,
+                        personId: target.uuid,
+                        otherPersonId: source.uuid,
+                    },
+                    pipelineStep: 'person-merge',
+                    alwaysSend: true,
+                })
+                continue
+            }
+            seenSourceIds.add(source.id)
+            mergeSources.push(source)
+        }
+
+        if (mergeSources.length === 0 && missingPairs.length === 0) {
+            plan.status = 'executed'
+            plan.mergedPerson = target
+            return mergeSuccess(target, Promise.resolve(), true)
+        }
+
+        // Sequential property precedence: each pair merges source properties
+        // under the accumulated target's (target wins, earlier sources win
+        // over later ones). Event $set/$set_once apply on top, as in mergePeople.
+        let mergedProperties: Properties = target.properties
+        for (const source of mergeSources) {
+            mergedProperties = { ...source.properties, ...mergedProperties }
+        }
+        const propertyUpdates = computeEventPropertyUpdates(
+            this.context.event,
+            mergedProperties,
+            this.context.updateAllProperties
+        )
+        const [updatedTempPerson] = applyEventPropertyUpdates(propertyUpdates, {
+            ...target,
+            properties: mergedProperties,
+        })
+
+        const createdAt = DateTime.min(target.created_at, ...mergeSources.map((source) => source.created_at))
+        const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
+
+        const currentTarget = target
+        const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
+            'mergePeopleFold',
+            async (tx) => {
+                let person = currentTarget
+                let updateMessages: PersonMessage[] = []
+                if (mergeSources.length > 0) {
+                    ;[person, updateMessages] = await tx.updatePersonForMerge(
+                        currentTarget,
+                        {
+                            created_at: createdAt,
+                            properties: updatedTempPerson.properties,
+                            is_identified: true,
+                            version,
+                        },
+                        this.context.distinctId
+                    )
+                }
+
+                const moveResult = await tx.moveDistinctIdsFromPersons(
+                    mergeSources,
+                    currentTarget,
+                    this.context.distinctId
+                )
+                if (!moveResult.success) {
+                    throw new TargetPersonNotFoundError('Target person no longer exists')
+                }
+
+                const addMessages: PersonMessage[] = []
+                for (const pair of missingPairs) {
+                    // See mergeDistinctIds for the personless distinctIdVersion logic.
+                    const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
+                    const distinctIdVersion = inserted ? 0 : 1
+                    addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
+                }
+
+                let deleteMessages: PersonMessage[] = []
+                if (mergeSources.length > 0) {
+                    await tx.updateCohortsAndFeatureFlagsForMergeBatch(
+                        teamId,
+                        mergeSources.map((source) => source.id),
+                        currentTarget.id,
+                        this.context.distinctId
+                    )
+                    deleteMessages = await tx.deletePersons(mergeSources, this.context.distinctId)
+                }
+
+                return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
+            }
+        )
+
+        plan.status = 'executed'
+        plan.mergedPerson = mergedPerson
+        mergeFoldExecutedCounter.inc()
+        mergeFoldSizeHistogram.observe(plan.pairs.length)
+
+        const kafkaAck = this.context.produceMessages(kafkaMessages)
+        for (const source of mergeSources) {
+            // Same fire-and-forget contract as executeTransaction.
+            void this.context.producePersonMergeEvent(source, mergedPerson).catch(() => {})
+        }
+        return mergeSuccess(mergedPerson, kafkaAck, true)
     }
 
     public async mergePeople({

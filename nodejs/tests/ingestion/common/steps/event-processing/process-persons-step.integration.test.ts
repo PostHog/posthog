@@ -14,10 +14,12 @@ import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
 import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
 import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
+import { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import {
@@ -410,5 +412,197 @@ describe('createProcessPersonsStep', () => {
             expect(result.reason).toBe('Event redirected to async merge topic')
             expect(result.output).toBe(ASYNC_OUTPUT)
         }
+    })
+
+    describe('merge folding', () => {
+        const foldOptions: EventPipelineRunnerOptions = {
+            ...options,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
+            PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+            PERSON_MERGE_FOLD_ENABLED: true,
+        }
+
+        function identifyEvent(
+            anonDistinctId: string,
+            targetDistinctId: string,
+            set: Record<string, any> = {}
+        ): PluginEvent {
+            return {
+                ...pluginEvent,
+                event: '$identify',
+                distinct_id: targetDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $anon_distinct_id: anonDistinctId, $set: set },
+            }
+        }
+
+        function planFor(targetDistinctId: string, ...anonDistinctIds: string[]): MergeFoldPlan {
+            return {
+                targetDistinctId,
+                pairs: anonDistinctIds.map((anonDistinctId) => ({
+                    anonDistinctId,
+                    eventUuid: new UUIDT().toString(),
+                })),
+                status: 'planned',
+            }
+        }
+
+        async function createPersonWithProps(
+            distinctId: string,
+            properties: Record<string, any>,
+            isIdentified: boolean = false
+        ) {
+            const result = await personRepository.createPerson(
+                DateTime.utc(),
+                properties,
+                {},
+                {},
+                teamId,
+                null,
+                isIdentified,
+                new UUIDT().toString(),
+                { distinctId }
+            )
+            if (!result.success) {
+                throw new Error(`Failed to create person with distinct_id ${distinctId}`)
+            }
+            return result.person
+        }
+
+        async function runIdentifies(
+            events: PluginEvent[],
+            plan: MergeFoldPlan | undefined,
+            stepOptions: EventPipelineRunnerOptions
+        ) {
+            const step = createProcessPersonsStep(stepOptions, personOutputs)
+            const results = []
+            for (const event of events) {
+                const result = await step(
+                    createInput({
+                        normalizedEvent: event,
+                        timestamp: DateTime.fromISO(event.timestamp!),
+                        mergeFoldPlan: plan,
+                    })
+                )
+                expect(isOkResult(result)).toBe(true)
+                results.push(result)
+            }
+            return results
+        }
+
+        it('produces the same persons as sequential merges for a storm of identifies', async () => {
+            // Sequential arm
+            await createPersonWithProps('seq-anon-1', { a: 1, shared: 'first' })
+            await createPersonWithProps('seq-anon-2', { b: 2, shared: 'second' })
+            await createPersonWithProps('seq-user', { t: 1 })
+            await runIdentifies(
+                [
+                    identifyEvent('seq-anon-1', 'seq-user', { s1: true }),
+                    identifyEvent('seq-anon-2', 'seq-user', { s2: true }),
+                ],
+                undefined,
+                foldOptions
+            )
+
+            // Folded arm, identical fixtures under different distinct ids
+            await createPersonWithProps('fold-anon-1', { a: 1, shared: 'first' })
+            await createPersonWithProps('fold-anon-2', { b: 2, shared: 'second' })
+            await createPersonWithProps('fold-user', { t: 1 })
+            const plan = planFor('fold-user', 'fold-anon-1', 'fold-anon-2')
+            await runIdentifies(
+                [
+                    identifyEvent('fold-anon-1', 'fold-user', { s1: true }),
+                    identifyEvent('fold-anon-2', 'fold-user', { s2: true }),
+                ],
+                plan,
+                foldOptions
+            )
+
+            expect(plan.status).toBe('executed')
+            // Person-row updates (merged properties, is_identified) are buffered
+            // by the batch-writing store in both paths; flush to compare final state.
+            await personsStore.flush()
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(2)
+            const foldPerson = persons.find((p) => p.id === plan.mergedPerson!.id)!
+            const sequential = persons.find((p) => p.id !== foldPerson.id)!
+
+            expect(foldPerson.properties).toEqual(sequential.properties)
+            expect(foldPerson.is_identified).toBe(true)
+            const seqDistinctIds = await fetchDistinctIdValues(infra.postgres, sequential)
+            const foldDistinctIds = await fetchDistinctIdValues(infra.postgres, foldPerson)
+            expect(seqDistinctIds.sort()).toEqual(['seq-anon-1', 'seq-anon-2', 'seq-user'])
+            expect(foldDistinctIds.sort()).toEqual(['fold-anon-1', 'fold-anon-2', 'fold-user'])
+        })
+
+        it('short-circuits later events in an executed run without extra persons', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            await createPersonWithProps('anon-2', { b: 2 })
+            await createPersonWithProps('user-1', {})
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            const results = await runIdentifies(
+                [identifyEvent('anon-1', 'user-1'), identifyEvent('anon-2', 'user-1')],
+                plan,
+                foldOptions
+            )
+
+            expect(plan.status).toBe('executed')
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            for (const result of results) {
+                if (isOkResult(result)) {
+                    expect(result.value.person.uuid).toBe(persons[0].uuid)
+                }
+            }
+        })
+
+        it('skips already-identified sources with a warning and folds the rest', async () => {
+            await createPersonWithProps('anon-identified', { a: 1 }, true)
+            await createPersonWithProps('anon-2', { b: 2 })
+            await createPersonWithProps('user-1', {})
+            const plan = planFor('user-1', 'anon-identified', 'anon-2')
+
+            await runIdentifies([identifyEvent('anon-identified', 'user-1')], plan, foldOptions)
+
+            expect(plan.status).toBe('executed')
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(2)
+            const target = persons.find((p) => p.id === plan.mergedPerson!.id)!
+            const targetDistinctIds = await fetchDistinctIdValues(infra.postgres, target)
+            expect(targetDistinctIds.sort()).toEqual(['anon-2', 'user-1'])
+        })
+
+        it('bootstraps a missing target and folds remaining pairs, including personless adds', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            // anon-2 has no person row (personless-style)
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, foldOptions)
+
+            expect(plan.status).toBe('executed')
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
+        })
+
+        it('abandons the fold under LIMIT merge mode and merges sequentially', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            await createPersonWithProps('user-1', {})
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            // Default options carry PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT=100 (LIMIT mode)
+            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, {
+                ...options,
+                PERSON_MERGE_FOLD_ENABLED: true,
+            })
+
+            expect(plan.status).toBe('abandoned')
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['anon-1', 'user-1'])
+        })
     })
 })

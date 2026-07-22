@@ -212,6 +212,10 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.deletePerson(person)
     }
 
+    deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]> {
+        return this.postgres.deletePersons(persons)
+    }
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return this.postgres.addDistinctId(person, distinctId, version)
     }
@@ -230,6 +234,14 @@ export class PersonHogPersonRepository implements PersonRepository {
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {
         return this.postgres.personPropertiesSize(personId, teamId)
+    }
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id']
+    ): Promise<void> {
+        return this.postgres.updateCohortsAndFeatureFlagsForMergeBatch(teamID, sourcePersonIDs, targetPersonID)
     }
 
     updateCohortsAndFeatureFlagsForMerge(

@@ -1,7 +1,7 @@
 import { buildIntegerMatcher } from '~/common/config/config'
-import { GroupPrescanFunction } from '~/ingestion/framework/builders'
+import type { GroupPrescanFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { PluginEvent } from '~/plugin-scaffold'
-import { Team } from '~/types'
+import { InternalPerson, Team } from '~/types'
 
 /** One planned merge: an anon distinct_id to fold into the group's target distinct_id. */
 export interface MergeFoldPair {
@@ -27,6 +27,8 @@ export interface MergeFoldPlan {
     targetDistinctId: string
     pairs: MergeFoldPair[]
     status: 'planned' | 'executed' | 'abandoned'
+    /** The post-merge target person, set when the fold executes; later events in the run short-circuit to it. */
+    mergedPerson?: InternalPerson
 }
 
 export interface MergeFoldOptions {

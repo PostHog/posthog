@@ -143,6 +143,9 @@ export interface PersonRepository {
 
     deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 
+    /** Batched deletePerson for folded merges; all persons must belong to one team. */
+    deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]>
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
@@ -154,6 +157,12 @@ export interface PersonRepository {
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id']
+    ): Promise<void>
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id']
     ): Promise<void>
 

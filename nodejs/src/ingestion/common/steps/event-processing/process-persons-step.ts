@@ -4,6 +4,7 @@ import { buildIntegerMatcher } from '~/common/config/config'
 import { AsyncOutput } from '~/common/outputs'
 import { MergeEventsConfig, PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
+import type { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
 import { determineMergeMode } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
@@ -21,6 +22,7 @@ export type ProcessPersonsInput = {
     timestamp: DateTime
     personlessPerson?: Person
     personsStoreForBatch: PersonsStoreForBatch
+    mergeFoldPlan?: MergeFoldPlan
 }
 
 export type ProcessPersonsOutput = {
@@ -66,7 +68,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             mergeMode,
             options.PERSON_PROPERTIES_UPDATE_ALL,
             shouldUpdateLastSeenAt,
-            mergeEventsConfig
+            mergeEventsConfig,
+            input.mergeFoldPlan
         )
 
         const processor = new PersonEventProcessor(
