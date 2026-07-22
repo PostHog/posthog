@@ -623,7 +623,7 @@ class TestJoinPublicChannels:
     _POST = "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._slack_post"
 
     def test_only_public_non_member_channels_are_joined(self) -> None:
-        channels = [
+        channels: list[dict[str, Any]] = [
             {"id": "C_PUB_NEW"},  # public, not a member -> join
             {"id": "C_PUB_MEMBER", "is_member": True},  # already in -> skip
             {"id": "C_PRIVATE", "is_private": True},  # private -> skip (can't self-join)

@@ -98,10 +98,10 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             raise ValueError("Slack access token not found")
 
         integration = self.get_oauth_integration(config.slack_integration_id, team_id)
-        access_token = integration.access_token
-        if not access_token:
+        oauth_token = integration.access_token
+        if not oauth_token:
             raise ValueError("Slack access token not found")
-        return access_token, self._get_authed_user_id(integration), str(integration.id)
+        return oauth_token, self._get_authed_user_id(integration), str(integration.id)
 
     def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         return WebhookCreationResult(
