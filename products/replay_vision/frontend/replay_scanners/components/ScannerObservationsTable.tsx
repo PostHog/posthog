@@ -234,7 +234,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         <div className="space-y-2">
             <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
-                {/* Counts reflect the active filters (the stats call reuses the list params), so they double as the filtered-results summary. */}
                 <span className="text-muted text-sm whitespace-nowrap">
                     {observationStats.total.toLocaleString()} total ·{' '}
                     <span className={observationStats.failed > 0 ? 'text-danger' : undefined}>
