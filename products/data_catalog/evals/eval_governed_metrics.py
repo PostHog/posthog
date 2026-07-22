@@ -41,6 +41,7 @@ from products.data_catalog.evals.scorers import (
 from products.data_catalog.evals.seeders import (
     seed_ambiguous_top_customers_metrics,
     seed_approved_metric,
+    seed_approved_metric_with_decoy_insights,
     seed_drifted_metric,
     seed_failing_top_customers_metric,
     seed_metric_listing_catalog,
@@ -261,6 +262,28 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     )
                 },
             },
+        ),
+        # Detour recovery: decoy insights are named like the measure, so the agent may first search
+        # system.insights. The execute-sql result's governed-metric hint must pull it back to the
+        # canonical run rather than answering from a same-named insight.
+        SandboxedEvalCase(
+            name="governed_metric_insight_detour",
+            prompt="What's our MRR? If we have a saved insight for it, feel free to start there.",
+            expected={
+                "canonical_metric_run": {
+                    "metric_name": APPROVED_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Even if it first searched system.insights and found a same-named decoy insight "
+                        f"({', '.join(repr(name) for name in DECOY_INSIGHT_NAMES)}), it recovered to the approved "
+                        f"metric '{APPROVED_METRIC_NAME}', ran it through data-catalog-metric-run, and reported that "
+                        "canonical value rather than presenting a decoy insight's result as the MRR."
+                    )
+                },
+            },
+            setup=seed_approved_metric_with_decoy_insights,
         ),
         # Raw event/property exploration with an approved metric present as temptation must
         # keep its schema-first route and skip the catalog entirely.
