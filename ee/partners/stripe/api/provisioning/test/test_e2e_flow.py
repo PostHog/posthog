@@ -103,7 +103,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["service_id"] == "free"
 
-        # 9. Deep link - create and use it to login (consumed by /agentic/login)
+        # 9. Deep link - create and use it to login (consumed by /api/partners/stripe/login)
         res = self._post_signed_with_bearer(
             f"{BASE_PATH}/provisioning/deep_links", data={"purpose": "dashboard"}, token=access_token
         )
@@ -117,7 +117,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         provisioned_user.is_email_verified = True
         provisioned_user.save(update_fields=["is_email_verified"])
 
-        login_res = self.client.get(f"/agentic/login?token={deep_link_token}")
+        login_res = self.client.get(f"/api/partners/stripe/login?token={deep_link_token}")
         assert login_res.status_code == 302
         assert "/project/" in login_res["Location"]
 
@@ -125,7 +125,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert me_res.status_code == 200
         assert me_res.json()["email"] == "e2e-test@example.com"
 
-        reuse_res = self.client.get(f"/agentic/login?token={deep_link_token}")
+        reuse_res = self.client.get(f"/api/partners/stripe/login?token={deep_link_token}")
         assert reuse_res.status_code == 302
         assert "expired_or_invalid_token" in reuse_res["Location"]
 

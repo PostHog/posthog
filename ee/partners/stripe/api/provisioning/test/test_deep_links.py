@@ -18,13 +18,14 @@ class TestDeepLinks(StripeProvisioningTestBase):
         assert body["purpose"] == "dashboard"
         assert body["expires_at"]
         assert f"team_id={self.team.id}" in body["url"]
+        assert "/api/partners/stripe/login?token=" in body["url"]
 
         self.user.is_email_verified = True
         self.user.save(update_fields=["is_email_verified"])
         self.client.logout()
 
         deep_link_token = parse_qs(urlparse(body["url"]).query)["token"][0]
-        login = self.client.get(f"/agentic/login?token={deep_link_token}")
+        login = self.client.get(f"/api/partners/stripe/login?token={deep_link_token}")
         assert login.status_code == 302
         assert login["Location"] == f"/project/{self.team.id}/insights"
 
@@ -47,11 +48,3 @@ class TestDeepLinks(StripeProvisioningTestBase):
             "code": "invalid_path",
             "message": "path must be a relative in-app path beginning with a single '/'",
         }
-
-    def test_deep_links_gate(self):
-        self.stripe_app.provisioning_can_issue_deep_links = False
-        self.stripe_app.save(update_fields=["provisioning_can_issue_deep_links"])
-        token = self._get_bearer_token()
-        res = self._post_signed_with_bearer(DEEP_LINKS_URL, data={"purpose": "dashboard"}, token=token)
-        assert res.status_code == 403
-        assert res.json()["error"]["code"] == "deep_links_not_enabled"

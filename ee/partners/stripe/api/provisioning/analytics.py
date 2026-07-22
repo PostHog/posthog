@@ -25,12 +25,16 @@ def capture_provisioning_event(
 ) -> None:
     team_id = extra.get("team_id")
     distinct_id = f"agentic_provisioning_team_{team_id}" if team_id else f"agentic_provisioning_{uuid.uuid4().hex[:16]}"
-    properties: dict[str, object] = {"outcome": outcome, "path_namespace": PATH_NAMESPACE, **extra}
+    properties: dict[str, object] = {
+        "outcome": outcome,
+        "path_namespace": PATH_NAMESPACE,
+        # Single-caller namespace; tag the type without reading app config.
+        "partner_type": "stripe",
+        **extra,
+    }
     if partner is not None:
         properties.setdefault("partner_id", str(partner.id))
         properties.setdefault("client_name", partner.name)
-        if partner.provisioning_partner_type:
-            properties.setdefault("partner_type", partner.provisioning_partner_type)
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
         distinct_id=distinct_id,

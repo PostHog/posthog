@@ -9,6 +9,8 @@ from django.test import override_settings
 
 from rest_framework.test import APIClient
 
+from posthog.models.oauth import OAuthApplication
+
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.signature import compute_signature
 
@@ -29,8 +31,8 @@ class StripeProvisioningTestBase(APIBaseTest):
         self._ensure_stripe_oauth_app()
 
     def _ensure_stripe_oauth_app(self):
-        from posthog.models.oauth import OAuthApplication
-
+        # No provisioning_* flags: this namespace authorizes by identity
+        # (client_id) alone and does not read the app's provisioning config.
         self.stripe_app, _ = OAuthApplication.objects.get_or_create(
             client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
             defaults={
@@ -40,15 +42,10 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
-                "provisioning_can_issue_deep_links": True,
-                # The Stripe Projects app is the one app that mints a provisioned PAT.
-                "provisioning_issues_personal_api_key": True,
             },
         )
 
     def _create_other_partner_app(self, **overrides):
-        from posthog.models.oauth import OAuthApplication
-
         defaults = {
             "client_id": "other-partner",
             "name": "Other Partner",

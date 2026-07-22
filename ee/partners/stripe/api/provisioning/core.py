@@ -30,7 +30,6 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.scopes import narrow_scopes_to_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
@@ -62,21 +61,8 @@ class StripeOAuthAppMissingError(Exception):
 
     Raised instead of fabricating an app on demand: a missing app is an
     operational misconfiguration, not something to paper over with a freshly
-    created application that carries no scope ceiling.
+    created application.
     """
-
-
-def _seed_stripe_app_scopes(app: OAuthApplication) -> None:
-    """Seed the Stripe Projects app's scope ceiling when it is unset.
-
-    Region-agnostic by design: US and EU each hold their own OAuthApplication
-    row, so this runs independently the first time the app is resolved in each
-    region.
-    """
-    if app.scopes:
-        return
-    app.scopes = list(STRIPE_CONTRACTED_SCOPES)
-    app.save(update_fields=["scopes"])
 
 
 def get_stripe_oauth_app() -> OAuthApplication:
@@ -96,7 +82,6 @@ def get_stripe_oauth_app() -> OAuthApplication:
         capture_exception(error, additional_properties={"client_id": client_id})
         raise error from None
 
-    _seed_stripe_app_scopes(app)
     return app
 
 
@@ -625,22 +610,14 @@ def validate_label_prefix(raw: Any) -> str | None:
 
 
 def maybe_create_provisioned_pat(
-    user: User, team: Team, app: OAuthApplication | None, granted_scope: str | None, label_prefix: str | None = None
+    user: User, team: Team, granted_scope: str | None, label_prefix: str | None = None
 ) -> str | None:
-    """Create a Personal API Key for a provisioned user and return the raw key value.
+    """Create a Personal API Key for the provisioned user and return the raw value.
 
-    Gated by ``app.provisioning_issues_personal_api_key``: off by default, so most
-    apps never receive a provisioned PAT (the OAuth token is the credential).
-    Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
-    from the response entirely.
-
-    When enabled (the grandfathered legacy Stripe app), the key carries the granted
-    OAuth token's scopes (``granted_scope``) narrowed to the app's current ceiling,
-    so a provisioned PAT can exceed neither what the user granted nor what the app
-    may hold. Minting from the ceiling alone would hand out optional scopes the
-    grant never included. A flag-on app with an unseeded ceiling mints nothing: an
-    empty-scope PAT fails every scope check, and widening to a wildcard would
-    bypass the ceiling.
+    The key carries the granted OAuth token's scopes (``granted_scope``) as-is;
+    this namespace does not enforce a scope ceiling, so what the token was
+    granted is exactly what the PAT gets. Falls back to the default Stripe scope
+    set when the token carried none.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -650,20 +627,7 @@ def maybe_create_provisioned_pat(
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
-    if not app or not app.provisioning_issues_personal_api_key:
-        return None
-    if not app.ceiling_scopes:
-        capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
-        return None
-    granted = (granted_scope or "").split()
-    if "*" in granted:
-        # A legacy wildcard token covers everything, so the ceiling is the cap.
-        pat_scopes = app.ceiling_scopes
-    else:
-        pat_scopes = narrow_scopes_to_ceiling([s for s in granted if ":" in s], app.ceiling_scopes) or []
-    if not pat_scopes:
-        capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
-        return None
+    pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
     # TODO: latent bug - every call mints a new PAT without revoking earlier
     # ones, so rotate_credentials accumulates live keys instead of rotating
     # them. A correct fix needs a provenance marker on PersonalAPIKey (or the

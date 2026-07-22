@@ -11,8 +11,14 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
 from ee.partners.stripe.api.provisioning import views
+from ee.partners.stripe.api.provisioning.login import stripe_provisioning_login
 
 urlpatterns = [
+    path(
+        "login",
+        stripe_provisioning_login,
+        name="stripe_provisioning_login",
+    ),
     path(
         "provisioning/health",
         csrf_exempt(views.HealthView.as_view()),

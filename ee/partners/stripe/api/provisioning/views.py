@@ -24,11 +24,9 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar, cast
 
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
@@ -36,12 +34,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
-from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
 from posthog.utils import get_instance_region
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX, DEEP_LINK_CACHE_PREFIX
@@ -52,7 +49,6 @@ from ee.partners.stripe.api.provisioning.constants import (
     ACCESS_TOKEN_EXPIRY_SECONDS,
     ANALYTICS_SERVICE_ID,
     DEEP_LINK_TTL_SECONDS,
-    PARTNER_TOKEN_EXPIRY_SECONDS,
     PAY_AS_YOU_GO_SERVICE_ID,
     STRIPE_CONTRACTED_SCOPES,
     SUPPORTED_VERSIONS,
@@ -64,7 +60,6 @@ from ee.partners.stripe.api.provisioning.core import (
     get_available_teams_for_user,
     get_oauth_app_for_code,
     get_provisioning_service_id,
-    get_stripe_oauth_app,
     handle_existing_user,
     handle_new_user,
     is_safe_deep_link_path,
@@ -92,10 +87,8 @@ from ee.partners.stripe.api.provisioning.throttling import (
     AccountRequestsThrottle,
     ResourceCreatesThrottle,
     TokenExchangesThrottle,
-    enforce_partner_rate_limit,
+    enforce_stripe_rate_limit,
 )
-
-logger = structlog.get_logger(__name__)
 
 _CODE_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_\-]+")
 
@@ -132,17 +125,6 @@ class SignatureCheckedMixin:
             raise PreRenderedError(error)
         if error := verify_api_version(request):
             raise PreRenderedError(error)
-
-
-def _stripe_app_if_partner_flagged() -> OAuthApplication | None:
-    """Return the Stripe Projects app row when it is registered as a provisioning
-    partner; partner registration turns on the per-partner gates (capability
-    flags, rate limits) that a partner-less row does not carry."""
-    try:
-        app = get_stripe_oauth_app()
-    except StripeOAuthAppMissingError:
-        return None
-    return app if app.provisioning_partner_type else None
 
 
 # ---------------------------------------------------------------------------
@@ -210,13 +192,7 @@ class AccountRequestsView(StripeProvisioningAPIView):
             capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
             raise SpecError("invalid_request", "orchestrator.stripe.account is required")
 
-        if app := _stripe_app_if_partner_flagged():
-            if not app.provisioning_can_create_accounts:
-                capture_provisioning_event(
-                    "account_request", "error", partner=app, error_code="account_creation_disabled"
-                )
-                raise SpecError("forbidden", "Account creation is not enabled for this partner", status=403)
-            enforce_partner_rate_limit(AccountRequestsThrottle, app, request, self)
+        enforce_stripe_rate_limit(AccountRequestsThrottle, request, self)
 
         code_challenge = data["code_challenge"]
         code_challenge_method = data["code_challenge_method"]
@@ -324,18 +300,12 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 return error
 
         # Consume the code before rate limiting so a leaked auth code can't be replayed
-        # to burn the partner's bucket. Auth codes are single-use by spec, so the
-        # tradeoff (rate-limited client loses the code) is acceptable - clients can
+        # to burn the bucket. Auth codes are single-use by spec, so the tradeoff
+        # (rate-limited client loses the code) is acceptable - clients can
         # re-initiate the OAuth flow if rate-limited.
         cache.delete(cache_key)
 
-        partner_id = code_data.get("partner_id", "")
-        if partner_id:
-            try:
-                partner = OAuthApplication.objects.get(id=partner_id)
-                enforce_partner_rate_limit(TokenExchangesThrottle, partner, request, self)
-            except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
-                logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
+        enforce_stripe_rate_limit(TokenExchangesThrottle, request, self)
 
         user_id = code_data["user_id"]
         team_id = code_data["team_id"]
@@ -375,20 +345,13 @@ class OAuthTokenView(StripeProvisioningAPIView):
                     capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
                     raise SpecError("invalid_grant", "Application sessions were revoked; re-authorize.")
 
-            # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
-            # ceiling has to be enforced here before the token is created by hand.
+            # No scope ceiling in this namespace: Stripe is trusted with full
+            # access, so it receives exactly the scopes it requested (falling back
+            # to the default Stripe set when none were requested).
             requested_scopes = scopes if scopes else list(STRIPE_CONTRACTED_SCOPES)
-            app_scopes = locked_app.ceiling_scopes if locked_app else []
-            if not scopes_within_ceiling(requested_scopes, app_scopes):
-                capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
-                raise SpecError("invalid_scope", "Requested scopes exceed the application's allowed scopes")
             scope_str = " ".join(requested_scopes)
 
-            token_expiry = (
-                PARTNER_TOKEN_EXPIRY_SECONDS
-                if oauth_app and oauth_app.is_provisioning_partner
-                else ACCESS_TOKEN_EXPIRY_SECONDS
-            )
+            token_expiry = ACCESS_TOKEN_EXPIRY_SECONDS
 
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, team_id)
             # A partner token carries its restriction in scoped_teams alone, and the standard
@@ -513,25 +476,11 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
                 raise SpecError("invalid_grant", "Application sessions were revoked; re-authorize.")
 
-            # Cap the refreshed scope at the app's current ceiling before touching any
-            # token rows - a since-tightened ceiling must drop the removed scopes, and a
-            # token now fully outside the ceiling has to re-authorize rather than refresh.
-            # Done up front so a rejected refresh never revokes the caller's only token.
-            app_scopes = oauth_app.ceiling_scopes if oauth_app else []
-            narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
-            if narrowed_scopes is None:
-                capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
-                raise SpecError(
-                    "invalid_grant",
-                    "Token scopes are no longer within the application's allowed scopes; re-authorize.",
-                )
-            new_scope = " ".join(narrowed_scopes)
+            # No scope ceiling in this namespace: carry the prior token's scopes
+            # forward unchanged.
+            new_scope = old_scope
 
-            # provisioning_partner_type is a stable marker set at partner registration;
-            # checking it instead of is_provisioning_partner prevents a bypass when an admin
-            # clears provisioning_auth_method to disable a partner without revoking tokens.
-            if oauth_app and oauth_app.provisioning_partner_type:
-                enforce_partner_rate_limit(TokenExchangesThrottle, oauth_app, request, self)
+            enforce_stripe_rate_limit(TokenExchangesThrottle, request, self)
 
             old_access = old_refresh.access_token
             old_refresh.access_token = None
@@ -541,11 +490,7 @@ class OAuthTokenView(StripeProvisioningAPIView):
             if old_access:
                 old_access.delete()
 
-            token_expiry = (
-                PARTNER_TOKEN_EXPIRY_SECONDS
-                if oauth_app and oauth_app.is_provisioning_partner
-                else ACCESS_TOKEN_EXPIRY_SECONDS
-            )
+            token_expiry = ACCESS_TOKEN_EXPIRY_SECONDS
 
             new_access_value = generate_random_oauth_access_token(None)
             new_access = OAuthAccessToken.objects.create(
@@ -620,15 +565,13 @@ class ResourcesCreateView(StripeResourceAPIView):
         access_token = cast(OAuthAccessToken, request.auth)
 
         app = access_token.application
-        if app and app.provisioning_partner_type:
-            enforce_partner_rate_limit(
-                ResourceCreatesThrottle,
-                app,
-                request,
-                self,
-                message="Rate limit exceeded for this partner. Try again later.",
-                envelope="status",
-            )
+        enforce_stripe_rate_limit(
+            ResourceCreatesThrottle,
+            request,
+            self,
+            message="Rate limit exceeded. Try again later.",
+            envelope="status",
+        )
 
         serializer = ResourceCreateSerializer(data=request.data, context={"application": app})
         if not serializer.is_valid():
@@ -724,9 +667,7 @@ class ResourcesCreateView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(
-            user, team, access_token.application, access_token.scope, label_prefix=label_prefix
-        ):
+        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -811,9 +752,7 @@ class RotateCredentialsView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(
-            user, team, access_token.application, access_token.scope, label_prefix=label_prefix
-        ):
+        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -956,10 +895,6 @@ class DeepLinksView(StripeResourceAPIView):
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
-        if not access_token.application.provisioning_can_issue_deep_links:
-            capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
-            raise SpecError("deep_links_not_enabled", "Deep links are not enabled for this partner", status=403)
-
         serializer = DeepLinkSerializer(data=request.data)
         if not serializer.is_valid():
             raise SpecError("invalid_request", first_error_message(serializer.errors))
@@ -995,7 +930,7 @@ class DeepLinksView(StripeResourceAPIView):
 
         expires_at = timezone.now() + timedelta(seconds=DEEP_LINK_TTL_SECONDS)
 
-        url = f"{host}/agentic/login?token={token}"
+        url = f"{host}/api/partners/stripe/login?token={token}"
         if team_id:
             url += f"&team_id={team_id}"
 

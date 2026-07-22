@@ -171,14 +171,10 @@ class TestResources(StripeProvisioningTestBase):
         assert res.status_code == 401
         assert res.json() == {"error": {"code": "invalid_signature", "message": "Signature verification failed"}}
 
-    def test_bearer_from_non_stripe_partner_app_rejected(self):
-        # Even a fully enabled provisioning partner must not pass: this
-        # namespace only accepts the Stripe Projects app.
-        other_app = self._create_other_partner_app(
-            provisioning_auth_method="hmac",
-            provisioning_active=True,
-            provisioning_can_provision_resources=True,
-        )
+    def test_bearer_from_another_app_rejected(self):
+        # Authorization is by identity alone: a token for any app other than the
+        # Stripe Projects app is rejected regardless of its config.
+        other_app = self._create_other_partner_app()
         token_value = generate_random_oauth_access_token(None)
         OAuthAccessToken.objects.create(
             application=other_app,

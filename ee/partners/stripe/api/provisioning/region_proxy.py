@@ -44,9 +44,8 @@ DEFAULT_EU_DOMAIN = "eu.posthog.com"
 PROXY_LOOP_HEADER = "X-PostHog-Proxied"
 
 BEARER_PREFIX = "Bearer "
-# "Does this bearer exist locally" cache; keyed instance-wide so every
-# provisioning surface shares one warm entry per token.
-BEARER_EXISTS_CACHE_PREFIX = "agentic_bearer_exists:"
+# "Does this bearer exist locally" cache, keyed within this namespace.
+BEARER_EXISTS_CACHE_PREFIX = "stripe_provisioning_bearer_exists:"
 # Short TTL on "token doesn't exist here" so a newly-minted EU token becomes
 # visible to US (for the short window before EU→US replication catches up) and
 # so a token revoked on the other region starts getting proxied again soon.

@@ -9,7 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models.oauth import OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_oauth_refresh_token
@@ -92,13 +92,13 @@ class TestOAuthToken(StripeProvisioningTestBase):
         assert res.status_code == 401
         assert res.json()["error_description"] == "code_verifier is required for PKCE"
 
-    def test_scope_ceiling_is_enforced(self):
-        self.stripe_app.scopes = ["query:read"]
-        self.stripe_app.save(update_fields=["scopes"])
+    def test_requested_scopes_are_granted_without_ceiling(self):
+        # No scope ceiling in this namespace: whatever the code requests is granted.
         self._seed_auth_code("code_wide", scopes=["query:read", "project:read"])
         res = self._post_token({"grant_type": "authorization_code", "code": "code_wide"})
-        assert res.status_code == 400
-        assert res.json()["error"] == "invalid_scope"
+        assert res.status_code == 200
+        token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
+        assert set(token.scope.split()) == {"query:read", "project:read"}
 
     def test_sessions_revoked_fails_closed_for_codes_without_issued_at(self):
         self.stripe_app.sessions_revoked_at = timezone.now()
