@@ -8,9 +8,51 @@ import structlog
 
 from posthog.models import User
 
-from .models import MCPGatewayServer, MCPServerInstallation
+from .models import MCPGatewayServer, MCPServerInstallation, MCPServerTemplate
 
 logger = structlog.get_logger(__name__)
+
+
+def sync_catalog_templates_to_gateway(team_id: int) -> None:
+    """Ensure every active catalog template is registered for the team."""
+    templates = list(
+        MCPServerTemplate.objects.filter(is_active=True).only("id", "name", "url", "description", "category")
+    )
+    if not templates:
+        return
+
+    existing_by_url = {
+        server.url: server
+        for server in MCPGatewayServer.objects.for_team(team_id)
+        .filter(url__in=[template.url for template in templates])
+        .only("id", "url", "template_id")
+    }
+
+    linked_servers: list[MCPGatewayServer] = []
+    new_servers: list[MCPGatewayServer] = []
+    for template in templates:
+        existing = existing_by_url.get(template.url)
+        if existing is not None:
+            if existing.template_id is None:
+                existing.template = template
+                linked_servers.append(existing)
+            continue
+        new_servers.append(
+            MCPGatewayServer(
+                team_id=team_id,
+                name=template.name,
+                url=template.url,
+                description=template.description,
+                category=template.category,
+                template=template,
+                is_team_enabled=True,
+            )
+        )
+
+    if linked_servers:
+        MCPGatewayServer.objects.for_team(team_id).bulk_update(linked_servers, ["template"])
+    if new_servers:
+        MCPGatewayServer.objects.for_team(team_id).bulk_create(new_servers, ignore_conflicts=True)
 
 
 def link_installation_to_gateway(installation: MCPServerInstallation, created_by: User | None) -> MCPGatewayServer:

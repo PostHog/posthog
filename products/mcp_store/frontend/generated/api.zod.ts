@@ -202,7 +202,7 @@ export const McpGatewayServersUpdateBody = /* @__PURE__ */ zod.object({
     is_team_enabled: zod
         .boolean()
         .optional()
-        .describe('Master switch — off means members and agents can neither see nor call the server.'),
+        .describe('Whether project members can see and call the server. Agent access is granted separately.'),
     allow_personal_connections: zod
         .boolean()
         .optional()
@@ -234,7 +234,7 @@ export const McpGatewayServersPartialUpdateBody = /* @__PURE__ */ zod.object({
     is_team_enabled: zod
         .boolean()
         .optional()
-        .describe('Master switch — off means members and agents can neither see nor call the server.'),
+        .describe('Whether project members can see and call the server. Agent access is granted separately.'),
     allow_personal_connections: zod
         .boolean()
         .optional()
@@ -274,56 +274,31 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create an agent and mint its gateway token (returned exactly once).
+ * PostHog's built-in agents and their MCP access grants.
+ *
+ * The catalog is fixed. Projects can pause an agent's MCP access and grant or
+ * revoke servers, but cannot create, rename, rotate, or delete agents.
  */
-export const mcpGatewayServiceAccountsCreateBodyNameMax = 200
-
-export const mcpGatewayServiceAccountsCreateBodyDescriptionDefault = ``
-
-export const McpGatewayServiceAccountsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(mcpGatewayServiceAccountsCreateBodyNameMax).describe('Agent display name, e.g. Docs Agent.'),
-    description: zod
-        .string()
-        .default(mcpGatewayServiceAccountsCreateBodyDescriptionDefault)
-        .describe('What this agent does.'),
-})
-
-/**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
- */
-export const mcpGatewayServiceAccountsUpdateBodyNameMax = 200
-
 export const McpGatewayServiceAccountsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(mcpGatewayServiceAccountsUpdateBodyNameMax).optional().describe('Agent display name.'),
-    description: zod.string().optional().describe('What this agent does.'),
     status: zod
         .enum(['active', 'paused'])
         .describe('\* `active` - Active\n\* `paused` - Paused')
         .optional()
-        .describe('active, or paused (all access off).\n\n\* `active` - Active\n\* `paused` - Paused'),
+        .describe('active, or paused (all MCP access off).\n\n\* `active` - Active\n\* `paused` - Paused'),
 })
 
 /**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
+ * PostHog's built-in agents and their MCP access grants.
+ *
+ * The catalog is fixed. Projects can pause an agent's MCP access and grant or
+ * revoke servers, but cannot create, rename, rotate, or delete agents.
  */
-export const mcpGatewayServiceAccountsPartialUpdateBodyNameMax = 200
-
 export const McpGatewayServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(mcpGatewayServiceAccountsPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Agent display name.'),
-    description: zod.string().optional().describe('What this agent does.'),
     status: zod
         .enum(['active', 'paused'])
         .describe('\* `active` - Active\n\* `paused` - Paused')
         .optional()
-        .describe('active, or paused (all access off).\n\n\* `active` - Active\n\* `paused` - Paused'),
+        .describe('active, or paused (all MCP access off).\n\n\* `active` - Active\n\* `paused` - Paused'),
 })
 
 /**
@@ -446,7 +421,7 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
         .describe('\* `personal` - personal\n\* `shared` - shared')
         .default(mcpServerInstallationsInstallCustomCreateBodyScopeDefault)
         .describe(
-            "'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).\n\n\* `personal` - personal\n\* `shared` - shared"
+            "'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.\n\n\* `personal` - personal\n\* `shared` - shared"
         ),
     team_enabled: zod
         .boolean()
@@ -489,7 +464,7 @@ export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ z
         .describe('\* `personal` - personal\n\* `shared` - shared')
         .default(mcpServerInstallationsInstallTemplateCreateBodyScopeDefault)
         .describe(
-            "'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).\n\n\* `personal` - personal\n\* `shared` - shared"
+            "'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.\n\n\* `personal` - personal\n\* `shared` - shared"
         ),
     team_enabled: zod
         .boolean()

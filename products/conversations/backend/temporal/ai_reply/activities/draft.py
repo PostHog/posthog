@@ -234,6 +234,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             model=SupportReplyDraft,
             step_name="support_reply",
             origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+            mcp_builtin_agent_key="support",
             internal=True,
             max_poll_seconds=DRAFT_POLL_SECONDS,
         )

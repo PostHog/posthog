@@ -23,9 +23,7 @@ import type {
     MCPServerInstallationApi,
     MCPServerInstallationToolApi,
     MCPServiceAccountApi,
-    MCPServiceAccountCreateApi,
     MCPServiceAccountUpdateApi,
-    MCPServiceAccountWithTokenApi,
     McpGatewayAuditListParams,
     McpGatewayRulesListParams,
     McpGatewayServersListParams,
@@ -542,9 +540,10 @@ export const getMcpGatewayServiceAccountsListUrl = (
 }
 
 /**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
+ * PostHog's built-in agents and their MCP access grants.
+ *
+ * The catalog is fixed. Projects can pause an agent's MCP access and grant or
+ * revoke servers, but cannot create, rename, rotate, or delete agents.
  */
 export const mcpGatewayServiceAccountsList = async (
     projectId: string,
@@ -557,34 +556,15 @@ export const mcpGatewayServiceAccountsList = async (
     })
 }
 
-export const getMcpGatewayServiceAccountsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/service_accounts/`
-}
-
-/**
- * Create an agent and mint its gateway token (returned exactly once).
- */
-export const mcpGatewayServiceAccountsCreate = async (
-    projectId: string,
-    mCPServiceAccountCreateApi: MCPServiceAccountCreateApi,
-    options?: RequestInit
-): Promise<MCPServiceAccountWithTokenApi> => {
-    return apiMutator<MCPServiceAccountWithTokenApi>(getMcpGatewayServiceAccountsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(mCPServiceAccountCreateApi),
-    })
-}
-
 export const getMcpGatewayServiceAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/mcp_gateway/service_accounts/${id}/`
 }
 
 /**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
+ * PostHog's built-in agents and their MCP access grants.
+ *
+ * The catalog is fixed. Projects can pause an agent's MCP access and grant or
+ * revoke servers, but cannot create, rename, rotate, or delete agents.
  */
 export const mcpGatewayServiceAccountsRetrieve = async (
     projectId: string,
@@ -602,9 +582,10 @@ export const getMcpGatewayServiceAccountsUpdateUrl = (projectId: string, id: str
 }
 
 /**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
+ * PostHog's built-in agents and their MCP access grants.
+ *
+ * The catalog is fixed. Projects can pause an agent's MCP access and grant or
+ * revoke servers, but cannot create, rename, rotate, or delete agents.
  */
 export const mcpGatewayServiceAccountsUpdate = async (
     projectId: string,
@@ -625,9 +606,10 @@ export const getMcpGatewayServiceAccountsPartialUpdateUrl = (projectId: string, 
 }
 
 /**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
+ * PostHog's built-in agents and their MCP access grants.
+ *
+ * The catalog is fixed. Projects can pause an agent's MCP access and grant or
+ * revoke servers, but cannot create, rename, rotate, or delete agents.
  */
 export const mcpGatewayServiceAccountsPartialUpdate = async (
     projectId: string,
@@ -640,26 +622,6 @@ export const mcpGatewayServiceAccountsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedMCPServiceAccountUpdateApi),
-    })
-}
-
-export const getMcpGatewayServiceAccountsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/service_accounts/${id}/`
-}
-
-/**
- * Agent identities: creation mints a bearer token (shown once), access
- * grants tie them to gateway servers. Reads are open to members so agent
- * activity stays legible; every write is admin-only.
- */
-export const mcpGatewayServiceAccountsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMcpGatewayServiceAccountsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
     })
 }
 
@@ -681,24 +643,6 @@ export const mcpGatewayServiceAccountsAccessCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(serviceAccountAccessUpdateApi),
-    })
-}
-
-export const getMcpGatewayServiceAccountsRotateTokenCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/mcp_gateway/service_accounts/${id}/rotate_token/`
-}
-
-/**
- * Mint a new token; the previous one stops working immediately.
- */
-export const mcpGatewayServiceAccountsRotateTokenCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<MCPServiceAccountWithTokenApi> => {
-    return apiMutator<MCPServiceAccountWithTokenApi>(getMcpGatewayServiceAccountsRotateTokenCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 
@@ -838,8 +782,8 @@ export const getMcpServerInstallationsShareCreateUrl = (projectId: string, id: s
  * Escalate a personal installation to a team-wide shared one.
  *
  * Owner-only AND admin-only: sharing exposes the owner's credential to
- * every project member and all autonomous agents, so it carries the same
- * gate as creating a shared install outright.
+ * project members, so it carries the same gate as creating a shared
+ * install outright. Agents require separate explicit grants.
  */
 export const mcpServerInstallationsShareCreate = async (
     projectId: string,

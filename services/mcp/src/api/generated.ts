@@ -8630,6 +8630,15 @@ export namespace Schemas {
       resumed: boolean;
     }
 
+    export type AgentKeyEnum = typeof AgentKeyEnum[keyof typeof AgentKeyEnum];
+
+
+    export const AgentKeyEnum = {
+      Support: 'support',
+      Scout: 'scout',
+      PosthogAi: 'posthog_ai',
+    } as const;
+
     export interface AgentListenResponse {
       session_id: string;
       state: AgentSessionStateEnum;
@@ -33215,7 +33224,7 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
        *
        * * `personal` - personal
        * * `shared` - shared */
@@ -33235,7 +33244,7 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
        *
        * * `personal` - personal
        * * `shared` - shared */
@@ -35444,7 +35453,7 @@ export namespace Schemas {
        * * `infra` - Infrastructure
        * * `productivity` - Productivity & Collaboration */
       category?: MCPServerCategoryEnum;
-      /** Master switch — off means members and agents can neither see nor call the server. */
+      /** Whether project members can see and call the server. Agent access is granted separately. */
       is_team_enabled?: boolean;
       /** For shared-credential servers: whether members may also connect their own account. */
       allow_personal_connections?: boolean;
@@ -35732,15 +35741,19 @@ export namespace Schemas {
       readonly id: string;
       readonly name: string;
       readonly description: string;
-      /** Stable identity handle the agent authenticates as, e.g. svc-docs-agent. */
+      /** Stable internal identity handle for this PostHog agent. */
       readonly handle: string;
-      /** active, or paused (all access off).
+      /** Stable PostHog agent identifier. */
+      readonly agent_key: AgentKeyEnum;
+      /** active, or paused (all MCP access off).
        *
        * * `active` - Active
        * * `paused` - Paused */
       readonly status: MCPServiceAccountStatusEnum;
-      /** Masked bearer token; the full token is only shown once. */
-      readonly token_mask: string;
+      /** Whether the agent's owning PostHog product is enabled for this project. */
+      readonly product_enabled: boolean;
+      /** How to enable the owning product. Empty when product_enabled is true. */
+      readonly product_disabled_reason: string;
       /** Gateway servers this agent has access to. */
       readonly server_ids: readonly string[];
       /**
@@ -35752,55 +35765,12 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    export interface MCPServiceAccountCreate {
-      /**
-         * Agent display name, e.g. Docs Agent.
-         * @maxLength 200
-         */
-      name: string;
-      /** What this agent does. */
-      description?: string;
-    }
-
     export interface MCPServiceAccountUpdate {
-      /**
-         * Agent display name.
-         * @maxLength 200
-         */
-      name?: string;
-      /** What this agent does. */
-      description?: string;
-      /** active, or paused (all access off).
+      /** active, or paused (all MCP access off).
        *
        * * `active` - Active
        * * `paused` - Paused */
       status?: MCPServiceAccountStatusEnum;
-    }
-
-    export interface MCPServiceAccountWithToken {
-      readonly id: string;
-      readonly name: string;
-      readonly description: string;
-      /** Stable identity handle the agent authenticates as, e.g. svc-docs-agent. */
-      readonly handle: string;
-      /** active, or paused (all access off).
-       *
-       * * `active` - Active
-       * * `paused` - Paused */
-      readonly status: MCPServiceAccountStatusEnum;
-      /** Masked bearer token; the full token is only shown once. */
-      readonly token_mask: string;
-      /** Gateway servers this agent has access to. */
-      readonly server_ids: readonly string[];
-      /**
-         * When the agent last made a call through the gateway.
-         * @nullable
-         */
-      readonly last_active_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** The full bearer token. Returned exactly once — on creation or rotation. */
-      readonly token: string;
     }
 
     export interface MCPSession {
@@ -46642,7 +46612,7 @@ export namespace Schemas {
        * * `infra` - Infrastructure
        * * `productivity` - Productivity & Collaboration */
       category?: MCPServerCategoryEnum;
-      /** Master switch — off means members and agents can neither see nor call the server. */
+      /** Whether project members can see and call the server. Agent access is granted separately. */
       is_team_enabled?: boolean;
       /** For shared-credential servers: whether members may also connect their own account. */
       allow_personal_connections?: boolean;
@@ -46686,14 +46656,7 @@ export namespace Schemas {
     }
 
     export interface PatchedMCPServiceAccountUpdate {
-      /**
-         * Agent display name.
-         * @maxLength 200
-         */
-      name?: string;
-      /** What this agent does. */
-      description?: string;
-      /** active, or paused (all access off).
+      /** active, or paused (all MCP access off).
        *
        * * `active` - Active
        * * `paused` - Paused */
@@ -49732,7 +49695,7 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
@@ -62116,7 +62079,7 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
@@ -63101,7 +63064,7 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking

@@ -537,7 +537,7 @@ export interface MCPGatewayServerUpdateApi {
      * * `infra` - Infrastructure
      * * `productivity` - Productivity & Collaboration */
     category?: MCPServerCategoryEnumApi
-    /** Master switch — off means members and agents can neither see nor call the server. */
+    /** Whether project members can see and call the server. Agent access is granted separately. */
     is_team_enabled?: boolean
     /** For shared-credential servers: whether members may also connect their own account. */
     allow_personal_connections?: boolean
@@ -560,7 +560,7 @@ export interface PatchedMCPGatewayServerUpdateApi {
      * * `infra` - Infrastructure
      * * `productivity` - Productivity & Collaboration */
     category?: MCPServerCategoryEnumApi
-    /** Master switch — off means members and agents can neither see nor call the server. */
+    /** Whether project members can see and call the server. Agent access is granted separately. */
     is_team_enabled?: boolean
     /** For shared-credential servers: whether members may also connect their own account. */
     allow_personal_connections?: boolean
@@ -683,19 +683,31 @@ export interface PaginatedResolvedToolPolicyListApi {
     results: ResolvedToolPolicyApi[]
 }
 
+export type AgentKeyEnumApi = (typeof AgentKeyEnumApi)[keyof typeof AgentKeyEnumApi]
+
+export const AgentKeyEnumApi = {
+    Support: 'support',
+    Scout: 'scout',
+    PosthogAi: 'posthog_ai',
+} as const
+
 export interface MCPServiceAccountApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    /** Stable identity handle the agent authenticates as, e.g. svc-docs-agent. */
+    /** Stable internal identity handle for this PostHog agent. */
     readonly handle: string
-    /** active, or paused (all access off).
+    /** Stable PostHog agent identifier. */
+    readonly agent_key: AgentKeyEnumApi
+    /** active, or paused (all MCP access off).
      *
      * * `active` - Active
      * * `paused` - Paused */
     readonly status: MCPServiceAccountStatusEnumApi
-    /** Masked bearer token; the full token is only shown once. */
-    readonly token_mask: string
+    /** Whether the agent's owning PostHog product is enabled for this project. */
+    readonly product_enabled: boolean
+    /** How to enable the owning product. Empty when product_enabled is true. */
+    readonly product_disabled_reason: string
     /** Gateway servers this agent has access to. */
     readonly server_ids: readonly string[]
     /**
@@ -716,51 +728,8 @@ export interface PaginatedMCPServiceAccountListApi {
     results: MCPServiceAccountApi[]
 }
 
-export interface MCPServiceAccountCreateApi {
-    /**
-     * Agent display name, e.g. Docs Agent.
-     * @maxLength 200
-     */
-    name: string
-    /** What this agent does. */
-    description?: string
-}
-
-export interface MCPServiceAccountWithTokenApi {
-    readonly id: string
-    readonly name: string
-    readonly description: string
-    /** Stable identity handle the agent authenticates as, e.g. svc-docs-agent. */
-    readonly handle: string
-    /** active, or paused (all access off).
-     *
-     * * `active` - Active
-     * * `paused` - Paused */
-    readonly status: MCPServiceAccountStatusEnumApi
-    /** Masked bearer token; the full token is only shown once. */
-    readonly token_mask: string
-    /** Gateway servers this agent has access to. */
-    readonly server_ids: readonly string[]
-    /**
-     * When the agent last made a call through the gateway.
-     * @nullable
-     */
-    readonly last_active_at: string | null
-    readonly created_at: string
-    readonly updated_at: string
-    /** The full bearer token. Returned exactly once — on creation or rotation. */
-    readonly token: string
-}
-
 export interface MCPServiceAccountUpdateApi {
-    /**
-     * Agent display name.
-     * @maxLength 200
-     */
-    name?: string
-    /** What this agent does. */
-    description?: string
-    /** active, or paused (all access off).
+    /** active, or paused (all MCP access off).
      *
      * * `active` - Active
      * * `paused` - Paused */
@@ -768,14 +737,7 @@ export interface MCPServiceAccountUpdateApi {
 }
 
 export interface PatchedMCPServiceAccountUpdateApi {
-    /**
-     * Agent display name.
-     * @maxLength 200
-     */
-    name?: string
-    /** What this agent does. */
-    description?: string
-    /** active, or paused (all access off).
+    /** active, or paused (all MCP access off).
      *
      * * `active` - Active
      * * `paused` - Paused */
@@ -933,7 +895,7 @@ export interface InstallCustomApi {
     client_secret?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
-    /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+    /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
      *
      * * `personal` - personal
      * * `shared` - shared */
@@ -957,7 +919,7 @@ export interface InstallTemplateApi {
     api_key?: string
     install_source?: InstallSourceEnumApi
     posthog_code_callback_url?: string
-    /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+    /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
      *
      * * `personal` - personal
      * * `shared` - shared */

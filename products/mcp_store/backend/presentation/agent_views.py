@@ -25,16 +25,13 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.models.utils import hash_key_value
-
+from ..agents import resolve_gateway_agent_token
 from ..models import MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool, MCPServiceAccount
 from ..policy import GatewayCaller, PolicyContext
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from .views import MCPProxyRenderer
 
 logger = structlog.get_logger(__name__)
-
-GATEWAY_TOKEN_PREFIX = "mcp_gw_"
 
 
 class GatewayAgentAuthentication(BaseAuthentication):
@@ -48,12 +45,8 @@ class GatewayAgentAuthentication(BaseAuthentication):
         if not header.startswith("Bearer "):
             return None
         token = header.split(" ", 1)[1].strip()
-        if not token.startswith(GATEWAY_TOKEN_PREFIX):
-            return None
-        try:
-            # unscoped: the token itself is the tenant key here.
-            account = MCPServiceAccount.objects.unscoped().get(token_hash=hash_key_value(token))
-        except MCPServiceAccount.DoesNotExist:
+        account = resolve_gateway_agent_token(token)
+        if account is None:
             raise AuthenticationFailed("Invalid gateway token.")
         if account.status != "active":
             raise AuthenticationFailed("This agent is paused.")
@@ -79,7 +72,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
     def _accessible_servers(self, account: MCPServiceAccount) -> list[MCPGatewayServer]:
         return list(
             MCPGatewayServer.objects.for_team(account.team_id)
-            .filter(is_team_enabled=True, agent_access__service_account=account)
+            .filter(agent_access__service_account=account)
             .select_related("template")
             .order_by("name")
         )
@@ -101,7 +94,12 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             tools = []
             seen: set[str] = set()
             tool_rows = (
-                MCPServerInstallationTool.objects.filter(installation__gateway_server=server, removed_at__isnull=True)
+                MCPServerInstallationTool.objects.filter(
+                    installation__gateway_server=server,
+                    installation__scope="shared",
+                    installation__is_enabled=True,
+                    removed_at__isnull=True,
+                )
                 .order_by("tool_name", "-last_seen_at")
                 .values_list("tool_name", "description", "input_schema")
             )
@@ -148,16 +146,14 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
                 content_type="application/json",
                 status=404,
             )
-        if not server.is_team_enabled:
-            return HttpResponse(
-                '{"error": "Server is disabled for this team"}',
-                content_type="application/json",
-                status=403,
-            )
-
         # Agents only ride the shared credential — never a member's personal token.
         installation = (
-            MCPServerInstallation.objects.filter(gateway_server=server, scope="shared", is_enabled=True)
+            MCPServerInstallation.objects.filter(
+                team_id=account.team_id,
+                gateway_server=server,
+                scope="shared",
+                is_enabled=True,
+            )
             .order_by("created_at")
             .first()
         )

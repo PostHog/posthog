@@ -16,7 +16,15 @@ const PRESETS: { value: MCPPolicyPresetEnumApi; label: string; description: stri
 ]
 
 export function GatewayTeamSettings(): JSX.Element {
-    const { config, servers, allowCustomServers, enabledServerCount } = useValues(mcpGatewayLogic)
+    const {
+        allServersEnabledLoading,
+        allowCustomServers,
+        allowCustomServersLoading,
+        config,
+        enabledServerCount,
+        serverEnabledLoadingIds,
+        servers,
+    } = useValues(mcpGatewayLogic)
     const { setAllowCustomServers, applyPreset, toggleServerEnabled, setAllServersEnabled } =
         useActions(mcpGatewayLogic)
     const [serverSearch, setServerSearch] = useState('')
@@ -37,7 +45,12 @@ export function GatewayTeamSettings(): JSX.Element {
                             still apply.
                         </div>
                     </div>
-                    <LemonSwitch checked={allowCustomServers} onChange={setAllowCustomServers} />
+                    <LemonSwitch
+                        checked={allowCustomServers}
+                        loading={allowCustomServersLoading}
+                        aria-label={`${allowCustomServers ? 'Disable' : 'Enable'} custom MCP servers`}
+                        onChange={setAllowCustomServers}
+                    />
                 </div>
             </div>
 
@@ -84,14 +97,28 @@ export function GatewayTeamSettings(): JSX.Element {
                         />
                         <LemonButton
                             size="small"
-                            disabledReason={enabledServerCount === servers.length ? 'Already enabled' : undefined}
+                            loading={allServersEnabledLoading}
+                            disabledReason={
+                                serverEnabledLoadingIds.size > 0
+                                    ? 'Wait for the server update to finish'
+                                    : enabledServerCount === servers.length
+                                      ? 'Already enabled'
+                                      : undefined
+                            }
                             onClick={() => setAllServersEnabled(true)}
                         >
                             Enable all
                         </LemonButton>
                         <LemonButton
                             size="small"
-                            disabledReason={enabledServerCount === 0 ? 'Already disabled' : undefined}
+                            loading={allServersEnabledLoading}
+                            disabledReason={
+                                serverEnabledLoadingIds.size > 0
+                                    ? 'Wait for the server update to finish'
+                                    : enabledServerCount === 0
+                                      ? 'Already disabled'
+                                      : undefined
+                            }
                             onClick={() => setAllServersEnabled(false)}
                         >
                             Disable all
@@ -99,8 +126,8 @@ export function GatewayTeamSettings(): JSX.Element {
                     </div>
                 </div>
                 <div className="text-sm text-secondary">
-                    Everything is shared with the team by default. Disable everything to curate up from zero, or switch
-                    off individual servers.
+                    Every server is available to team members by default. Agent access is managed separately. Disable
+                    everything to curate up from zero, or switch off individual servers.
                 </div>
                 <div className="border rounded divide-y">
                     {filteredServers.map((server) => (
@@ -114,6 +141,8 @@ export function GatewayTeamSettings(): JSX.Element {
                             </div>
                             <LemonSwitch
                                 checked={server.is_team_enabled}
+                                loading={allServersEnabledLoading || serverEnabledLoadingIds.has(server.id)}
+                                aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for team members`}
                                 onChange={(checked) => toggleServerEnabled(server.id, checked)}
                             />
                         </div>
@@ -130,7 +159,7 @@ export function GatewayTeamSettings(): JSX.Element {
 }
 
 function GatewayRulesSection(): JSX.Element {
-    const { rules, rulesLoading } = useValues(mcpGatewayLogic)
+    const { ruleEnabledLoadingIds, rules, rulesLoading } = useValues(mcpGatewayLogic)
     const { toggleRuleEnabled } = useActions(mcpGatewayLogic)
 
     return (
@@ -152,6 +181,8 @@ function GatewayRulesSection(): JSX.Element {
                             </div>
                             <LemonSwitch
                                 checked={rule.enabled ?? true}
+                                loading={ruleEnabledLoadingIds.has(rule.id)}
+                                aria-label={`${(rule.enabled ?? true) ? 'Disable' : 'Enable'} ${rule.name}`}
                                 onChange={(checked) => toggleRuleEnabled(rule.id, checked)}
                             />
                         </div>

@@ -240,6 +240,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
     clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
     internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
+    mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
     signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.

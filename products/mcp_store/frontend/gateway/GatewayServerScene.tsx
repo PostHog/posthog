@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonDivider, LemonSegmentedButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -61,9 +69,17 @@ export function GatewayServerScene(): JSX.Element {
 }
 
 function ToolPoliciesSection(): JSX.Element {
-    const { toolPolicies, toolPoliciesLoading, policyCounts, scope, availableScopes, isAdmin } =
+    const { toolPolicies, toolPoliciesLoading, policyCounts, scope, scopeIsResolving, availableScopes, isAdmin } =
         useValues(gatewayServerLogic)
     const { setScope, setAllTools } = useActions(gatewayServerLogic)
+
+    if (scopeIsResolving) {
+        return (
+            <div className="border border-dashed rounded p-4 text-sm text-secondary flex items-center gap-2">
+                <Spinner /> Loading agent tool policies…
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-3">

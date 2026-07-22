@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ServerIcon } from '../scene/icons'
 import { gatewayMemberLogic } from './gatewayMemberLogic'
 import { toProfileUser } from './gatewayUtils'
+import { memberServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayMemberLogic)['props']> = {
     component: GatewayMemberScene,
@@ -19,7 +20,7 @@ export const scene: SceneExport<(typeof gatewayMemberLogic)['props']> = {
 }
 
 export function GatewayMemberScene(): JSX.Element {
-    const { member, allServers } = useValues(gatewayMemberLogic)
+    const { allServers, member, memberServerAccessLoadingKeys } = useValues(gatewayMemberLogic)
     const { setMemberServerAccess } = useActions(gatewayMemberLogic)
 
     if (!member) {
@@ -77,6 +78,10 @@ export function GatewayMemberScene(): JSX.Element {
                             )}
                             <LemonSwitch
                                 checked={!isRevoked}
+                                loading={memberServerAccessLoadingKeys.has(
+                                    memberServerAccessKey(member.user.id, server.id)
+                                )}
+                                aria-label={`${isRevoked ? 'Restore' : 'Turn off'} ${member.user.first_name || member.user.email}'s access to ${server.name}`}
                                 onChange={(checked) => setMemberServerAccess(member.user.id, server.id, checked)}
                             />
                         </div>

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Literal
 
-from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, TeamMCPGatewayConfig
+from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, MCPToolPolicy, TeamMCPGatewayConfig
 
 # Verbs that indicate a tool mutates or destroys state. Deliberately the
 # strong set only — an over-broad heuristic would make the "ask"/"block"
@@ -124,7 +124,7 @@ class PolicyContext:
             if rule.applies_to in ("everyone", audience)
         ]
 
-        policies = gateway_server.tool_policies.all()
+        policies = MCPToolPolicy.objects.for_team(team_id).filter(gateway_server=gateway_server)
         self._team_rows: dict[str, str] = {}
         self._scope_rows: dict[str, str] = {}
         for policy in policies:

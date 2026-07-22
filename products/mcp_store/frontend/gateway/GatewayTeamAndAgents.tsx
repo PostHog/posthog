@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTable, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -11,63 +10,24 @@ import { toProfileUser } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 export function GatewayTeamAndAgents(): JSX.Element {
-    const { serviceAccounts, members, serviceAccountsLoading, membersLoading } = useValues(mcpGatewayLogic)
-    const { toggleAccountStatus, createServiceAccount } = useActions(mcpGatewayLogic)
-    const [creating, setCreating] = useState(false)
-    const [newName, setNewName] = useState('')
+    const { serviceAccounts, members, serviceAccountsLoading, membersLoading, accountStatusLoadingIds } =
+        useValues(mcpGatewayLogic)
+    const { toggleAccountStatus } = useActions(mcpGatewayLogic)
 
     return (
         <div className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                    <h3 className="mb-0">Agents · {serviceAccounts.length}</h3>
-                    {!creating && (
-                        <LemonButton size="small" type="primary" onClick={() => setCreating(true)}>
-                            + Create agent
-                        </LemonButton>
-                    )}
-                </div>
-
-                {creating && (
-                    <div className="border border-dashed rounded p-3 flex flex-col gap-2">
-                        <LemonInput placeholder="e.g. Docs Agent" value={newName} onChange={setNewName} autoFocus />
-                        <div className="text-xs text-secondary font-mono">
-                            {newName
-                                ? `Will authenticate as svc-${newName
-                                      .toLowerCase()
-                                      .replace(/[^a-z0-9]+/g, '-')
-                                      .replace(/^-|-$/g, '')}`
-                                : 'The agent signs in with a generated svc-… identity.'}
-                        </div>
-                        <div className="flex gap-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                disabledReason={!newName.trim() ? 'Enter a name' : undefined}
-                                onClick={() => {
-                                    createServiceAccount(newName.trim(), '')
-                                    setCreating(false)
-                                    setNewName('')
-                                }}
-                            >
-                                + Create
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                onClick={() => {
-                                    setCreating(false)
-                                    setNewName('')
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                        </div>
-                    </div>
-                )}
+                <h3 className="mb-0">Agents · {serviceAccounts.length}</h3>
 
                 <div className="border rounded divide-y">
-                    {serviceAccounts.length === 0 && !serviceAccountsLoading ? (
-                        <div className="p-4 text-sm text-secondary">No agents yet.</div>
+                    {serviceAccountsLoading ? (
+                        <div className="p-4 text-sm text-secondary flex items-center gap-2">
+                            <Spinner /> Loading agents…
+                        </div>
+                    ) : serviceAccounts.length === 0 ? (
+                        <div className="p-4 text-sm text-secondary">
+                            No PostHog agents are available for this project.
+                        </div>
                     ) : (
                         serviceAccounts.map((account) => (
                             <div key={account.id} className="flex items-center gap-3 p-3">
@@ -83,11 +43,24 @@ export function GatewayTeamAndAgents(): JSX.Element {
                                         {account.server_ids.length} server{account.server_ids.length === 1 ? '' : 's'}
                                     </div>
                                 </button>
-                                <div className="text-xs text-secondary">
-                                    {account.status === 'paused' ? 'Paused — all access off' : 'Active'}
+                                <div className="flex items-center justify-end gap-1 flex-wrap">
+                                    <LemonTag type={account.product_enabled ? 'success' : 'muted'} size="small">
+                                        {account.product_enabled ? 'Product available' : 'Product unavailable'}
+                                    </LemonTag>
+                                    <LemonTag type={account.status === 'paused' ? 'warning' : 'success'} size="small">
+                                        {account.status === 'paused' ? 'MCP paused' : 'MCP enabled'}
+                                    </LemonTag>
                                 </div>
                                 <LemonSwitch
                                     checked={account.status === 'active'}
+                                    loading={accountStatusLoadingIds.has(account.id)}
+                                    disabledReason={
+                                        account.status === 'paused' && !account.product_enabled
+                                            ? account.product_disabled_reason ||
+                                              'Enable this agent’s PostHog product before resuming it.'
+                                            : undefined
+                                    }
+                                    aria-label={`${account.status === 'active' ? 'Pause' : 'Resume'} ${account.name}`}
                                     onChange={(checked) => toggleAccountStatus(account.id, !checked)}
                                 />
                             </div>

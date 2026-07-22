@@ -215,6 +215,7 @@ class SandboxSession(BaseSandboxService):
                     team=self.team,
                     user_id=self.user.pk,
                     origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+                    mcp_builtin_agent_key="posthog_ai",
                     repository=None,
                 )
                 locked.task_id = task_id
@@ -279,6 +280,7 @@ class SandboxSession(BaseSandboxService):
             title=content[:80],
             description=content,
             origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+            mcp_builtin_agent_key="posthog_ai",
             user_id=self.user.pk,
             repository=repository,
             create_pr=False,

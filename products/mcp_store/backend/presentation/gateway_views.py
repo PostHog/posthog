@@ -8,8 +8,7 @@ rules, and the audit log. Personal/shared credentials stay on
 
 from typing import Any, cast
 
-from django.db.models import Count, Prefetch, Q, QuerySet
-from django.utils.text import slugify
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
@@ -26,8 +25,14 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.utils import generate_random_token, hash_key_value
 
+from ..agents import (
+    built_in_agent_handles,
+    get_agent_product_availability,
+    get_built_in_agent_spec,
+    sync_built_in_agents,
+)
+from ..gateway import sync_catalog_templates_to_gateway
 from ..models import (
     APPROVAL_STATES,
     POLICY_PRESET_CHOICES,
@@ -44,21 +49,14 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
+from ..permissions import DenyMCPBuiltInAgentOAuth
 from ..policy import GatewayCaller, PolicyContext
 
 logger = structlog.get_logger(__name__)
 
-GATEWAY_TOKEN_PREFIX = "mcp_gw_"
-
 RESOLVED_DECIDED_BY_CHOICES = ["rule", "scope", "team", "preset", "legacy", "default"]
 
 AUDIT_QUICK_FILTER_CHOICES = ["all", "agents", "approvals", "blocked"]
-
-
-def generate_gateway_token() -> tuple[str, str, str]:
-    """Returns (raw_token, secure_hash, mask). The raw token is shown once."""
-    raw = GATEWAY_TOKEN_PREFIX + generate_random_token(32)
-    return raw, hash_key_value(raw), f"{GATEWAY_TOKEN_PREFIX}...{raw[-4:]}"
 
 
 def get_gateway_config(team_id: int) -> TeamMCPGatewayConfig | None:
@@ -329,7 +327,7 @@ class MCPGatewayServerUpdateSerializer(serializers.ModelSerializer):
             "category": {"required": False, "help_text": "Catalog category used for filter chips."},
             "is_team_enabled": {
                 "required": False,
-                "help_text": "Master switch — off means members and agents can neither see nor call the server.",
+                "help_text": "Whether project members can see and call the server. Agent access is granted separately.",
             },
             "allow_personal_connections": {
                 "required": False,
@@ -433,6 +431,13 @@ class ApplyPresetSerializer(serializers.Serializer):
 
 
 class MCPServiceAccountSerializer(serializers.ModelSerializer):
+    agent_key = serializers.SerializerMethodField(help_text="Stable PostHog agent identifier.")
+    product_enabled = serializers.SerializerMethodField(
+        help_text="Whether the agent's owning PostHog product is enabled for this project."
+    )
+    product_disabled_reason = serializers.SerializerMethodField(
+        help_text="How to enable the owning product. Empty when product_enabled is true."
+    )
     server_ids = serializers.SerializerMethodField(help_text="Gateway servers this agent has access to.")
 
     class Meta:
@@ -442,8 +447,10 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "handle",
+            "agent_key",
             "status",
-            "token_mask",
+            "product_enabled",
+            "product_disabled_reason",
             "server_ids",
             "last_active_at",
             "created_at",
@@ -454,50 +461,48 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "handle",
+            "agent_key",
             "status",
-            "token_mask",
+            "product_enabled",
+            "product_disabled_reason",
             "last_active_at",
             "created_at",
             "updated_at",
         ]
         extra_kwargs = {
-            "handle": {"help_text": "Stable identity handle the agent authenticates as, e.g. svc-docs-agent."},
-            "status": {"help_text": "active, or paused (all access off)."},
-            "token_mask": {"help_text": "Masked bearer token; the full token is only shown once."},
+            "handle": {"help_text": "Stable internal identity handle for this PostHog agent."},
+            "status": {"help_text": "active, or paused (all MCP access off)."},
             "last_active_at": {"help_text": "When the agent last made a call through the gateway."},
         }
+
+    @extend_schema_field(serializers.ChoiceField(choices=["support", "scout", "posthog_ai"]))
+    def get_agent_key(self, obj: MCPServiceAccount) -> str:
+        spec = get_built_in_agent_spec(obj)
+        return spec.key if spec is not None else ""
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_product_enabled(self, obj: MCPServiceAccount) -> bool:
+        spec = get_built_in_agent_spec(obj)
+        return spec is not None and get_agent_product_availability(obj.team, spec.key).enabled
+
+    @extend_schema_field(serializers.CharField())
+    def get_product_disabled_reason(self, obj: MCPServiceAccount) -> str:
+        spec = get_built_in_agent_spec(obj)
+        if spec is None:
+            return "This agent is not supported by PostHog."
+        return get_agent_product_availability(obj.team, spec.key).disabled_reason
 
     @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
     def get_server_ids(self, obj: MCPServiceAccount) -> list[str]:
         return [str(access.gateway_server_id) for access in obj.server_access.all()]
 
 
-class MCPServiceAccountWithTokenSerializer(MCPServiceAccountSerializer):
-    token = serializers.SerializerMethodField(
-        help_text="The full bearer token. Returned exactly once — on creation or rotation."
-    )
-
-    class Meta(MCPServiceAccountSerializer.Meta):
-        fields = [*MCPServiceAccountSerializer.Meta.fields, "token"]
-
-    @extend_schema_field(serializers.CharField())
-    def get_token(self, obj: MCPServiceAccount) -> str:
-        return self.context.get("token", "")
-
-
-class MCPServiceAccountCreateSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=200, help_text="Agent display name, e.g. Docs Agent.")
-    description = serializers.CharField(required=False, allow_blank=True, default="", help_text="What this agent does.")
-
-
 class MCPServiceAccountUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MCPServiceAccount
-        fields = ["name", "description", "status"]
+        fields = ["status"]
         extra_kwargs = {
-            "name": {"required": False, "help_text": "Agent display name."},
-            "description": {"required": False, "help_text": "What this agent does."},
-            "status": {"required": False, "help_text": "active, or paused (all access off)."},
+            "status": {"required": False, "help_text": "active, or paused (all MCP access off)."},
         }
 
 
@@ -638,15 +643,18 @@ class MCPGatewayServerViewSet(
     scope_object_read_actions = ["list", "retrieve", "tools"]
     scope_object_write_actions = ["update", "partial_update", "destroy", "policies"]
     serializer_class = MCPGatewayServerSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     # Fail-closed manager raises if `.all()` runs at import; the real per-request
     # scoping happens in safely_get_queryset.
     queryset = MCPGatewayServer.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[MCPGatewayServer]) -> QuerySet[MCPGatewayServer]:
+        sync_catalog_templates_to_gateway(self.team_id)
+        servers = MCPGatewayServer.objects.for_team(self.team_id)
+        if not self._is_project_admin():
+            servers = servers.filter(is_team_enabled=True).exclude(member_revocations__user_id=self.request.user.id)
         return (
-            MCPGatewayServer.objects.for_team(self.team_id)
-            .select_related("template", "created_by")
+            servers.select_related("template", "created_by")
             .prefetch_related(
                 Prefetch(
                     "installations",
@@ -838,68 +846,54 @@ class MCPGatewayServerViewSet(
         return Response({"count": len(rows), "next": None, "previous": None, "results": rows})
 
 
-class MCPServiceAccountViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """Agent identities: creation mints a bearer token (shown once), access
-    grants tie them to gateway servers. Reads are open to members so agent
-    activity stays legible; every write is admin-only."""
+class MCPServiceAccountViewSet(
+    GatewayAdminMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """PostHog's built-in agents and their MCP access grants.
+
+    The catalog is fixed. Projects can pause an agent's MCP access and grant or
+    revoke servers, but cannot create, rename, rotate, or delete agents.
+    """
 
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "rotate_token", "access"]
+    scope_object_write_actions = ["update", "partial_update", "access"]
     serializer_class = MCPServiceAccountSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     queryset = MCPServiceAccount.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[MCPServiceAccount]) -> QuerySet[MCPServiceAccount]:
-        return MCPServiceAccount.objects.for_team(self.team_id).prefetch_related("server_access").order_by("name")
+        accounts = sync_built_in_agents(self.team)
+        catalog_order = Case(
+            *(When(id=account.id, then=position) for position, account in enumerate(accounts)),
+            output_field=IntegerField(),
+        )
+        return (
+            MCPServiceAccount.objects.for_team(self.team_id)
+            .filter(handle__in=built_in_agent_handles())
+            .select_related("team__organization")
+            .prefetch_related("server_access")
+            .order_by(catalog_order)
+        )
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action in ("update", "partial_update"):
             return MCPServiceAccountUpdateSerializer
         return MCPServiceAccountSerializer
 
-    def _unique_handle(self, name: str) -> str:
-        slug = slugify(name) or "agent"
-        base = f"svc-{slug}"
-        existing = set(MCPServiceAccount.objects.for_team(self.team_id).values_list("handle", flat=True))
-        handle = base
-        suffix = 2
-        while handle in existing:
-            handle = f"{base}-{suffix}"
-            suffix += 1
-        return handle
-
-    @validated_request(
-        request_serializer=MCPServiceAccountCreateSerializer,
-        responses={201: OpenApiResponse(response=MCPServiceAccountWithTokenSerializer)},
-    )
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Create an agent and mint its gateway token (returned exactly once)."""
-        self._require_project_admin()
-        data = request.validated_data
-        raw_token, token_hash, token_mask = generate_gateway_token()
-        account = MCPServiceAccount.objects.create(
-            team_id=self.team_id,
-            name=data["name"],
-            description=data.get("description", ""),
-            handle=self._unique_handle(data["name"]),
-            token_hash=token_hash,
-            token_mask=token_mask,
-            created_by=cast(User, request.user),
-        )
-        report_user_action(
-            cast(User, request.user),
-            "mcp_gateway agent created",
-            properties={"handle": account.handle},
-            team=self.team,
-        )
-        return Response(
-            MCPServiceAccountWithTokenSerializer(account, context={"token": raw_token}).data,
-            status=status.HTTP_201_CREATED,
-        )
-
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         self._require_project_admin()
+        account = cast(MCPServiceAccount, serializer.instance)
+        spec = get_built_in_agent_spec(account)
+        if serializer.validated_data.get("status") == "active" and (
+            spec is None or not get_agent_product_availability(account.team, spec.key).enabled
+        ):
+            raise PermissionDenied("Enable this agent's PostHog product before resuming its MCP access.")
         account = cast(MCPServiceAccount, serializer.save())
         report_user_action(
             cast(User, self.request.user),
@@ -907,34 +901,6 @@ class MCPServiceAccountViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewse
             properties={"handle": account.handle, "status": account.status},
             team=self.team,
         )
-
-    def perform_destroy(self, instance: MCPServiceAccount) -> None:
-        self._require_project_admin()
-        report_user_action(
-            cast(User, self.request.user),
-            "mcp_gateway agent deleted",
-            properties={"handle": instance.handle},
-            team=self.team,
-        )
-        instance.delete()
-
-    @extend_schema(request=None, responses={200: OpenApiResponse(response=MCPServiceAccountWithTokenSerializer)})
-    @action(detail=True, methods=["post"], url_path="rotate_token")
-    def rotate_token(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Mint a new token; the previous one stops working immediately."""
-        self._require_project_admin()
-        account = self.get_object()
-        raw_token, token_hash, token_mask = generate_gateway_token()
-        account.token_hash = token_hash
-        account.token_mask = token_mask
-        account.save(update_fields=["token_hash", "token_mask", "updated_at"])
-        report_user_action(
-            cast(User, request.user),
-            "mcp_gateway agent token rotated",
-            properties={"handle": account.handle},
-            team=self.team,
-        )
-        return Response(MCPServiceAccountWithTokenSerializer(account, context={"token": raw_token}).data)
 
     @validated_request(
         request_serializer=ServiceAccountAccessUpdateSerializer,
@@ -952,7 +918,7 @@ class MCPServiceAccountViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewse
             raise NotFound("Gateway server not found.")
 
         if data["enabled"]:
-            MCPServiceAccountServerAccess.objects.get_or_create(
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).get_or_create(
                 service_account=account,
                 gateway_server=server,
                 defaults={"team_id": self.team_id, "granted_by": cast(User, request.user)},
@@ -968,8 +934,11 @@ class MCPServiceAccountViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewse
                     defaults={"state": entry["policy_state"]},
                 )
         else:
-            MCPServiceAccountServerAccess.objects.filter(service_account=account, gateway_server=server).delete()
-            MCPToolPolicy.objects.filter(
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
+                service_account=account,
+                gateway_server=server,
+            ).delete()
+            MCPToolPolicy.objects.for_team(self.team_id).filter(
                 gateway_server=server, scope_type="agent", scope_service_account=account
             ).delete()
 
@@ -980,7 +949,7 @@ class MCPServiceAccountViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewse
             team=self.team,
         )
         account = self.safely_get_queryset(self.get_queryset()).get(id=account.id)
-        return Response(MCPServiceAccountSerializer(account).data)
+        return Response(MCPServiceAccountSerializer(account, context=self.get_serializer_context()).data)
 
 
 class MCPOrgRuleViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -990,7 +959,7 @@ class MCPOrgRuleViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.Mode
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     serializer_class = MCPOrgRuleSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     queryset = MCPOrgRule.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[MCPOrgRule]) -> QuerySet[MCPOrgRule]:
@@ -1039,7 +1008,7 @@ class MCPAuditEventViewSet(
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve", "counts"]
     serializer_class = MCPAuditEventSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     queryset = MCPAuditEvent.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[MCPAuditEvent]) -> QuerySet[MCPAuditEvent]:
@@ -1099,7 +1068,7 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
     scope_object = "project"
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["update_settings", "apply_preset"]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     pagination_class = None
     # Plain ViewSet: spectacular needs a fallback serializer for schema generation.
     serializer_class = TeamMCPGatewayConfigSerializer
@@ -1171,7 +1140,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
     scope_object = "project"
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["set_access"]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     pagination_class = None
     serializer_class = GatewayMemberSummarySerializer
 

@@ -289,7 +289,8 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     description = models.TextField(blank=True, default="")
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev")
     auth_mode = models.CharField(max_length=20, choices=GATEWAY_AUTH_MODE_CHOICES, default="individual")
-    # Master switch: off means members and agents can neither see nor call it.
+    # Team-member availability. Agent access is controlled independently by
+    # explicit MCPServiceAccountServerAccess grants.
     is_team_enabled = models.BooleanField(default=True)
     # Only meaningful for shared-credential servers: whether members may also
     # connect their own account on top of the shared one.
@@ -353,18 +354,18 @@ class MCPOrgRule(TeamScopedRootMixin, UUIDModel):
 
 
 class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
-    """A non-human identity (agent) that calls gateway servers with its own
-    bearer token and its own tool policies."""
+    """A fixed PostHog agent identity with independent MCP access policies."""
 
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, related_name="mcp_service_accounts", db_constraint=False
     )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, default="")
-    # Stable identity handle shown in audit trails, e.g. "svc-docs-agent".
+    # Stable internal identity handle shown in audit trails.
     handle = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=SERVICE_ACCOUNT_STATUS_CHOICES, default="active")
-    # sha256 of the bearer token; the raw token is shown once at creation/rotation.
+    # Reserved unique identity material for the built-in catalog. Runtime
+    # authentication uses short-lived signed tokens instead.
     token_hash = models.CharField(max_length=128, unique=True)
     token_mask = models.CharField(max_length=64, blank=True, default="")
     last_active_at = models.DateTimeField(null=True, blank=True)

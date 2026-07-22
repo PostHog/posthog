@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +13,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ServerIcon } from '../scene/icons'
 import { gatewayAgentLogic } from './gatewayAgentLogic'
 import { DecisionTag } from './gatewayUtils'
+import { agentServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
     component: GatewayAgentScene,
@@ -22,9 +22,16 @@ export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
 }
 
 export function GatewayAgentScene(): JSX.Element {
-    const { account, accountLoading, allServers, sharedServerIds, recentCalls } = useValues(gatewayAgentLogic)
-    const { setServerAccess, toggleAccountStatus, deleteServiceAccount, rotateServiceAccountToken } =
-        useActions(gatewayAgentLogic)
+    const {
+        account,
+        accountLoading,
+        accountStatusLoadingIds,
+        agentServerAccessLoadingKeys,
+        allServers,
+        sharedServerIds,
+        recentCalls,
+    } = useValues(gatewayAgentLogic)
+    const { setAgentServerAccess, toggleAccountStatus } = useActions(gatewayAgentLogic)
 
     if (!account && accountLoading) {
         return <SceneContent>Loading…</SceneContent>
@@ -48,52 +55,38 @@ export function GatewayAgentScene(): JSX.Element {
                 <div className="flex-1">
                     <div className="flex items-center gap-2">
                         <h1 className="mb-0">{account.name}</h1>
-                        {paused ? (
-                            <LemonTag type="warning">Paused</LemonTag>
-                        ) : (
-                            <LemonTag type="success">Active</LemonTag>
-                        )}
+                        <LemonTag type={account.product_enabled ? 'success' : 'muted'}>
+                            {account.product_enabled ? 'Product available' : 'Product unavailable'}
+                        </LemonTag>
+                        <LemonTag type={paused ? 'warning' : 'success'}>
+                            {paused ? 'MCP paused' : 'MCP enabled'}
+                        </LemonTag>
                     </div>
                     <div className="text-secondary">{account.description}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={() => toggleAccountStatus(account.id, !paused)}>
-                        {paused ? 'Resume agent' : 'Pause agent'}
-                    </LemonButton>
-                    <LemonButton status="danger" type="secondary" onClick={() => deleteServiceAccount(account.id)}>
-                        Delete
-                    </LemonButton>
-                </div>
+                <LemonButton
+                    type="secondary"
+                    loading={accountStatusLoadingIds.has(account.id)}
+                    disabledReason={
+                        paused && !account.product_enabled
+                            ? account.product_disabled_reason ||
+                              'Enable this agent’s PostHog product before resuming it.'
+                            : undefined
+                    }
+                    onClick={() => toggleAccountStatus(account.id, !paused)}
+                >
+                    {paused ? 'Resume agent' : 'Pause agent'}
+                </LemonButton>
             </div>
 
             <LemonDivider />
 
-            <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Identity</h3>
-                <div className="border rounded p-3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-secondary w-40">Authenticates as</span>
-                        <span className="font-mono text-sm">{account.handle}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-secondary w-40">Gateway token</span>
-                        <span className="font-mono text-sm">{account.token_mask || 'mcp_gw_ ••••'}</span>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconCopy />}
-                            tooltip="The token is only shown in full when created or rotated"
-                            onClick={() => void copyToClipboard(account.token_mask, 'masked token')}
-                        />
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={() => rotateServiceAccountToken(account.id)}
-                        >
-                            Rotate…
-                        </LemonButton>
-                    </div>
-                </div>
-            </div>
+            {!account.product_enabled && (
+                <LemonBanner type="info">
+                    {account.product_disabled_reason || 'Enable this agent’s PostHog product before resuming it.'} MCP
+                    access settings stay saved while the agent is unavailable.
+                </LemonBanner>
+            )}
 
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">
@@ -122,7 +115,11 @@ export function GatewayAgentScene(): JSX.Element {
                                 )}
                                 <LemonSwitch
                                     checked={shared}
-                                    onChange={(checked) => setServerAccess(server.id, checked)}
+                                    loading={agentServerAccessLoadingKeys.has(
+                                        agentServerAccessKey(account.id, server.id)
+                                    )}
+                                    aria-label={`${shared ? 'Revoke' : 'Grant'} ${account.name} access to ${server.name}`}
+                                    onChange={(checked) => setAgentServerAccess(account.id, server.id, checked)}
                                 />
                             </div>
                         )

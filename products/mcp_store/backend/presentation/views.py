@@ -41,6 +41,7 @@ from posthog.rate_limit import (
 )
 from posthog.security.url_validation import is_url_allowed
 
+from ..agents import sync_built_in_agents
 from ..gateway import link_installation_to_gateway, set_gateway_auth_mode
 from ..models import (
     MCPMemberServerRevocation,
@@ -65,6 +66,7 @@ from ..oauth import (
     requested_oauth_scopes,
     select_token_endpoint_auth_method,
 )
+from ..permissions import DenyMCPBuiltInAgentOAuth
 from ..policy import GatewayCaller
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from ..tasks import sync_installation_tools_task
@@ -216,7 +218,7 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
     scope_object = "project"
     serializer_class = MCPServerTemplateSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
 
     @validated_request(
         responses={200: OpenApiResponse(response=MCPServerTemplateSerializer(many=True))},
@@ -359,7 +361,7 @@ class InstallCustomSerializer(serializers.Serializer):
         choices=["personal", "shared"],
         required=False,
         default="personal",
-        help_text="'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).",
+        help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
     )
     # Gateway install-time options. Non-default values are admin-only —
     # they shape what the whole team and its agents can reach.
@@ -407,7 +409,7 @@ class InstallTemplateSerializer(serializers.Serializer):
         choices=["personal", "shared"],
         required=False,
         default="personal",
-        help_text="'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).",
+        help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
     )
     # Gateway install-time options. Non-default values are admin-only —
     # they shape what the whole team and its agents can reach.
@@ -520,7 +522,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
 
     # Installations are user-scoped or shared (safely_get_queryset returns both),
     # so write actions don't need project admin access.
@@ -605,11 +607,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _require_admin_for_shared_scope(self, scope: str) -> None:
         """Creating a team-wide shared MCP server is admin-only.
 
-        A shared install exposes the installer's credential to every project
-        member and all autonomous agents, and any action taken through it is
-        attributed to the credential owner (e.g. a member could write to Linear
-        as the owner). Gating creation to admins keeps a regular member from
-        standing up a shared server that others act through.
+        A shared install exposes the installer's credential to project members,
+        and admins may separately grant it to built-in agents. Any action taken
+        through it is attributed to the credential owner (e.g. a member could
+        write to Linear as the owner). Gating creation to admins keeps a regular
+        member from standing up a shared server that others act through.
         """
         if scope != "shared":
             return
@@ -635,6 +637,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if self._wants_admin_gateway_options(data) and not self._is_project_admin():
             raise PermissionDenied("Only project admins can set team availability or share servers with agents.")
 
+        agent_ids = set(data.get("agent_ids") or [])
+        if not agent_ids:
+            return
+        if data.get("scope", "personal") != "shared":
+            raise serializers.ValidationError(
+                {"agent_ids": "Agents can only be granted a server with a shared team credential."}
+            )
+
+        built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
+        if not agent_ids.issubset(built_in_agent_ids):
+            raise serializers.ValidationError({"agent_ids": "Select only the PostHog agents listed for this project."})
+
     def _apply_gateway_options(self, installation: MCPServerInstallation, data: dict) -> None:
         """Register the installation with the gateway and apply install-time
         team options (enablement, personal connections, agent shares).
@@ -658,14 +672,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 server.save(update_fields=[*update_fields, "updated_at"])
 
         for agent_id in data.get("agent_ids") or []:
-            try:
-                account = MCPServiceAccount.objects.for_team(self.team_id).get(id=agent_id)
-            except MCPServiceAccount.DoesNotExist:
-                continue
-            MCPServiceAccountServerAccess.objects.get_or_create(
+            account = MCPServiceAccount.objects.for_team(self.team_id).get(id=agent_id)
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).get_or_create(
                 service_account=account,
                 gateway_server=server,
-                defaults={"granted_by": cast(User, self.request.user)},
+                defaults={"team_id": self.team_id, "granted_by": cast(User, self.request.user)},
             )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -778,8 +789,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         """Escalate a personal installation to a team-wide shared one.
 
         Owner-only AND admin-only: sharing exposes the owner's credential to
-        every project member and all autonomous agents, so it carries the same
-        gate as creating a shared install outright.
+        project members, so it carries the same gate as creating a shared
+        install outright. Agents require separate explicit grants.
         """
         installation = self.get_object()
         if installation.scope != "personal":

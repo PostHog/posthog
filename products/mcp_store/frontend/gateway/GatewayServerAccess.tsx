@@ -1,23 +1,30 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSwitch, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { gatewayServerLogic } from './gatewayServerLogic'
 import { toProfileUser } from './gatewayUtils'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
+import { agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** Admin-only "Access" section on the server detail: team availability, shared
  * credential, personal-connection allowance, connected people and agents. */
 export function GatewayAccessSection(): JSX.Element | null {
     const { server } = useValues(gatewayServerLogic)
-    const { toggleServerEnabled, toggleAllowPersonal } = useActions(mcpGatewayLogic)
+    const {
+        agentServerAccessLoadingKeys,
+        allServersEnabledLoading,
+        personalConnectionsLoadingIds,
+        serverEnabledLoadingIds,
+        serviceAccounts,
+        serviceAccountsLoading,
+    } = useValues(mcpGatewayLogic)
+    const { toggleServerEnabled, toggleAllowPersonal, setAgentServerAccess } = useActions(mcpGatewayLogic)
 
     if (!server) {
         return null
     }
 
     const connections = server.connections ?? []
-    const agents = server.agents ?? []
 
     return (
         <div className="flex flex-col gap-3">
@@ -36,6 +43,8 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </div>
                 <LemonSwitch
                     checked={server.is_team_enabled}
+                    loading={allServersEnabledLoading || serverEnabledLoadingIds.has(server.id)}
+                    aria-label={`${server.is_team_enabled ? 'Turn off' : 'Turn on'} ${server.name} for team members`}
                     onChange={(checked) => toggleServerEnabled(server.id, checked)}
                 />
             </div>
@@ -64,6 +73,8 @@ export function GatewayAccessSection(): JSX.Element | null {
                         </div>
                         <LemonSwitch
                             checked={server.allow_personal_connections}
+                            loading={personalConnectionsLoadingIds.has(server.id)}
+                            aria-label={`${server.allow_personal_connections ? 'Disable' : 'Enable'} personal ${server.name} connections`}
                             onChange={(checked) => toggleAllowPersonal(server.id, checked)}
                         />
                     </div>
@@ -100,37 +111,49 @@ export function GatewayAccessSection(): JSX.Element | null {
             </div>
 
             <div>
-                <div className="text-xs uppercase text-secondary font-semibold mb-1">Agents · {agents.length}</div>
-                {agents.length === 0 ? (
+                <div className="text-xs uppercase text-secondary font-semibold mb-1">
+                    Agents · {serviceAccounts.length}
+                </div>
+                <div className="text-sm text-secondary mb-2">
+                    Agent access is separate from team member availability.
+                </div>
+                {serviceAccountsLoading ? (
+                    <div className="border border-dashed rounded p-3 text-sm text-secondary flex items-center gap-2">
+                        <Spinner /> Loading agents…
+                    </div>
+                ) : serviceAccounts.length === 0 ? (
                     <div className="border border-dashed rounded p-3 text-sm text-secondary">
-                        No agents have access. Share this server with an agent from its service-account screen so it can
-                        call {server.name} under its own tool policies.
+                        No PostHog agents are available for this project.
                     </div>
                 ) : (
                     <div className="border rounded divide-y">
-                        {agents.map((agent) => (
-                            <div key={agent.service_account_id} className="flex items-center gap-2 p-2">
-                                <div className="font-semibold">{agent.name}</div>
-                                <span className="font-mono text-xs text-secondary">{agent.handle}</span>
-                                <div className="flex-1" />
-                                {agent.status === 'paused' ? (
-                                    <LemonTag type="warning">Paused</LemonTag>
-                                ) : (
-                                    <LemonTag type="success">Active</LemonTag>
-                                )}
-                            </div>
-                        ))}
+                        {serviceAccounts.map((account) => {
+                            const shared = account.server_ids.includes(server.id)
+                            return (
+                                <div key={account.id} className="flex items-center gap-2 p-2">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-semibold">{account.name}</div>
+                                        <div className="text-xs text-secondary truncate">{account.description}</div>
+                                    </div>
+                                    <LemonTag type={account.product_enabled ? 'success' : 'muted'} size="small">
+                                        {account.product_enabled ? 'Product available' : 'Product unavailable'}
+                                    </LemonTag>
+                                    <LemonTag type={account.status === 'paused' ? 'warning' : 'success'} size="small">
+                                        {account.status === 'paused' ? 'MCP paused' : 'MCP enabled'}
+                                    </LemonTag>
+                                    <LemonSwitch
+                                        checked={shared}
+                                        loading={agentServerAccessLoadingKeys.has(
+                                            agentServerAccessKey(account.id, server.id)
+                                        )}
+                                        aria-label={`${shared ? 'Revoke' : 'Grant'} ${account.name} access to ${server.name}`}
+                                        onChange={(checked) => setAgentServerAccess(account.id, server.id, checked)}
+                                    />
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
-                <LemonButton
-                    className="mt-2"
-                    size="small"
-                    type="secondary"
-                    to={undefined}
-                    disabledReason="Share access from the agent's detail page"
-                >
-                    + Share access with an agent
-                </LemonButton>
             </div>
         </div>
     )

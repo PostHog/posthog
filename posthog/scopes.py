@@ -79,6 +79,7 @@ APIScopeObject = Literal[
     "logs",
     "loop",
     "marketing_analytics",
+    "mcp_builtin_agent",
     "mcp_analytics",
     "metrics",
     "notebook",
@@ -125,6 +126,11 @@ APIScopeObject = Literal[
     "wizard_session",
 ]
 
+
+# Server-only provenance marker for OAuth tokens minted for PostHog's built-in
+# agents. It is hidden from user-controlled scope selectors below.
+MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
+
 APIScopeActions = Literal[
     "read",
     "write",
@@ -149,6 +155,10 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # it on the internal products that share the PostHog Code OAuth app so a user's
         # own credential can't reach them — see services/llm-gateway products/config.py.
         "internal_run",
+        # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
+        # MCP Store uses it to deny the human/member control plane and force the
+        # agent through its own explicit gateway grants.
+        "mcp_builtin_agent",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.

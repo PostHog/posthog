@@ -1,18 +1,33 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.models import Organization, Team
+from posthog.models.user import User
+
 from products.tasks.backend.exceptions import TaskInvalidStateError
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task
 from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
 
 
+@pytest.mark.parametrize(
+    ("origin_product", "application"),
+    [
+        (Task.OriginProduct.POSTHOG_AI, "posthog_ai"),
+        (Task.OriginProduct.SIGNALS_SCOUT, "array"),
+        (Task.OriginProduct.SUPPORT_REPLY, "array"),
+    ],
+)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_posthog_ai_task_uses_posthog_ai_oauth_application(mock_create: MagicMock) -> None:
+def test_built_in_agent_origins_use_restricted_oauth_scope(
+    mock_create: MagicMock,
+    origin_product: Task.OriginProduct,
+    application: str,
+) -> None:
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
         team_id=123,
-        origin_product=Task.OriginProduct.POSTHOG_AI,
+        origin_product=origin_product,
     )
 
     assert create_oauth_access_token(task) == "token"
@@ -21,7 +36,8 @@ def test_posthog_ai_task_uses_posthog_ai_oauth_application(mock_create: MagicMoc
         task.created_by,
         123,
         scopes="read_only",
-        application="posthog_ai",
+        application=application,
+        include_mcp_builtin_agent_scope=True,
     )
 
 
@@ -57,11 +73,63 @@ def test_oauth_token_can_disable_task_creator_fallback() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("origin_product", "agent_key"),
+    [
+        (Task.OriginProduct.POSTHOG_AI, "posthog_ai"),
+        (Task.OriginProduct.SIGNALS_SCOUT, "scout"),
+        (Task.OriginProduct.SUPPORT_REPLY, "support"),
+    ],
+)
+def test_server_created_task_persists_trusted_mcp_agent_marker(
+    origin_product: Task.OriginProduct, agent_key: MCPBuiltInAgentKey
+) -> None:
+    organization = Organization.objects.create(name=f"agent-marker-{agent_key}")
+    team = Team.objects.create(organization=organization, name="agent-marker-team")
+    creator = User.objects.create(email=f"agent-marker-{agent_key}@example.com")
+
+    task = Task.create_without_run(
+        team=team,
+        title="Agent task",
+        description="Run the agent",
+        origin_product=origin_product,
+        user_id=creator.id,
+        mcp_builtin_agent_key=agent_key,
+    )
+
+    assert task.state == {"mcp_builtin_agent_key": agent_key}
+    assert task.mcp_builtin_agent_key == agent_key
+
+
+@pytest.mark.django_db
+def test_reserved_origin_without_matching_server_marker_is_untrusted() -> None:
+    organization = Organization.objects.create(name="legacy-agent-marker")
+    team = Team.objects.create(organization=organization, name="legacy-agent-marker-team")
+    creator = User.objects.create(email="legacy-agent-marker@example.com")
+    legacy_task = Task.objects.create(
+        team=team,
+        created_by=creator,
+        title="Legacy",
+        description="Untrusted origin",
+        origin_product=Task.OriginProduct.SUPPORT_REPLY,
+    )
+
+    assert legacy_task.mcp_builtin_agent_key is None
+
+    with pytest.raises(ValueError, match="does not match task origin"):
+        Task.create_without_run(
+            team=team,
+            title="Mismatch",
+            description="Mismatched marker",
+            origin_product=Task.OriginProduct.SUPPORT_REPLY,
+            user_id=creator.id,
+            mcp_builtin_agent_key="scout",
+        )
+
+
+@pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_run_token_fails_closed_for_slack_run_with_unresolvable_actor(mock_create: MagicMock) -> None:
-    from posthog.models import Organization, Team
-    from posthog.models.user import User
-
     organization = Organization.objects.create(name="oauth-run-org")
     team = Team.objects.create(organization=organization, name="oauth-run-team")
     creator = User.objects.create(email="oauth-run-creator@example.com")

@@ -11,6 +11,12 @@ from django.db.models import Q
 
 import structlog
 
+from products.mcp_store.backend.agents import (
+    built_in_agent_key_for_task_origin,
+    create_gateway_agent_token,
+    get_agent_product_availability,
+    get_built_in_agent,
+)
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import MCPServerInstallation
 
@@ -68,12 +74,23 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     return True
 
 
-def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstallationInfo:
+def _to_info(
+    installation: MCPServerInstallation,
+    team_id: int,
+    *,
+    agent_proxy_token: str | None = None,
+) -> ActiveInstallationInfo:
+    if agent_proxy_token is not None and installation.gateway_server_id is not None:
+        proxy_path = f"/api/mcp_store/gateway/servers/{installation.gateway_server_id}/proxy/"
+    else:
+        proxy_path = f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/"
+
     return ActiveInstallationInfo(
         id=str(installation.id),
         name=_resolve_name(installation),
-        proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
+        proxy_path=proxy_path,
         scope=installation.scope,
+        proxy_token=agent_proxy_token,
     )
 
 
@@ -114,31 +131,73 @@ def get_installations_for_sandbox(
     *,
     user_id: int | None = None,
     include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
 ) -> list[ActiveInstallationInfo]:
     """Return MCP installations for sandbox agent use.
 
-    Always includes shared (team-wide) installations. Optionally includes
-    the user's personal installations when ``include_personal`` is True
-    and a ``user_id`` is provided. When the user has a ready personal
-    installation for the same URL as a shared one, only the personal one is
-    returned — the user acts as themselves rather than through the shared
-    credential.
+    Generic tasks retain the legacy team-shared installation behavior. A
+    server-stamped built-in agent task gets only shared servers explicitly
+    granted to its service account and never receives member-personal
+    installations. Origin alone is not trusted: the persisted task agent key
+    must match the origin mapping. A mapped origin without that marker gets no
+    MCP Store installations. Unmapped origins retain the legacy member
+    behavior and optionally include the user's personal installations when
+    ``include_personal`` is True and a ``user_id`` is provided. When the user
+    has a ready personal installation for the same URL as a shared one, only
+    the personal one is returned — the user acts as themselves rather than
+    through the shared credential.
     """
     try:
-        scope_filter = Q(scope="shared")
-        if include_personal and user_id is not None:
-            scope_filter = scope_filter | Q(scope="personal", user_id=user_id)
-
-        # list() evaluates the lazy queryset here so DB errors hit this handler.
-        queryset = (
-            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
-            .filter(scope_filter)
-            .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
-            .select_related("template")
+        base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
+            "template", "gateway_server"
         )
-        if user_id is not None:
-            queryset = queryset.exclude(gateway_server__member_revocations__user_id=user_id)
-        installations = list(queryset)
+
+        mapped_agent_key = built_in_agent_key_for_task_origin(task_origin or "")
+        if mapped_agent_key is not None and task_agent_key != mapped_agent_key:
+            logger.warning(
+                "Refusing MCP installations for an unstamped built-in agent task",
+                team_id=team_id,
+                task_origin=task_origin,
+            )
+            return []
+
+        agent_key = mapped_agent_key
+        agent_account = get_built_in_agent(team_id, agent_key) if agent_key is not None else None
+        if (
+            agent_key is not None
+            and agent_account is not None
+            and (
+                agent_account.status != "active"
+                or not get_agent_product_availability(agent_account.team, agent_key).enabled
+            )
+        ):
+            return []
+
+        shared_queryset = base_queryset.filter(scope="shared")
+        if agent_key is not None:
+            if agent_account is None:
+                shared_queryset = shared_queryset.none()
+            else:
+                shared_queryset = shared_queryset.filter(
+                    gateway_server__agent_access__service_account=agent_account,
+                )
+        else:
+            shared_queryset = shared_queryset.filter(
+                Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True)
+            )
+            if user_id is not None:
+                shared_queryset = shared_queryset.exclude(gateway_server__member_revocations__user_id=user_id)
+
+        # list() evaluates the lazy querysets here so DB errors hit this handler.
+        installations = list(shared_queryset)
+        if agent_key is None and include_personal and user_id is not None:
+            personal_queryset = (
+                base_queryset.filter(scope="personal", user_id=user_id)
+                .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
+                .exclude(gateway_server__member_revocations__user_id=user_id)
+            )
+            installations.extend(personal_queryset)
     except Exception as e:
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
@@ -152,12 +211,22 @@ def get_installations_for_sandbox(
             if installation.scope == "personal" or installation.url not in personal_urls
         ]
 
-    results = [_to_info(installation, team_id) for installation in ready]
+    agent_proxy_token = create_gateway_agent_token(agent_account) if agent_account is not None and ready else None
+    results = [
+        _to_info(
+            installation,
+            team_id,
+            agent_proxy_token=agent_proxy_token if installation.scope == "shared" else None,
+        )
+        for installation in ready
+    ]
 
     logger.debug(
         "Found MCP installations for sandbox",
         count=len(results),
         team_id=team_id,
         include_personal=include_personal,
+        task_origin=task_origin,
+        has_trusted_agent_key=agent_key is not None,
     )
     return results
