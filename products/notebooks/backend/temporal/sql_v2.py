@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
+from django.utils import timezone
+
 from temporalio import activity, common, workflow
 
 from posthog.models.user import User
@@ -73,11 +75,20 @@ def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
 
 @activity.defn(name="notebook-sandbox-cmd-mark-failed")
 def mark_sql_v2_run_failed_activity(input: SQLV2RunInput) -> None:
-    run = NotebookNodeRun.objects.for_team(input.team_id).filter(id=input.run_id).first()
-    if run is not None and run.status == NotebookNodeRun.Status.RUNNING:
-        run.status = NotebookNodeRun.Status.FAILED
-        run.error = "Run failed to dispatch to the kernel."
-        run.save(update_fields=["status", "error", "updated_at"])
+    # Status-guarded so a callback that completed the run between dispatch exhaustion and
+    # this activity keeps its real outcome — a stale FAILED must neither overwrite it nor
+    # report a second terminal transition.
+    updated = (
+        NotebookNodeRun.objects.for_team(input.team_id)
+        .filter(id=input.run_id, status=NotebookNodeRun.Status.RUNNING)
+        .update(
+            status=NotebookNodeRun.Status.FAILED,
+            error="Run failed to dispatch to the kernel.",
+            updated_at=timezone.now(),
+        )
+    )
+    if updated:
+        run = NotebookNodeRun.objects.for_team(input.team_id).select_related("user", "notebook").get(id=input.run_id)
         record_node_run_terminal(run, OUTCOME_FAILED)
 
 

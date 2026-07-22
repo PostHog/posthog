@@ -14,13 +14,20 @@ describe('formatExecuteSqlDescription', () => {
         expect(flagged).toContain('reasoning')
         expect(flagged).toContain('#### Metric discovery (semantic layer)')
         expect(flagged).toContain('system.information_schema.metrics')
+        expect(flagged).toContain('data-catalog-metric-run')
+        const metricRoutingPosition = flagged.indexOf('#### Metric discovery (semantic layer)')
+        expect(metricRoutingPosition).toBeLessThan(flagged.indexOf('some guidelines'))
+        expect(metricRoutingPosition).toBeLessThan(flagged.indexOf('### When to use `execute-sql`'))
+        expect(metricRoutingPosition).toBeLessThan(flagged.indexOf('#### Regular schema discovery'))
 
+        const baseline = builder.formatExecuteSqlDescription()
         const unflagged = [
-            builder.formatExecuteSqlDescription(),
+            baseline,
             builder.formatExecuteSqlDescription({}),
             builder.formatExecuteSqlDescription({ [PRODUCT_DATA_CATALOG_FLAG]: false }),
         ]
         for (const rendered of unflagged) {
+            expect(rendered).toBe(baseline)
             expect(rendered).not.toContain('Catalog trust signals')
             expect(rendered).not.toContain('certification')
             expect(rendered).not.toContain('confidence')
