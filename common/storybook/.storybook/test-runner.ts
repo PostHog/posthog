@@ -122,6 +122,19 @@ const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
+// Storybook channel events that mean a forced remount's play function failed. Shared between the
+// in-page listener (which also waits for the success event, `storyRendered`) and the outer check
+// that decides whether to fail the retry, so the two can't drift apart.
+const REMOUNT_FAILURE_EVENTS = [
+    'storyErrored',
+    'storyThrewException',
+    'playFunctionThrewException',
+    // Storybook can still emit `storyRendered` after this one (an unhandled error doesn't stop the
+    // story from finishing), so it must be listened for directly instead of relying on the later
+    // `storyRendered` to end the wait.
+    'unhandledErrorsWhilePlaying',
+]
+
 // Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
 // can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
 // produces noisy, non-deterministic snapshots). Stub those navigations with a fixed page.
@@ -147,56 +160,47 @@ export default {
         // and surface the replayed play function's error if it throws again.
         if (ATTEMPT_COUNT_PER_ID[context.id]) {
             const remountResult = await page
-                .evaluate((storyId) => {
-                    return new Promise<{ event: string; message?: string }>((resolve) => {
-                        const channel = (
-                            window as unknown as {
-                                __STORYBOOK_ADDONS_CHANNEL__: {
-                                    on: (event: string, listener: (data?: unknown) => void) => void
-                                    off: (event: string, listener: (data?: unknown) => void) => void
-                                    emit: (event: string, data?: unknown) => void
+                .evaluate(
+                    ({ storyId, failureEvents }) => {
+                        return new Promise<{ event: string; message?: string }>((resolve) => {
+                            const channel = (
+                                window as unknown as {
+                                    __STORYBOOK_ADDONS_CHANNEL__: {
+                                        on: (event: string, listener: (data?: unknown) => void) => void
+                                        off: (event: string, listener: (data?: unknown) => void) => void
+                                        emit: (event: string, data?: unknown) => void
+                                    }
                                 }
+                            ).__STORYBOOK_ADDONS_CHANNEL__
+                            const doneEvents = [...failureEvents, 'storyRendered']
+                            const listeners: Record<string, (data?: unknown) => void> = {}
+                            const finish = (event: string, data?: unknown): void => {
+                                doneEvents.forEach((e) => channel.off(e, listeners[e]))
+                                // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
+                                // every other done event passes the error object directly.
+                                const error = (Array.isArray(data) ? data[0] : data) as
+                                    | { message?: string; description?: string }
+                                    | undefined
+                                resolve({ event, message: error?.message ?? error?.description })
                             }
-                        ).__STORYBOOK_ADDONS_CHANNEL__
-                        const doneEvents = [
-                            'storyRendered',
-                            'storyErrored',
-                            'storyThrewException',
-                            'playFunctionThrewException',
-                            // Storybook can still emit `storyRendered` after this one (an unhandled error
-                            // doesn't stop the story from finishing), so it must be listened for directly
-                            // instead of relying on the later `storyRendered` to end the wait.
-                            'unhandledErrorsWhilePlaying',
-                        ]
-                        const listeners: Record<string, (data?: unknown) => void> = {}
-                        const finish = (event: string, data?: unknown): void => {
-                            doneEvents.forEach((e) => channel.off(e, listeners[e]))
-                            // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
-                            // every other done event passes the error object directly.
-                            const error = (Array.isArray(data) ? data[0] : data) as
-                                | { message?: string; description?: string }
-                                | undefined
-                            resolve({ event, message: error?.message ?? error?.description })
-                        }
-                        doneEvents.forEach((e) => {
-                            listeners[e] = (data?: unknown) => finish(e, data)
-                            channel.on(e, listeners[e])
+                            doneEvents.forEach((e) => {
+                                listeners[e] = (data?: unknown) => finish(e, data)
+                                channel.on(e, listeners[e])
+                            })
+                            // If the remount never settles, stop waiting so postVisit can proceed — but
+                            // treat it as a failed retry below rather than silently falling through as if
+                            // the remount had finished cleanly.
+                            setTimeout(() => finish('timeout'), 30000)
+                            channel.emit('forceRemount', { storyId })
                         })
-                        // If the remount never settles, stop waiting so postVisit can proceed — but
-                        // treat it as a failed retry below rather than silently falling through as if
-                        // the remount had finished cleanly.
-                        setTimeout(() => finish('timeout'), 30000)
-                        channel.emit('forceRemount', { storyId })
-                    })
-                }, context.id)
+                    },
+                    { storyId: context.id, failureEvents: REMOUNT_FAILURE_EVENTS }
+                )
                 .catch(() => undefined)
             if (
                 remountResult &&
                 [
-                    'playFunctionThrewException',
-                    'storyThrewException',
-                    'storyErrored',
-                    'unhandledErrorsWhilePlaying',
+                    ...REMOUNT_FAILURE_EVENTS,
                     // A remount that's still running when the wait times out must not be treated as
                     // a clean success — the snapshot flow below would then race unfinished play logic.
                     'timeout',
