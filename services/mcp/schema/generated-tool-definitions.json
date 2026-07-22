@@ -2455,11 +2455,11 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-run": {
-        "description": "Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or drifted metric's result as canonical.",
+        "description": "Run a governed metric from the semantic layer — the source of truth for business measures and KPIs. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or drifted metric's result as canonical.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Run a catalog metric",
-        "title": "Run a catalog metric",
+        "summary": "Run a governed metric (semantic layer)",
+        "title": "Run a governed metric (semantic layer)",
         "required_scopes": ["data_catalog:read", "query:read"],
         "annotations": {
             "destructiveHint": false,
@@ -7919,7 +7919,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",
