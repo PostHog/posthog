@@ -2067,8 +2067,12 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
         .create()
         .unwrap();
     let mut tpl = TopicPartitionList::new();
-    tpl.add_partition_offset("clickhouse_ingestion_warnings", 0, rdkafka::Offset::Beginning)
-        .unwrap();
+    tpl.add_partition_offset(
+        "clickhouse_ingestion_warnings",
+        0,
+        rdkafka::Offset::Beginning,
+    )
+    .unwrap();
     consumer.assign(&tpl).unwrap();
     let mut warnings = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(10);
