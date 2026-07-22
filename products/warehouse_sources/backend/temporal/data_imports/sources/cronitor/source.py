@@ -94,6 +94,7 @@ Create an API key with the `monitor:read` scope under **Settings → API keys** 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             supports_incremental = len(CRONITOR_ENDPOINTS[endpoint].incremental_fields) > 0
@@ -111,7 +112,11 @@ Create an API key with the `monitor:read` scope under **Settings → API keys** 
         return schemas
 
     def validate_credentials(
-        self, config: CronitorSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CronitorSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_cronitor_credentials(config.api_key)
         if ok:
