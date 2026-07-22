@@ -12,14 +12,25 @@ import json
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
+from posthog.temporal.duckgres_usage.activities import (
+    ack_duckgres_usage,
+    capture_duckgres_repoint_failure,
+    poll_duckgres_usage,
+    set_duckgres_default_team,
+)
+from posthog.temporal.duckgres_usage.types import (
+    PollDuckgresUsageInputs,
+    PollDuckgresUsageResult,
+    SetDuckgresDefaultTeamInputs,
+)
 
 POLL_DUCKGRES_USAGE_WORKFLOW = "poll-duckgres-usage"
 POLL_DUCKGRES_USAGE_SCHEDULE_ID = "poll-duckgres-usage-schedule"
+UPDATE_DUCKGRES_DEFAULT_TEAM_WORKFLOW = "update-duckgres-default-team"
 
 
 @workflow.defn(name=POLL_DUCKGRES_USAGE_WORKFLOW)
@@ -39,6 +50,27 @@ class PollDuckgresUsageWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
             heartbeat_timeout=timedelta(minutes=2),
         )
+        # A dead default team surfaced by the poll: duckgres is stamping a team that
+        # no longer exists for this org. Repoint it at the source *before* the ack, so
+        # a failing ack (which fails the whole run) can't strand the source fix and
+        # leave the next poll re-detecting the same dead team. Fire-and-forget (ABANDON
+        # — it outlives this poll). Stable id + ALLOW_DUPLICATE so repeated detections
+        # across polls don't stack: an in-flight repoint is skipped, a completed one may
+        # re-run (idempotent server-side). No workflow-level retry here — the child's
+        # activity already retries, so retrying the child too would multiply both the
+        # PUTs and the failure alerts.
+        for org_id, team_id in result.default_team_repoints.items():
+            try:
+                await workflow.start_child_workflow(
+                    UPDATE_DUCKGRES_DEFAULT_TEAM_WORKFLOW,
+                    SetDuckgresDefaultTeamInputs(org_id=org_id, team_id=team_id),
+                    id=UpdateDuckgresDefaultTeamWorkflow.workflow_id_for(org_id),
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    task_queue=workflow.info().task_queue,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+            except WorkflowAlreadyStartedError:
+                pass  # a repoint for this org is already running (a previous poll started it)
         # The poll committed the watermark (record-before-ack); acking is a small
         # POST in its own activity so a transient failure doesn't re-run the pull.
         if result.ack_watermark is not None:
@@ -49,3 +81,49 @@ class PollDuckgresUsageWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
             )
         return result
+
+
+@workflow.defn(name=UPDATE_DUCKGRES_DEFAULT_TEAM_WORKFLOW)
+class UpdateDuckgresDefaultTeamWorkflow(PostHogWorkflow):
+    """Repoint one org's managed-warehouse default team in duckgres.
+
+    Started fire-and-forget by the poll when it finds duckgres stamping a deleted
+    default team. Its own workflow so the (mutating) control-plane PUT retries
+    independently of the pull and can't wedge it.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SetDuckgresDefaultTeamInputs:
+        return SetDuckgresDefaultTeamInputs(**json.loads(inputs[0]))
+
+    @staticmethod
+    def workflow_id_for(org_id: str) -> str:
+        # Stable per org so concurrent polls dedup (WorkflowAlreadyStartedError).
+        return f"duckgres-set-default-team:{org_id}"
+
+    @workflow.run
+    async def run(self, inputs: SetDuckgresDefaultTeamInputs) -> None:
+        try:
+            await workflow.execute_activity(
+                set_duckgres_default_team,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=1),
+                # ValueError is input validation (bad team_id/org_id) — it won't heal on
+                # retry, so fail straight to the capture path. A server 4xx/5xx surfaces
+                # as DuckgresBillingAPIError, which stays retryable (may be transient).
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=10),
+                    non_retryable_error_types=["ValueError"],
+                ),
+            )
+        except ActivityError:
+            # Retries exhausted. Surface it (capture is I/O, so its own activity — not
+            # the workflow) so a persistent failure isn't silent, then let it fail.
+            await workflow.execute_activity(
+                capture_duckgres_repoint_failure,
+                inputs,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5)),
+            )
+            raise
