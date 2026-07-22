@@ -157,7 +157,7 @@ describe('createProcessGroupsStep', () => {
         { desc: 'boolean', groupSet: true, receivedType: 'boolean' },
         { desc: 'array', groupSet: ['a', 'b'], receivedType: 'array' },
     ])(
-        'skips upsertGroup and returns invalid_group_set warning when $group_set is a $desc',
+        'drops the event with an invalid_group_set warning when $group_set is a $desc',
         async ({ groupSet, receivedType }) => {
             mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
 
@@ -175,7 +175,7 @@ describe('createProcessGroupsStep', () => {
                 })
             )
 
-            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.type).toBe(PipelineResultType.DROP)
             expect(mockGroupStore.upsertGroup).not.toHaveBeenCalled()
             expect(result.warnings).toEqual([
                 expect.objectContaining({
