@@ -202,6 +202,8 @@ export class TemplateTester {
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
                 sesEndpoint: config.SES_ENDPOINT,
+                sesConfigurationSet: config.SES_CONFIGURATION_SET,
+                sesConfigurationSetUntracked: config.SES_CONFIGURATION_SET_UNTRACKED,
             },
             undefined as any,
             undefined as any,
