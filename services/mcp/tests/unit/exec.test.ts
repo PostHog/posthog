@@ -15,6 +15,7 @@ import {
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
+    formatInputValidationError,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
@@ -514,10 +515,17 @@ describe('exec tool', () => {
                 input: '{"actionId":277664}',
                 expected: /missing required parameter: id/,
             },
+            {
+                // Requires `reportInput: true` at the dispatch site — without it the
+                // message degrades to zod's default, which omits the actual length.
+                case: 'a string over its max length, naming actual length and limit',
+                input: `{"id":1,"description":"${'x'.repeat(401)}"}`,
+                expected: /parameter "description" is too long: 401 characters \(max 400\)/,
+            },
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
-                schema: z.object({ id: z.number() }),
+                schema: z.object({ id: z.number(), description: z.string().max(400).optional() }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
@@ -1347,6 +1355,34 @@ describe('exec tool', () => {
 
             expect(detail.fields).toContain('projectId:invalid_type')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+    })
+
+    describe('formatInputValidationError', () => {
+        it('names actual length and limit for an over-long string without echoing the value', () => {
+            const schema = z.object({ description: z.string().max(5) })
+            const result = schema.safeParse({ description: 'secret-value' }, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message).toBe(
+                'Invalid input for "insight-create": parameter "description" is too long: 12 characters (max 5)'
+            )
+            // The message flows into the tool response and analytics error_message,
+            // so it may carry the input's length but never the value itself.
+            expect(message).not.toContain('secret-value')
+        })
+
+        it('falls back to the zod default for a non-string too_big instead of a bogus length', () => {
+            const schema = z.object({ tags: z.array(z.string()).max(2) })
+            const result = schema.safeParse({ tags: ['a', 'b', 'c'] }, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const message = formatInputValidationError('insight-create', result.error!)
+
+            expect(message).toMatch(/parameter "tags": /)
+            expect(message).not.toContain('undefined')
         })
     })
 })

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import { IconEye, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -15,20 +14,22 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, SessionRecordingType } from '~/types'
+import { SessionRecordingType } from '~/types'
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
 /** Manual entry: scan one session by pasting its recording ID. */
 function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
-    const { triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
+    const { scanner, triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
         replayScannerLogic({ id: scannerId })
     )
     const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
     const [sessionId, setSessionId] = useState('')
     const lastSeenSuccessCount = useRef(onDemandObservationSuccessCount)
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     useEffect(() => {
         if (onDemandObservationSuccessCount > lastSeenSuccessCount.current) {
@@ -63,21 +64,16 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
                     fullWidth
                     data-attr="vision-scanner-scan-session-input"
                 />
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlay />}
+                    onClick={submit}
+                    loading={triggeringOnDemandObservation}
+                    disabledReason={editDisabledReason ?? (!trimmed ? 'Paste a session ID first' : undefined)}
+                    data-attr="vision-scanner-scan-session-submit"
                 >
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlay />}
-                        onClick={submit}
-                        loading={triggeringOnDemandObservation}
-                        disabledReason={!trimmed ? 'Paste a session ID first' : undefined}
-                        data-attr="vision-scanner-scan-session-submit"
-                    >
-                        Scan recording
-                    </LemonButton>
-                </AccessControlAction>
+                    Scan recording
+                </LemonButton>
             </div>
         </div>
     )
@@ -91,6 +87,8 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
         scannerRunTabLogic({ scannerId })
     )
     const { setVisibleSessionIds, startScan, startBulkScan } = useActions(scannerRunTabLogic({ scannerId }))
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     // Sync the playlist's visible rows into the logic, which owns the observation lookup and polling.
     const visibleIdsKey = sessionRecordings.map((recording) => recording.id).join(',')
@@ -164,29 +162,25 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                     )
                 } else {
                     content = (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
+                        <LemonButton
+                            fullWidth
+                            center
+                            size="small"
+                            type="secondary"
+                            icon={<IconPlay />}
+                            disabledReason={
+                                editDisabledReason ??
+                                (scanning
+                                    ? 'Scan in progress…'
+                                    : pendingId && pendingId !== recording.id
+                                      ? 'Another scan is starting…'
+                                      : undefined)
+                            }
+                            onClick={() => startScan(recording.id)}
+                            data-attr="vision-run-scan-recording"
                         >
-                            <LemonButton
-                                fullWidth
-                                center
-                                size="small"
-                                type="secondary"
-                                icon={<IconPlay />}
-                                disabledReason={
-                                    scanning
-                                        ? 'Scan in progress…'
-                                        : pendingId && pendingId !== recording.id
-                                          ? 'Another scan is starting…'
-                                          : undefined
-                                }
-                                onClick={() => startScan(recording.id)}
-                                data-attr="vision-run-scan-recording"
-                            >
-                                Scan recording
-                            </LemonButton>
-                        </AccessControlAction>
+                            Scan recording
+                        </LemonButton>
                     )
                 }
                 return <div className="w-44">{content}</div>
@@ -222,24 +216,20 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                             ? { disabledReason: 'Already scanned' }
                             : true,
                     renderActions: ({ selectedKeys, selectedCount, clearSelection }) => (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlay />}
+                            loading={bulkScanning}
+                            disabledReason={editDisabledReason}
+                            onClick={() => {
+                                startBulkScan(selectedKeys as string[])
+                                clearSelection()
+                            }}
+                            data-attr="vision-run-bulk-scan"
                         >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={<IconPlay />}
-                                loading={bulkScanning}
-                                onClick={() => {
-                                    startBulkScan(selectedKeys as string[])
-                                    clearSelection()
-                                }}
-                                data-attr="vision-run-bulk-scan"
-                            >
-                                Scan {selectedCount} selected
-                            </LemonButton>
-                        </AccessControlAction>
+                            Scan {selectedCount} selected
+                        </LemonButton>
                     ),
                 }}
             />

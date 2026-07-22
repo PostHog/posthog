@@ -53,7 +53,9 @@ class TestLangfuseSource:
         assert secret_key_field.secret is True
         assert secret_key_field.required is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", RESPONSE_LIMIT_ERROR])
+    @pytest.mark.parametrize(
+        "expected_key", ["401 Client Error", "403 Client Error", "404 Client Error", RESPONSE_LIMIT_ERROR]
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 

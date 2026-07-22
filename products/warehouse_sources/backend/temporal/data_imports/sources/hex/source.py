@@ -109,11 +109,12 @@ If your workspace runs on a single-tenant or self-hosted Hex deployment, enter i
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HexSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: HexSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_hex_credentials(config.workspace_url, config.api_key, schema_name, team_id)
 

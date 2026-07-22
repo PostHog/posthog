@@ -16,6 +16,9 @@ import type {
     ApprovalPolicyApi,
     AvailableFiltersResponseApi,
     ChangeRequestApi,
+    ChangeRequestApproveApi,
+    ChangeRequestDecisionResponseApi,
+    ChangeRequestRejectApi,
     ChangeRequestsListParams,
     CommentApi,
     CommentsListParams,
@@ -756,14 +759,14 @@ export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string)
 export const changeRequestsApproveCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    changeRequestApproveApi?: ChangeRequestApproveApi,
     options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
+): Promise<ChangeRequestDecisionResponseApi> => {
+    return apiMutator<ChangeRequestDecisionResponseApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
+        body: JSON.stringify(changeRequestApproveApi),
     })
 }
 
@@ -799,14 +802,14 @@ export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) 
 export const changeRequestsRejectCreate = async (
     projectId: string,
     id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    changeRequestRejectApi: ChangeRequestRejectApi,
     options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
+): Promise<ChangeRequestDecisionResponseApi> => {
+    return apiMutator<ChangeRequestDecisionResponseApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
+        body: JSON.stringify(changeRequestRejectApi),
     })
 }
 

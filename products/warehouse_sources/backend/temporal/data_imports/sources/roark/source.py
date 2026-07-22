@@ -93,6 +93,7 @@ Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Roark exposes no server-side timestamp filter on any list endpoint, so every table is
         # full-refresh only (see settings.py). Primary keys come from the endpoint catalog.
@@ -113,7 +114,7 @@ Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is 
         return schemas
 
     def validate_credentials(
-        self, config: RoarkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: RoarkSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_roark_credentials(config.api_key):
             return True, None

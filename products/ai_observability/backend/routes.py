@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, TEST
 
 from products.ai_observability.backend.api import (
+    AIBlobViewSet,
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
     AIObservabilitySummarizationViewSet,
@@ -32,6 +33,7 @@ from products.ai_observability.backend.api import (
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"ai_blob", AIBlobViewSet, "project_ai_blob", ["project_id"])
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
     # @me/spend is only useful where billing data is available; mirrors the
     # CLOUD/DEBUG/TEST gate the registration carried inline.

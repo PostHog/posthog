@@ -100,6 +100,9 @@ tools:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+            description:
+                description: |
+                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
         response:
             exclude:
                 - result
@@ -201,6 +204,9 @@ tools:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+            description:
+                description: |
+                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
         response:
             exclude:
                 - result

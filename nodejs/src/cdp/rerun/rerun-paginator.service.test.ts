@@ -118,6 +118,7 @@ describe('RerunPaginatorService integration', () => {
             seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
         }
         await seedingService.flush()
+        await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
         // test waits for *all* rows (rather than trivially passing on the

@@ -19,6 +19,7 @@ import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from openai import APIConnectionError
+from opentelemetry import trace
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -1168,9 +1169,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
+            effective_api_version = source.resolve_api_version(instance.api_version)
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), instance.team_id, instance.access_method
+                    cast(Any, source_config),
+                    instance.team_id,
+                    instance.access_method,
+                    api_version=effective_api_version,
                 )
             elif isinstance(source, CustomSource):
                 # Pass the source being updated so an integration-backed OAuth2 source can only validate
@@ -1182,13 +1187,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     instance.team_id,
                     source_id=str(instance.pk),
                     owner_user_id=self.context["request"].user.id,
+                    api_version=effective_api_version,
                 )
             else:
-                credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, instance.team_id, api_version=effective_api_version
+                )
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
             if instance.is_direct_query:
-                discovered_schemas = source.get_schemas(source_config, instance.team_id)
+                discovered_schemas = source.get_schemas(
+                    source_config, instance.team_id, api_version=effective_api_version
+                )
                 validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
@@ -1747,6 +1757,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ]
         return super().get_throttles()
 
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # Tag the request span with the two things that drive source-list load cost — source count and
+        # total serialized schema count — so the historically-slow list endpoint is diagnosable in
+        # tracing. Done here rather than by overriding `list`, since a method named `list` would shadow
+        # the builtin `list[...]` type used in annotations elsewhere in this class. Guarded for shape
+        # because finalize_response also runs for error responses (no `results`) and other actions.
+        if self.action == "list" and isinstance(response.data, dict):
+            results = response.data.get("results")
+            if isinstance(results, list):
+                span = trace.get_current_span()
+                span.set_attribute("data_warehouse.sources.count", len(results))
+                span.set_attribute(
+                    "data_warehouse.sources.schemas.count",
+                    sum(len(source.get("schemas") or []) for source in results if isinstance(source, dict)),
+                )
+        return response
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
             return ExternalDataSourceCreateSerializer
@@ -1769,8 +1797,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def safely_get_queryset(self, queryset):
         return (
             queryset.exclude(deleted=True)
+            # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
+            # serialization. select_related folds them into the main query instead of firing one
+            # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
+            # list load (up to one query, and a get_or_create write, per source).
+            .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                "created_by",
                 Prefetch(
                     "jobs",
                     queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
@@ -2125,7 +2157,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
         try:
-            source_schemas = source.get_schemas(source_config, self.team_id)
+            source_schemas = source.get_schemas(
+                source_config, self.team_id, api_version=source.resolve_api_version(new_source_model.api_version)
+            )
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased scaffold the UI hides).
             # Roll back the row just created so a caller can't accumulate orphaned sources, and return
@@ -2711,6 +2745,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source=source,
                     config=config,
                     source_id=str(instance.pk),
+                    api_version=source.resolve_api_version(instance.api_version),
                 )
             except Exception as e:
                 capture_exception(e)
@@ -2815,7 +2850,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             config = source.parse_config(instance.job_inputs)
             # Explicit user action — bypass any cached schema discovery so newly added
             # upstream resources (e.g. Slack channels) appear immediately.
-            schemas = source.get_schemas(config, self.team_id, force_refresh=True)
+            schemas = source.get_schemas(
+                config, self.team_id, force_refresh=True, api_version=source.resolve_api_version(instance.api_version)
+            )
             connection_metadata = (
                 get_direct_connection_metadata(
                     source_impl=source,
@@ -3328,7 +3365,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if hog_fn_result.error or hog_fn_result.hog_function is None:
                 return failure(hog_fn_result.error)
 
-            registration = create_and_register_webhook(source, source_config, hog_fn_result, self.team_id)
+            registration = create_and_register_webhook(
+                source,
+                source_config,
+                hog_fn_result,
+                self.team_id,
+                api_version=source.resolve_api_version(instance.api_version),
+            )
         except Exception as e:
             capture_exception(e, {"source_id": source_id, "team_id": self.team_id})
             return failure(str(e))
@@ -3526,13 +3569,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
-        if not source_type_supports_cdc(source_type):
+        if not isinstance(source_type, str) or not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
-        source_impl: PostgresSource = PostgresSource()
+        # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
+        # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        if not isinstance(source_impl, PostgresSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC prerequisite checks are not supported for source type: {source_type}"},
+            )
         is_valid, errors = source_impl.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -4493,7 +4543,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
-                external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
+                external_status = source.get_external_webhook_info(
+                    config, webhook_url, self.team_id, api_version=source.resolve_api_version(instance.api_version)
+                )
                 missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
                 capture_exception(e)
@@ -4545,9 +4597,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "This source type does not support webhooks"},
             )
 
+        effective_api_version = source.resolve_api_version(instance.api_version)
         try:
             config = source.parse_config(instance.job_inputs)
-            source_schemas = source.get_schemas(config, self.team_id)
+            source_schemas = source.get_schemas(config, self.team_id, api_version=effective_api_version)
         except ValidationError as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4585,7 +4638,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": hog_fn_result.error},
             )
 
-        result = create_and_register_webhook(source, config, hog_fn_result, self.team_id)
+        result = create_and_register_webhook(
+            source, config, hog_fn_result, self.team_id, api_version=effective_api_version
+        )
 
         return Response(
             status=status.HTTP_200_OK,
@@ -4676,7 +4731,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
-        success, error = source.webhook_inputs_updated(config, get_webhook_url(hog_function.id), self.team.pk, inputs)
+        success, error = source.webhook_inputs_updated(
+            config,
+            get_webhook_url(hog_function.id),
+            self.team.pk,
+            inputs,
+            api_version=source.resolve_api_version(instance.api_version),
+        )
         if not success:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4716,7 +4777,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
             config = source_impl.parse_config(source.job_inputs)
-            discovered = source_impl.get_schemas(config, self.team_id, names=names)
+            discovered = source_impl.get_schemas(
+                config, self.team_id, names=names, api_version=source_impl.resolve_api_version(source.api_version)
+            )
         except Exception as e:
             # Discovery connects to the customer's source, so an expected user/upstream failure
             # (bad credentials, unreachable host) is theirs to fix and is already reported back to
@@ -4956,6 +5019,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source=source,
             config=config,
             source_id=str(instance.pk),
+            api_version=source.resolve_api_version(instance.api_version),
         )
 
         return Response(
