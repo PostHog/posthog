@@ -1226,7 +1226,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                         .default(
                                                             organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOneFixedPropertiesOneItemOneoneTypeDefault
                                                         )
-                                                        .describe('Event property with "$feature/" prepended'),
+                                                        .describe('Event property with "$feature/\" prepended'),
                                                     value: zod
                                                         .union([
                                                             zod.array(
@@ -2603,7 +2603,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                         .default(
                                                             organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneoneTypeDefault
                                                         )
-                                                        .describe('Event property with "$feature/" prepended'),
+                                                        .describe('Event property with "$feature/\" prepended'),
                                                     value: zod
                                                         .union([
                                                             zod.array(
@@ -3766,7 +3766,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                         .default(
                                                             organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoFixedPropertiesOneItemOneoneTypeDefault
                                                         )
-                                                        .describe('Event property with "$feature/" prepended'),
+                                                        .describe('Event property with "$feature/\" prepended'),
                                                     value: zod
                                                         .union([
                                                             zod.array(
@@ -5139,7 +5139,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                         .default(
                                                             organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemTwoPropertiesOneItemOneoneTypeDefault
                                                         )
-                                                        .describe('Event property with "$feature/" prepended'),
+                                                        .describe('Event property with "$feature/\" prepended'),
                                                     value: zod
                                                         .union([
                                                             zod.array(
@@ -6304,7 +6304,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                         .default(
                                                             organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreeFixedPropertiesOneItemOneoneTypeDefault
                                                         )
-                                                        .describe('Event property with "$feature/" prepended'),
+                                                        .describe('Event property with "$feature/\" prepended'),
                                                     value: zod
                                                         .union([
                                                             zod.array(
@@ -7678,7 +7678,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                                         .default(
                                                             organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemOneoneTypeDefault
                                                         )
-                                                        .describe('Event property with "$feature/" prepended'),
+                                                        .describe('Event property with "$feature/\" prepended'),
                                                     value: zod
                                                         .union([
                                                             zod.array(
