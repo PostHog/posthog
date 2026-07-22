@@ -245,12 +245,8 @@ def _process_events_data(
                 event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
             ):
                 continue  # Skip irrelevant events but keep events the user has added to the context
-            if description := event_core_definition.get("description"):
-                if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
-                    event_data["description"] = f"{label}. {description}"
-                else:
-                    event_data["description"] = description
-                event_data["description"] = remove_line_breaks(event_data["description"])
+            if core_description := _format_core_event_description(event_core_definition):
+                event_data["description"] = core_description
         elif event_name in event_to_description:
             event_data["description"] = sanitize_event_description(event_to_description[event_name])
         elif event_name in db_event_descriptions:
@@ -259,6 +255,31 @@ def _process_events_data(
         processed_events.append(event_data)
 
     return processed_events, event_to_description, has_more
+
+
+def _format_core_event_description(event_core_definition: Mapping[str, Any]) -> str | None:
+    """Build a single-line description for a core taxonomy event, prefixed with its label."""
+    description = event_core_definition.get("description")
+    if not description:
+        return None
+    if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
+        description = f"{label}. {description}"
+    return remove_line_breaks(description)
+
+
+def get_event_description(team: Team, event_name: str) -> str | None:
+    """Return a human-readable description for a single event, or None if none is known.
+
+    Mirrors the precedence used when listing events: the built-in core taxonomy description wins,
+    otherwise fall back to the user-authored description stored on the event definition (EE only).
+    Used to surface a description on the single-event properties path so the agent doesn't have to
+    list every event to learn what one event means.
+    """
+    if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
+        return _format_core_event_description(event_core_definition)
+    if description := _get_event_definition_descriptions(team, [event_name], {}).get(event_name):
+        return sanitize_event_description(description)
+    return None
 
 
 def _get_event_definition_descriptions(
