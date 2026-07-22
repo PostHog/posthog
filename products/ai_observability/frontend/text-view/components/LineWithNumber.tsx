@@ -64,6 +64,11 @@ export function LineWithNumber({
     }
 
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
+        // The logic can be unmounted before this deferred callback runs (e.g. the user navigates
+        // away or switches traces), so bail out rather than reading `.values` off a torn-down store.
+        if (!commentsLogicInstance.isMounted()) {
+            return
+        }
         const editor = commentsLogicInstance.values.richContentEditor
         if (editor) {
             editor.clear()
