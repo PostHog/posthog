@@ -31,10 +31,16 @@ class MercuryResumeConfig:
 
 
 def format_incremental_value(value: Any) -> str | None:
-    """Format the incremental watermark as ISO 8601, which Mercury's date filters accept."""
+    """Format the incremental watermark as a date-only ``YYYY-MM-DD`` string.
+
+    Mercury's ``start`` filter on ``/transactions`` only accepts a date, not a full
+    ISO 8601 datetime — sending the latter gets the request rejected with a 400.
+    """
     if value is None:
         return None
-    if isinstance(value, datetime | date):
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
         return value.isoformat()
     return str(value)
 
