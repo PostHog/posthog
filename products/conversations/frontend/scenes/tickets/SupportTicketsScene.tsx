@@ -17,6 +17,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { Link } from 'lib/lemon-ui/Link'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -95,8 +96,9 @@ function SupportTicketsBulkActions(): JSX.Element {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds, searchQuery, hasActiveFilters } =
+        useValues(logic)
+    const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { currentTeam } = useValues(teamLogic)
@@ -168,10 +170,20 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         toggleRow,
     ])
 
+    const emptyState =
+        searchQuery && hasActiveFilters ? (
+            <Link onClick={() => clearFiltersKeepingSearch()}>
+                You currently have filters applied. Try your search again without filters
+            </Link>
+        ) : (
+            'No tickets'
+        )
+
     return (
         <LemonTable<Ticket>
             dataSource={tickets}
             rowKey="id"
+            emptyState={emptyState}
             loading={ticketsLoading}
             // Keep rows clickable while a background refresh is in flight; the loading overlay
             // otherwise captures pointer events and blocks navigation on every reload.

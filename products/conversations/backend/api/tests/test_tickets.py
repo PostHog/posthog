@@ -555,6 +555,14 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
+    def test_search_by_ticket_number_with_hash_prefix(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=%23{self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
     @parameterized.expand(
         [
             ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
