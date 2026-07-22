@@ -22,7 +22,7 @@ const config: SignalScoutConfigApi = {
 describe('ScoutConfigForm', () => {
     beforeEach(() => initKeaTests())
 
-    it('saves the daily run time after the native time input finishes editing', () => {
+    it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
         const onUpdate = jest.fn()
         const { container } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
         const input = container.querySelector<HTMLInputElement>('input[type="time"]')
@@ -34,5 +34,21 @@ describe('ScoutConfigForm', () => {
 
         fireEvent.blur(input!)
         expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '45 14 * * *' })
+
+        // A half-typed edit blurring empty must not silently revert the scout to its rolling
+        // interval — switching schedule mode is the select's job.
+        fireEvent.change(input!, { target: { value: '' } })
+        fireEvent.blur(input!)
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows an unexpressible cron as a read-only custom mode without a time picker', () => {
+        const onUpdate = jest.fn()
+        const { container, getByText } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />
+        )
+
+        expect(container.querySelector('input[type="time"]')).toBeNull()
+        expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
     })
 })

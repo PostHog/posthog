@@ -31,7 +31,17 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     updating?: boolean
 }
 
-function intervalOptions(config: SignalScoutConfig): { value: string; label: string }[] {
+/** Sentinel select values for the scheduled (cron) modes — rolling options use the interval minutes. */
+const DAILY_AT_MODE = 'daily_at'
+const CUSTOM_CRON_MODE = 'custom_cron'
+const DEFAULT_DAILY_TIME = '09:00'
+
+/**
+ * The schedule is either a rolling interval OR a cron — one select models that choice.
+ * Rolling presets carry the interval minutes; "Daily at a set time" switches to a daily cron
+ * (revealing the time picker); a cron the picker can't express shows as a read-only "Custom" mode.
+ */
+function scheduleOptions(config: SignalScoutConfig, scheduleMode: string): { value: string; label: string }[] {
     const options = RUN_INTERVAL_OPTIONS.map((option) => ({
         value: String(option.minutes),
         label: option.label,
@@ -41,6 +51,10 @@ function intervalOptions(config: SignalScoutConfig): { value: string; label: str
             value: String(config.run_interval_minutes),
             label: formatRunInterval(config.run_interval_minutes),
         })
+    }
+    options.push({ value: DAILY_AT_MODE, label: 'Daily at a set time' })
+    if (scheduleMode === CUSTOM_CRON_MODE) {
+        options.push({ value: CUSTOM_CRON_MODE, label: `Custom (${config.run_cron_schedule})` })
     }
     return options
 }
@@ -79,60 +93,69 @@ export function ScoutConfigForm({
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
     const dailyTime = dailyCronToTime(config.run_cron_schedule)
-    // A cron the simple time picker can't express (e.g. "0 9 * * 1-5", set via the API) — shown
-    // as-is, and never silently overwritten by an untouched picker.
-    const hasCustomCron = Boolean(config.run_cron_schedule) && dailyTime === null
+    const scheduleMode = config.run_cron_schedule
+        ? dailyTime !== null
+            ? DAILY_AT_MODE
+            : CUSTOM_CRON_MODE
+        : String(config.run_interval_minutes)
+    const controlsDisabledReason = updating
+        ? 'Saving scout settings'
+        : config.enabled
+          ? undefined
+          : 'Enable the scout first'
 
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
-                    <span className="text-xs text-default">Cadence</span>
-                    <span className="text-[11.5px] text-muted">How often the scout is dispatched</span>
+                    <span className="text-xs text-default">Schedule</span>
+                    <span className="text-[11.5px] text-muted">
+                        {scheduleMode === CUSTOM_CRON_MODE
+                            ? 'A cron schedule set via the API'
+                            : 'A rolling cadence, or a set time each day'}
+                    </span>
                 </div>
                 <LemonSelect
                     size="small"
-                    value={String(config.run_interval_minutes)}
-                    options={intervalOptions(config)}
-                    disabledReason={
-                        updating ? 'Saving scout settings' : config.enabled ? undefined : 'Enable the scout first'
-                    }
-                    className="w-36"
+                    value={scheduleMode}
+                    options={scheduleOptions(config, scheduleMode)}
+                    disabledReason={controlsDisabledReason}
+                    className="w-44"
                     onChange={(value) => {
-                        const runIntervalMinutes = Number(value)
-                        onUpdate(config.id, {
-                            run_interval_minutes: runIntervalMinutes,
-                            ...(runIntervalMinutes === 1440 ? {} : { run_cron_schedule: null }),
-                        })
+                        if (value === scheduleMode || value === CUSTOM_CRON_MODE) {
+                            return
+                        }
+                        if (value === DAILY_AT_MODE) {
+                            onUpdate(config.id, { run_cron_schedule: timeToDailyCron(dailyTime ?? DEFAULT_DAILY_TIME) })
+                            return
+                        }
+                        // A rolling cadence replaces any cron — the schedule is one or the other.
+                        onUpdate(config.id, { run_interval_minutes: Number(value), run_cron_schedule: null })
                     }}
                 />
             </div>
-            {config.run_interval_minutes === 1440 ? (
+            {scheduleMode === DAILY_AT_MODE ? (
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col min-w-0">
-                        <span className="text-xs text-default">Daily run time</span>
-                        <span className="text-[11.5px] text-muted">
-                            {hasCustomCron
-                                ? `Custom schedule "${config.run_cron_schedule}" (set via API)`
-                                : `Optional. Uses the project timezone (${projectTimezone})`}
-                        </span>
+                        <span className="text-xs text-default">Run time</span>
+                        <span className="text-[11.5px] text-muted">Uses the project timezone ({projectTimezone})</span>
                     </div>
                     <LemonInput
                         key={config.run_cron_schedule ?? 'unset'}
                         type="time"
                         step={60}
                         size="small"
-                        defaultValue={dailyTime ?? ''}
-                        disabledReason={
-                            updating ? 'Saving scout settings' : config.enabled ? undefined : 'Enable the scout first'
-                        }
-                        className="w-36"
+                        defaultValue={dailyTime ?? DEFAULT_DAILY_TIME}
+                        disabledReason={controlsDisabledReason}
+                        className="w-44"
                         onBlur={(event) => {
                             const value = event.currentTarget.value
-                            if (!value && hasCustomCron) {
+                            // Empty means a half-finished edit, never "clear" — turning the
+                            // schedule off is the select's job, so just fall back to the saved time.
+                            if (!value) {
                                 return
                             }
-                            const runCronSchedule = value ? timeToDailyCron(value) : null
+                            const runCronSchedule = timeToDailyCron(value)
                             if (runCronSchedule !== config.run_cron_schedule) {
                                 onUpdate(config.id, { run_cron_schedule: runCronSchedule })
                             }
