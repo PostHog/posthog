@@ -1,40 +1,32 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AdminLoginUrl, ImpersonationTicketContext } from './impersonationNoticeLogic'
+import { impersonationNoticeLogic } from './impersonationNoticeLogic'
 
-export function AdminLoginButtons({
-    ticketContext,
-    adminLoginUrls,
-}: {
-    ticketContext: ImpersonationTicketContext | null
-    adminLoginUrls: AdminLoginUrl[]
-}): JSX.Element {
-    const disabledReason = !ticketContext?.email ? 'This ticket has no associated email' : undefined
+export function AdminLoginButtons(): JSX.Element {
+    const { ticketContext, isInitiatingImpersonation } = useValues(impersonationNoticeLogic)
+    const { initiateImpersonation } = useActions(impersonationNoticeLogic)
 
-    // Region is ambiguous when we couldn't infer it, so we offer one button per
-    // region and label each so staff know which admin page they're opening.
-    const showRegionLabel = adminLoginUrls.length > 1
+    const disabledReason = !ticketContext?.email
+        ? 'This ticket has no associated email'
+        : ticketContext.identityVerified === false
+          ? "This customer's identity could not be verified, so login as is disabled"
+          : undefined
 
+    // Resolving the customer's region and user happens server-side, so a single
+    // button suffices — staff are routed to the right region automatically.
     return (
         <div className="flex flex-wrap justify-end gap-2">
-            {disabledReason ? (
-                <LemonButton type="secondary" size="small" disabledReason={disabledReason}>
-                    Login as {ticketContext?.email || 'customer'}
-                </LemonButton>
-            ) : (
-                adminLoginUrls.map(({ region, url }) => (
-                    <LemonButton
-                        key={region}
-                        type="secondary"
-                        size="small"
-                        tooltip="This currently redirects to the admin login page, but in future will log you in directly."
-                        onClick={() => window.open(url, '_blank')}
-                    >
-                        Login as {ticketContext?.email}
-                        {showRegionLabel ? ` (${region})` : ''}
-                    </LemonButton>
-                ))
-            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                disabledReason={disabledReason}
+                loading={isInitiatingImpersonation}
+                onClick={() => initiateImpersonation()}
+            >
+                Login as {ticketContext?.email || 'customer'}
+            </LemonButton>
         </div>
     )
 }

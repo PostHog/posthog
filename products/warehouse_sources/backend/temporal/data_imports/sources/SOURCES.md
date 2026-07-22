@@ -169,6 +169,7 @@ the row lists both.
 | customer_io                      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | customerly                       | HTTP                        | requests                                                        | ✅                          |
 | dagster_cloud                    | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| databricks                       | DB protocol                 | databricks-sql-connector                                        | ➖                          |
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
@@ -842,7 +843,6 @@ doesn't conflict with concurrent PRs.
 - cube_cloud
 - curve
 - d2l_brightspace
-- databricks
 - datascope
 - datorama
 - dayforce
