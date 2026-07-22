@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -81,8 +81,6 @@ interface InsightMetaProps extends Pick<
     | 'loadingQueued'
     | 'rename'
     | 'setOverride'
-    | 'toggleIgnoreDashboardFilters'
-    | 'ignoreDashboardFiltersSaving'
     | 'duplicate'
     | 'dashboardId'
     | 'moveToDashboard'
@@ -143,8 +141,6 @@ export function InsightMeta({
     rename,
     duplicate,
     setOverride,
-    toggleIgnoreDashboardFilters,
-    ignoreDashboardFiltersSaving,
     moveToDashboard,
     copyToDashboard,
     areDetailsShown,
@@ -478,19 +474,6 @@ export function InsightMeta({
                                 {tile && (
                                     <LemonButton onClick={setOverride} fullWidth>
                                         Set override
-                                    </LemonButton>
-                                )}
-                                {tile && toggleIgnoreDashboardFilters && (
-                                    <LemonButton
-                                        onClick={toggleIgnoreDashboardFilters}
-                                        fullWidth
-                                        loading={ignoreDashboardFiltersSaving}
-                                        active={ignoresDashboardFilters}
-                                        sideIcon={ignoresDashboardFilters ? <IconCheck /> : null}
-                                        tooltip="When on, none of the dashboard's filters apply to this insight. Tile overrides still do."
-                                        data-attr="toggle-tile-ignore-dashboard-filters"
-                                    >
-                                        Ignore dashboard filters
                                     </LemonButton>
                                 )}
                             </>

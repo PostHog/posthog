@@ -184,10 +184,6 @@ export interface InsightCardProps extends Resizeable {
     rename?: () => void
     duplicate?: () => void
     setOverride?: () => void
-    /** Toggle whether this tile ignores dashboard-level filters. */
-    toggleIgnoreDashboardFilters?: () => void
-    /** True while the ignore-dashboard-filters toggle for this tile is saving. */
-    ignoreDashboardFiltersSaving?: boolean
     moveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     /** Copy this insight tile to another dashboard (same insight; requires editor on destination). */
     copyToDashboard?: (dashboard: DashboardBasicType) => void
@@ -245,8 +241,6 @@ function InsightCardInternal(
         rename,
         duplicate,
         setOverride,
-        toggleIgnoreDashboardFilters,
-        ignoreDashboardFiltersSaving,
         moveToDashboard,
         copyToDashboard,
         className,
@@ -448,8 +442,6 @@ function InsightCardInternal(
                         rename={rename}
                         duplicate={duplicate}
                         setOverride={setOverride}
-                        toggleIgnoreDashboardFilters={toggleIgnoreDashboardFilters}
-                        ignoreDashboardFiltersSaving={ignoreDashboardFiltersSaving}
                         moveToDashboard={moveToDashboard}
                         copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}

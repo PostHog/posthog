@@ -93,7 +93,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
-        tileIgnoreDashboardFiltersSavingIds,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -110,7 +109,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
-        toggleTileIgnoreDashboardFilters,
         setDashboardMode,
         setAddWidgetModalOpen,
         setPendingInsertion,
@@ -575,10 +573,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
-                                        toggleIgnoreDashboardFilters={() => toggleTileIgnoreDashboardFilters(tile)}
-                                        ignoreDashboardFiltersSaving={tileIgnoreDashboardFiltersSavingIds.includes(
-                                            tile.id
-                                        )}
                                         showDetailsControls={showDetailsControls}
                                         placement={placement}
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
