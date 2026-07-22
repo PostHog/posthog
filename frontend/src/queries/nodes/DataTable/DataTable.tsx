@@ -58,6 +58,7 @@ import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
+import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -864,6 +865,9 @@ export function DataTable({
                 groupTypeLabel={context?.groupTypeLabel}
             />
         ) : null,
+        showSearch && sourceFeatures.has(QueryFeature.tracesSearch) ? (
+            <TracesSearch key="traces-search" query={query.source as TracesQuery} setQuery={setQuerySource} />
+        ) : null,
         showPropertyFilter &&
         sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
         !isSessionsQuery(query.source) ? (
@@ -1082,7 +1086,8 @@ export function DataTable({
                                 }
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
-                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                    (context?.showLoadNextButton ||
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
                                         <LoadNext query={query.source} />
                                     ) : null
                                 }

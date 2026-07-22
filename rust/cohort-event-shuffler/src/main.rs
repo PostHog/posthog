@@ -44,8 +44,9 @@ async fn async_main(config: Config) -> Result<()> {
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
-    // The consumer owns the liveness deadline: no successful batch within deadline × stall_threshold
-    // trips coordinated shutdown.
+    // The consumer owns the liveness deadline: a wedged pipeline iteration — or a stalled
+    // committer with committable work — stops heartbeats, and deadline × stall_threshold trips
+    // coordinated shutdown.
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
@@ -112,8 +113,7 @@ async fn async_main(config: Config) -> Result<()> {
         producer,
         team_index,
         consumer_handle,
-        config.recv_batch_size,
-        config.recv_batch_timeout(),
+        config.shuffler_settings(),
     );
     tokio::spawn(async move {
         shuffler.process().await;
@@ -147,7 +147,8 @@ fn log_startup(config: &Config) {
         consumer_group = %config.kafka_consumer_group,
         partitioner = %config.kafka_producer_partitioner,
         offset_reset = %config.kafka_consumer_offset_reset,
-        recv_batch_size = config.recv_batch_size,
+        max_inflight_forwards = config.max_inflight_forwards,
+        commit_interval_ms = config.commit_interval_ms,
         team_index_refresh_secs = config.team_index_refresh_secs,
         team_allowlist = ?config.team_allowlist,
         "starting cohort-event-shuffler",

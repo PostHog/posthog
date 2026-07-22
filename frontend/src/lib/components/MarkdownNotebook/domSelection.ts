@@ -222,6 +222,42 @@ export function getInlineEditableElementForSelection(
     return getClosestEditableBlockElement(getElementForNode(selection.anchorNode))
 }
 
+/** The subset of Range that StaticRange (from InputEvent.getTargetRanges) also implements. */
+type EditTargetRange = Pick<Range, 'collapsed' | 'startContainer' | 'endContainer'>
+
+/**
+ * Whether a native input event would edit content across inline-editable element boundaries.
+ * The browser implements such edits by restructuring the DOM in place (merging two `<li>`
+ * elements, joining table cells), which desyncs the React-managed element tree and makes the
+ * next React commit throw removeChild/insertBefore DOM exceptions — so these browser defaults
+ * must never be allowed to run.
+ */
+export function inputEventCrossesInlineEditableBoundary(event: InputEvent, rootElement: HTMLElement): boolean {
+    const eventWithTargetRanges = event as InputEvent & { getTargetRanges?: () => EditTargetRange[] }
+    const targetRanges =
+        typeof eventWithTargetRanges.getTargetRanges === 'function' ? eventWithTargetRanges.getTargetRanges() : []
+    if (targetRanges.length) {
+        return targetRanges.some((targetRange) => rangeCrossesInlineEditableBoundary(targetRange, rootElement))
+    }
+
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return false
+    }
+
+    return rangeCrossesInlineEditableBoundary(selection.getRangeAt(0), rootElement)
+}
+
+function rangeCrossesInlineEditableBoundary(range: EditTargetRange, rootElement: HTMLElement): boolean {
+    if (range.collapsed || !rootElement.contains(range.startContainer) || !rootElement.contains(range.endContainer)) {
+        return false
+    }
+
+    const startElement = getClosestEditableBlockElement(getElementForNode(range.startContainer))
+    const endElement = getClosestEditableBlockElement(getElementForNode(range.endContainer))
+    return !startElement || !endElement || startElement !== endElement
+}
+
 export function getCollapsedSelectionRestoreRequest(
     selection: Selection | null,
     rootElement: HTMLElement

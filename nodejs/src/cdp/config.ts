@@ -18,7 +18,6 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -57,6 +56,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
@@ -96,7 +96,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
@@ -107,10 +106,9 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_ENABLED: boolean
     // Message assets: rendered emails snapshotted to object storage + a metadata
     // row in the message_assets ClickHouse table, surfaced in the workflow
-    // "Assets" tab. Capture is a global ops kill-switch, not a per-team toggle.
+    // "Assets" tab.
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
-    MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -133,6 +131,18 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
+    // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
+    SES_ALLOWED_SNS_TOPIC_ARNS: string
+
+    // Two independent kill switches for the email suppression list, both OFF by default so the
+    // feature ships dark. WRITE controls whether the SES webhook populates the list; ENFORCE
+    // controls whether the pre-send check actually skips suppressed recipients. Separating them
+    // lets us turn on writing first and observe what would be suppressed before enforcing.
+    EMAIL_SUPPRESSION_WRITE_ENABLED: boolean
+    EMAIL_SUPPRESSION_ENFORCE_ENABLED: boolean
+    // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
+    EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -147,6 +157,31 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+    // Kill-switch for poison-pill recovery. When false the janitor reverts to
+    // master's pre-recovery behavior — mark poison pills failed with no replay
+    // record (a give-up is lost, exactly as before this change). Flip to false to
+    // roll back the recovery machinery instantly without a redeploy. Default true.
+    CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+    // Backoff on a stalled job's next scheduled time per janitor reset, keyed on
+    // janitor_touch_count. The first stall retries within seconds (so a transient
+    // stall / worker restart recovers fast); repeat stalls back off exponentially —
+    // at the defaults roughly ~30-60s, then ~1.5-3min, before give-up. Jittered
+    // throughout to de-sync a fleet-wide herd. Base 0 disables it (immediate retry);
+    // max caps the per-strike wait.
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: number
+    // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
+    // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
+    // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
+    // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
+    WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
+    CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
+    CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
+    CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -184,6 +219,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
@@ -217,10 +253,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
-        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
-        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
-        CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
@@ -238,7 +270,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
-        MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
@@ -270,6 +301,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        EMAIL_SUPPRESSION_WRITE_ENABLED: false,
+        EMAIL_SUPPRESSION_ENFORCE_ENABLED: false,
+        EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -288,5 +323,21 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
+        CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: 60000,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: 600000,
+        // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
+        // always wake against post-edit config. Rate sized well under hogflow worker
+        // steady-state throughput: the past incident class here is an instantaneous
+        // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
+        CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
+        CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS: 14400,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
+        CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
+        CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
     }
 }

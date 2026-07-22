@@ -1,12 +1,24 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconGraph, IconInfo, IconPencil, IconPeople } from '@posthog/icons'
+import {
+    IconBolt,
+    IconClock,
+    IconGraph,
+    IconInfo,
+    IconPencil,
+    IconPeople,
+    IconThumbsDownFilled,
+    IconThumbsUpFilled,
+} from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     deriveOperand,
@@ -21,8 +33,10 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { formatCredits } from '../../utils/credits'
+import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { MODEL_OPTIONS, ReplayScanner, ScannerType } from '../types'
+import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
 
 const SUMMARY_LENGTHS = [
     { value: 'short', label: 'Short' },
@@ -121,8 +135,118 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
     )
 }
 
+/** Reads the type-specific fields off an unknown scanner_config, defensively: it comes from a run
+ * snapshot's JSON field, and different versions of the same scanner can carry different scanner types. */
+function VersionConfigDetails({ config }: { config: unknown }): JSX.Element | null {
+    if (!config || typeof config !== 'object') {
+        return null
+    }
+    const record = config as Record<string, unknown>
+    const tags = Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === 'string') : []
+    const scale = record.scale && typeof record.scale === 'object' ? (record.scale as Record<string, unknown>) : null
+    const hasScale = typeof scale?.min === 'number' && typeof scale?.max === 'number'
+    const length = typeof record.length === 'string' ? record.length : null
+    const hasAllowInconclusive = typeof record.allow_inconclusive === 'boolean'
+    if (tags.length === 0 && !hasScale && !length && !hasAllowInconclusive) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                    {tags.map((tag) => (
+                        <LemonTag key={tag} size="small" type="option">
+                            {tag}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
+            {hasScale && scale && (
+                <span>
+                    Scale: {scale.min as number} – {scale.max as number}
+                    {scale.label ? ` (${String(scale.label)})` : ''}
+                </span>
+            )}
+            {length && <LemonTag size="small">{length}</LemonTag>}
+            {hasAllowInconclusive && (
+                <span className="flex items-center gap-1">
+                    Inconclusive verdicts <BooleanTag value={!!record.allow_inconclusive} />
+                </span>
+            )}
+        </div>
+    )
+}
+
+function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Element | null {
+    const { observationStatsApi } = useValues(replayScannerLogic({ id: scanner.id }))
+    const markers = observationStatsApi?.labels.version_markers ?? []
+    // A freshly applied prompt has no scans yet and no marker, so show the live config as its own entry.
+    const currentVersion = scanner.scanner_version
+    const currentPrompt = scanner.scanner_config.prompt
+    const showCurrentEntry = Boolean(currentPrompt) && !markers.some((marker) => marker.version === currentVersion)
+    if (markers.length === 0 && !showCurrentEntry) {
+        return null
+    }
+    const newestFirst = [...markers].sort((a, b) => b.version - a.version)
+    // Versions bump on any config change, so flag same-prompt versions instead of looking like duplicates.
+    const unchangedSince = promptUnchangedSince(markers)
+    const newestMarker = newestFirst[0]
+    const currentUnchangedFrom =
+        newestMarker && currentPrompt === newestMarker.prompt
+            ? (unchangedSince.get(newestMarker.version) ?? newestMarker.version)
+            : null
+    return (
+        <LemonCard className="p-4" hoverEffect={false}>
+            <CardHeader icon={<IconPencil />} title="Config versions" />
+            <div className="flex flex-col gap-3">
+                {showCurrentEntry && (
+                    <div className="border rounded p-3 space-y-2" id={`prompt-v${currentVersion}`}>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <LemonTag type="warning" className="font-mono">
+                                v{currentVersion}
+                            </LemonTag>
+                            <span>current · no scans yet</span>
+                            {currentUnchangedFrom !== null && (
+                                <span>· prompt unchanged from v{currentUnchangedFrom}</span>
+                            )}
+                        </div>
+                        <div className="whitespace-pre-wrap font-mono text-xs">{currentPrompt}</div>
+                        <VersionConfigDetails config={scanner.scanner_config} />
+                    </div>
+                )}
+                {newestFirst.map((marker) => (
+                    <div key={marker.version} className="border rounded p-3 space-y-2" id={`prompt-v${marker.version}`}>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <LemonTag
+                                type={marker.version === currentVersion ? 'warning' : 'muted'}
+                                className="font-mono"
+                            >
+                                v{marker.version}
+                            </LemonTag>
+                            <span>from {dayjs(marker.date).format('MMM D, YYYY')}</span>
+                            <span className="flex items-center gap-1">
+                                <IconThumbsUpFilled className="text-success" /> {marker.up}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <IconThumbsDownFilled className="text-danger" /> {marker.down}
+                            </span>
+                            {unchangedSince.has(marker.version) && (
+                                <span>· prompt unchanged from v{unchangedSince.get(marker.version)}</span>
+                            )}
+                        </div>
+                        <div className="whitespace-pre-wrap font-mono text-xs">{marker.prompt || '—'}</div>
+                        <VersionConfigDetails config={marker.scanner_config} />
+                    </div>
+                ))}
+            </div>
+        </LemonCard>
+    )
+}
+
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
@@ -187,8 +311,12 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconBolt />} title="Triggers" />
+                    <CardHeader icon={<IconBolt />} title="Scan conditions" />
                     <div className="flex flex-col gap-3">
+                        <LabeledRow label="Session coverage">
+                            {SAMPLING_MODE_OPTIONS.find((o) => o.value === scanner.sampling_mode)?.label ??
+                                scanner.sampling_mode}
+                        </LabeledRow>
                         <LabeledRow label="Sampling">{samplingPercent}%</LabeledRow>
                         <LabeledRow label="Recording filters">
                             {!hasTriggers ? (
@@ -262,10 +390,13 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconGraph />} title="Usage" />
                     <div className="flex flex-col gap-3">
-                        <LabeledRow label="Estimated monthly observations">
-                            {scanner.estimated_monthly_observations != null ? (
+                        <LabeledRow label="Estimated monthly cost">
+                            {scanner.estimated_monthly_credits != null ? (
                                 <span className="tabular-nums">
-                                    {scanner.estimated_monthly_observations.toLocaleString()}
+                                    {formatCredits(scanner.estimated_monthly_credits)}{' '}
+                                    <span className="text-muted">
+                                        ({(scanner.estimated_monthly_observations ?? 0).toLocaleString()} observations)
+                                    </span>
                                 </span>
                             ) : (
                                 <span className="text-muted">—</span>
@@ -291,6 +422,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     </div>
                 </LemonCard>
             </div>
+            {qualityEnabled && <PromptVersionHistory scanner={scanner} />}
         </div>
     )
 }

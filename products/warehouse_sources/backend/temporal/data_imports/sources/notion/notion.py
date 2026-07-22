@@ -19,11 +19,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.set
 )
 
 NOTION_BASE_URL = "https://api.notion.com"
-# Pinned API version. 2025-09-03 is the current official SDK default and introduces the
-# data sources model: a "database" is a container, and the schema-bearing tables are
-# "data sources". For the endpoints we use this only changes the search object filter
-# ("database" -> "data_source"); users/blocks/comments are unaffected.
-NOTION_VERSION = "2025-09-03"
+# Supported API versions, as opaque Notion-Version header labels (never parsed or ordered). The pin
+# is resolved by the source class and threaded down to the request headers.
+# - 2025-09-03 introduced the data sources model: a "database" is a container, and the
+#   schema-bearing tables are "data sources", so the databases stream filters search on
+#   "data_source" instead of "database".
+# - 2026-03-11 is a stable follow-up. For the read-only endpoints we consume it only renames
+#   response fields (archived -> in_trash, the transcription block type -> meeting_notes) and
+#   reshapes the append-block-children request, which we never call; the search object filter is
+#   still "data_source". So for our sync the two versions differ only in this header value, and the
+#   auto-inferred schema absorbs the renamed response fields.
+NOTION_VERSION_2025_09_03 = "2025-09-03"
+NOTION_VERSION_2026_03_11 = "2026-03-11"
 
 CHUNK_SIZE = 2000
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024
@@ -101,18 +108,18 @@ class _RateLimiter:
         self._last_request_at = time.monotonic()
 
 
-def _get_headers(token: str) -> dict[str, str]:
+def _get_headers(token: str, api_version: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
-        "Notion-Version": NOTION_VERSION,
+        "Notion-Version": api_version,
         "Content-Type": "application/json",
     }
 
 
-def _build_session(token: str) -> requests.Session:
+def _build_session(token: str, api_version: str) -> requests.Session:
     # Disable the tracked session's built-in urllib3 retries so tenacity is the single retry layer;
     # one session is reused across every request of a stream to keep connection pooling/keep-alive.
-    return make_tracked_session(headers=_get_headers(token), redact_values=(token,), retry=Retry(total=0))
+    return make_tracked_session(headers=_get_headers(token, api_version), redact_values=(token,), retry=Retry(total=0))
 
 
 def _parse_retry_after(value: str | None) -> float | None:
@@ -122,6 +129,11 @@ def _parse_retry_after(value: str | None) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def _is_invalid_start_cursor(error: NotionBadRequestError) -> bool:
+    # Notion rejects an expired or otherwise stale pagination cursor with this validation_error text.
+    return "start_cursor provided is invalid" in str(error)
 
 
 _wait_exponential = wait_exponential_jitter(initial=1, max=MAX_RETRY_WAIT_SECONDS)
@@ -196,9 +208,9 @@ def _request(
     return response.json()
 
 
-def validate_credentials(token: str) -> tuple[bool, str | None]:
+def validate_credentials(token: str, api_version: str) -> tuple[bool, str | None]:
     try:
-        session = make_tracked_session(headers=_get_headers(token), redact_values=(token,))
+        session = make_tracked_session(headers=_get_headers(token, api_version), redact_values=(token,))
         response = session.get(f"{NOTION_BASE_URL}/v1/users/me", timeout=10)
     except Exception as e:
         return False, str(e)
@@ -237,14 +249,24 @@ def _search_stream(
     cursor = resume.next_cursor if resume is not None else None
 
     while True:
-        data = _request(
-            session,
-            "POST",
-            "/v1/search",
-            logger,
-            json_body=_search_body(config.object_filter, cursor),
-            throttle=throttle,
-        )
+        try:
+            data = _request(
+                session,
+                "POST",
+                "/v1/search",
+                logger,
+                json_body=_search_body(config.object_filter, cursor),
+                throttle=throttle,
+            )
+        except NotionBadRequestError as e:
+            if cursor is None or not _is_invalid_start_cursor(e):
+                raise
+            # A resumed cursor can expire before the retry runs; Notion then rejects it as invalid.
+            # Restart from the beginning rather than failing the sync — search is sorted ascending
+            # and rows dedup on the primary key at merge, so replaying loses nothing.
+            logger.warning("Notion: resumed search cursor rejected as invalid; restarting stream from the start")
+            cursor = None
+            continue
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -280,7 +302,17 @@ def _users_stream(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+        try:
+            data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+        except NotionBadRequestError as e:
+            if cursor is None or not _is_invalid_start_cursor(e):
+                raise
+            # A resumed cursor can expire before the retry runs; Notion then rejects it as invalid.
+            # Restart from the beginning rather than failing the sync — rows dedup on the primary key
+            # at merge, so replaying loses nothing.
+            logger.warning("Notion: resumed users cursor rejected as invalid; restarting stream from the start")
+            cursor = None
+            continue
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -469,9 +501,10 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    api_version: str,
 ) -> Iterator[Any]:
     config = NOTION_ENDPOINTS[endpoint]
-    session = _build_session(token)
+    session = _build_session(token, api_version)
     throttle = _RateLimiter(NOTION_MIN_REQUEST_INTERVAL_SECONDS)
 
     if config.stream_type == "search":
@@ -491,6 +524,7 @@ def notion_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NotionResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
     config = NOTION_ENDPOINTS[endpoint]
 
@@ -501,6 +535,7 @@ def notion_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         ),
         primary_keys=["id"],
         partition_count=1,

@@ -12,7 +12,10 @@ const { parseScopes, labelsForTitle, loadRules } = require('./label-pr-from-titl
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
 // exercised against the real structure without reading the file.
 const RULES = [
-    { scopes: ['flags', 'feature-flags'], labels: ['feature/feature-flags', 'team/feature-flags'] },
+    {
+        scopes: ['flags', 'flag', 'feature-flags', 'feature-flag', 'feature_flags', 'feature_flag'],
+        labels: ['feature/feature-flags', 'team/feature-flags'],
+    },
     { scopes: ['cohort', 'cohorts'], labels: ['team/feature-flags', 'feature/cohorts'] },
 ]
 
@@ -43,6 +46,11 @@ const LABELS_FOR_TITLE_CASES = [
         title: 'fix(feature-flags): x',
         expected: ['feature/feature-flags', 'team/feature-flags'],
         description: 'feature-flags alias',
+    },
+    {
+        title: 'feat(feature_flags): x',
+        expected: ['feature/feature-flags', 'team/feature-flags'],
+        description: 'underscore feature_flags alias',
     },
     { title: 'fix(cohort): x', expected: ['team/feature-flags', 'feature/cohorts'], description: 'cohort scope' },
     {
@@ -85,3 +93,13 @@ test('the shipped config loads into well-formed rules', () => {
 test('the shipped config still maps the flags scope to labels', () => {
     assert.ok(labelsForTitle('feat(flags): x', loadRules()).length > 0, 'flags scope maps to no labels')
 })
+
+// Contributors write the flags scope several ways; these aliases were silently
+// unlabeled until they were added to the config. Bind each to the shipped
+// config (not just the RULES mirror) so a future edit that drops one regresses
+// loudly here.
+for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
+    test(`the shipped config maps the ${scope} scope to labels`, () => {
+        assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
+    })
+}

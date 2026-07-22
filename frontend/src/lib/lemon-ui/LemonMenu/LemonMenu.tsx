@@ -1,7 +1,7 @@
 import { useMergeRefs } from '@floating-ui/react'
 import React, { FunctionComponent, ReactNode, cloneElement, useCallback, useMemo } from 'react'
 
-import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut, KeyboardShortcutProps } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'

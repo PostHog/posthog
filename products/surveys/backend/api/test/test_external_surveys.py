@@ -8,11 +8,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
 from products.surveys.backend.models import Survey
+
+EXTERNAL_SITE_URL = "https://app.posthog-test.example"
 
 
 class TestExternalSurveys(APIBaseTest):
@@ -294,6 +296,44 @@ class TestExternalSurveys(APIBaseTest):
         project_config = json.loads(config_match.group(1))
         assert "api_host" in project_config
         assert "token" in project_config
+
+    @override_settings(SITE_URL=EXTERNAL_SITE_URL)
+    def test_assets_load_from_app_origin_behind_reverse_proxy(self):
+        survey = self.create_external_survey()
+
+        # Simulate serving the page through a reverse-proxy domain
+        response = self.client.get(f"/external_surveys/{survey.id}/", HTTP_HOST="surveys.proxy-domain.example.com")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        # Proxy domains route /static/* to the SDK asset CDN, which doesn't serve Django
+        # staticfiles — asset URLs must point at the app origin, not the serving host.
+        assert f'<link rel="stylesheet" href="{EXTERNAL_SITE_URL}/static/surveys/hosted-survey.css' in content
+        assert 'href="/static/' not in content
+        # Capture must keep following the request host so events route through the proxy
+        project_config = self.get_json_script_value(content, "project-config")
+        assert isinstance(project_config, dict)
+        assert project_config["api_host"] == "http://surveys.proxy-domain.example.com"
+
+        # Error pages are served through proxies too and must not emit relative asset links
+        error_response = self.client.get("/external_surveys/not-a-uuid/", HTTP_HOST="surveys.proxy-domain.example.com")
+        assert error_response.status_code == 400
+        error_content = error_response.content.decode()
+        assert f'href="{EXTERNAL_SITE_URL}/static/icons/favicon-32x32.png' in error_content
+        assert 'href="/static/' not in error_content
+
+    @override_settings(SITE_URL="http://localhost:8010")
+    def test_localhost_site_url_falls_back_to_relative_asset_urls(self):
+        survey = self.create_external_survey()
+
+        # A localhost SITE_URL (the unset default) isn't reachable by external browsers —
+        # the page must degrade to host-relative asset paths instead of emitting it.
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert '<link rel="stylesheet" href="/static/surveys/hosted-survey.css' in content
+        assert "http://localhost:8010" not in content
 
     @parameterized.expand(
         [

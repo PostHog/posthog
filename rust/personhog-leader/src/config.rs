@@ -16,6 +16,62 @@ pub struct Config {
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
 
+    // ── gRPC server ──────────────────────────────────────────────
+    /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
+    #[envconfig(default = "30")]
+    pub grpc_keepalive_interval_secs: u64,
+
+    /// Timeout for a keepalive ping ack before considering the connection dead
+    #[envconfig(default = "10")]
+    pub grpc_keepalive_timeout_secs: u64,
+
+    /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_send_message_size: usize,
+
+    /// Maximum gRPC message size to decode (receive), in bytes.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_recv_message_size: usize,
+
+    /// Maximum age of a gRPC server connection before it is gracefully
+    /// closed (GOAWAY), guarding against half-dead long-lived connections.
+    /// 0 = disabled (connections live indefinitely).
+    #[envconfig(default = "300")]
+    pub grpc_max_connection_age_secs: u64,
+
+    /// Maximum concurrent in-flight gRPC requests before the server sheds
+    /// load with RESOURCE_EXHAUSTED so the router retries on another pod.
+    /// 0 = disabled.
+    #[envconfig(default = "0")]
+    pub max_concurrent_requests: usize,
+
+    // ── Response compression ─────────────────────────────────────
+    /// When true, gzip-compress responses for clients that advertise gzip
+    /// in `grpc-accept-encoding`. Compression runs on a blocking thread
+    /// pool instead of the tokio runtime.
+    #[envconfig(default = "false")]
+    pub gzip_response_compression: bool,
+
+    /// Gzip compression level (1–9). Lower is faster, higher compresses more.
+    #[envconfig(default = "6")]
+    pub gzip_compression_level: u32,
+
+    /// Minimum response payload size in bytes to compress. Payloads smaller
+    /// than this pass through uncompressed.
+    #[envconfig(default = "256")]
+    pub gzip_min_payload_size: usize,
+
+    /// Log a warning when a response exceeds this size in bytes, even
+    /// for uncompressed passthrough. 0 = disabled. Default 4 MiB.
+    #[envconfig(default = "4194304")]
+    pub gzip_max_response_size: usize,
+
+    /// When true, responses exceeding `gzip_max_response_size` are rejected
+    /// with RESOURCE_EXHAUSTED; when false, the oversized
+    /// response is delivered normally (monitor mode).
+    #[envconfig(default = "false")]
+    pub gzip_max_response_size_enforce: bool,
+
     // ── Kafka durability ─────────────────────────────────────────
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -69,9 +125,50 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub warm_retry_max_backoff_ms: u64,
 
+    // ── Dirty index / changelog recovery ─────────────────────────
+    /// How often to poll the writer's committed offsets and prune dirty
+    /// index marks the writer has applied to PG. A tick costs one batched
+    /// OffsetFetch plus work proportional to the marks actually reclaimed
+    /// (the index is never scanned), so a short interval is cheap — and it
+    /// bounds how long an applied-but-unpruned mark keeps sending reads to
+    /// the changelog for state PG already has.
+    #[envconfig(default = "1")]
+    pub dirty_index_prune_interval_secs: u64,
+
+    /// Overall deadline for recovering one evicted dirty person from the
+    /// changelog, including transient-failure retries. A point read that
+    /// hasn't returned in a few seconds isn't going to, and each recovery
+    /// occupies a pooled consumer for its whole duration — a long deadline
+    /// amplifies a broker blip into pool exhaustion.
+    #[envconfig(default = "5")]
+    pub recovery_recv_timeout_secs: u64,
+
+    /// Number of pooled changelog-recovery consumers, bounding concurrent
+    /// recoveries the way a DB connection pool bounds queries. Each is a
+    /// full Kafka client (its own connections and background threads), but
+    /// even 16 is fewer than the per-partition consumers this pool
+    /// replaced. Under a benchmarked writer outage a pool of 4 queued
+    /// recoveries for ~10ms on average and tripled write p99; 16 zeroed
+    /// the queueing. The `personhog_leader_recovery_pool_wait_ms`
+    /// histogram shows when this is undersized.
+    #[envconfig(default = "16")]
+    pub recovery_pool_size: usize,
+
+    /// Soft bound on dirty index entries (~100 bytes each). The index
+    /// grows one mark per unique person written since the writer's
+    /// committed offset, so this bound is the memory runway a writer
+    /// outage gets before new-person writes shed with RESOURCE_EXHAUSTED.
+    /// The default (~1 GB worst case) buys hours at heavy churn.
+    #[envconfig(default = "10000000")]
+    pub dirty_index_max_entries: usize,
+
     // ── PG fallback ───────────────────────────────────────────────
-    /// Read-only Postgres URL for cache miss fallback. If empty, cache
-    /// misses return NotFound without querying PG.
+    /// Postgres URL for cache miss fallback. If empty, cache misses
+    /// return NotFound without querying PG. Must point at the primary:
+    /// the dirty index prunes a mark as soon as the writer's committed
+    /// offset shows the primary has the row, so reading an async replica
+    /// here would serve stale rows for unmarked persons and silently
+    /// break read-your-write. Leader reads are strong reads.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
@@ -102,6 +199,30 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
+        if self.grpc_keepalive_interval_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_interval_secs))
+        }
+    }
+
+    pub fn grpc_keepalive_timeout(&self) -> Option<Duration> {
+        if self.grpc_keepalive_timeout_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
+        }
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
+        }
+    }
+
     pub fn etcd_endpoint_list(&self) -> Vec<String> {
         self.etcd_endpoints
             .split(',')

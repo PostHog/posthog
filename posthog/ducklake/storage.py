@@ -27,6 +27,7 @@ import psycopg
 
 from posthog.ducklake.common import (
     _get_org_id_for_team,
+    default_bucket_region,
     escape as ducklake_escape,
     get_config,
     get_org_config,
@@ -186,7 +187,7 @@ class DuckLakeStorageConfig:
 
         access_key = config.get("DUCKLAKE_S3_ACCESS_KEY", "")
         secret_key = config.get("DUCKLAKE_S3_SECRET_KEY", "")
-        region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
+        region = config.get("DUCKLAKE_BUCKET_REGION") or default_bucket_region()
 
         raw_endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") if settings else ""
 

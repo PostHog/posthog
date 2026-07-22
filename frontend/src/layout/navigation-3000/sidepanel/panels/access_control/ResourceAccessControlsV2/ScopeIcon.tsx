@@ -5,10 +5,12 @@ import {
     IconCursor,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
     IconDownload,
     IconFlask,
     IconHome,
     IconLive,
+    IconListTree,
     IconLlmAnalytics,
     IconMessage,
     IconNotebook,
@@ -16,10 +18,12 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPulse,
     IconRewindPlay,
     IconRocket,
     IconSpotlight,
     IconToggle,
+    IconToolbar,
     IconTrends,
     IconWarning,
 } from '@posthog/icons'
@@ -56,6 +60,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconDatabase />
         case 'feature_flag':
             return <IconToggle />
+        case 'hog_flow':
+            return <IconDecisionTree />
         case 'insight':
             return <IconTrends />
         case 'llm_analytics':
@@ -64,6 +70,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconBug />
         case 'logs':
             return <IconLive />
+        case 'metrics':
+            return <IconPulse />
         case 'notebook':
             return <IconNotebook />
         case 'product_tour':
@@ -81,7 +89,9 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'web_analytics':
             return <IconPieChart />
         case 'tracing':
-            return <IconLive />
+            return <IconListTree />
+        case 'toolbar':
+            return <IconToolbar />
         default:
             return null
     }

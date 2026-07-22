@@ -8,10 +8,9 @@ export interface FullSnapshotRef {
 export interface SourceEntry {
     source: SessionRecordingSnapshotSource
     index: number
-    state: 'unloaded' | 'loaded'
+    state: 'unloaded' | 'fetched' | 'loaded'
     processedSnapshots: RecordingSnapshot[] | null
     fullSnapshots: FullSnapshotRef[]
-    metaTimestamps: number[]
     startMs: number
     endMs: number
 }
@@ -24,10 +23,5 @@ export interface LoadBatch {
 export interface SourceLoadingState {
     startMs: number
     endMs: number
-    state: 'unloaded' | 'loaded'
+    state: 'unloaded' | 'fetched' | 'loaded'
 }
-
-export type Mode =
-    | { kind: 'buffer_ahead' }
-    | { kind: 'seek'; targetTimestamp: number; targetWindowId?: number }
-    | { kind: 'load_all' }

@@ -37,6 +37,10 @@ from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 
+# Relocated to the Django-free posthog.week_start_day module so the HogQL engine can use it
+# without booting Django; re-exported here for existing callers.
+from posthog.week_start_day import WeekStartDay  # noqa: F401
+
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
@@ -238,15 +242,6 @@ class TeamManager(models.Manager):
 
 def get_default_data_attributes() -> list[str]:
     return ["data-attr"]
-
-
-class WeekStartDay(models.IntegerChoices):
-    SUNDAY = 0, "Sunday"
-    MONDAY = 1, "Monday"
-
-    @property
-    def clickhouse_mode(self) -> str:
-        return "3" if self == WeekStartDay.MONDAY else "0"
 
 
 class CookielessServerHashMode(models.IntegerChoices):

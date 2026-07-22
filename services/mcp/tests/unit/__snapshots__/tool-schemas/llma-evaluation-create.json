@@ -100,7 +100,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax",
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -109,7 +109,8 @@
                                 "fireworks",
                                 "azure_openai",
                                 "together_ai",
-                                "minimax"
+                                "minimax",
+                                "zeabur"
                             ],
                             "type": "string"
                         },
@@ -122,7 +123,7 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it."
+                            "description": "Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed."
                         },
                         "provider_key_name": {
                             "anyOf": [
@@ -141,7 +142,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null."
         },
         "name": {
             "description": "Name of the evaluation.",

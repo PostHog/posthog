@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { PushNotificationPayloadSchema } from './pushNotification'
+
 export const CyclotronInputSchema = z.object({
     value: z.any(),
     templating: z.enum(['hog', 'liquid']).optional(),
@@ -17,13 +19,16 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'choice',
         'json',
         'integration',
+        'integration_multi',
         'integration_field',
         'email',
         'native_email',
         'posthog_assignee',
         'posthog_ticket_tags',
         'posthog_business_hours',
+        'push_subscription',
         'customer_analytics_account_properties',
+        'customer_analytics_account_relationships',
     ]),
     key: z.string(),
     label: z.string(),
@@ -111,12 +116,27 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     html: z.string(),
 })
 
+export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
+    type: z.literal('sendPushNotification'),
+    integrationIds: z.array(z.number()),
+    distinctId: z.string(),
+    payload: PushNotificationPayloadSchema,
+    max_tries: z.number().optional(),
+    timeoutMs: z.number().optional(),
+})
+
+export type PushNotificationPayloadType = z.infer<typeof PushNotificationPayloadSchema>
+
 export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
     typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
+export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer<
+    typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
+>
 
 export type CyclotronInvocationQueueParametersType =
     | CyclotronInvocationQueueParametersFetchType
     | CyclotronInvocationQueueParametersEmailType
+    | CyclotronInvocationQueueParametersSendPushNotificationType

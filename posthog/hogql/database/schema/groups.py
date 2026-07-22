@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "index": IntegerDatabaseField(
@@ -163,6 +163,32 @@ def join_with_group_n_table(
         right=ast.Constant(value=group_index),
     )
 
+    # If the outer query has a bounded prefilter on `events` (one that references `timestamp` —
+    # which is the strongest signal we have that the matched set is small), push an additional
+    # `group_key IN (SELECT $group_N FROM events WHERE <outer prefilter>)` predicate into the
+    # groups subquery. Without this filter, the LEFT JOIN materializes a hash table containing
+    # every group of this type for the team, decompressing the (very wide) `group_properties`
+    # blob row by row — on high-volume teams that's enough to OOM the whole query even when
+    # only a handful of events are actually being selected. With the filter, the hash table is
+    # bounded by the distinct `$group_N` values present in the matched events.
+    events_prefilter = _outer_events_prefilter(node)
+    if events_prefilter is not None:
+        key_subquery = ast.SelectQuery(
+            select=[ast.Field(chain=[f"$group_{group_index}"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=events_prefilter,
+        )
+        select_query.where = ast.And(
+            exprs=[
+                select_query.where,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["key"]),
+                    right=key_subquery,
+                ),
+            ]
+        )
+
     join_expr = ast.JoinExpr(table=select_query)
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
@@ -176,6 +202,97 @@ def join_with_group_n_table(
     )
 
     return join_expr
+
+
+# Aliases on the events table that resolve to lazy joins or traversers. If the outer WHERE
+# references any of these (e.g. `WHERE group_0.properties.X = 'Y'`, `WHERE person.id = ...`),
+# cloning that WHERE into the inner `SELECT $group_N FROM events WHERE ...` subquery would
+# carry the typed `Field` for the lazy join, and the resolver would recursively try to
+# resolve the same lazy join inside our inner subquery — producing unbounded recursion or a
+# `ResolutionError: Select query must have a type`. Skip the optimization in that case;
+# we'd rather pay the original groups-hash-table cost than crash.
+EVENTS_LAZY_JOIN_ALIASES = frozenset(
+    {
+        "person",
+        "person_id",
+        "pdi",
+        "poe",
+        "group_0",
+        "group_1",
+        "group_2",
+        "group_3",
+        "group_4",
+        "goe_0",
+        "goe_1",
+        "goe_2",
+        "goe_3",
+        "goe_4",
+        "session",
+        "revenue_analytics",
+    }
+)
+
+
+def _outer_events_prefilter(node: SelectQuery):
+    """
+    Extract a clone of the outer query's WHERE that we can safely embed inside the groups
+    join subquery. We only return it when:
+
+    1. The outer's `FROM` is a plain unaliased `events` reference. Anything else (custom
+       alias like `FROM events AS e` in funnels, JOINed tables on the outer, or a subquery)
+       means the WHERE may reference symbols (`e.timestamp`, `p.id`, …) that don't exist
+       in our inner `SELECT $group_N FROM events` subquery — cloning a WHERE that names
+       them would raise `Unable to resolve field` when the resolver walks the clone.
+    2. The WHERE references the `timestamp` field — cheap heuristic for "the matched event
+       set is bounded by a date range." Without that guard, a query whose WHERE is only
+       `team_id = X` (or empty) would push a key subquery that scans every event for the
+       team, which is strictly worse than no filter at all.
+    3. The WHERE does not reference any lazy-join alias on the events table. Cloning a
+       `group_N.X` / `person.X` reference into the inner subquery would re-trigger the
+       resolver on the same lazy join during inner-subquery resolution.
+    """
+    # Deferred: lazy_tables imports the resolver, which imports database schema modules — circular.
+    from posthog.hogql.transforms.lazy_tables import find_field_chains  # noqa: PLC0415
+
+    where = node.where
+    if where is None:
+        return None
+
+    select_from = node.select_from
+    if select_from is None:
+        return None
+    table = select_from.table
+    if not isinstance(table, ast.Field) or table.chain != ["events"]:
+        return None
+    if select_from.alias is not None and select_from.alias != "events":
+        return None
+
+    if not _references_timestamp(where):
+        return None
+    if any(
+        chain and isinstance(chain[0], str) and chain[0] in EVENTS_LAZY_JOIN_ALIASES
+        for chain in find_field_chains(where)
+    ):
+        return None
+    return clone_expr(where)
+
+
+class _TimestampReferenceFinder(TraversingVisitor):
+    """Walks an expression to see whether it touches the `timestamp` field."""
+
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def visit_field(self, node):
+        if node.chain and node.chain[-1] == "timestamp":
+            self.found = True
+
+
+def _references_timestamp(expr) -> bool:
+    finder = _TimestampReferenceFinder()
+    finder.visit(expr)
+    return finder.found
 
 
 class RawGroupsTable(Table):

@@ -39,6 +39,7 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
@@ -47,6 +48,10 @@ from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+from posthog.temporal.ai.slack_app.slack_app_mention import (
+    SlackAppMentionWorkflow,
+    derive_slack_app_mention_workflow_id,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -56,6 +61,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_queue_workflow_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
@@ -116,6 +122,7 @@ HANDLED_EVENT_TYPES = [
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
+LOCAL_DEV_SLACK_EMAIL = "test@posthog.com"
 
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
@@ -349,7 +356,7 @@ def resolve_slack_user(
             # other callers (e.g. `resolve_posthog_user_from_event` from the
             # channel-approval path) can still drive the helper with stubbed
             # Slack responses in tests.
-            slack_email = "test@posthog.com"
+            slack_email = LOCAL_DEV_SLACK_EMAIL
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -1094,6 +1101,11 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
+    files = event.get("files")
+    return isinstance(files, list) and len(files) > 0
+
+
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this ``message`` event shouldn't be considered as an
     untagged thread follow-up, else None.
@@ -1105,7 +1117,10 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if not event.get("user"):
         return "no_user"
-    if not event.get("text"):
+    # A file-only reply has empty text and the ``file_share`` subtype — both
+    # must be admitted here or the attachment silently never reaches the agent.
+    has_files = _thread_message_event_has_files(event)
+    if not event.get("text") and not has_files:
         return "no_text"
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
@@ -1123,8 +1138,9 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     # etc.) is system noise from this gate's perspective. ``thread_broadcast``
     # is the only one a human types, but it's typically an announcement to the
     # parent channel, not agent-directed work.
-    if event.get("subtype"):
-        return f"subtype:{event.get('subtype')}"
+    subtype = event.get("subtype")
+    if subtype and not (subtype == "file_share" and has_files):
+        return f"subtype:{subtype}"
     return None
 
 
@@ -1417,7 +1433,16 @@ def _start_posthog_code_workflow(
     event: dict,
     event_id: str | None,
     workflow_id: str | None = None,
+    start_signal: str | None = None,
+    start_signal_args: list[Any] | None = None,
 ) -> None:
+    """Start a Slack-app workflow, optionally as a signal-with-start.
+
+    With ``start_signal`` set the operation is atomic on the server: a running
+    execution gets the signal, a finished (or never-started) one is started
+    with the signal as its first event — how the queue workflow guarantees a
+    message lands exactly once in its conversation's queue.
+    """
     if workflow_id is None:
         fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
         workflow_id = f"{id_prefix}-{slack_team_id}:{fallback}"
@@ -1430,6 +1455,9 @@ def _start_posthog_code_workflow(
             task_queue=settings.TASKS_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            # None / [] match the SDK defaults, so a plain start stays a plain start.
+            start_signal=start_signal,
+            start_signal_args=start_signal_args or [],
         )
     )
 
@@ -1886,6 +1914,7 @@ def route_posthog_code_event_to_relevant_region(
             event_id,
             posthog_user=posthog_user,
             untagged_followup=untagged_followup_mapping is not None,
+            is_ext_shared_channel=is_ext_shared_channel,
         )
 
     if event_type == "member_joined_channel":
@@ -1909,6 +1938,16 @@ def route_posthog_code_event_to_relevant_region(
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
+            # Mirror the app_mention gate: don't unfurl project data into an unapproved externally
+            # shared channel. A paste isn't an explicit invocation, so suppress without prompting.
+            channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
+            if (
+                is_ext_shared_channel
+                and channel_id
+                and not _channel_is_approved(local_match.integration_id, channel_id)
+            ):
+                logger.info("slack_link_unfurl_channel_unapproved", slack_team_id=slack_team_id, channel=channel_id)
+                return ROUTE_HANDLED_LOCALLY
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
@@ -2384,6 +2423,7 @@ def _start_mention_workflow(
     *,
     posthog_user: User | None,
     untagged_followup: bool = False,
+    is_ext_shared_channel: bool = False,
 ) -> str:
     """Start the mention workflow for either an explicit ``app_mention`` or an
     untagged thread reply.
@@ -2412,7 +2452,24 @@ def _start_mention_workflow(
         slack_event_id=event_id,
         user_id=posthog_user.id if posthog_user else None,
         untagged_followup=untagged_followup,
+        is_ext_shared_channel=is_ext_shared_channel,
     )
+    # Deriving the ID is free, the flag evaluation is remote — check in that
+    # order. Events without channel/ts fall back to the per-message workflow.
+    queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
+    if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
+        _start_posthog_code_workflow(
+            SlackAppMentionWorkflow,
+            SlackAppMentionWorkflowInputs(),
+            id_prefix="slack-app-mention",
+            slack_team_id=slack_team_id,
+            event=event,
+            event_id=event_id,
+            workflow_id=queue_workflow_id,
+            start_signal="new_message",
+            start_signal_args=[workflow_inputs],
+        )
+        return ROUTE_HANDLED_LOCALLY
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
@@ -3147,7 +3204,7 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-# Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
+# Handles the Dismiss button on inbox notifications delivered before that button was removed.
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 

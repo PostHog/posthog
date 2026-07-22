@@ -109,23 +109,15 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
 }
 
 function TaggerModelPicker({ id }: { id: string }): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        trialModels,
-        providerModelGroups,
-        trialProviderModelGroups,
-        byokModelsLoading,
-        trialModelsLoading,
-        providerKeysLoading,
-    } = useValues(modelPickerLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
 
-    const allModels = hasByokKeys ? byokModels : trialModels
-    const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    // Taggers always run on the team's own provider key, so only BYOK models are offered.
+    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
+    const groups = providerModelGroups
+    const loading = byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 

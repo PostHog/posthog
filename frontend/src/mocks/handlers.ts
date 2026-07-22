@@ -148,7 +148,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/experiments/eligible_feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/stats/': MOCK_EXPERIMENTS_STATS_RESPONSE,
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_query_folders/': [],
@@ -214,11 +213,6 @@ export const defaultMocks: Mocks = {
         },
         '/_system_status': _systemStatus,
         '/api/instance_status': _instanceStatus,
-        // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
-        '/api/sentry_stats/': {
-            error: 'Error fetching stats from sentry',
-            exception: "[ErrorDetail(string='Sentry integration not configured', code='invalid')]",
-        },
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
         'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
@@ -253,7 +247,19 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
-        '/api/organizations/:organization_id/proxy_records/': [],
+        // projectNoticeLogic reads `.results` off this response. A configured proxy so the
+        // date-gated missing-reverse-proxy notice can't render (and shift every scene
+        // story's snapshot) during the first week of each month.
+        '/api/organizations/:organization_id/proxy_records/': {
+            results: [
+                {
+                    id: '018f6b3f-0000-0000-0000-000000000000',
+                    domain: 'ph.example.com',
+                    status: 'valid',
+                    target_cname: 'proxy.posthog.example',
+                },
+            ],
+        },
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/default_evaluation_contexts/': {
@@ -297,11 +303,11 @@ export const defaultMocks: Mocks = {
         '/decide/': posthogCORSResponse,
         '/flags/': posthogCORSResponse,
         'https://us.i.posthog.com/engage/': posthogCORSResponse,
-        '/api/environments/:team_id/query/': [200, { results: [] }],
-        '/api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
+        '/api/environments/:team_id/query/': { results: [] },
+        '/api/environments/:team_id/query/:query_kind/': { results: [] },
         '/api/environments/:team_id/insights/viewed/': () => [201, null],
-        'api/environments/:team_id/query': [200, { results: [] }],
-        'api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
+        'api/environments/:team_id/query': { results: [] },
+        'api/environments/:team_id/query/:query_kind/': { results: [] },
         '/api/environments/:team_id/file_system/log_view/': {},
     },
     patch: {

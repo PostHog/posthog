@@ -39,6 +39,7 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
                 "source_url": event.source_url,
                 "source_type": event.source_type,
                 "source_id": event.source_id,
+                "archivable": event.archivable,
                 "resolved_user_ids": event.resolved_user_ids,
                 "created_at": event.created_at.isoformat(),
             },
@@ -215,6 +216,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         source_id=data.source_id,
         target_type=data.target_type,
         target_id=data.target_id,
+        archivable=data.archivable,
         resolved_user_ids=resolved_user_ids,
         metadata=data.metadata,
     )

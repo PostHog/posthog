@@ -13,12 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
 
 class _LazyDagsterLogger:
@@ -44,7 +45,14 @@ logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
-    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    # The test ClickHouse is a single node: ON CLUSTER only adds distributed-DDL keeper
+    # round-trips (tens of ms per statement) without changing the outcome, and tests issue
+    # DDL in bulk (session-start CREATEs, per-test TRUNCATEs), so render no clause there.
+    # If a call site ever needs to exercise real ON CLUSTER SQL under TEST, thread an
+    # allow-in-test flag through here.
+    if on_cluster and not TEST:
+        return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    return ""
 
 
 # Smoke-test only: when migrating against the multinode docker-compose stack
@@ -578,6 +586,18 @@ def redact_sql_secrets(sql: str) -> str:
     return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
 
 
+# Cap how much SQL we embed in a Query repr. Reprs land in logs (every statement the migration
+# runner executes) and traces, so a multi-megabyte statement — e.g. a large seed INSERT with all
+# its VALUES inline — floods them. The head is enough to identify the statement.
+_MAX_QUERY_REPR_LEN = 1500
+
+
+def _truncate_query(query: str) -> str:
+    if len(query) <= _MAX_QUERY_REPR_LEN:
+        return query
+    return f"{query[:_MAX_QUERY_REPR_LEN]}… ({len(query) - _MAX_QUERY_REPR_LEN} more chars truncated)"
+
+
 def _redact_parameters(parameters: Any) -> Any:
     if isinstance(parameters, Mapping):
         return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
@@ -596,7 +616,7 @@ class Query:
         return client.execute(self.query, self.parameters, settings=self.settings)
 
     def __repr__(self) -> str:
-        query = redact_sql_secrets(self.query)
+        query = _truncate_query(redact_sql_secrets(self.query))
         if self.parameters and isinstance(self.parameters, list):
             shown = _redact_parameters(self.parameters[:50])
             params_repr = f"{shown!r} (showing first 50 out of {len(self.parameters)} parameters)"
@@ -665,6 +685,10 @@ class MutationNotFound(Exception):
     pass
 
 
+# not present in clickhouse_driver.errors.ErrorCodes; see ClickHouse src/Common/ErrorCodes.cpp
+TOO_MANY_MUTATIONS = 692
+
+
 @dataclass
 class MutationWaiter:
     table: str
@@ -700,6 +724,24 @@ class MutationWaiter:
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
             time.sleep(15.0)
+
+
+@dataclass
+class MutationWaiters:
+    """Waits on several mutations as one unit — e.g. the same delete applied to the legacy and
+    native-JSON events tables."""
+
+    waiters: Sequence[MutationWaiter]
+
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
+
+    def is_done(self, client: Client) -> bool:
+        return all(waiter.is_done(client) for waiter in self.waiters)
+
+    def wait(self, client: Client) -> None:
+        for waiter in self.waiters:
+            waiter.wait(client)
 
 
 @dataclass
@@ -744,7 +786,17 @@ class MutationRunner(abc.ABC):
         if not commands_to_enqueue:
             return MutationWaiter(self.table, set(mutations_running.values()))
 
-        client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+        while True:
+            self.wait_for_mutation_capacity(client)
+            try:
+                client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+                break
+            except ServerException as e:
+                # another mutation can land in the gap between the capacity check and our ALTER, so
+                # go back to waiting instead of failing
+                if e.code != TOO_MANY_MUTATIONS:
+                    raise
+                logger.info("Mutation rejected by %s due to unfinished mutations, waiting for capacity...", self.table)
 
         # mutations are not always immediately visible, so give anything new a bit of time to show up
         start = time.time()
@@ -757,6 +809,31 @@ class MutationRunner(abc.ABC):
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
         )
+
+    def wait_for_mutation_capacity(self, client: Client, poll_interval: float = 60.0) -> None:
+        """
+        Block until the target table has no unfinished mutations before enqueueing a new one, since tables can be
+        configured with ``number_of_mutations_to_throw`` to reject new mutations while others (e.g. a long-running
+        backfill) are still in flight.
+        """
+        while True:
+            [[count]] = client.execute(
+                """
+                SELECT count()
+                FROM system.mutations
+                WHERE database = %(database)s AND table = %(table)s AND NOT is_done AND NOT is_killed
+                """,
+                {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
+            )
+            if count == 0:
+                return
+            logger.info(
+                "Waiting for %s unfinished mutation(s) on %s before enqueueing new mutation (checking again in %ss)...",
+                count,
+                self.table,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
 
     def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
         """

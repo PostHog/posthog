@@ -19,6 +19,10 @@ export interface SerializedKafkaMessage {
 export interface IngestBatchRequest {
     batch_id: string
     messages: SerializedKafkaMessage[]
+    /** Consumer process incarnation; the feed-order sentinel rebaselines a key when it changes. Optional for older consumers. */
+    consumer_id?: string
+    /** True when the request may repeat previously sent messages (HTTP retry or deferred-flush re-route). */
+    replay?: boolean
 }
 
 export interface IngestBatchResponse {

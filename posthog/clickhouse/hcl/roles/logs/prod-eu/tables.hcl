@@ -121,7 +121,7 @@ database "posthog" {
       topic_list           = "kafka_topic_list = 'clickhouse_logs'"
       group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
       format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
+      num_consumers        = 16
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000

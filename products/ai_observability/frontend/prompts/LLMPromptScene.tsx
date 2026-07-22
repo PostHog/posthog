@@ -1,12 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPencil, IconPlay, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,15 +19,18 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import {
+    PromptCode,
     PromptEditForm,
     PromptExperiments,
+    PromptHeaderMeta,
     PromptRelatedTraces,
     PromptUsage,
     PromptVersionSidebar,
     PromptViewDetails,
+    PublishReviewModal,
     cleanPromptSearchParams,
 } from './promptSceneComponents'
-import { openArchivePromptDialog } from './utils'
+import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
@@ -34,7 +38,8 @@ export const scene: SceneExport<PromptLogicProps> = {
     productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
-        mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
+        // kea-router JSON-decodes query values, so ?edit=true arrives as boolean true
+        mode: String(searchParams?.edit) === 'true' ? PromptMode.Edit : PromptMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
 }
@@ -54,14 +59,22 @@ export function LLMPromptScene(): JSX.Element {
         versions,
         canLoadMoreVersions,
         nextVersion,
+        isPromptFormDirty,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
     const currentSearchParams = searchParams ?? {}
-    const activeViewTab =
-        searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
+    const activeViewTab = ['code', 'usage', 'experiments'].includes(searchParams?.tab) ? searchParams.tab : 'overview'
 
-    const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
-        useActions(llmPromptLogic)
+    const {
+        submitPromptForm,
+        requestPublish,
+        deletePrompt,
+        setMode,
+        setPromptFormValues,
+        loadMoreVersions,
+        cancelEditing,
+    } = useActions(llmPromptLogic)
+    const { duplicatePrompt } = useAsyncActions(llmPromptLogic)
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
     const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
     const openInPlaygroundUrl = sourcePromptName
@@ -127,24 +140,51 @@ export function LLMPromptScene(): JSX.Element {
                             </LemonButton>
                         </AccessControlAction>
 
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => openArchivePromptDialog(deletePrompt)}
-                                size="small"
-                                data-attr="llma-prompt-delete-button"
-                            >
-                                Archive
-                            </LemonButton>
-                        </AccessControlAction>
+                        <More
+                            size="small"
+                            overlay={
+                                <>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            onClick={() => {
+                                                if (isPrompt(prompt)) {
+                                                    const sourceName = prompt.name
+                                                    openDuplicatePromptDialog(sourceName, (newName) =>
+                                                        duplicatePrompt(sourceName, newName)
+                                                    )
+                                                }
+                                            }}
+                                            data-attr="llma-prompt-detail-duplicate"
+                                            fullWidth
+                                        >
+                                            Duplicate
+                                        </LemonButton>
+                                    </AccessControlAction>
+
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() => openArchivePromptDialog(deletePrompt)}
+                                            data-attr="llma-prompt-delete-button"
+                                            fullWidth
+                                        >
+                                            Archive
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </>
+                            }
+                        />
                     </>
                 }
             />
+
+            <PromptHeaderMeta />
 
             <div className="flex flex-col gap-6 xl:flex-row">
                 <div className="min-w-0 flex-1">
@@ -164,17 +204,22 @@ export function LLMPromptScene(): JSX.Element {
                                 {
                                     key: 'overview',
                                     label: 'Overview',
-                                    content: (
-                                        <>
-                                            <PromptViewDetails />
-                                            <PromptRelatedTraces />
-                                        </>
-                                    ),
+                                    content: <PromptViewDetails />,
+                                },
+                                {
+                                    key: 'code',
+                                    label: 'Code',
+                                    content: <PromptCode prompt={prompt} />,
                                 },
                                 {
                                     key: 'usage',
                                     label: 'Usage',
-                                    content: <PromptUsage prompt={prompt} />,
+                                    content: (
+                                        <>
+                                            <PromptUsage prompt={prompt} />
+                                            <PromptRelatedTraces />
+                                        </>
+                                    ),
                                 },
                                 {
                                     key: 'experiments',
@@ -184,10 +229,7 @@ export function LLMPromptScene(): JSX.Element {
                             ]}
                         />
                     ) : (
-                        <>
-                            <PromptViewDetails />
-                            <PromptRelatedTraces />
-                        </>
+                        <PromptViewDetails />
                     )}
                 </div>
 
@@ -218,7 +260,13 @@ export function LLMPromptScene(): JSX.Element {
                                     type="secondary"
                                     icon={<IconPlay />}
                                     to={openInPlaygroundUrl}
-                                    disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
+                                    disabledReason={
+                                        isPromptFormSubmitting
+                                            ? 'Saving…'
+                                            : isPromptFormDirty
+                                              ? 'You have unsaved edits — publish or cancel first'
+                                              : undefined
+                                    }
                                     size="small"
                                     data-attr="llma-playground-open-from-prompt"
                                 >
@@ -227,15 +275,7 @@ export function LLMPromptScene(): JSX.Element {
                             ) : null}
                             <LemonButton
                                 type="secondary"
-                                onClick={() => {
-                                    if (isNewPrompt) {
-                                        router.actions.push(
-                                            combineUrl(urls.aiObservabilityPrompts(), currentSearchParams).url
-                                        )
-                                    } else {
-                                        setMode(PromptMode.View)
-                                    }
-                                }}
+                                onClick={() => cancelEditing()}
                                 disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                 size="small"
                                 data-attr="llma-prompt-cancel-button"
@@ -249,8 +289,13 @@ export function LLMPromptScene(): JSX.Element {
                             >
                                 <LemonButton
                                     type="primary"
-                                    onClick={submitPromptForm}
+                                    onClick={isNewPrompt ? submitPromptForm : requestPublish}
                                     loading={isPromptFormSubmitting}
+                                    disabledReason={
+                                        !isNewPrompt && !isHistoricalVersion && !isPromptFormDirty
+                                            ? 'No changes to publish'
+                                            : undefined
+                                    }
                                     size="small"
                                     data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
                                 >
@@ -261,24 +306,6 @@ export function LLMPromptScene(): JSX.Element {
                                           : 'Publish version'}
                                 </LemonButton>
                             </AccessControlAction>
-
-                            {!isNewPrompt && (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        icon={<IconTrash />}
-                                        onClick={() => openArchivePromptDialog(deletePrompt)}
-                                        size="small"
-                                        data-attr="llma-prompt-delete-button"
-                                    >
-                                        Archive
-                                    </LemonButton>
-                                </AccessControlAction>
-                            )}
                         </>
                     }
                 />
@@ -289,6 +316,7 @@ export function LLMPromptScene(): JSX.Element {
                             isHistoricalVersion={isHistoricalVersion}
                             selectedVersion={isPrompt(prompt) ? prompt.version : null}
                         />
+                        <PublishReviewModal />
                     </div>
 
                     {!isNewPrompt && (
@@ -300,6 +328,7 @@ export function LLMPromptScene(): JSX.Element {
                             canLoadMoreVersions={canLoadMoreVersions}
                             loadMoreVersions={loadMoreVersions}
                             searchParams={currentSearchParams}
+                            readOnly
                         />
                     )}
                 </div>

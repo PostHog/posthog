@@ -17,7 +17,8 @@ from typing import cast
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
+from openai import APIConnectionError
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -42,6 +43,7 @@ from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Product
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import (
@@ -49,17 +51,22 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     is_authenticated_via_project_secret_api_key,
 )
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.endpoints.backend.facade.api import (
+    REWRITE_CONTRACT,
     EndpointCrudService,
     EndpointExecutionService,
     EndpointMaterializationService,
     build_materialization_info,
     generate_openapi_spec,
     get_last_execution_times,
+    live_materialization_conditions_source,
+    materialization_fix_enabled,
+    suggest_materialization_fix,
     validate_bucket_overrides,
     validate_endpoint_request,
     validate_update_request,
@@ -67,7 +74,10 @@ from products.endpoints.backend.facade.api import (
 from products.endpoints.backend.facade.enums import ENDPOINT_NAME_REGEX, ENDPOINTS_LOG_SOURCE
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.endpoints.backend.presentation.serializers import (
+    EndpointMaterializationConditionsSerializer,
     EndpointMaterializationSerializer,
+    EndpointMaterializationSuggestionRequestSerializer,
+    EndpointMaterializationSuggestionSerializer,
     EndpointRequestSerializer,
     EndpointResponseSerializer,
     EndpointRunResponseSerializer,
@@ -118,8 +128,10 @@ class EndpointViewSet(
         "run",
         "versions",
         "openapi_spec",
+        "materialization_conditions",
         "materialization_preview",
         "materialization_status",
+        "materialization_suggestion",
         "get_endpoints_last_execution_times",
         "logs",
     ]
@@ -141,6 +153,10 @@ class EndpointViewSet(
         return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
 
     def get_throttles(self):
+        # Per-user AI throttles: the suggestion action holds a worker on LLM calls, and the
+        # endpoint throttles below don't cover session auth
+        if self.action == "materialization_suggestion":
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return [
             EndpointBurstThrottle(),
             EndpointSustainedThrottle(),
@@ -302,6 +318,7 @@ class EndpointViewSet(
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
             "tags": self._get_tag_names(endpoint),
+            "optional_breakdown_properties": list(version.optional_breakdown_properties or []),
         }
 
         if isinstance(obj, EndpointVersion):
@@ -401,9 +418,11 @@ class EndpointViewSet(
             self.destroy(request, name=name)
             return Response({"success": True}, status=status.HTTP_200_OK)
 
-        validate_update_request(data, self.team, cast(User, request.user), endpoint=endpoint)
-
         version_number = self._parse_version_param(request)
+        validate_update_request(
+            data, self.team, cast(User, request.user), endpoint=endpoint, version_number=version_number
+        )
+
         outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)
 
         # When targeting a specific version, return version data; otherwise return endpoint data
@@ -603,6 +622,111 @@ class EndpointViewSet(
 
         service = EndpointMaterializationService(self.team, request)
         return Response(dataclasses.asdict(service.preview(endpoint, version, bucket_overrides)))
+
+    @validated_request(
+        EndpointMaterializationSuggestionRequestSerializer,
+        responses={200: OpenApiResponse(response=EndpointMaterializationSuggestionSerializer)},
+        description=(
+            "Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be "
+            "materialized. Only applicable to SQL (HogQL) endpoints that currently fail the "
+            "materialization checks. The suggestion is validated against the live checks before being "
+            "returned; nothing is saved. Requires the organization's AI data processing approval."
+        ),
+    )
+    @action(methods=["POST"], detail=True, url_path="materialization_suggestion")
+    def materialization_suggestion(self, request: ValidatedRequest, name=None, *args, **kwargs) -> Response:
+        """Suggest a semantically equivalent, materializable rewrite of the endpoint's query."""
+        endpoint = self._get_endpoint_with_object_access(name)
+
+        if not materialization_fix_enabled(self.team):
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={"error": "AI materialization suggestions are not enabled for this project."},
+            )
+
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data={"error": "Enable AI data processing for this organization to use AI suggestions."},
+            )
+
+        version = self._resolve_version_param(request, endpoint)
+        if isinstance(version, Response):
+            return version
+
+        if (version.query or {}).get("kind") != "HogQLQuery":
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "AI materialization suggestions are only available for SQL endpoints."},
+            )
+
+        can_materialize, _ = version.can_materialize()
+        if can_materialize:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "This query can already be materialized."},
+            )
+
+        try:
+            result = suggest_materialization_fix(
+                team_id=self.team_id, query=version.query, original_columns=version.get_columns()
+            )
+        except APIConnectionError as e:
+            capture_exception(e, {"team_id": self.team_id})
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "error": "Couldn't reach the AI service. If you're running locally, the LLM gateway isn't running."
+                },
+            )
+        except Exception as e:
+            capture_exception(e, {"team_id": self.team_id, "endpoint_name": endpoint.name})
+            return Response(
+                status=status.HTTP_502_BAD_GATEWAY,
+                data={"error": "The AI suggestion service failed. Try again, or edit the query manually."},
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "endpoint materialization fix suggested",
+            {
+                "suggestion_status": result.status,
+                "attempts": result.attempts,
+                "original_reason": result.original_reason,
+            },
+            team=self.team,
+        )
+
+        return Response(
+            {
+                "suggestion_status": result.status,
+                "suggested_query": result.suggested_query,
+                "explanation": result.explanation,
+                "attempts": result.attempts,
+                "error": result.error,
+                "original_reason": result.original_reason,
+            }
+        )
+
+    @extend_schema(
+        responses={200: OpenApiResponse(response=EndpointMaterializationConditionsSerializer)},
+        description=(
+            "Get the source code of the live materialization checks, plus the rewrite contract. "
+            "Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a "
+            "semantically equivalent query that passes every check, update the endpoint with it, then "
+            "confirm via materialization_status. The source is read from the running system, so it always "
+            "matches the checks this instance enforces."
+        ),
+    )
+    @action(methods=["GET"], detail=False, url_path="materialization_conditions")
+    def materialization_conditions(self, request: Request, *args, **kwargs) -> Response:
+        """Expose the live materialization conditions for client-side (agent) query rewriting."""
+        return Response(
+            {
+                "conditions_source": live_materialization_conditions_source(),
+                "rewrite_contract": REWRITE_CONTRACT,
+            }
+        )
 
     @extend_schema(
         # url_path="openapi.json" would otherwise produce `..._openapi.json_retrieve` —

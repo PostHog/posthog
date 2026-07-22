@@ -37,6 +37,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.ph_client import get_client
+from posthog.settings.ingestion import DedicatedAIEndpointRollout
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
@@ -200,17 +201,23 @@ class BaseAgentRunner(ABC):
 
             # flush_at=1 flushes each event immediately so traces deliver before short runs end;
             # before_send truncates oversized AI blobs so they clear the SDK's per-event size drop.
-            client_kwargs = {"flush_at": 1, "before_send": ai_event_truncator}
+            def make_client(region: str):
+                return get_client(
+                    region,
+                    flush_at=1,
+                    before_send=ai_event_truncator,
+                    dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
+                )
 
             # Local deployment or hobby
             if not is_cloud() and (local_client := posthoganalytics.default_client):
                 self._callback_handlers.append(init_handler(local_client))
             elif region := get_instance_region():
                 # Add regional client first
-                self._callback_handlers.append(init_handler(get_client(region, **client_kwargs)))
+                self._callback_handlers.append(init_handler(make_client(region)))
                 # If we're in EU, add the US client as well, so we can see US and EU traces
                 if region == "EU":
-                    self._callback_handlers.append(init_handler(get_client("US", **client_kwargs)))
+                    self._callback_handlers.append(init_handler(make_client("US")))
 
         self._trace_id = trace_id
         self._parent_span_id = parent_span_id

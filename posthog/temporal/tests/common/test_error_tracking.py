@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
 
@@ -90,6 +91,24 @@ class CancelledActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             cancelled_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def egress_backpressure_activity(inputs: OptionallyFailingInputs) -> None:
+    raise GitHubEgressBudgetExhausted("GitHub egress budget exhausted for installation 123; deferring")
+
+
+@workflow.defn
+class EgressBackpressureActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            egress_backpressure_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -197,6 +216,35 @@ async def test_cancellation_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "CancelledActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_egress_backpressure_is_not_captured(temporal_client: Client):
+    """An egress-budget backpressure error (our own limiter shedding a deferrable call so Temporal
+    retries later) is expected control flow, not a defect, so the interceptor must re-raise it
+    without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[EgressBackpressureActivityWorkflow],
+            activities=[egress_backpressure_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "EgressBackpressureActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

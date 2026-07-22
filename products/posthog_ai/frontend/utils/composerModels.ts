@@ -13,11 +13,11 @@ export interface ComposerEffortOption {
 // Claude-only lineup — the task tracker always launches the `claude` runtime adapter, so Codex/GPT models are
 // intentionally absent. Add new Claude models here as they ship.
 export const COMPOSER_MODELS: ComposerModelOption[] = [
+    { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
     { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
 ]
 
-export const DEFAULT_COMPOSER_MODEL = 'claude-opus-4-8'
+export const DEFAULT_COMPOSER_MODEL = 'claude-sonnet-5'
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<ReasoningEffortEnumApi, string> = {
@@ -38,7 +38,7 @@ const EFFORTS_BY_MODEL: Record<string, ReasoningEffortEnumApi[]> = {
         ReasoningEffortEnumApi.Xhigh,
         ReasoningEffortEnumApi.Max,
     ],
-    'claude-sonnet-4-6': [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
+    'claude-sonnet-5': [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
 }
 
 const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [

@@ -14,8 +14,8 @@ import type { Span } from '../../types'
 // Logs correlated to the inspected span (default) or the whole trace, via the embedded LogsViewer
 // pinned to a trace_id/span_id filter. Span scope keeps the tab coherent with the rest of the
 // inspector; the toggle rescues the common case where a span emitted no logs of its own. The
-// viewer's own filter bar is hidden (showFilterBar={false}) — the scope is fixed by the pinned
-// filter, and this toggle is the visible scope control.
+// pinned filter fixes the scope — the viewer's own filters can only narrow within it — and this
+// toggle is the scope control.
 export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
     const [scope, setScope] = useState<TraceLogScope>('span')
 
@@ -68,7 +68,6 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
                 id={`tracing-logs-${span.trace_id}`}
                 pinnedFilters={pinnedFilters}
                 initialFilters={initialFilters}
-                showFilterBar={false}
                 // Full-screen is off (like PersonLogsTab): the shared modal can't carry pinnedFilters,
                 // so it would open unscoped and clear this viewer's scope. "Open in Logs" preserves
                 // the scope via the URL filterGroup instead.

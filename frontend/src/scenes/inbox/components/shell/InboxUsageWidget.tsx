@@ -193,10 +193,13 @@ export function InboxUsageWidget(): JSX.Element | null {
                     )}
                 </div>
                 <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-secondary tabular-nums">
-                        <span className="font-medium text-default">{usedPrsDisplay}</span>
-                        {limitPrs != null ? ` / ${limitPrs}` : ''} PRs created
-                    </span>
+                    <Tooltip title="PRs opened by agents across your whole organization this billing period">
+                        {/* tabIndex so keyboard users can focus the count and get the org-wide scope */}
+                        <span className="text-secondary tabular-nums" tabIndex={0}>
+                            <span className="font-medium text-default">{usedPrsDisplay}</span>
+                            {limitPrs != null ? ` / ${limitPrs}` : ''} PRs created
+                        </span>
+                    </Tooltip>
                     {resetDate && (
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}

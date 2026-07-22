@@ -6,7 +6,8 @@
     },
     "dependencies": {
         "@playwright/test": "catalog:",
-        "@posthog/frontend": "workspace:*"
+        "@posthog/frontend": "workspace:*",
+        "snappyjs": "^0.7.0"
     },
     "peerDependencies": {}
 }

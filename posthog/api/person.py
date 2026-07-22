@@ -84,7 +84,6 @@ from products.workflows.backend.api.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
     fetch_message_assets_for_person,
-    workflow_email_assets_ui_enabled,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -551,7 +550,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if filter.distinct_id:
             # Exact match on any of the person's distinct IDs; no matching person => no results.
             matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
-            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')" if matched else "1 = 2"})
+            if matched is None:
+                # Return early: a constant-false predicate can't be pushed into the persons
+                # lazy table, so ClickHouse would still aggregate every person row for the
+                # team before filtering everything out.
+                return Response(
+                    {
+                        "results": [],
+                        "next": None,
+                        "previous": None,
+                        **({"count": 0} if "include_total" in request.GET else {}),
+                    }
+                )
+            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
         actors_query = ActorsQuery(
             select=["id"],
             properties=person_properties,
@@ -1468,8 +1479,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
     def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         person = self.get_object()
-        if not workflow_email_assets_ui_enabled(self.team, request.user):
-            raise NotFound()
         param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data

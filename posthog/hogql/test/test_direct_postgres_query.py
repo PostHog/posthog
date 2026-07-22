@@ -10,7 +10,9 @@ from django.test import override_settings
 import psycopg
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 from posthog.hogql.direct_sql.postgres_adapter import (
     LenientDirectPostgresDateLoader,
@@ -23,6 +25,7 @@ from posthog.hogql.direct_sql.postgres_adapter import (
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Team
@@ -57,6 +60,19 @@ class TestDirectPostgresQuery(APIBaseTest):
     def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
         self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
 
+    @parameterized.expand(
+        [
+            ("global_in", ast.CompareOperationOp.GlobalIn, "(x IN (SELECT session_id FROM sessions))"),
+            ("global_not_in", ast.CompareOperationOp.GlobalNotIn, "(x NOT IN (SELECT session_id FROM sessions))"),
+        ]
+    )
+    def test_postgres_printer_maps_global_in_operators(self, _name: str, op: ast.CompareOperationOp, expected_sql: str):
+        # The resolver rewrites sessions/events IN subqueries to GlobalIn/GlobalNotIn; Postgres has no
+        # distributed GLOBAL concept, so the printer must emit a plain IN/NOT IN rather than crashing.
+        printer = PostgresPrinter(context=HogQLContext(team_id=self.team.pk))
+
+        self.assertEqual(printer._get_compare_op(op, "x", "(SELECT session_id FROM sessions)"), expected_sql)
+
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
         self.assertEqual(
             direct_postgres_session_setup_sql("ph3"),
@@ -84,9 +100,15 @@ class TestDirectPostgresQuery(APIBaseTest):
             "USE system",
         )
 
-    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
+    @parameterized.expand(
+        [
+            ("lowercase", "db.eu.postwh.com"),
+            ("uppercase_trailing_dot", "DB.EU.POSTWH.COM."),
+        ]
+    )
+    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self, _name, host):
         self.assertEqual(
-            direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
+            direct_postgres_session_setup_sql("posthog", host=host),
             "USE posthog",
         )
 
@@ -142,6 +164,78 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertNotIn(".team_id", sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
+    def _create_simple_direct_source_and_table(self) -> ExternalDataSource:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="shop",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        return source
+
+    @parameterized.expand(
+        [
+            # Postgres has no zero-arg count(); it must print as count(*).
+            ("count_star", "SELECT count() FROM orders", "count(*)"),
+            # DISTINCT used to be silently dropped from function calls, returning plain counts.
+            ("count_distinct", "SELECT count(DISTINCT id) FROM orders", "count(DISTINCT "),
+        ]
+    )
+    def test_count_rendering(self, _name: str, query: str, expected_fragment: str):
+        source = self._create_simple_direct_source_and_table()
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn(expected_fragment, sql)
+
+    def test_set_query_operands_are_parenthesized(self):
+        # The default LIMIT is injected into every branch of a set query; Postgres only
+        # accepts a per-branch LIMIT on a parenthesized operand.
+        source = self._create_simple_direct_source_and_table()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM orders UNION ALL SELECT id FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertRegex(sql, r"\)\s*UNION ALL\s*\(")
+
+    def test_handler_rendered_functions_reject_distinct(self):
+        # Handlers compose custom SQL from pre-rendered args; DISTINCT must error rather than
+        # be silently dropped from the aggregate.
+        source = self._create_simple_direct_source_and_table()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT uniq(DISTINCT id) FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        with self.assertRaises(QueryError) as ctx:
+            executor.generate_clickhouse_sql()
+        self.assertIn("DISTINCT", str(ctx.exception))
+
     def test_generate_sql_for_aliased_direct_postgres_table(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -181,6 +275,49 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("ph3.posthog_activitylog", sql)
         self.assertIn("activitylog", sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
+
+    def test_modulo_renders_as_mod_function(self):
+        # A bare `%` in the printed SQL is read by psycopg as a client-side parameter
+        # placeholder and blows up before the query runs, so modulo must render as MOD(a, b).
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id % 2 FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("MOD(", sql)
+        # Assert the modulo *operator* isn't rendered as a bare `%`; a plain `assertNotIn("%", sql)`
+        # would be too broad since bound values legitimately use `%(hogql_val_*)s` placeholders.
+        self.assertNotIn(" % ", sql)
 
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(
@@ -1679,9 +1816,16 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "prefer")
 
+    @parameterized.expand(
+        [
+            ("us", "db.us.postwh.com"),
+            ("eu", "db.eu.postwh.com"),
+            ("eu_uppercase_trailing_dot", "DB.EU.POSTWH.COM."),
+        ]
+    )
     @override_settings(DEBUG=False, TEST=False)
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, mock_connect):
+    def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, _name, host, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1691,7 +1835,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="ph3",
             job_inputs={
-                "host": "db.us.postwh.com",
+                "host": host,
                 "port": 5432,
                 "database": "postgres",
                 "user": "postgres",
@@ -1734,3 +1878,106 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslcert"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslkey"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslrootcert"], "/tmp/no.txt")
+
+    def test_hogql_query_for_synced_source_prints_identical_sql_to_pure_direct(self):
+        job_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "public",
+        }
+        direct_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="pure_direct_source",
+            connection_id="pure_direct_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="direct",
+            job_inputs=job_inputs,
+        )
+        DataWarehouseTable.objects.create(
+            name="users",
+            format="Parquet",
+            team=self.team,
+            external_data_source=direct_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        synced_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_source",
+            connection_id="synced_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="synced",
+            job_inputs=job_inputs,
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="users",
+            source=synced_source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "id", "data_type": "integer", "is_nullable": False}],
+                    "source_schema": "public",
+                    "source_table_name": "users",
+                }
+            },
+        )
+
+        sql_by_mode = {}
+        for mode, source in (("direct", direct_source), ("synced", synced_source)):
+            executor = HogQLQueryExecutor(
+                query="SELECT id FROM users WHERE id > 10",
+                team=self.team,
+                connection_id=str(source.id),
+            )
+            sql, _context = executor.generate_clickhouse_sql()
+            sql_by_mode[mode] = sql
+
+        # The virtual table built from schema metadata must print byte-identically to the
+        # physical pure-direct row for the same source location and columns.
+        self.assertEqual(sql_by_mode["synced"], sql_by_mode["direct"])
+        self.assertIn("public.users", sql_by_mode["synced"])
+
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_send_raw_query_for_synced_source_raises_error(self, mock_connect):
+        # A synced source only exposes its `should_sync` catalog through the HogQL-compiled
+        # path — raw SQL has no such projection, so it's restricted to pure-direct connections.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="synced_source",
+            connection_id="synced_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="synced",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT 1 AS value",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            executor.execute()
+
+        self.assertIn("Invalid connectionId", str(ctx.exception))
+        mock_connect.assert_not_called()
