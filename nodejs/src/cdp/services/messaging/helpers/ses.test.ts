@@ -351,7 +351,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         // Transient bounces must NOT emit email_bounced_hard — AWS's account rate excludes them
-        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced'])
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_transient'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
