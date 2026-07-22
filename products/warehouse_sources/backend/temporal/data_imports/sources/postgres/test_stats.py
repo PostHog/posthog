@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Iterable
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -176,30 +177,34 @@ class TestPostgresStatsCollectors:
             assert rows == []
 
     @pytest.mark.django_db
-    def test_collector_failure_yields_empty_snapshot(self, autocommit_pg_connection):
-        def _boom(conn, log, collected_at, snapshot_id):
-            raise RuntimeError("family exploded")
+    def test_schema_scoped_snapshots_cover_only_that_schema(self, autocommit_pg_connection):
+        # The test database has tables in `public`; a source scoped to another schema must
+        # come back empty rather than exposing schemas it doesn't import.
+        assert _collect_tables(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="public")
+        assert _collect_indexes(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="public")
+        assert _collect_tables(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="not_a_schema") == []
+        assert _collect_indexes(autocommit_pg_connection, logger, *_snapshot_base(), source_schema="not_a_schema") == []
 
-        with patch.dict(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats._COLLECTORS",
-            {DATABASE_STATS_SERVER: _boom},
-        ):
-            sd = django_connection.settings_dict
-            response = postgres_database_stats_source(
-                tunnel=lambda: _fake_tunnel_to(sd),
-                user=sd["USER"] or "",
-                password=sd["PASSWORD"] or "",
-                database=sd["NAME"],
-                schema_name=DATABASE_STATS_SERVER,
-                require_ssl=False,
-                logger=logger,
-            )
-            assert list(cast(Iterable[Any], response.items())) == []
+    @pytest.mark.django_db
+    def test_blank_schema_is_treated_as_unscoped(self):
+        # `config.schema` is optional and normalizes like discovery does: blank means
+        # "every user schema", so the snapshot must not collapse to nothing.
+        sd = django_connection.settings_dict
+        response = postgres_database_stats_source(
+            tunnel=lambda: _fake_tunnel_to(sd),
+            user=sd["USER"] or "",
+            password=sd["PASSWORD"] or "",
+            database=sd["NAME"],
+            schema_name=DATABASE_STATS_TABLES,
+            require_ssl=False,
+            logger=logger,
+            source_schema="   ",
+        )
+        assert list(cast(Iterable[Any], response.items())) != []
 
 
-def _snapshot_base():
-    from datetime import UTC, datetime
-
+def _snapshot_base() -> tuple[datetime, str]:
+    """The (collected_at, snapshot_id) pair the harness normally stamps a snapshot with."""
     return datetime.now(UTC), uuid.uuid4().hex
 
 
@@ -291,6 +296,16 @@ class TestCollectQueriesScripted:
             ("total_time", psycopg.errors.UndefinedColumn("still no such column")),
         ]
         assert _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base()) == []
+
+    def test_schema_scope_does_not_filter_unattributable_statements(self):
+        # pg_stat_statements records no schema, so a schema-restricted source still gets
+        # database-wide statement stats — filtering would empty the family, not scope it.
+        script = [self._EXTENSION, ("total_exec_time", [])]
+        conn = _ScriptedConnection(script)
+        _collect_queries(cast(Any, conn), logger, *_snapshot_base(), source_schema="analytics")
+
+        statements_query = next(q for q in conn.executed if "shared_blks_hit" in q)
+        assert "schemaname" not in statements_query
 
     def test_statements_are_scoped_to_the_connected_database(self):
         # pg_stat_statements is cluster-wide; without the dbid filter another database's

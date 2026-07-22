@@ -1124,6 +1124,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             schema_name=inputs.schema_name,
             require_ssl=source_requires_ssl(schema.source, config),
             logger=inputs.logger,
+            # Stats follow the source's import scope: a source restricted to one schema
+            # gets table and index stats for that schema only.
+            source_schema=config.schema,
         )
         storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name
         response.name = NamingConvention.normalize_identifier(storage_schema_name)

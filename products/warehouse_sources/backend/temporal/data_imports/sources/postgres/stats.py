@@ -12,7 +12,8 @@ import json
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import datetime
-from typing import Any
+from functools import partial
+from typing import Any, Protocol
 
 import psycopg
 from psycopg import sql
@@ -24,10 +25,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     DATABASE_STATS_QUERIES,
     DATABASE_STATS_SERVER,
     DATABASE_STATS_TABLES,
-    DatabaseStatsCollector,
     build_database_stats_source_response,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import pg_connection
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _normalize_selected_schema,
+    pg_connection,
+)
 
 # Row caps per snapshot. Queries are ranked by cumulative execution time so the cap keeps
 # the statements that matter; tables/indexes are ranked by size for the same reason.
@@ -38,6 +41,11 @@ INDEXES_SNAPSHOT_LIMIT = 10_000
 # pg_stat_statements shows every statement's counters to any user, but replaces the text
 # of other users' queries with this literal unless the role has pg_read_all_stats.
 _INSUFFICIENT_PRIVILEGE_TEXT = "<insufficient privilege>"
+
+# Appended to the table/index catalog queries when the source is scoped to one schema, so
+# the snapshot covers only what that source imports. `pg_stat_statements` has no schema
+# attribution to filter on — see the note on `_collect_queries`.
+_SCHEMA_PREDICATE = "WHERE s.schemaname = %s"
 
 # Settings worth snapshotting for health analysis: memory/planner knobs, autovacuum, and
 # connection limits. Stored as text metrics (values keep Postgres' native unit strings).
@@ -82,8 +90,21 @@ def _pg_stat_statements_relation(cur: psycopg.Cursor) -> sql.Identifier | None:
 
 
 def _collect_queries(
-    conn: psycopg.Connection, logger: FilteringBoundLogger, collected_at: datetime, snapshot_id: str
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Snapshot per-statement stats for the connected database.
+
+    Unlike the table and index catalogs, `pg_stat_statements` records no schema for a
+    statement — a single entry can touch several schemas, or none resolvable without
+    parsing SQL against the server's `search_path`. So this family stays scoped to the
+    database, like the other server-level metrics, and `source_schema` only marks that a
+    scope exists. On a schema-restricted source that means normalized text here can
+    mention objects in other schemas of the same database.
+    """
     with conn.cursor() as cur:
         relation = _pg_stat_statements_relation(cur)
         if relation is None:
@@ -140,11 +161,15 @@ def _collect_queries(
 
 
 def _collect_tables(
-    conn: psycopg.Connection, logger: FilteringBoundLogger, collected_at: datetime, snapshot_id: str
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT s.schemaname, s.relname,
                    pg_total_relation_size(s.relid),
                    c.reltuples::bigint,
@@ -154,10 +179,11 @@ def _collect_tables(
             FROM pg_stat_user_tables s
             JOIN pg_class c ON c.oid = s.relid
             LEFT JOIN pg_statio_user_tables io ON io.relid = s.relid
+            {_SCHEMA_PREDICATE if source_schema else ""}
             ORDER BY 3 DESC
             LIMIT %s
             """,
-            (TABLES_SNAPSHOT_LIMIT,),
+            ((source_schema, TABLES_SNAPSHOT_LIMIT) if source_schema else (TABLES_SNAPSHOT_LIMIT,)),
         )
         rows = []
         for (
@@ -200,11 +226,15 @@ def _collect_tables(
 
 
 def _collect_indexes(
-    conn: psycopg.Connection, logger: FilteringBoundLogger, collected_at: datetime, snapshot_id: str
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT s.schemaname, s.relname, s.indexrelname,
                    pg_relation_size(s.indexrelid),
                    s.idx_scan,
@@ -212,10 +242,11 @@ def _collect_indexes(
                    pg_get_indexdef(s.indexrelid)
             FROM pg_stat_user_indexes s
             JOIN pg_index i ON i.indexrelid = s.indexrelid
+            {_SCHEMA_PREDICATE if source_schema else ""}
             ORDER BY 4 DESC
             LIMIT %s
             """,
-            (INDEXES_SNAPSHOT_LIMIT,),
+            ((source_schema, INDEXES_SNAPSHOT_LIMIT) if source_schema else (INDEXES_SNAPSHOT_LIMIT,)),
         )
         rows = []
         for schema_name, table_name, index_name, size_bytes, idx_scan, is_unique, is_primary, definition in cur:
@@ -237,9 +268,17 @@ def _collect_indexes(
 
 
 def _collect_server(
-    conn: psycopg.Connection, logger: FilteringBoundLogger, collected_at: datetime, snapshot_id: str
+    conn: psycopg.Connection,
+    logger: FilteringBoundLogger,
+    collected_at: datetime,
+    snapshot_id: str,
+    source_schema: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Server-level metrics as one row per metric (EAV — the set is heterogeneous)."""
+    """Server-level metrics as one row per metric (EAV — the set is heterogeneous).
+
+    Server metrics describe the database and cluster, not any one schema, so
+    `source_schema` doesn't narrow them.
+    """
     base = _base_row(collected_at, snapshot_id)
     rows: list[dict[str, Any]] = []
 
@@ -356,7 +395,20 @@ def _collect_server(
     return rows
 
 
-_COLLECTORS: dict[str, DatabaseStatsCollector] = {
+class _PostgresStatsCollector(Protocol):
+    """A Postgres collector: the generic contract plus this engine's schema scope."""
+
+    def __call__(
+        self,
+        conn: psycopg.Connection,
+        logger: FilteringBoundLogger,
+        collected_at: datetime,
+        snapshot_id: str,
+        source_schema: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+
+_COLLECTORS: dict[str, _PostgresStatsCollector] = {
     DATABASE_STATS_QUERIES: _collect_queries,
     DATABASE_STATS_TABLES: _collect_tables,
     DATABASE_STATS_INDEXES: _collect_indexes,
@@ -373,7 +425,16 @@ def postgres_database_stats_source(
     schema_name: str,
     require_ssl: bool,
     logger: FilteringBoundLogger,
+    source_schema: str | None = None,
 ) -> SourceResponse:
+    """Build the response for one stats schema.
+
+    `schema_name` is the stats table being synced (`database_stats_*`); `source_schema` is
+    the Postgres schema the source imports from, which scopes the catalogs that carry
+    schema attribution.
+    """
+    selected_schema = _normalize_selected_schema(source_schema)
+
     @contextmanager
     def open_connection() -> Iterator[psycopg.Connection]:
         with tunnel() as (host, port):
@@ -387,7 +448,7 @@ def postgres_database_stats_source(
 
     return build_database_stats_source_response(
         schema_name=schema_name,
-        collectors=_COLLECTORS,
+        collectors={name: partial(fn, source_schema=selected_schema) for name, fn in _COLLECTORS.items()},
         open_connection=open_connection,
         logger=logger,
     )
