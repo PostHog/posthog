@@ -7,7 +7,9 @@ from uuid import UUID
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from requests.exceptions import RequestException
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -26,6 +28,8 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import QuickAction, QuickActionKind, QuickActionVisibility, Ticket
 from products.conversations.backend.models.constants import Priority, Status
 from products.workflows.backend.facade.api import HogFlowNotRunnableError, invoke_hog_flow_now, workflow_is_runnable
+
+logger = structlog.get_logger(__name__)
 
 MAX_RICH_CONTENT_SIZE_BYTES = 100_000
 MAX_ACTIONS_SIZE_BYTES = 10_000
@@ -297,6 +301,14 @@ class QuickActionViewSet(
             invoke_hog_flow_now(self.team_id, quick_action.workflow_id, globals_payload)
         except HogFlowNotRunnableError as e:
             raise serializers.ValidationError({"workflow_id": str(e)})
+        except RequestException:
+            # The workflow service (CDP) was unreachable — a transient upstream failure, not a bad
+            # request. Surface a clean 502 rather than an unhandled 500.
+            logger.exception("quick_action_run_workflow_service_unreachable", workflow_id=str(quick_action.workflow_id))
+            return Response(
+                {"detail": "Couldn't reach the workflow service. Try again shortly."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         self._track("conversations quick action run", quick_action)
         return Response(status=status.HTTP_202_ACCEPTED)

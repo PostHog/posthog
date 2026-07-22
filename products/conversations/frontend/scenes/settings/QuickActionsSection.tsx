@@ -1,5 +1,5 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { useRef } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
@@ -39,7 +39,6 @@ function summary(quickAction: QuickActionApi): string {
 }
 
 export function QuickActionsSection(): JSX.Element {
-    useMountedLogic(workflowsLogic)
     const {
         quickActions,
         quickActionsLoading,
@@ -73,7 +72,13 @@ export function QuickActionsSection(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const { workflows, workflowsLoading } = useValues(workflowsLogic)
+    const { loadWorkflows } = useActions(workflowsLogic)
     const activeWorkflows = workflows.filter((w) => w.status === 'active')
+
+    // workflowsLogic doesn't load on mount, so kick the fetch to populate the workflow picker.
+    useEffect(() => {
+        loadWorkflows()
+    }, [loadWorkflows])
 
     const editorRef = useRef<RichContentEditorType | null>(null)
     const editingQuickAction = quickActions.find((q) => q.short_id === editingShortId) ?? null
