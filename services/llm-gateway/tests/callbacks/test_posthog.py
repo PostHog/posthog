@@ -313,6 +313,127 @@ class TestPostHogCallback:
             assert _is_uuid(props["$ai_trace_id"])
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("event_method", ["_on_success", "_on_failure"])
+    async def test_trace_id_header_wins_over_metadata_user_id(
+        self,
+        event_method: str,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """A caller-stamped x-posthog-trace-id beats the metadata.user_id derivation,
+        on both the success and the error event, so a caller that stores the id it
+        sent can join ratings/feedback onto the captured generation."""
+        _, mock_client = mock_posthog_client
+        header_trace_id = "0e3c1c81-8bcc-40d8-9e28-1ed92b3a7c3a"
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {"metadata": {"user_id": "trace-id-123"}},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_posthog_trace_id", return_value=header_trace_id),
+        ):
+            await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            # a UUID header value passes through verbatim
+            assert props["$ai_trace_id"] == header_trace_id
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("header_value", ["not-a-uuid", "0E3C1C81-8BCC-40D8-9E28-1ED92B3A7C3A"])
+    async def test_trace_id_header_stored_verbatim(
+        self,
+        header_value: str,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """The explicit header is the caller's join key, so it is stored byte-for-byte
+        rather than canonicalized/hashed: an uppercase UUID stays uppercase and a
+        non-UUID stays as-is, so the caller's stored id matches `$ai_trace_id`."""
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_posthog_trace_id", return_value=header_value),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["$ai_trace_id"] == header_value
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("event_method", ["_on_success", "_on_failure"])
+    async def test_caller_property_cannot_override_gateway_derived_keys(
+        self,
+        event_method: str,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """A caller `x-posthog-property-*` value adds enrichment the gateway doesn't
+        derive (`$ai_span_name`) but cannot overwrite a gateway-owned key: spoofed
+        `$ai_trace_id` and `$ai_model` lose to the derived values on both events."""
+        _, mock_client = mock_posthog_client
+        header_trace_id = "0e3c1c81-8bcc-40d8-9e28-1ed92b3a7c3a"
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_posthog_trace_id", return_value=header_trace_id),
+            patch(
+                "llm_gateway.callbacks.posthog.get_posthog_properties",
+                return_value={
+                    "$ai_trace_id": "spoofed",
+                    "$ai_model": "spoofed",
+                    "$ai_span_name": "slack_nudge_classifier",
+                },
+            ),
+        ):
+            await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            # gateway-derived keys win over the caller's spoofed values...
+            assert props["$ai_trace_id"] == header_trace_id
+            assert props["$ai_model"] != "spoofed"
+            # ...but a key the gateway never sets is preserved as caller enrichment.
+            assert props["$ai_span_name"] == "slack_nudge_classifier"
+
+    @pytest.mark.asyncio
+    async def test_absent_trace_id_header_keeps_metadata_derivation(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """Without the header, the Claude Code metadata.user_id path is unchanged."""
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {"metadata": {"user_id": "trace-id-123"}},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="llm_gateway"),
+            patch("llm_gateway.callbacks.posthog.get_posthog_trace_id", return_value=None),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["$ai_trace_id"] == _normalize_trace_id("trace-id-123")
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["_on_success", "_on_failure"])
     async def test_oauth_uses_auth_user_distinct_id_not_end_user_id(
         self, callback: PostHogCallback, method_name: str, mock_posthog_client: tuple

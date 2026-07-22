@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from llm_gateway.main import RequestLoggingMiddleware
-from llm_gateway.request_context import get_posthog_properties
+from llm_gateway.request_context import get_posthog_properties, get_posthog_trace_id
 from tests.conftest import create_test_app
 
 DANGEROUS_PARAMS: list[tuple[str, str]] = [
@@ -91,6 +91,10 @@ class TestChatCompletionsEndpoint:
         assert data["object"] == "chat.completion"
         assert data["usage"]["total_tokens"] == 15
 
+    # Both the unprefixed route and the `/{product}/...` route the Django callers
+    # (surveys) actually use must carry the trace id and caller properties to the
+    # request context the capture callback reads.
+    @pytest.mark.parametrize("path", ["/v1/chat/completions", "/django/v1/chat/completions"])
     @patch("llm_gateway.api.openai.litellm.acompletion")
     def test_posthog_property_headers_reach_request_context(
         self,
@@ -98,6 +102,7 @@ class TestChatCompletionsEndpoint:
         mock_db_pool: MagicMock,
         valid_request_body: dict,
         mock_openai_response: dict,
+        path: str,
     ) -> None:
         # Build a prod-like app: RequestLoggingMiddleware establishes the base RequestContext
         # that apply_posthog_context_from_headers mutates. The shared conftest app omits it.
@@ -122,23 +127,29 @@ class TestChatCompletionsEndpoint:
 
         def _capture(*args: Any, **kwargs: Any) -> MagicMock:
             captured["properties"] = get_posthog_properties()
+            captured["trace_id"] = get_posthog_trace_id()
             return mock_response
 
         mock_completion.side_effect = _capture
 
         with TestClient(app) as client:
             response = client.post(
-                "/v1/chat/completions",
+                path,
                 json=valid_request_body,
                 headers={
                     "Authorization": "Bearer phx_test_key",
                     "x-posthog-property-team_id": "42",
-                    "x-posthog-property-$ai_billable": "false",
+                    "x-posthog-property-$ai_span_name": "survey_summary",
+                    "x-posthog-trace-id": "0e3c1c81-8bcc-40d8-9e28-1ed92b3a7c3a",
                 },
             )
 
         assert response.status_code == 200
-        assert captured["properties"] == {"team_id": "42", "$ai_billable": "false"}
+        # All caller property headers reach the context, including `$`-prefixed enrichment
+        # the gateway doesn't derive; the capture callback's setdefault merge is what stops
+        # a caller from overwriting gateway-owned keys.
+        assert captured["properties"] == {"team_id": "42", "$ai_span_name": "survey_summary"}
+        assert captured["trace_id"] == "0e3c1c81-8bcc-40d8-9e28-1ed92b3a7c3a"
 
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",

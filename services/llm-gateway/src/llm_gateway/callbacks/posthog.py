@@ -17,6 +17,7 @@ from llm_gateway.request_context import (
     get_effort,
     get_posthog_flags,
     get_posthog_properties,
+    get_posthog_trace_id,
     get_product,
     get_time_to_first_token,
 )
@@ -77,9 +78,12 @@ def _apply_owned_event_properties(properties: dict[str, Any], product: str, team
 
     `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
     `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
-    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
-    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
-    fall back to the key owner's team when no override was supplied.
+    here and drop `$ai_effort` when the gateway found none. Other gateway-derived keys
+    (`$ai_input`, `$ai_model`, `$group_1`, ...) are protected by the caller-property merge,
+    which uses `setdefault` so a caller header can add a new property but not overwrite a value
+    the gateway already set. `team_id`, in contrast, is a deliberate caller override (e.g.
+    a shared-key caller attributing to a customer team); we only fall back to the key owner's
+    team when no override was supplied.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
@@ -187,9 +191,11 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        # The explicit x-posthog-trace-id header is honored verbatim so the caller's
+        # stored id matches for joins. Absent it, Claude Code's JSON blob in Anthropic's
+        # metadata.user_id needs normalizing (see _normalize_trace_id), which also mints
+        # a random id when nothing is supplied.
+        trace_id = get_posthog_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -247,10 +253,14 @@ class PostHogCallback(InstrumentedCallback):
         if reasoning_tokens is not None:
             properties["$ai_reasoning_tokens"] = reasoning_tokens
 
+        # Caller `x-posthog-property-*` values enrich the event but must not overwrite
+        # gateway-derived keys. setdefault lets a caller add its own property (e.g.
+        # `$ai_span_name`, which the gateway never derives) while a value the gateway
+        # already set (`$ai_input`, `$ai_trace_id`, `$group_1`, ...) always wins.
         posthog_properties = get_posthog_properties() or {}
         if isinstance(posthog_properties, dict):
             for key, value in posthog_properties.items():
-                properties[key] = value
+                properties.setdefault(key, value)
 
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):
@@ -311,9 +321,11 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        # The explicit x-posthog-trace-id header is honored verbatim so the caller's
+        # stored id matches for joins. Absent it, Claude Code's JSON blob in Anthropic's
+        # metadata.user_id needs normalizing (see _normalize_trace_id), which also mints
+        # a random id when nothing is supplied.
+        trace_id = get_posthog_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -337,10 +349,14 @@ class PostHogCallback(InstrumentedCallback):
             "$group_1": self._region_url,
         }
 
+        # Caller `x-posthog-property-*` values enrich the event but must not overwrite
+        # gateway-derived keys. setdefault lets a caller add its own property (e.g.
+        # `$ai_span_name`, which the gateway never derives) while a value the gateway
+        # already set (`$ai_input`, `$ai_trace_id`, `$group_1`, ...) always wins.
         posthog_properties = get_posthog_properties() or {}
         if isinstance(posthog_properties, dict):
             for key, value in posthog_properties.items():
-                properties[key] = value
+                properties.setdefault(key, value)
 
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):

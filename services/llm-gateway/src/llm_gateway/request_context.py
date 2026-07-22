@@ -19,6 +19,11 @@ POSTHOG_PROPERTY_PREFIX = "x-posthog-property-"
 POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 POSTHOG_PROVIDER_HEADER = "x-posthog-provider"
 POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
+# Caller-stamped trace id for the captured $ai_generation (the id the caller
+# joins ratings/feedback on). Values over the cap are treated as absent, so the
+# gateway derives its own id rather than capturing a truncated one.
+POSTHOG_TRACE_ID_HEADER = "x-posthog-trace-id"
+_MAX_TRACE_ID_HEADER_LENGTH = 256
 
 _VALID_PROVIDERS = ("anthropic", "bedrock", "cloudflare")
 
@@ -29,6 +34,7 @@ class RequestContext:
     product: str = "llm_gateway"
     posthog_properties: dict[str, str] | None = None
     posthog_flags: dict[str, str] | None = None
+    posthog_trace_id: str | None = None
 
 
 request_context_var: ContextVar[RequestContext | None] = ContextVar("request_context", default=None)
@@ -76,19 +82,21 @@ def set_posthog_flags(flags: dict[str, str] | None) -> None:
     request_context_var.set(replace(ctx, posthog_flags=flags))
 
 
-def set_posthog_context(
-    properties: dict[str, str] | None = None,
-    flags: dict[str, str] | None = None,
-) -> None:
-    ctx = request_context_var.get()
-    if ctx is None:
-        return
-    request_context_var.set(replace(ctx, posthog_properties=properties, posthog_flags=flags))
-
-
 def get_posthog_flags() -> dict[str, str] | None:
     ctx = request_context_var.get()
     return ctx.posthog_flags if ctx else None
+
+
+def set_posthog_trace_id(trace_id: str | None) -> None:
+    ctx = request_context_var.get()
+    if ctx is None:
+        return
+    request_context_var.set(replace(ctx, posthog_trace_id=trace_id))
+
+
+def get_posthog_trace_id() -> str | None:
+    ctx = request_context_var.get()
+    return ctx.posthog_trace_id if ctx else None
 
 
 def _extract_headers_with_prefix(request: Request, prefix: str) -> dict[str, str]:
@@ -138,14 +146,32 @@ def extract_posthog_use_bedrock_fallback_from_headers(request: Request) -> bool 
     )
 
 
+def extract_posthog_trace_id_from_headers(request: Request) -> str | None:
+    trace_id = request.headers.get(POSTHOG_TRACE_ID_HEADER)
+    if trace_id is None:
+        return None
+    trace_id = trace_id.strip()
+    if not trace_id:
+        return None
+    if len(trace_id) > _MAX_TRACE_ID_HEADER_LENGTH:
+        # Drop and fall back to the derived id rather than truncate to a different
+        # value; log so a caller whose join comes back empty has something to find.
+        logger.warning("posthog_trace_id_header_too_long", length=len(trace_id))
+        return None
+    return trace_id
+
+
 def apply_posthog_context_from_headers(request: Request) -> None:
     properties = extract_posthog_properties_from_headers(request)
     flags = extract_posthog_flags_from_headers(request)
+    trace_id = extract_posthog_trace_id_from_headers(request)
 
     if properties:
         set_posthog_properties(properties)
     if flags:
         set_posthog_flags(flags)
+    if trace_id:
+        set_posthog_trace_id(trace_id)
 
 
 def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> None:

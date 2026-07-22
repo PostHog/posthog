@@ -24,6 +24,7 @@ from llm_gateway.request_context import (
     RequestContext,
     get_posthog_flags,
     get_posthog_properties,
+    get_posthog_trace_id,
     get_request_id,
     set_auth_user,
     set_effort,
@@ -232,6 +233,7 @@ async def handle_llm_request(
             product=product,
             posthog_properties=get_posthog_properties(),
             posthog_flags=get_posthog_flags(),
+            posthog_trace_id=get_posthog_trace_id(),
         )
     )
     set_auth_user(user)
