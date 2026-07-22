@@ -4,7 +4,7 @@ Catalog-first for any named business measure or KPI (revenue-, growth-, engageme
 
 This takes precedence over 'Retrieving data' below: for metric/KPI questions, check the catalog before any `query-*` or `execute-sql` call, even when the question maps to a supported insight type.
 
-Before data calls, search `name`, `display_name`, and `description` with terms/synonyms. `exec search` finds tools, not catalog rows.
+Before data calls, search `name`, `display_name`, and `description` with terms/synonyms. `exec search` also returns matching governed metrics with a ready-to-run hint; the SQL below is the exhaustive lookup.
 
 `SELECT name, display_name, description, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%<term>%' OR display_name ILIKE '%<term>%' OR description ILIKE '%<term>%'`
 

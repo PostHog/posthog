@@ -42,5 +42,5 @@ posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 
 **Not supported:**
 
-- `search` matches tool metadata only, not input schemas.
+- `search` does not match input schemas (it ranks tool metadata, plus governed metrics when the catalog is available).
 - No pattern-based field projection — drill one path at a time.

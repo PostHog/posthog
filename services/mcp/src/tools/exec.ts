@@ -1,6 +1,7 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import type { CatalogMetricSummary } from '@/api/client'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
@@ -8,6 +9,7 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
+import { searchCatalogMetrics } from './metric-search'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -63,7 +65,20 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * Fetches the org's governed-metrics catalog so `exec search` can surface
+     * matching metrics alongside tool matches. Passed only when the
+     * `data-catalog-metric-run` tool is registered (see `resolveExecTool`), so
+     * flag-off orgs get byte-identical search output and zero added latency.
+     * Fail-soft: a rejected fetch must never break tool search.
+     */
+    catalogMetricsProvider?: () => Promise<CatalogMetricSummary[] | undefined>
 }
+
+/** Steering appended to `exec search` results when governed metrics match — routes
+ *  the agent to the canonical run instead of insights or ad-hoc SQL. */
+const GOVERNED_METRICS_SEARCH_HINT =
+    'Governed metrics match. For an approved, non-drifted metric run: call data-catalog-metric-run {"name": "<name>"} — prefer it over searching insights or deriving with SQL.'
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
     return z.object({
@@ -399,9 +414,33 @@ export function createExecTool(
                             .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
 
+                    // Governed metrics are fetched only when the provider is wired
+                    // (data-catalog tool present). Fail-soft: a metrics API error must
+                    // never break tool search. When a metric hits, an existing hint
+                    // (scopes, truncation) stays primary and the run-hint moves to
+                    // `governed_metrics_hint` so neither clobbers the other.
+                    const catalogMetrics = options.catalogMetricsProvider
+                        ? await options.catalogMetricsProvider().catch(() => undefined)
+                        : undefined
+                    const governedMetrics = catalogMetrics?.length ? searchCatalogMetrics(catalogMetrics, rest) : []
+                    const withGovernedMetrics = (base: Record<string, unknown> & { hint?: string }): string => {
+                        if (governedMetrics.length === 0) {
+                            return JSON.stringify(base)
+                        }
+                        return JSON.stringify(
+                            base.hint
+                                ? {
+                                      ...base,
+                                      governed_metrics: governedMetrics,
+                                      governed_metrics_hint: GOVERNED_METRICS_SEARCH_HINT,
+                                  }
+                                : { ...base, governed_metrics: governedMetrics, hint: GOVERNED_METRICS_SEARCH_HINT }
+                        )
+                    }
+
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
-                        return JSON.stringify({
+                        return withGovernedMetrics({
                             matches,
                             scope_gated_matches: gatedMatches.map((t) => ({
                                 name: t.name,
@@ -413,16 +452,32 @@ export function createExecTool(
                         })
                     }
                     if (matches.length === 0) {
+                        // A metric-only match (e.g. "ARR" hits the metric, no tool) must not
+                        // read as a dead end, so the run-hint replaces "no tools matched".
+                        if (governedMetrics.length > 0) {
+                            return JSON.stringify({
+                                matches: [],
+                                governed_metrics: governedMetrics,
+                                hint: GOVERNED_METRICS_SEARCH_HINT,
+                            })
+                        }
                         return JSON.stringify({
                             matches: [],
                             hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
                         })
                     }
                     if (truncatedFrom > 0) {
-                        return JSON.stringify({
+                        return withGovernedMetrics({
                             matches,
                             truncated: true,
                             hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                        })
+                    }
+                    if (governedMetrics.length > 0) {
+                        return JSON.stringify({
+                            matches,
+                            governed_metrics: governedMetrics,
+                            hint: GOVERNED_METRICS_SEARCH_HINT,
                         })
                     }
                     return JSON.stringify(matches)

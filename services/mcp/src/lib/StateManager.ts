@@ -1,4 +1,4 @@
-import type { ApiClient, GroupType } from '@/api/client'
+import type { ApiClient, CatalogMetricSummary, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -382,6 +382,15 @@ export class StateManager {
             cacheKey: `groupTypes:${projectId}` as const,
             fetchedAtKey: `groupTypesFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGroupTypes(projectId),
+        })
+    }
+
+    async getOrFetchCatalogMetrics(projectId: string): Promise<CatalogMetricSummary[] | undefined> {
+        return this.getOrFetchCached({
+            name: 'catalog_metrics',
+            cacheKey: `catalogMetrics:${projectId}` as const,
+            fetchedAtKey: `catalogMetricsFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getCatalogMetrics(projectId),
         })
     }
 

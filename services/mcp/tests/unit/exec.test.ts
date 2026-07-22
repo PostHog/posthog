@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import type { CatalogMetricSummary } from '@/api/client'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -1149,6 +1150,56 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
                 /invalid regex pattern/i
             )
+        })
+    })
+
+    describe('governed metrics in search', () => {
+        const mrr: CatalogMetricSummary = {
+            name: 'monthly_recurring_revenue',
+            display_name: 'MRR',
+            description: 'monthly recurring revenue',
+            status: 'approved',
+            is_drifted: false,
+        }
+        const provider = (): Promise<CatalogMetricSummary[]> => Promise.resolve([mrr])
+
+        it('surfaces a matching governed metric with a run hint when no tool matches', async () => {
+            const exec = createExec([makeMockTool()], undefined, { catalogMetricsProvider: provider })
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search revenue' })) as string)
+            expect(result.matches).toEqual([])
+            expect(result.governed_metrics).toEqual([mrr])
+            expect(result.hint).toContain('data-catalog-metric-run')
+        })
+
+        it('adds governed metrics alongside tool matches without clobbering them', async () => {
+            const revenueTool = makeMockTool({ name: 'revenue-report', description: 'revenue report' })
+            const exec = createExec([revenueTool], undefined, { catalogMetricsProvider: provider })
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search revenue' })) as string)
+            expect(result.matches).toContain('revenue-report')
+            expect(result.governed_metrics).toEqual([mrr])
+        })
+
+        it('omits governed metrics when nothing in the catalog matches', async () => {
+            const exec = createExec([makeMockTool()], undefined, { catalogMetricsProvider: provider })
+            // 'mock' matches the tool but no metric — result stays the bare-array shape.
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search mock' })) as string)
+            expect(result).toEqual(['mock-tool'])
+        })
+
+        it('fails soft when the catalog provider rejects', async () => {
+            const failing = (): Promise<CatalogMetricSummary[]> => Promise.reject(new Error('metrics API down'))
+            const exec = createExec([makeMockTool()], undefined, { catalogMetricsProvider: failing })
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search mock' })) as string)
+            expect(result).toEqual(['mock-tool'])
+        })
+
+        it('leaves search output unchanged when no provider is wired (flag-off)', async () => {
+            const exec = createExec([makeMockTool()])
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search revenue' })) as string)
+            expect(result).toEqual({
+                matches: [],
+                hint: 'No tools matched "revenue". Run "tools" to see all available tool names.',
+            })
         })
     })
 

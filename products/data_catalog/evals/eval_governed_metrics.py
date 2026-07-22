@@ -105,6 +105,29 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             },
             setup=seed_approved_metric,
         ),
+        # `exec search` now returns matching governed metrics in its output, so the agent can
+        # discover the metric from the search result — no execute-sql catalog query needed —
+        # and run it. Credits the search-surfaced catalog lookup (scorers.py) then the run.
+        SandboxedEvalCase(
+            name="governed_metric_search_first",
+            prompt="Search for our revenue metric and give me the current value.",
+            expected={
+                "metrics_catalog_queried": {},
+                "canonical_metric_run": {
+                    "metric_name": APPROVED_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Discovered the approved metric '{APPROVED_METRIC_NAME}' via a catalog search (either the "
+                        "governed_metrics returned by exec search or a system.information_schema.metrics query), ran "
+                        "it through data-catalog-metric-run rather than re-deriving revenue, rechecked the runner's "
+                        "approved and non-drifted response, and reported the canonical value."
+                    )
+                },
+            },
+            setup=seed_approved_metric,
+        ),
         SandboxedEvalCase(
             name="governed_metric_implicit_ranking",
             prompt="give me the top 10 B2C customers by revenue and tell me which tool you used.",

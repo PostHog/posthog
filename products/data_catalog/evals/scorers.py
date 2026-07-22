@@ -67,6 +67,29 @@ def _is_catalog_lookup(call: ToolCall) -> bool:
     return METRICS_CATALOG_MARKER in _query_text(call)
 
 
+def _is_search_command(call: ToolCall) -> bool:
+    if call.name.casefold() == "search":
+        return True
+    if call.name != "exec" or not isinstance(call.input, dict):
+        return False
+    command = call.input.get("command")
+    return isinstance(command, str) and command.strip().partition(" ")[0].casefold() == "search"
+
+
+def _search_surfaced_metrics(call: ToolCall) -> bool:
+    """A successful ``exec search`` whose output surfaced governed metrics — the tool-output
+    path to the catalog that needs no ``execute-sql`` query."""
+    if call.is_error or not _is_search_command(call):
+        return False
+    output = call.output or ""
+    try:
+        payload = json.loads(output)
+    except (json.JSONDecodeError, TypeError):
+        # Fall back to a substring check — exec only emits `governed_metrics` when non-empty.
+        return '"governed_metrics"' in output
+    return bool(isinstance(payload, dict) and payload.get("governed_metrics"))
+
+
 def _is_discovery(call: ToolCall) -> bool:
     return _INFO_SCHEMA in _query_text(call)
 
@@ -110,8 +133,14 @@ class MetricsCatalogQueried(Scorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        hits = [c for c in _successful_sql(parser) if _is_catalog_lookup(c)]
-        return Score(name=self._name(), score=1.0 if hits else 0.0, metadata={"catalog_lookups": len(hits)})
+        sql_hits = [c for c in _successful_sql(parser) if _is_catalog_lookup(c)]
+        search_hits = [c for c in parser.get_tool_calls() if _search_surfaced_metrics(c)]
+        found = bool(sql_hits or search_hits)
+        return Score(
+            name=self._name(),
+            score=1.0 if found else 0.0,
+            metadata={"catalog_lookups": len(sql_hits), "search_metric_hits": len(search_hits)},
+        )
 
 
 class MetricsCatalogBeforeAnswer(Scorer):
@@ -133,7 +162,12 @@ class MetricsCatalogBeforeAnswer(Scorer):
         catalog_seen = False
         offenders: list[str] = []
         answer_calls = 0
-        for call in _successful_sql(parser):
+        for call in sorted(parser.get_tool_calls(), key=lambda current: current.position):
+            if _search_surfaced_metrics(call):
+                catalog_seen = True
+                continue
+            if call.name != SQL_TOOL or call.is_error:
+                continue
             if _is_catalog_lookup(call):
                 catalog_seen = True
                 continue
@@ -180,6 +214,9 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
                     failed_catalog_lookups += 1
                 else:
                     catalog_seen = True
+                continue
+            if _search_surfaced_metrics(call):
+                catalog_seen = True
                 continue
             if catalog_seen or not _is_data_bearing(call):
                 continue
