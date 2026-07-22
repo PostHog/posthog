@@ -73,17 +73,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "submitted_at": "Time at which the review was submitted.",
         },
     },
-    "pr_state_events": {
-        "description": "A pull request's draft-state transition (marked ready for review, or converted back to draft). One immutable row per transition, newest-first, from the repository's issue events. Forward-only: rows accrue from when the table is first synced.",
+    "issue_events": {
+        "description": "An event on an issue or pull request (labeled, assigned, closed, ready_for_review, convert_to_draft, ...). One immutable row per event, reduced to a fixed envelope; per-event-type payloads are not kept. Forward-only: rows accrue from when the table is first synced.",
         "docs_url": "https://docs.github.com/en/rest/using-the-rest-api/issue-event-types",
         "columns": {
             "id": "Unique identifier for the event.",
             "node_id": "Global node ID for the event.",
-            "event": "The transition type: ready_for_review (draft marked ready) or convert_to_draft (ready converted back to draft).",
-            "pr_number": "Number of the pull request the transition happened on (extracted from the event's issue).",
-            "actor": "The user who performed the transition.",
-            "actor_login": "Login of the user who performed the transition (flattened from actor).",
-            "created_at": "Time at which the transition happened.",
+            "event": "The event type (e.g. labeled, assigned, closed, ready_for_review, convert_to_draft).",
+            "issue_number": "Number of the issue or pull request the event happened on (extracted from the event's issue).",
+            "actor_login": "Login of the user who performed the event; null for events by deleted accounts.",
+            "created_at": "Time at which the event happened.",
         },
     },
     "commits": {

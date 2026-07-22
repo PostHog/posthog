@@ -40479,7 +40479,7 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
-      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+      /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
        * * `opened` - OPENED
        * * `ready_for_review` - READY_FOR_REVIEW
@@ -40508,7 +40508,7 @@ export namespace Schemas {
       pull_request: PullRequest;
       /** Lifecycle events ordered by time. */
       events: PRLifecycleEvent[];
-      /** Always 'partial' — CI events only; reviews and comments are not yet available.
+      /** Always 'partial': review and comment events are not yet available, and draft/ready transitions appear only when the forward-only transitions source is synced.
        *
        * * `precise` - PRECISE
        * * `coarse` - COARSE
@@ -55659,7 +55659,10 @@ export namespace Schemas {
          * @nullable
          */
       open_to_merge_seconds: number | null;
-      /** @nullable */
+      /**
+         * True ready-for-review-to-merge time in seconds (merged_at minus the last observed ready_for_review transition). Null when unmerged or when no transition was observed: the PR was opened ready (open_to_merge_seconds is then already ready-to-merge) or its transitions predate the forward-only transitions sync; never read null as 'never drafted'.
+         * @nullable
+         */
       ready_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];

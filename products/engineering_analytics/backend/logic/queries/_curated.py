@@ -107,19 +107,21 @@ class CuratedGitHubSource:
 
     def state_events_source(self) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        (forward-only) table isn't synced."""
-        if not self._tables.pr_state_events:
+        (forward-only) issue-events table isn't synced."""
+        if not self._tables.issue_events:
             return None
-        return f"({pr_state_events.build_query(self._tables.pr_state_events)})"
+        return f"({pr_state_events.build_query(self._tables.issue_events)})"
 
     def ready_by_pr_cte(self) -> str | None:
         """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
 
-        ``last_is_ready`` is True when the newest transition is ``ready_for_review`` — for a merged
+        ``last_is_ready`` is True when the newest transition is ``ready_for_review``: for a merged
         PR that is necessarily the ready that preceded the merge (a draft can't merge), and for an
-        open PR it correctly goes False while re-drafted. Keyed on ``pr_number`` alone: unlike
-        ``runs_by_pr`` there is no repo qualifier to join on — the transitions table carries no repo
-        columns because a resolved source is a single repo, the same repo the PR source reads.
+        open PR it correctly goes False while re-drafted. The event id breaks same-second ties
+        (GitHub timestamps are second-coarse; ids are assigned in event order). Keyed on
+        ``pr_number`` alone: unlike ``runs_by_pr`` there is no repo qualifier to join on, because
+        the source lands no repo column; safe while a resolved table set is a single repo's, which
+        ``resolve_github_tables`` guarantees today.
         """
         source = self.state_events_source()
         if source is None:
@@ -128,7 +130,7 @@ class CuratedGitHubSource:
             ready_by_pr AS (
                 SELECT
                     pr_number,
-                    argMax(event, created_at) = 'ready_for_review' AS last_is_ready,
+                    argMax(event, tuple(created_at, id)) = '{pr_state_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
                     max(created_at) AS last_transition_at
                 FROM {source} AS se
                 GROUP BY pr_number
@@ -235,8 +237,8 @@ class CuratedGitHubSource:
         """
 
     def pr_list_rollup_query(self, select: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles) and — when the
-        transitions table is synced — the per-PR draft/ready rollup (``ready_by_pr``). The caller
+        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles) and, when the
+        transitions source is synced, the per-PR draft/ready rollup (``ready_by_pr``). The caller
         must reference ``ready_by_pr`` only when ``state_events_source()`` is non-None, matching
         the CTE's presence."""
         ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]

@@ -66,11 +66,12 @@ def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     return started_at.strftime(fmt), updated_at.strftime(fmt)
 
 
-def _state_event_row(event_id: int, event: str, pr_number: int, created_at: str) -> dict[str, Any]:
+def _issue_event_row(event_id: int, event: str, issue_number: int, created_at: str) -> dict[str, Any]:
     return {
         "id": event_id,
+        "node_id": f"node-{event_id}",
         "event": event,
-        "pr_number": pr_number,
+        "issue_number": issue_number,
         "actor_login": "alice",
         "created_at": created_at,
     }

@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
+from products.engineering_analytics.backend.logic.views import pr_state_events
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
@@ -42,9 +43,9 @@ _RUNS = """
     ORDER BY run_started_at ASC
 """
 
-# Draft/ready transitions for this PR, when the (forward-only) transitions table is synced.
-# pr_number alone is the key: the table carries no repo columns because a resolved source is a
-# single repo — the same repo the PR header was resolved from.
+# Draft/ready transitions for this PR, when the (forward-only) transitions source is synced.
+# pr_number alone is the key: the underlying table carries no repo column, and a resolved
+# table set is a single repo's, the same repo the PR header was resolved from.
 _STATE_EVENTS = """
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
@@ -52,9 +53,10 @@ _STATE_EVENTS = """
     ORDER BY created_at ASC
 """
 
+# Curated event vocabulary (defined once, in the builder) to contract kinds.
 _STATE_EVENT_KINDS = {
-    "ready_for_review": PRLifecycleEventKind.READY_FOR_REVIEW,
-    "convert_to_draft": PRLifecycleEventKind.CONVERTED_TO_DRAFT,
+    pr_state_events.READY_FOR_REVIEW_EVENT: PRLifecycleEventKind.READY_FOR_REVIEW,
+    pr_state_events.CONVERT_TO_DRAFT_EVENT: PRLifecycleEventKind.CONVERTED_TO_DRAFT,
 }
 
 

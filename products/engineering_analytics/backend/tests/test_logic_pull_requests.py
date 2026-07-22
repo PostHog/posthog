@@ -11,10 +11,7 @@ from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
-from products.engineering_analytics.backend.logic.views.source_schema import (
-    PR_STATE_EVENTS_COLUMNS,
-    WORKFLOW_JOBS_COLUMNS,
-)
+from products.engineering_analytics.backend.logic.views.source_schema import ISSUE_EVENTS_COLUMNS, WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _PR_LIST,
     _RUN_QUERY,
@@ -22,10 +19,10 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _dt,
     _EndpointsWarehouseMixin,
     _header,
+    _issue_event_row,
     _job_row,
     _pr_list_run,
     _resp,
-    _state_event_row,
     _WarehouseMixin,
 )
 from products.engineering_analytics.backend.tests.test_views import (
@@ -71,15 +68,13 @@ class TestPRLifecycleMapping(BaseTest):
         assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
     def test_includes_draft_ready_transitions_when_synced(self) -> None:
-        # With the pr_state_events schema synced, the timeline interleaves draft/ready transitions
+        # With the issue_events schema synced, the timeline interleaves draft/ready transitions
         # (mapped to their event kinds, actor as detail) between opened and CI events. Guards the
         # query order (header → transitions → runs) and the kind mapping; the other tests in this
         # class prove the no-schema path skips the transitions query entirely.
         source = ExternalDataSource.objects.get(team=self.team)
-        table = create_warehouse_table_row(
-            self.team, name=f"{GITHUB_SOURCE_PREFIX}github_pr_state_events", source=source
-        )
-        link_schema(self.team, source, name="pr_state_events", table=table)
+        table = create_warehouse_table_row(self.team, name=f"{GITHUB_SOURCE_PREFIX}github_issue_events", source=source)
+        link_schema(self.team, source, name="issue_events", table=table)
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
         transitions = [
             ("ready_for_review", _dt("2026-01-10T12:00:00"), "alice"),
@@ -305,7 +300,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
-        # No pr_state_events source seeded: the column degrades to "not observed", never errors.
+        # No issue_events source seeded: the column degrades to "not observed", never errors.
         assert by_number[14].ready_to_merge_seconds is None
 
     def test_pull_request_list_ready_to_merge_from_transitions(self) -> None:
@@ -328,16 +323,19 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_run_row(2101, "CI", "sha20", "completed", "success", _ago(2), _ago(2), pr_number=20)],
         )
         self._create_table(
-            "github_pr_state_events",
-            PR_STATE_EVENTS_COLUMNS,
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
             [
-                # PR 20: drafted → ready → re-draft → ready; the last ready (4d ago) starts the cycle
-                _state_event_row(1, "ready_for_review", 20, _ago(9)),
-                _state_event_row(2, "convert_to_draft", 20, _ago(7)),
-                _state_event_row(3, "ready_for_review", 20, _ago(4)),
-                # PR 22: readied then re-drafted — currently a draft, so no ready timestamp applies
-                _state_event_row(4, "ready_for_review", 22, _ago(5)),
-                _state_event_row(5, "convert_to_draft", 22, _ago(1)),
+                # PR 20: drafted -> ready -> re-draft -> ready; the last ready (4d ago) starts the cycle
+                _issue_event_row(1, "ready_for_review", 20, _ago(9)),
+                _issue_event_row(2, "convert_to_draft", 20, _ago(7)),
+                _issue_event_row(3, "ready_for_review", 20, _ago(4)),
+                # PR 22: readied then re-drafted, currently a draft, so no ready timestamp applies
+                _issue_event_row(4, "ready_for_review", 22, _ago(5)),
+                _issue_event_row(5, "convert_to_draft", 22, _ago(1)),
+                # Non-transition noise the raw table now carries; the curated view must ignore it
+                _issue_event_row(6, "labeled", 20, _ago(3)),
+                _issue_event_row(7, "closed", 21, _ago(3)),
             ],
         )
 

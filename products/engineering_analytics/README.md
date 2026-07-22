@@ -96,12 +96,12 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                            |
 | Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
-| Draft/ready transitions, ready→merge time (`ready_to_merge_seconds`)         | `github_pr_state_events` (immutable issue events, forward-only)      |
+| Draft/ready transitions, ready→merge time (`ready_to_merge_seconds`)         | `github_issue_events` (immutable issue events, forward-only)         |
 | Time-in-review, approvals                                                    | PR lifecycle events (webhooks to events, PR as group type): deferred |
 | Deploys and DORA                                                             | Deploy data: deferred                                                |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
-Draft/ready transitions ride GitHub's own immutable issue events (synced as `github_pr_state_events`, forward-only from connect); the deferred events destination remains for the rest.
+Draft/ready transitions ride GitHub's own immutable issue events (synced as `github_issue_events`, forward-only from connect); the deferred events destination remains for the rest.
 
 ## Locked decisions
 

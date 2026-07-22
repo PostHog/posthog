@@ -50,15 +50,15 @@ WORKFLOW_JOBS_SCHEMA = "workflow_jobs"
 # timing. Optional and off by default at the source (needs the org Members:Read grant), so reads
 # must degrade gracefully (no membership data) exactly like workflow_jobs.
 TEAM_MEMBERS_SCHEMA = "team_members"
-# PR draft/ready transitions (immutable issue events), the substrate for ready→merge timing.
-# Optional and forward-only — rows accrue from when the table is first synced — so reads must
-# degrade gracefully (no transition data) exactly like workflow_jobs.
-PR_STATE_EVENTS_SCHEMA = "pr_state_events"
+# Immutable issue/PR events; the draft/ready transitions in it are the substrate for
+# ready-to-merge timing. Optional and forward-only (rows accrue from when the table is first
+# synced), so reads must degrade gracefully (no transition data) exactly like workflow_jobs.
+ISSUE_EVENTS_SCHEMA = "issue_events"
 
 # The curated endpoints we resolve per repo. A source's other synced endpoints (issues, commits,
-# teams, …) are irrelevant to the CI/PR read layer and dropped during grouping.
+# teams, ...) are irrelevant to the CI/PR read layer and dropped during grouping.
 _CURATED_ENDPOINTS = frozenset(
-    {PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA, PR_STATE_EVENTS_SCHEMA}
+    {PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA, ISSUE_EVENTS_SCHEMA}
 )
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
@@ -78,8 +78,8 @@ class GitHubTables:
     workflow_jobs: str | None = None
     # Optional: present only once org team membership is synced; None means "no membership data".
     team_members: str | None = None
-    # Optional: present only once PR draft/ready transitions are synced; None means "no transition data".
-    pr_state_events: str | None = None
+    # Optional: present only once issue events are synced; None means "no transition data".
+    issue_events: str | None = None
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
     repository: str = ""
 
@@ -148,7 +148,7 @@ def resolve_github_tables(
                 workflow_runs=workflow_runs,
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
                 team_members=tables.get(TEAM_MEMBERS_SCHEMA),
-                pr_state_events=tables.get(PR_STATE_EVENTS_SCHEMA),
+                issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
                 repository=candidate.repository,
             )
     if source_id is not None:

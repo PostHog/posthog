@@ -49,10 +49,13 @@ class GithubEndpointConfig:
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway
     # pagination. A structured warning is logged if the cap is reached.
     max_pages_per_parent: int = 50
-    # First-sync floor: when set, the very first incremental sync only fans out
-    # over parents created within this many days, instead of crawling the whole
-    # repo history. The webhook carries steady-state, so only the one-off backfill
-    # needs a bound; later syncs advance from the stored watermark and ignore this.
+    # History floor for the first un-cursored walk, instead of crawling the whole repo
+    # history. Two consumers: a fan-out child's first incremental sync bounds its parent
+    # walk (webhooks carry steady-state, so only the one-off backfill needs the bound),
+    # and a top-level desc endpoint bounds any un-cursored walk — first incremental sync
+    # and explicit full refresh alike (its steady state is the watermark-bounded poll).
+    # Later syncs advance from the stored watermark and ignore this. 0 is a distinct
+    # marker meaning webhook-only (the poll yields nothing); only values > 0 floor.
     initial_lookback_days: Optional[int] = None
 
 
@@ -144,12 +147,17 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # create, unlike the org-scoped teams tables, so leave the table selectable by default.
         should_sync_default=True,
     ),
-    "pr_state_events": GithubEndpointConfig(
-        name="pr_state_events",
-        # Repo-wide issue events list, filtered to the PR draft/ready transitions (see
-        # _is_pr_state_event in github.py). The PR object only carries a current `draft` boolean —
+    "issue_events": GithubEndpointConfig(
+        name="issue_events",
+        # Repo-wide issue events list. The PR object only carries a current `draft` boolean —
         # ready_for_review timing exists solely as issue events — and the repo-wide list returns
-        # them newest-first with the PR number attached, so no per-PR timeline fan-out is needed.
+        # them with the issue/PR number attached, so no per-PR timeline fan-out is needed.
+        #
+        # Every event type lands (reduced to a fixed envelope, see _flatten_issue_event) even
+        # though today's consumer only reads the draft/ready transitions: the incremental
+        # watermark is computed from LANDED rows, so filtering at the source would pin the
+        # cursor at the last transition and re-crawl the whole unfiltered stream back to it on
+        # every sync. Landing the full stream keeps the watermark at the walk frontier.
         path="/repos/{repository}/issues/events",
         partition_key="created_at",
         incremental_fields=[
@@ -165,10 +173,10 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         ],
         default_incremental_field="created_at",
         sort_mode="desc",  # API always returns newest-first; sort/direction are not supported
-        # Forward-only: the repo-wide list spans every label/assign/close event since repo
-        # creation, so the first sync only bootstraps a day (get_rows floors the desc walk) and
-        # the metric accrues from connect. Non-zero on purpose — 0 means webhook-only, and this
-        # endpoint has no webhook.
+        # Forward-only: the repo-wide list spans every event since repo creation, so any
+        # un-cursored desc walk — first incremental sync or an explicit full refresh — is
+        # floored at a day by get_rows and the table accrues from connect. Must stay > 0:
+        # 0 is the webhook-only marker and is excluded from the floor.
         initial_lookback_days=1,
     ),
     "commits": GithubEndpointConfig(
