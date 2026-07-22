@@ -522,3 +522,14 @@ class TestDatabricksSource:
     def test_validate_credentials_success(self, source):
         with patch.object(DatabricksSource, "get_schemas", return_value=[MagicMock()]):
             assert source.validate_credentials(_make_config(), team_id=1) == (True, None)
+
+    def test_validate_credentials_blocks_internal_host_before_connecting(self, source):
+        # Guards the SSRF fix: a rejected host must short-circuit before any request reaches it.
+        with (
+            patch.object(DatabricksSource, "is_database_host_valid", return_value=(False, "Host is not allowed")),
+            patch.object(DatabricksSource, "get_schemas") as mock_get_schemas,
+        ):
+            ok, message = source.validate_credentials(_make_config(), team_id=1)
+        assert ok is False
+        assert message == "Host is not allowed"
+        mock_get_schemas.assert_not_called()

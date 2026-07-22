@@ -14,10 +14,12 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
     DatabricksImplementation,
+    clean_databricks_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
     DatabricksSourceConfig,
@@ -46,7 +48,7 @@ DatabricksErrors = {
 
 
 @SourceRegistry.register
-class DatabricksSource(SQLSource[DatabricksSourceConfig]):
+class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMixin):
     api_docs_url = "https://docs.databricks.com/aws/en/dev-tools/python-sql-connector"
 
     @property
@@ -189,6 +191,11 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig]):
             not config.auth_type.client_id or not config.auth_type.client_secret
         ):
             return False, "Missing required parameters: client ID, client secret"
+
+        # Block SSRF to internal hosts before any OAuth/SQL request reaches the pasted host.
+        valid_host, host_error = self.is_database_host_valid(clean_databricks_host(config.host), team_id)
+        if not valid_host:
+            return valid_host, host_error
 
         try:
             self.get_schemas(config, team_id)
