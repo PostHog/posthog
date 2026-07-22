@@ -45,7 +45,7 @@ env:
     # The master ruleset's required status checks that run on master push — a failure
     # here means master is genuinely broken. Hand-synced with the ruleset; there is no
     # automated reconciliation, so update this when the required checks change.
-    # (container-images-ci and shellcheck are also required but only run on PR/merge_group,
+    # (container-images-ci and shellcheck are also required but only run on PRs,
     # so this push-based alerter can't observe them.)
     # Every workflow listed MUST run on every master push (no path filters) — the script verifies
     # runs freshness against master's newest commit; one that legitimately lags would wedge resolution.
