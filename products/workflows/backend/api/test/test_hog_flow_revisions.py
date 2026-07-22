@@ -96,8 +96,17 @@ class TestHogFlowRevisions(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response
 
-    def _revisions(self, flow_id: str) -> list[HogFlowRevision]:
-        return list(HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).order_by("version"))
+    def _list_revisions(self, flow_id: str) -> list[dict]:
+        # Assert through the endpoint, not the ORM, so these exercise its team scoping, ordering
+        # (newest-first), and serialization (content omitted). Requires the flag on for a 200.
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions")
+        assert response.status_code == 200, response.json()
+        return response.json()["results"]
+
+    def _revision_content(self, flow_id: str, version: int) -> dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/{version}")
+        assert response.status_code == 200, response.json()
+        return response.json()["content"]
 
     # ── Appending on live-content writes ─────────────────────────────
 
@@ -105,35 +114,34 @@ class TestHogFlowRevisions(APIBaseTest):
     def test_publish_appends_revision_and_bumps_version(self, _flag):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
-        self._publish(flow_id)
+        published = self._publish(flow_id)
+        assert published.json()["workflow"]["version"] == 2
 
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.version == 2
-        revisions = self._revisions(flow_id)
-        assert [r.version for r in revisions] == [1, 2]
+        revisions = self._list_revisions(flow_id)
+        # Newest-first: v2 (this user's publish) then the v1 bootstrap snapshot (no author)
+        assert [r["version"] for r in revisions] == [2, 1]
+        assert revisions[0]["created_by"]["id"] == self.user.id
+        assert revisions[1]["created_by"] is None
         # First write also snapshots the outgoing live content, so there's always a state to roll back to
         v1_urls = [
-            a["config"]["inputs"]["url"]["value"] for a in revisions[0].content["actions"] if a["type"] == "function"
+            a["config"]["inputs"]["url"]["value"]
+            for a in self._revision_content(flow_id, 1)["actions"]
+            if a["type"] == "function"
         ]
         assert v1_urls == ["https://example.com"]
-        v2_urls = [
-            a["config"]["inputs"]["url"]["value"] for a in revisions[1].content["actions"] if a["type"] == "function"
-        ]
+        v2_content = self._revision_content(flow_id, 2)
+        v2_urls = [a["config"]["inputs"]["url"]["value"] for a in v2_content["actions"] if a["type"] == "function"]
         assert v2_urls == ["https://changed.example.com"]
-        assert revisions[0].created_by is None
-        assert revisions[1].created_by == self.user
         # Content is exactly the draft-cycle content fields — no system bookkeeping
-        assert set(revisions[1].content.keys()) == set(DRAFT_CONTENT_FIELDS)
+        assert set(v2_content.keys()) == set(DRAFT_CONTENT_FIELDS)
 
     @patch(FLAG_PATH, return_value=True)
     def test_web_live_edit_appends_revision(self, _flag):
         flow_id = self._create_active_flow()
         response = self._live_edit(flow_id)
         assert response.status_code == 200, response.json()
-
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.version == 2
-        assert [r.version for r in self._revisions(flow_id)] == [1, 2]
+        assert response.json()["version"] == 2
+        assert [r["version"] for r in self._list_revisions(flow_id)] == [2, 1]
 
     @patch(FLAG_PATH, return_value=True)
     def test_graph_live_edit_appends_revision(self, _flag):
@@ -143,12 +151,9 @@ class TestHogFlowRevisions(APIBaseTest):
             {"operations": [{"op": "remove_action", "id": "action_1"}]},
         )
         assert response.status_code == 200, response.json()
-
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.version == 2
-        revisions = self._revisions(flow_id)
-        assert [r.version for r in revisions] == [1, 2]
-        assert "action_1" not in [a["id"] for a in revisions[1].content["actions"]]
+        assert response.json()["version"] == 2
+        assert [r["version"] for r in self._list_revisions(flow_id)] == [2, 1]
+        assert "action_1" not in [a["id"] for a in self._revision_content(flow_id, 2)["actions"]]
 
     @parameterized.expand(
         [
@@ -162,9 +167,9 @@ class TestHogFlowRevisions(APIBaseTest):
         with patch(FLAG_PATH, return_value=True):
             extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
             response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload, **extra)
-        assert response.status_code == 200, response.json()
-        assert self._revisions(flow_id) == []
-        assert HogFlow.objects.get(pk=flow_id).version == 1
+            assert response.status_code == 200, response.json()
+            assert self._list_revisions(flow_id) == []
+        assert response.json()["version"] == 1
 
     @patch(FLAG_PATH, return_value=True)
     def test_no_op_live_edit_does_not_append_revision(self, _flag):
@@ -176,22 +181,24 @@ class TestHogFlowRevisions(APIBaseTest):
             {"actions": [_trigger_action(), _webhook_action()]},
         )
         assert first.status_code == 200, first.json()
-        revisions_after_first = [r.version for r in self._revisions(flow_id)]
+        revisions_after_first = [r["version"] for r in self._list_revisions(flow_id)]
 
         second = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
             {"actions": [_trigger_action(), _webhook_action()]},
         )
         assert second.status_code == 200, second.json()
-        assert [r.version for r in self._revisions(flow_id)] == revisions_after_first
+        assert [r["version"] for r in self._list_revisions(flow_id)] == revisions_after_first
 
     @patch(FLAG_PATH, return_value=False)
     def test_flag_off_appends_no_revisions(self, _flag):
         flow_id = self._create_active_flow()
         response = self._live_edit(flow_id)
         assert response.status_code == 200, response.json()
-        assert self._revisions(flow_id) == []
-        assert HogFlow.objects.get(pk=flow_id).version == 1
+        assert response.json()["version"] == 1
+        # Flag off: the list endpoint is rejected (see test_flag_off_rejects_revision_endpoints), so
+        # assert directly that nothing was persisted.
+        assert not HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).exists()
 
     # ── Listing and fetching ─────────────────────────────────────────
 
@@ -259,7 +266,7 @@ class TestHogFlowRevisions(APIBaseTest):
         assert "action_1" in [a["id"] for a in flow.actions]
         assert flow.action_redirects is None, "re-adding the deleted step must prune its redirect entry"
         assert flow.draft is None
-        assert [r.version for r in self._revisions(flow_id)] == [1, 2, 3]
+        assert [r["version"] for r in self._list_revisions(flow_id)] == [3, 2, 1]
 
     def _stage_draft_delete_action_1(self, flow_id: str) -> None:
         response = self.client.patch(
