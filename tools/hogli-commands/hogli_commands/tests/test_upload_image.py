@@ -60,8 +60,13 @@ def test_command_prints_only_sha_pinned_markdown_to_stdout(png: Path, monkeypatc
 
 @pytest.mark.parametrize(
     ("alt", "expected_prefix"),
-    [("before / after", "![before / after]("), ("", "!["), ("chart]v2", "![chart\\]v2](")],
-    ids=["override", "empty_honored", "bracket_escaped"],
+    [
+        ("before / after", "![before / after]("),
+        ("", "!["),
+        ("chart]v2", "![chart\\]v2]("),
+        ("chart\\]v2", "![chart\\\\\\]v2]("),
+    ],
+    ids=["override", "empty_honored", "bracket_escaped", "backslash_escaped"],
 )
 def test_command_caption_rendering(png: Path, monkeypatch: pytest.MonkeyPatch, alt: str, expected_prefix: str) -> None:
     # --alt is used verbatim (empty stays empty, not replaced by the stem) and its markdown

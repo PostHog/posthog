@@ -30,8 +30,12 @@ PUBLIC_WARNING: Final = (
 
 
 def escape_markdown_label(text: str) -> str:
-    """Escape the one markdown metacharacter that would truncate alt or link text."""
-    return text.replace("]", "\\]")
+    """Escape alt or link text so it cannot truncate the markdown embed.
+
+    Backslashes first: a raw backslash before an escaped bracket would read as a
+    literal backslash plus an unescaped `]` and close the label early.
+    """
+    return text.replace("\\", "\\\\").replace("]", "\\]")
 
 
 def make_key(ext: str) -> str:
