@@ -343,6 +343,11 @@ export type HogFlowInvocationContext = {
     // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
     // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
     personIdRepointed?: boolean
+    // High-water mark of the repoint version last applied to this job's personId. Repoints aren't
+    // Kafka-keyed, so a delayed lower-version move can arrive in a later batch than a higher one already
+    // applied; the matcher rejects any repoint whose version isn't strictly greater, so an out-of-order
+    // older move can't rewind the wait onto an obsolete person.
+    personIdRepointVersion?: number
     actionStepCount: number
     currentAction?: {
         id: string

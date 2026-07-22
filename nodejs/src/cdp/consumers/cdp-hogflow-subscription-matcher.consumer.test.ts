@@ -1413,6 +1413,24 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(lastUpdate()!.params[1]).toEqual(['survivor-B'])
         })
 
+        it('rejects an older repoint that arrives in a later batch than a newer one already applied', async () => {
+            // Cross-batch ordering: anon-did → B (v3) was applied in an earlier batch (persisted as
+            // personIdRepointVersion), then a delayed anon-did → A (v2) lands. The version watermark must
+            // reject it — otherwise the wait rewinds onto obsolete A and B's updates no longer wake it.
+            matcher.moveRows = [
+                parkedWaitRow({
+                    state: Buffer.from(
+                        JSON.stringify({ state: { personId: 'survivor-B', personIdRepointVersion: 3 } })
+                    ),
+                }),
+            ]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'obsolete-A', version: 2 },
+            ])
+
+            expect(lastUpdate()).toBeUndefined()
+        })
+
         it('skips a job parked on a delay step and scopes the lock to wait actions only', async () => {
             // A job of the same wait-containing flow can sit on a delay step; rewriting its person_id off
             // a repoint would be wrong. Two layers keep it safe: the SELECT is scoped to wait action_ids

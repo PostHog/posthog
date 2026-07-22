@@ -795,7 +795,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 if (!newPerson || !row.state) {
                     continue
                 }
-                const newState = rewriteStatePersonId(row.state, newPerson.personId, row.id)
+                const newState = rewriteStatePersonId(row.state, newPerson.personId, newPerson.version, row.id)
                 if (!newState) {
                     continue
                 }
@@ -1036,12 +1036,30 @@ function collectCandidateGlobals(
 // Point the persisted personId at the merge survivor so the worker's re-resolution — which falls back
 // to state.personId when the job has no distinct_id — lands on the survivor. Returns the new state
 // buffer, or null if the state can't be parsed (leave the row untouched).
-function rewriteStatePersonId(stateBuffer: Buffer, newPersonId: string, jobId: string): Buffer | null {
+function rewriteStatePersonId(
+    stateBuffer: Buffer,
+    newPersonId: string,
+    newVersion: number,
+    jobId: string
+): Buffer | null {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
+        // Reject a repoint no newer than the one already applied. Repoints aren't Kafka-keyed, so a
+        // delayed lower-version move (anon → A, v2) can arrive in a later batch than a higher one already
+        // applied (anon → B, v3); without this watermark it would rewind the wait onto the obsolete
+        // person A, and B's person-stream updates would no longer address the parked job.
+        const appliedVersion = parsed.state?.personIdRepointVersion ?? 0
+        if (newVersion <= appliedVersion) {
+            return null
+        }
         // Flag the re-key so the worker resolves the person by this survivor personId, not the repointed
         // distinct_id whose ~1min cache still points at the pre-merge person (see personIdRepointed).
-        parsed.state = { ...parsed.state, personId: newPersonId, personIdRepointed: true }
+        parsed.state = {
+            ...parsed.state,
+            personId: newPersonId,
+            personIdRepointed: true,
+            personIdRepointVersion: newVersion,
+        }
         // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
         // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
         if (parsed.state.currentAction) {
