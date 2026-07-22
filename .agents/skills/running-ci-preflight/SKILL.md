@@ -37,6 +37,7 @@ hogli ci:preflight --fix
 - **`· skipped (needs stack/node)`** is expected on a bare checkout or sandbox. Start the stack with `hogli start` to run those, or let CI cover them. No hooks in your environment (no `node_modules`)? Run the loop yourself before pushing.
 - **Flags.** `--against <ref>` diffs against an explicit base; `--json` emits a machine-readable summary.
 - **Kill switch.** `HOGLI_PREFLIGHT_DISABLED=1` makes the command (and the hook) a no-op with exit 0. It is a rollout/emergency lever — respect it; never unset it to force a run.
+- **Cloud agent sandboxes.** When `IS_SANDBOX` or `CLAUDE_CODE_REMOTE` is set, the command no-ops the same way — sandboxes aren't provisioned to run the checks fast. Don't work around it; CI is the gate there. Devboxes set neither, so preflight runs normally on them.
 
 ## Why it matters
 

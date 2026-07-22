@@ -14,7 +14,9 @@ migration collisions, generated-file drift, CI changes on master).
 
 ``HOGLI_PREFLIGHT_DISABLED=1`` makes the command (and thus the pre-push hook) a
 no-op — the rollout/emergency kill switch (still emits a run event so opt-out
-prevalence is measurable).
+prevalence is measurable). Cloud agent sandboxes (``IS_SANDBOX`` /
+``CLAUDE_CODE_REMOTE``) get the same no-op automatically until they're
+provisioned to run the checks fast.
 
 Checks declare what they need (``node`` modules, the dev ``stack``) and skip with
 a note when it's absent, so the no-dependency checks always run — even on a bare
@@ -433,6 +435,26 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
                 fg="yellow",
             )
         _emit_telemetry(disabled_summary)
+        return
+
+    # Cloud agent sandboxes (IS_SANDBOX is baked into PostHog Code sandbox images,
+    # CLAUDE_CODE_REMOTE into Claude Code cloud) aren't provisioned for preflight's
+    # dep-heavy checks yet — running them there just slows the agent down.
+    sandbox_marker = next(
+        (name for name in ("IS_SANDBOX", "CLAUDE_CODE_REMOTE") if os.environ.get(name, "").lower() in {"1", "true"}),
+        None,
+    )
+    if sandbox_marker:
+        sandbox_summary: dict[str, Any] = {"mode": "sandbox", "results": []}
+        if as_json:
+            click.echo(json.dumps(sandbox_summary))
+        else:
+            click.secho(
+                f"  ci:preflight disabled in cloud agent sandbox ({sandbox_marker}) — intentional; "
+                "do not work around it. Nothing to check, CI remains the gate.",
+                fg="yellow",
+            )
+        _emit_telemetry(sandbox_summary)
         return
 
     # Fetch first so both the diff base and the staleness check see a fresh

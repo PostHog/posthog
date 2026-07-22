@@ -11,7 +11,8 @@ then
 fi
 
 # Catch deterministic CI failures before this push burns a CI matrix.
-# Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 makes it a no-op; no hogli → skip.
+# Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 or a cloud agent sandbox
+# (IS_SANDBOX/CLAUDE_CODE_REMOTE) makes it a no-op; no hogli → skip.
 if command -v hogli >/dev/null 2>&1
 then
     hogli ci:preflight --strict || {

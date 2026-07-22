@@ -30,6 +30,18 @@ class TestKillSwitch:
         assert json.loads(result.output)["mode"] == "disabled"
         mock_changed.assert_not_called()
 
+    @pytest.mark.parametrize("marker", ["IS_SANDBOX", "CLAUDE_CODE_REMOTE"])
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight.changed_files")
+    def test_cloud_sandbox_short_circuits_before_any_git_work(
+        self, mock_changed: MagicMock, mock_emit: MagicMock, marker: str
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--strict"], env={marker: "1"})
+        assert result.exit_code == 0
+        assert "sandbox" in result.output
+        mock_changed.assert_not_called()
+        assert mock_emit.call_args[0][0]["mode"] == "sandbox"
+
 
 class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._emit_telemetry")
