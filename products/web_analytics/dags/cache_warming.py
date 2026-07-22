@@ -1,5 +1,6 @@
 import re
 import json
+import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Optional
@@ -8,13 +9,14 @@ from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
 
 import dagster
+import structlog
 from dagster import Backoff, Jitter, RetryPolicy
 from prometheus_client import Counter, Gauge
 
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
@@ -56,8 +58,10 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    ["outcome"],  # warmed | skipped_fresh | failed | unsupported
+    ["outcome"],  # warmed | skipped_fresh | skipped_duplicate | failed | unsupported
 )
+
+logger = structlog.get_logger(__name__)
 
 cache_warming_retry_policy = RetryPolicy(
     max_retries=3,
@@ -341,6 +345,11 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     if missing_teams:
         context.log.warning(f"{len(missing_teams)} teams not found, skipping their shapes")
 
+    # Selection groups by raw JSON text, so differently-encoded rows can
+    # normalize to one cache key; first worker to claim it warms, the rest skip.
+    seen_cache_keys: set[tuple[int, str]] = set()
+    seen_lock = threading.Lock()
+
     def _warm_one(query_info: dict) -> str:
         team = teams.get(query_info["team_id"])
         if team is None:
@@ -352,7 +361,10 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # — not in the op thread — or the replay loses its background-warming
             # identity, which both the lazy gate's rollout bypass and the
             # selection's self-feedback exclusion key on (the eager warmer's
-            # missing-tags warnings came from exactly this).
+            # missing-tags warnings came from exactly this). Reset first: pool
+            # threads are reused, and tags a previous shape's runner added
+            # (client_query_id, cache key, …) would otherwise leak into this one.
+            reset_query_tags()
             tag_queries(team_id=team.pk, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
             query_json = maybe_opt_into_lazy_precompute(query_json)
@@ -365,7 +377,14 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
                 return "unsupported"
 
-            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=runner.get_cache_key())
+            cache_key = runner.get_cache_key()
+            with seen_lock:
+                if (team.pk, cache_key) in seen_cache_keys:
+                    WARMING_QUERIES_COUNTER.labels(outcome="skipped_duplicate").inc()
+                    return "skipped_duplicate"
+                seen_cache_keys.add((team.pk, cache_key))
+
+            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=cache_key)
             cached_data = cache_manager.get_cache_data()
 
             if cached_data is not None:
@@ -379,7 +398,13 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
         except Exception as e:
-            context.log.exception(f"Error warming query {query_info['normalized_query_hash']} for team {team.pk}")
+            # Module logger, not context.log: Dagster's log manager isn't
+            # guaranteed thread-safe, and workers fail concurrently.
+            logger.exception(
+                "web_analytics_warming_shape_failed",
+                team_id=team.pk,
+                normalized_query_hash=query_info["normalized_query_hash"],
+            )
             capture_exception(e)
             WARMING_QUERIES_COUNTER.labels(outcome="failed").inc()
             return "failed"

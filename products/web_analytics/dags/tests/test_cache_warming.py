@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import dagster
 from parameterized import parameterized
 
-from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
@@ -219,6 +219,64 @@ class TestFleetQuerySelection(BaseTest):
 
 
 class TestWarmQueriesOp(BaseTest):
+    def test_duplicate_cache_keys_warm_once(self) -> None:
+        # Selection groups by raw JSON text, so two encodings of one query can
+        # both be selected; replaying both wastes ClickHouse capacity and
+        # double-counts warmed outcomes.
+        runner = MagicMock()
+        runner.get_cache_key.return_value = "same-key"
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {})),
+            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+        ):
+            mock_cm.return_value.get_cache_data.return_value = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "normalized_query_hash": "a",
+                    },
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"properties": [], "kind": "WebOverviewQuery"},
+                        "normalized_query_hash": "b",
+                    },
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, 1)
+
+    def test_reused_threads_do_not_leak_tags_between_shapes(self) -> None:
+        # Pool threads are reused and tag_queries merges rather than replaces:
+        # without the per-shape reset, tags a previous shape's runner added
+        # (client_query_id here) bleed into the next shape's queries.
+        leaked: list = []
+        calls = {"n": 0}
+
+        def fake_runner_or_none(**kwargs) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                tag_queries(client_query_id="polluted")
+            else:
+                leaked.append(get_query_tags().client_query_id)
+            return None
+
+        shape = {"team_id": self.team.pk, "query_json": {"kind": "WebOverviewQuery", "properties": []}}
+        with (
+            patch("products.web_analytics.dags.cache_warming.WARMING_SHAPE_CONCURRENCY", 1),
+            patch(
+                "products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=fake_runner_or_none
+            ),
+        ):
+            warm_queries_op(
+                dagster.build_op_context(),
+                [{**shape, "normalized_query_hash": "a"}, {**shape, "normalized_query_hash": "b"}],
+            )
+
+        self.assertEqual(leaked, [None])
+
     def test_worker_threads_carry_warming_tags(self) -> None:
         # Query tags are thread-local. If tagging moves back to the op thread,
         # pool workers replay untagged and two things silently break: the lazy
