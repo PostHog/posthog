@@ -41,6 +41,16 @@ fn fixtures() -> Vec<Value> {
         json!(i64::MIN),
         json!(-0.007),
         json!(1.234567890123456),
+        // Short/long numeric header boundary: PG's short header holds
+        // weights -64..=63 (base-10000), so the long header starts at
+        // 1e256 (weight 64). Negative-exponent cases cross the dscale
+        // limit instead (dscale > 63 forces the long header).
+        json!(1e252),
+        json!(1e256),
+        json!(1e300),
+        json!(-1e256),
+        json!(1e-256),
+        json!(1e-300),
         json!(""),
         json!("a"),
         json!("hello"),

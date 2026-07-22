@@ -278,10 +278,10 @@ fn numeric_datum_size(literal: &str) -> usize {
 }
 
 /// PG's short numeric header packs the sign, a 6-bit display scale, and a
-/// signed weight; it fits when dscale <= 63 and weight is in [-44, 83]
-/// base-10000 units (NUMERIC_SHORT_WEIGHT_MIN/MAX in numeric.c).
+/// 7-bit signed weight; it fits when dscale <= 63 and weight is in
+/// [-64, 63] base-10000 units (NUMERIC_SHORT_WEIGHT_MIN/MAX in numeric.c).
 fn short_header_fits(weight: i32, dscale: u32) -> bool {
-    dscale <= 0x3F && (-44..=83).contains(&weight)
+    dscale <= 0x3F && (-64..=63).contains(&weight)
 }
 
 /// Parse a JSON number literal the way `numeric_in` does, returning the
