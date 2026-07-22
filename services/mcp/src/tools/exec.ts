@@ -237,9 +237,15 @@ export function describeValidationError(
     return { fields, inputKeys }
 }
 
-/** Whether the tool's input schema declares an `output_format` field. */
+/** Whether the tool's input schema declares an `output_format` field. Unwraps
+ *  `z.preprocess(...)` pipes (e.g. the id-alias normalization on insight-query)
+ *  to reach the underlying object schema. */
 function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
-    return schema instanceof z.ZodObject && 'output_format' in schema.shape
+    let current: z.ZodType = schema
+    while (current instanceof z.ZodPipe) {
+        current = current.out as z.ZodType
+    }
+    return current instanceof z.ZodObject && 'output_format' in current.shape
 }
 
 /**
