@@ -274,6 +274,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "github_issue_number",
             "zendesk_ticket_id",
             "organization_id",
+            "organization_id_source",
             "person",
             "tags",
         ]
@@ -303,6 +304,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "github_issue_number",
             "zendesk_ticket_id",
             "organization_id",
+            "organization_id_source",
             "person",
             "ai_triage",
             "identity_verified",
@@ -322,6 +324,11 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
+            "organization_id_source": {
+                "help_text": "How organization_id was resolved: 'person' (from the requester's identity) or "
+                "'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). "
+                "Null when organization_id is unset."
             },
             "ai_triage": {
                 "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
@@ -389,23 +396,34 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
             queryset = queryset.filter(channel_detail=channel_detail)
 
-        assignee = self.request.query_params.get("assignee")
-        if assignee:
-            if assignee.lower() == "unassigned":
-                queryset = queryset.filter(assignment__isnull=True)
-            elif assignee.startswith("user:"):
-                try:
-                    user_id = int(assignee[5:])
-                    queryset = queryset.filter(assignment__user_id=user_id)
-                except ValueError:
-                    pass
-            elif assignee.startswith("role:"):
-                try:
-                    role_id = uuid.UUID(assignee[5:])
-                except (ValueError, AttributeError):
-                    pass
-                else:
-                    queryset = queryset.filter(assignment__role_id=role_id)
+        assignee_param = self.request.query_params.get("assignee")
+        if assignee_param:
+            user_ids: list[int] = []
+            role_ids: list[uuid.UUID] = []
+            include_unassigned = False
+            for raw_entry in assignee_param.split(",")[:100]:
+                entry = raw_entry.strip()
+                if entry.lower() == "unassigned":
+                    include_unassigned = True
+                elif entry.startswith("user:"):
+                    try:
+                        user_ids.append(int(entry[5:]))
+                    except ValueError:
+                        pass
+                elif entry.startswith("role:"):
+                    try:
+                        role_ids.append(uuid.UUID(entry[5:]))
+                    except (ValueError, AttributeError):
+                        pass
+            assignee_q = Q()
+            if user_ids:
+                assignee_q |= Q(assignment__user_id__in=user_ids)
+            if role_ids:
+                assignee_q |= Q(assignment__role_id__in=role_ids)
+            if include_unassigned:
+                assignee_q |= Q(assignment__isnull=True)
+            if assignee_q:
+                queryset = queryset.filter(assignee_q)
 
         date_from = self.request.query_params.get("date_from")
         if date_from and date_from != "all":
@@ -427,8 +445,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            if search.isdigit():
-                queryset = queryset.filter(ticket_number=int(search))
+            # A leading "#" is how ticket numbers are shown in the UI (e.g. "#1234"), so
+            # treat "#1234" the same as "1234" and match the ticket number exactly.
+            # Restrict to ASCII digits: str.isdigit() also accepts characters like "²"
+            # that int() then rejects, which would 500 the request.
+            ticket_number_search = search[1:] if search.startswith("#") else search
+            if ticket_number_search.isascii() and ticket_number_search.isdigit():
+                queryset = queryset.filter(ticket_number=int(ticket_number_search))
             else:
                 # EXISTS subquery: matches any comment in the ticket's conversation.
                 # Uses the (team_id, scope, item_id) composite index on Comment to
@@ -649,8 +672,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Filter by assignee. Use `unassigned` for tickets with no assignee, "
-                    "`user:<user_id>` for a specific user, or `role:<role_uuid>` for a role."
+                    "Filter by assignee. Accepts a single value or a comma-separated list "
+                    "(matches any, max 100 entries). Each entry is `unassigned` (no assignee), "
+                    "`user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`."
                 ),
             ),
             OpenApiParameter(
@@ -1137,7 +1161,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not self.team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1231,7 +1255,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

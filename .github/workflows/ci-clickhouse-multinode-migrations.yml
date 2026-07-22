@@ -15,7 +15,6 @@ on:
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
-    merge_group:
     workflow_dispatch:
 
 concurrency:
@@ -97,27 +96,18 @@ jobs:
 
             - name: Compute Postgres schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+              if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  # On merge_group the queue branch is built directly on top of
-                  # this base SHA (latest master), so it is exactly the SHA the
-                  # cache producer keyed off — no merge-base computation needed.
-                  MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
               run: |
                   # ci-backend.yml's "Validate migrations" job dumps the post-PR
                   # schema and caches it keyed by master SHA. PR jobs key off the
                   # merge base so they restore the dump produced by the commit
-                  # their branch diverged from; merge_group jobs key off the
-                  # queue's base SHA directly.
-                  if [ "${GITHUB_EVENT_NAME}" = "merge_group" ]; then
-                      BASE_SHA="${MERGE_GROUP_BASE_SHA}"
-                  else
-                      # fetch-depth: 1000 on checkout bounds how far back the
-                      # merge base can be found; older divergence yields an empty
-                      # result and the graceful fallback to `migrate` below.
-                      BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  fi
+                  # their branch diverged from.
+                  # fetch-depth: 1000 on checkout bounds how far back the
+                  # merge base can be found; older divergence yields an empty
+                  # result and the graceful fallback to `migrate` below.
+                  BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
                   # Always emit a key so the restore runs; when the exact branch-point
                   # SHA is unknown, the bare prefix lets restore-keys fall back to the
                   # most recent cached master schema (any valid schema works — the smoke
@@ -125,7 +115,7 @@ jobs:
                   echo "key=posthog-schema-master-${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
             - name: Restore Postgres schema cache
-              if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+              if: github.event_name == 'pull_request'
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz

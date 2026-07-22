@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer = "2026-07-13T23:30:06.062618Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -5933,7 +5933,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthoganalytics", specifier = "==7.20.4" },
+    { name = "posthoganalytics", specifier = "==7.27.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6094,7 +6094,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.20.4"
+version = "7.27.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6102,9 +6102,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/ee/a2e18df3178f3cd05512bb65b87b3037b145c2889477820b1a5b243b1bce/posthoganalytics-7.20.4.tar.gz", hash = "sha256:89f364d1796ca4e414977e67f6dae94136fb41385f68f37d4c3c85bd4278fb74", size = 262180, upload-time = "2026-06-24T15:48:16.262Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/52/b2c043125c35abbfcaaebf581497d97227051625bc9bee9b235dbed5e807/posthoganalytics-7.27.0.tar.gz", hash = "sha256:5fdabb0e58616a766daeedb040a0868142581d259416d20d84fe5147db8488bd", size = 352566, upload-time = "2026-07-18T16:40:21.412Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/de/81f6ffaae7ab5e95121b960bb98a2958b5ab7c36c10e1933da49d791b239/posthoganalytics-7.20.4-py3-none-any.whl", hash = "sha256:fcbfc2f9db527abeea8ba06caede720ee5fa5115f89b48827527314418c6a33c", size = 305163, upload-time = "2026-06-24T15:48:14.397Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/75/9e6f0d3c55c2476d0fef27e8650c233b8afdd2848fab4674bdb71371b084/posthoganalytics-7.27.0-py3-none-any.whl", hash = "sha256:8fb2dd8f0238d2a8a61bed3e7f54536ad4d3dcfe1a45e113d67f4c6814c022f5", size = 424440, upload-time = "2026-07-18T16:40:20.013Z" },
 ]
 
 [[package]]

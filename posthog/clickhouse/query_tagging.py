@@ -82,6 +82,7 @@ class Product(StrEnum):
     SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
+    SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
@@ -278,6 +279,10 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_FAILURES_QUERY
             | NodeKind.MCP_TOOL_STATS_QUERY
             | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_ROWS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORIES_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY

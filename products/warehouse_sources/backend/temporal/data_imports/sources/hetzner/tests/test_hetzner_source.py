@@ -4,7 +4,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HetznerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
+    HetznerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import HetznerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource

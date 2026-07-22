@@ -11,6 +11,8 @@ export type AgentRosterSource =
     | 'conversations'
     | 'session_replay'
     | 'llm_analytics'
+    | 'analytics'
+    | 'health_checks'
     | 'github'
     | 'linear'
     | 'zendesk'
@@ -74,6 +76,21 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 description: 'Findings from evaluation reports on your LLM traffic.',
                 docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 docsLabel: 'AI observability',
+            },
+            {
+                source: 'analytics',
+                sourceProduct: SignalSourceProduct.Analytics,
+                label: 'Product analytics',
+                description: 'Anomalies and unexpected shifts detected in your product metrics.',
+                docsUrl: 'https://posthog.com/docs/product-analytics',
+                docsLabel: 'Product analytics',
+                alpha: true,
+            },
+            {
+                source: 'health_checks',
+                sourceProduct: SignalSourceProduct.HealthChecks,
+                label: 'Health checks',
+                description: 'Instrumentation issues - missing events, proxy gaps, and outdated SDKs.',
             },
         ],
     },
