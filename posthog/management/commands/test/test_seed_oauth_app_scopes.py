@@ -24,7 +24,7 @@ class TestSeedOAuthAppScopes(BaseTest):
             scopes=scopes if scopes is not None else [],
         )
 
-    def _run(self, **kwargs: str) -> str:
+    def _run(self, **kwargs: str | bool) -> str:
         out = StringIO()
         call_command("seed_oauth_app_scopes", stdout=out, **kwargs)
         return out.getvalue()
