@@ -1,3 +1,4 @@
+import re
 import json
 import statistics
 
@@ -87,6 +88,49 @@ def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
     if query_json.get("useWebAnalyticsPrecompute") is not None:
         return query_json
     return {**query_json, "useWebAnalyticsPrecompute": True}
+
+
+# Warmed bucket depth. ~88% of web analytics requests fit inside 7 days but 93%
+# fit inside 30 (-14d/-28d/-30d/month-start make up the difference); since
+# per-day buckets are immutable and shared across date ranges, building 30 days
+# once covers every narrower request at no recurring cost.
+WARMING_EXPANDED_DATE_FROM = "-30d"
+
+# Relative date_from presets that are always narrower than 30 days. -Nd/-Nh
+# forms are matched by pattern; absolute dates and wider presets (mStart, all,
+# yStart, -90d, …) are left untouched.
+_SUB_30D_DATE_FROM_PRESETS = frozenset({"dStart", "-1dStart", "wStart", "-1wStart"})
+_SUB_30D_DATE_FROM_RE = re.compile(r"^-(\d+)([dh])$")
+
+
+def _is_within_30_days(date_from: str | None) -> bool:
+    if not date_from:
+        return True  # unset falls back to the -7d default
+    if date_from in _SUB_30D_DATE_FROM_PRESETS:
+        return True
+    match = _SUB_30D_DATE_FROM_RE.match(date_from)
+    if not match:
+        return False
+    value, unit = int(match.group(1)), match.group(2)
+    return unit == "h" or value < 30
+
+
+def maybe_expand_warming_date_range(query_json: dict) -> dict:
+    """Deepen a bucket-building replay's date range to WARMING_EXPANDED_DATE_FROM.
+
+    Only date_from moves (earlier), so the built buckets are a strict superset of
+    the requested range. Applies only to shapes on the precompute path: for an
+    opted-out shape the replay's exact result-cache row is the whole value of
+    warming it, so its range must stay faithful.
+    """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not True:
+        return query_json
+    date_range = query_json.get("dateRange") or {}
+    if not _is_within_30_days(date_range.get("date_from")):
+        return query_json
+    return {**query_json, "dateRange": {**date_range, "date_from": WARMING_EXPANDED_DATE_FROM}}
 
 
 def queries_to_keep_fresh(
@@ -238,6 +282,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
             query_json = maybe_opt_into_lazy_precompute(query_json)
+            query_json = maybe_expand_warming_date_range(query_json)
 
             # None only for kinds without a get_query_runner branch — the backstop
             # for runnerless kinds the selection doesn't know to exclude yet.

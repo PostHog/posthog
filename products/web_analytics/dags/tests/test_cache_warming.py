@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.web_analytics.dags.cache_warming import (
     get_warmable_queries_op,
+    maybe_expand_warming_date_range,
     maybe_opt_into_lazy_precompute,
     queries_to_keep_fresh,
     warm_queries_op,
@@ -33,6 +34,59 @@ class TestMaybeOptIntoLazyPrecompute(BaseTest):
     )
     def test_leaves_query_untouched(self, _name: str, query: dict) -> None:
         self.assertEqual(maybe_opt_into_lazy_precompute(query), query)
+
+
+class TestMaybeExpandWarmingDateRange(BaseTest):
+    @parameterized.expand(
+        [
+            # Sub-30d ranges deepen to -30d; if these stop expanding, warming
+            # silently builds only ~7 days and every -14d/-28d request
+            # cold-builds inline.
+            ("default_7d", {"date_from": "-7d"}, "-30d"),
+            ("today", {"date_from": "dStart"}, "-30d"),
+            ("hours", {"date_from": "-24h"}, "-30d"),
+            ("no_date_range", None, "-30d"),
+            # Wider or absolute ranges must stay exact — expanding would shrink
+            # or shift what the user actually asked to precompute.
+            ("ninety_days", {"date_from": "-90d"}, "-90d"),
+            ("all_time", {"date_from": "all"}, "all"),
+            ("absolute", {"date_from": "2026-07-01T00:00:00"}, "2026-07-01T00:00:00"),
+            ("month_start", {"date_from": "mStart"}, "mStart"),
+        ]
+    )
+    def test_expansion(self, _name: str, date_range: dict | None, expected_date_from: str) -> None:
+        query: dict = {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": True}
+        if date_range is not None:
+            query["dateRange"] = date_range
+
+        result = maybe_expand_warming_date_range(query)
+
+        self.assertEqual(result["dateRange"]["date_from"], expected_date_from)
+
+    def test_preserves_date_to_and_other_range_keys(self) -> None:
+        query = {
+            "kind": "WebStatsTableQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-1dStart", "date_to": "-1dEnd", "explicitDate": True},
+        }
+
+        result = maybe_expand_warming_date_range(query)
+
+        self.assertEqual(result["dateRange"], {"date_from": "-30d", "date_to": "-1dEnd", "explicitDate": True})
+
+    @parameterized.expand(
+        [
+            # An opted-out shape replays on the raw path where the exact
+            # result-cache row is the whole value of warming it.
+            (
+                "opted_out",
+                {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": False, "dateRange": {"date_from": "-7d"}},
+            ),
+            ("non_lazy_kind", {"kind": "WebExternalClicksTableQuery", "dateRange": {"date_from": "-7d"}}),
+        ]
+    )
+    def test_leaves_non_precompute_replays_untouched(self, _name: str, query: dict) -> None:
+        self.assertEqual(maybe_expand_warming_date_range(query), query)
 
 
 class TestFleetQuerySelection(BaseTest):
