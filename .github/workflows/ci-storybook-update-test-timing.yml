@@ -27,6 +27,20 @@ jobs:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 15
         steps:
+            - name: Guard — only run on master
+              # This job force-resets chore/update-storybook-timings to github.sha and opens a PR
+              # against master. Dispatched from a feature branch or tag, github.ref_name would check
+              # out that ref and the PR would carry all of its unrelated commits, so reject anything
+              # but master. Scheduled runs always target the default branch, so this only blocks a
+              # stray manual dispatch (the sibling ci-backend-update-test-timing.yml gates the same way).
+              env:
+                  REF: ${{ github.ref }}
+              run: |
+                  if [ "$REF" != "refs/heads/master" ]; then
+                      echo "::error::This workflow can only run on master (got $REF). Re-dispatch it from master."
+                      exit 1
+                  fi
+
             - name: Get app token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
