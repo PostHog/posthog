@@ -166,11 +166,20 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
     )
 
     const aiBlobStore = buildAiBlobStore(config)
+    const uploadMaxConcurrency = config.AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY
+    if (!Number.isInteger(uploadMaxConcurrency) || uploadMaxConcurrency <= 0) {
+        // The ingestion config layer coerces env overrides by hand (no schema
+        // validation), so a bad value would otherwise surface as a nameless
+        // TypeError from p-limit at pipeline construction.
+        throw new Error(
+            `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
+        )
+    }
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
         maxBlobsPerEvent: config.AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT,
-        uploadMaxConcurrency: config.AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY,
+        uploadMaxConcurrency,
     }
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
