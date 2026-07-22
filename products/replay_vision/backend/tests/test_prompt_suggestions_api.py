@@ -100,6 +100,26 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
 
+    def test_generate_returns_friendly_error_when_model_client_unavailable(self) -> None:
+        # A missing/malformed Gemini key raises at client construction, before any model call.
+        # Run the real generation paths so the failure propagates as it would in production.
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.agentic_patcher.stop()
+        self.generate_patcher.stop()
+        try:
+            with patch(
+                "products.replay_vision.backend.prompt_suggestions.genai.Client",
+                side_effect=ValueError("Missing key inputs argument!"),
+            ):
+                resp = self.client.post(self._suggestions_url("generate/"))
+        finally:
+            self.mock_agentic = self.agentic_patcher.start()
+            self.mock_generate = self.generate_patcher.start()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Couldn't generate a suggestion right now", resp.json()["detail"])
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
     def test_quality_flag_off_hides_endpoints(self) -> None:
         # `replay-vision-quality` gates the sub-feature even when product-level `replay-vision` is on.
         self._create_rated_observation("sess-1", True)

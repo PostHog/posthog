@@ -227,11 +227,16 @@ def _build_user_content(
 
 def _gemini_client() -> GeminiClient:
     # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
-    return genai.Client(
-        api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
+    try:
+        return genai.Client(
+            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
+    except Exception as e:
+        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # the friendly 400 instead of a 500.
+        raise PromptSuggestionError("model client unavailable") from e
 
 
 def _parse_llm_output(text: str) -> dict[str, Any]:
