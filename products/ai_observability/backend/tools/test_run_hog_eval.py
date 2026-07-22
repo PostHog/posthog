@@ -210,6 +210,29 @@ class TestRunHogEvalTestTool(BaseTest):
 
         assert "Result: PASS" in result, f"expected PASS after heavy-merge, got: {result}"
 
+    @patch("posthog.temporal.ai_observability.run_trace_evaluation.run_hog_eval_over_recent_traces")
+    def test_trace_target_evaluates_whole_traces(self, mock_run_over_traces):
+        from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
+
+        mock_run_over_traces.return_value = [
+            TraceHogTestResult(
+                trace_id="trace-1",
+                verdict=True,
+                reasoning="looks good",
+                error=None,
+                input_preview="hello",
+                output_preview="world",
+            )
+        ]
+
+        tool = self._make_tool()
+        result, artifact = _run_tool(tool, source="return target.type == 'trace';", sample_count=2, target="trace")
+
+        assert artifact is None
+        mock_run_over_traces.assert_called_once()
+        assert "Trace trace-1" in result
+        assert "Result: PASS" in result
+
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_query_targets_ai_events(self, mock_query):
         """The constructed SelectQuery must target `posthog.ai_events` — otherwise

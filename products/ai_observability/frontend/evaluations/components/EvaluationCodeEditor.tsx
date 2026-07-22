@@ -266,19 +266,27 @@ function HogTestResultsPanel(): JSX.Element | null {
                         title: '',
                         key: 'link',
                         width: 32,
-                        render: (_, row) =>
-                            row.trace_id ? (
-                                <Tooltip title="View generation">
+                        render: (_, row) => {
+                            if (!row.trace_id) {
+                                return null
+                            }
+                            // Trace-target rows key on the trace id itself (event_uuid === trace_id),
+                            // so there's no single generation to deep-link — open the trace instead.
+                            const isTrace = row.event_uuid === row.trace_id
+                            return (
+                                <Tooltip title={isTrace ? 'View trace' : 'View generation'}>
                                     <Link
-                                        to={urls.aiObservabilityTrace(row.trace_id, {
-                                            event: row.event_uuid,
-                                        })}
+                                        to={urls.aiObservabilityTrace(
+                                            row.trace_id,
+                                            isTrace ? undefined : { event: row.event_uuid }
+                                        )}
                                         target="_blank"
                                     >
                                         <IconExternal className="text-muted text-base" />
                                     </Link>
                                 </Tooltip>
-                            ) : null,
+                            )
+                        },
                     },
                 ]}
                 expandable={{
@@ -334,7 +342,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <Tooltip
                             title={
                                 evaluation.target === 'trace'
-                                    ? 'Preview this code against up to 5 recent generations. Online runs evaluate the whole trace.'
+                                    ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
                                     : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
                             }
                         >

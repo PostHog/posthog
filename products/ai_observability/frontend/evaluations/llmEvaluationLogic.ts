@@ -482,6 +482,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             sample_count: 5,
                             allows_na: evaluation.output_config?.allows_na ?? false,
                             conditions,
+                            target: evaluation.target,
                         })
                         return response.results.map((result) => ({
                             ...result,

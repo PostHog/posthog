@@ -489,6 +489,8 @@ export const evaluationsTestHogCreateBodySampleCountMax = 10
 
 export const evaluationsTestHogCreateBodyAllowsNaDefault = false
 
+export const evaluationsTestHogCreateBodyTargetDefault = 'generation'
+
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .string()
@@ -508,6 +510,13 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe('Optional trigger conditions to filter which events are sampled.'),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('* `generation` - Generation\n* `trace` - Trace')
+        .default(evaluationsTestHogCreateBodyTargetDefault)
+        .describe(
+            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n* `generation` - Generation\n* `trace` - Trace"
+        ),
 })
 
 /**

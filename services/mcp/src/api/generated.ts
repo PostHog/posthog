@@ -67957,6 +67957,8 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Optional trigger conditions to filter which events are sampled. */
       conditions?: TestHogRequestConditionsItem[];
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. */
+      target?: EvaluationTargetEnum;
     }
 
     export interface TestHogResultItem {

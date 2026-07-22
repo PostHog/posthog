@@ -1068,6 +1068,52 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertFalse(results[0]["result"])
         self.assertIsNone(results[0]["error"])
 
+    @patch("products.ai_observability.backend.api.evaluations.run_hog_eval_over_recent_traces")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    def test_test_hog_trace_target_evaluates_whole_traces(self, mock_query, mock_run_over_traces):
+        # A trace-target request must run the trace path (whole-trace globals), not the
+        # generation query — the gap this endpoint used to have.
+        from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
+
+        mock_run_over_traces.return_value = [
+            TraceHogTestResult(
+                trace_id="trace-1",
+                verdict=True,
+                reasoning="ok",
+                error=None,
+                input_preview="hello",
+                output_preview="world",
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return target.type == 'trace'", "target": "trace"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_run_over_traces.assert_called_once()
+        # The generation query path must not run for a trace target.
+        mock_query.assert_not_called()
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["event_uuid"], "trace-1")
+        self.assertEqual(results[0]["trace_id"], "trace-1")
+        self.assertTrue(results[0]["result"])
+
+    @patch("products.ai_observability.backend.api.evaluations.run_hog_eval_over_recent_traces")
+    def test_test_hog_trace_target_no_traces(self, mock_run_over_traces):
+        mock_run_over_traces.return_value = []
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true", "target": "trace"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertIn("traces", response.json()["message"])
+
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
     """Enabling a keyless llm_judge eval must mirror the runtime provider-key gate: a config with

@@ -14,16 +14,21 @@ from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 from ee.hogai.tool import MaxTool
 
-TOOL_DESCRIPTION = """Test Hog evaluation code against sample events from the last 7 days.
+TOOL_DESCRIPTION = """Test Hog evaluation code against sample data from the last 7 days.
 
-Returns compilation errors if the code is invalid, or pass/fail/error results for each sample event.
+Returns compilation errors if the code is invalid, or pass/fail/error results for each sample.
+
+Set `target` to match how the evaluation will run: `generation` samples individual generations,
+`trace` samples whole traces and exposes trace-level globals. Test trace-target source against
+`trace` so the preview matches online behavior.
 
 Write new evaluations using these globals:
-- `evaluation_events` (array): the sampled event. Each item has `uuid`, `event`, `timestamp`,
+- `evaluation_events` (array): the events under evaluation — one generation for a generation
+  target, all events of the trace for a trace target. Each item has `uuid`, `event`, `timestamp`,
   serialized `input` and `output`, readable `input_text` and `output_text`, and `properties`
   without large input, output, and tool payloads.
-- `target` (object): the sampled generation's `type`, `id`, `total_cost_usd`, and
-  `total_latency_seconds`.
+- `target` (object): the sampled unit's `type` ('generation' or 'trace'), `id`, `total_cost_usd`,
+  and `total_latency_seconds`.
 
 Saved evaluations can still use the generation-only compatibility globals `input`, `output`,
 `properties`, and `event`, but do not use them in new source that should also work for traces.
@@ -39,7 +44,11 @@ class RunHogEvalTestArgs(BaseModel):
         default=3,
         ge=1,
         le=5,
-        description="Number of recent events to test against (1-5)",
+        description="Number of recent samples to test against (1-5)",
+    )
+    target: str = Field(
+        default="generation",
+        description="What to sample: 'generation' (individual generations) or 'trace' (whole traces)",
     )
 
 
@@ -51,7 +60,7 @@ class RunHogEvalTestTool(MaxTool):
     def get_required_resource_access(self):
         return [("llm_analytics", "viewer")]
 
-    async def _arun_impl(self, source: str, sample_count: int = 3) -> tuple[str, Any]:
+    async def _arun_impl(self, source: str, sample_count: int = 3, target: str = "generation") -> tuple[str, Any]:
         from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
         from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 
@@ -61,6 +70,9 @@ class RunHogEvalTestTool(MaxTool):
             return (f"Compilation error: {e}", None)
 
         team = self._team
+
+        if target == "trace":
+            return await self._run_over_traces(bytecode, sample_count)
 
         # Read from ai_events with native heavy columns so the Hog body still
         # sees `event.properties.$ai_input` etc. Falls back to the events table
@@ -189,6 +201,42 @@ class RunHogEvalTestTool(MaxTool):
                 lines.append(f"  Reasoning: {result['reasoning']}")
             if result["error"]:
                 lines.append(f"  Error: {result['error']}")
+            lines.append("")
+
+        return ("\n".join(lines), None)
+
+    async def _run_over_traces(self, bytecode: list, sample_count: int) -> tuple[str, Any]:
+        from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
+
+        trace_results = await database_sync_to_async(run_hog_eval_over_recent_traces)(
+            team=self._team,
+            bytecode=bytecode,
+            condition_filter=None,
+            sample_count=sample_count,
+            allows_na=True,
+        )
+        if not trace_results:
+            return ("No recent AI traces found in the last 7 days. Ingest some $ai_generation events first.", None)
+
+        lines: list[str] = [f"Sampled {len(trace_results)} trace(s). Ran against trace-level globals.", ""]
+        for r in trace_results:
+            if r.error:
+                verdict_str = "ERROR"
+            elif r.verdict is True:
+                verdict_str = "PASS"
+            elif r.verdict is False:
+                verdict_str = "FAIL"
+            else:
+                verdict_str = "N/A"
+
+            lines.append(f"Trace {r.trace_id}:")
+            lines.append(f"  Input:  {r.input_preview}")
+            lines.append(f"  Output: {r.output_preview}")
+            lines.append(f"  Result: {verdict_str}")
+            if r.reasoning:
+                lines.append(f"  Reasoning: {r.reasoning}")
+            if r.error:
+                lines.append(f"  Error: {r.error}")
             lines.append("")
 
         return ("\n".join(lines), None)
