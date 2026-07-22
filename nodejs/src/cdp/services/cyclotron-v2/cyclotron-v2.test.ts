@@ -1979,47 +1979,52 @@ describe('Cyclotron V2', () => {
             expect(await totalJobCount()).toBe(0)
         })
 
-        it('drops a poisoned rerun wrapper without recording it, still records real invocations', async () => {
-            const staleHeartbeat = new Date(Date.now() - 60_000)
-            const wrapperId = uuidv7()
-            const invocationId = uuidv7()
-            // A poisoned rerun WRAPPER job (queue_name='rerun') and a genuine
-            // poisoned invocation, in the same sweep.
-            await insertRawJob({
-                id: wrapperId,
-                function_id: uuidv7(),
-                queue_name: 'rerun',
-                status: 'running',
-                lock_id: uuidv7(),
-                last_heartbeat: staleHeartbeat,
-                janitor_touch_count: 3,
-            })
-            await insertRawJob({
-                id: invocationId,
-                function_id: uuidv7(),
-                status: 'running',
-                lock_id: uuidv7(),
-                last_heartbeat: staleHeartbeat,
-                janitor_touch_count: 3,
-            })
+        // Both meta/wrapper queues share cyclotron_jobs with real invocations and
+        // stamp function_id to a target function, so both must be dropped without a
+        // record — else the autodrain replays a real flow with fabricated globals.
+        it.each(['rerun', 'hogflow_batch_resolve'])(
+            'drops a poisoned %s wrapper without recording it, still records real invocations',
+            async (wrapperQueue) => {
+                const staleHeartbeat = new Date(Date.now() - 60_000)
+                const wrapperId = uuidv7()
+                const invocationId = uuidv7()
+                // A poisoned WRAPPER job and a genuine poisoned invocation, same sweep.
+                await insertRawJob({
+                    id: wrapperId,
+                    function_id: uuidv7(),
+                    queue_name: wrapperQueue,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+                await insertRawJob({
+                    id: invocationId,
+                    function_id: uuidv7(),
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
 
-            const { service, recordTerminalFailureDurably } = createMockResults(true)
-            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
-            const result = await janitor.runOnce()
-            await janitor.stop()
+                const { service, recordTerminalFailureDurably } = createMockResults(true)
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
 
-            // The wrapper is dropped with NO replay record — recording it would let
-            // the autodrain rediscover it as a hog_flow and replay a real flow with
-            // fabricated globals. Only the genuine invocation is recorded.
-            expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
-            expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
-                expect.objectContaining({ id: invocationId }),
-                expect.anything()
-            )
-            expect(result.poisonedIds).toEqual([invocationId])
-            // Both cyclotron rows are gone — the wrapper is given up on, just untraced.
-            expect(await totalJobCount()).toBe(0)
-        })
+                // The wrapper is dropped with NO replay record — recording it would let
+                // the autodrain rediscover it as a hog_flow and replay a real flow with
+                // fabricated globals. Only the genuine invocation is recorded.
+                expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+                expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: invocationId }),
+                    expect.anything()
+                )
+                expect(result.poisonedIds).toEqual([invocationId])
+                // Both cyclotron rows are gone — the wrapper is given up on, just untraced.
+                expect(await totalJobCount()).toBe(0)
+            }
+        )
 
         it('keeps a poison pill (does not delete) when the recovery record cannot be produced', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)

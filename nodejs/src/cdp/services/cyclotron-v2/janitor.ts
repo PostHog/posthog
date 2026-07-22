@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { RERUN_QUEUE_NAME } from '../../rerun/rerun-job.types'
 import { CyclotronJobInvocationHogFlow } from '../../types'
+import { HOGFLOW_BATCH_RESOLVE_QUEUE } from '../hogflows/batch-resolver.types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorConfig } from './types'
@@ -14,6 +15,14 @@ import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorCon
 // the janitor writes when it gives up on a poison pill. Lets operators target
 // exactly these give-ups from the rerun tooling (rerun filter `error_kind`).
 export const JANITOR_POISON_PILL_ERROR_KIND = 'janitor_poison_pill'
+
+// Queues that carry non-invocation "wrapper" / meta jobs — they share the
+// cyclotron_jobs table with real invocations, but their `function_id` points at a
+// target function and their `state` is not an invocation. The janitor must NOT
+// record their give-ups as replayable invocation results (that would let the
+// autodrain replay a real flow with fabricated globals — see recordAndDeletePoisonPills);
+// it gives up on them without a record instead. Add any new wrapper queue here.
+const WRAPPER_QUEUE_NAMES: string[] = [RERUN_QUEUE_NAME, HOGFLOW_BATCH_RESOLVE_QUEUE]
 
 // The first stall gets only this small jittered delay (not the full exponential
 // base), so a transient stall — a worker restart/deploy, where a healthy worker
@@ -43,9 +52,9 @@ const janitorGiveUpSkippedCounter = new Counter({
     help: 'Poison pills the janitor could not record a recovery row for, so kept (not deleted)',
 })
 
-const janitorRerunWrapperDroppedCounter = new Counter({
-    name: 'cdp_cyclotron_v2_janitor_rerun_wrapper_dropped',
-    help: 'Poisoned rerun wrapper jobs dropped without a replay record (a wrapper is a meta-job, not a replayable invocation)',
+const janitorWrapperDroppedCounter = new Counter({
+    name: 'cdp_cyclotron_v2_janitor_wrapper_dropped',
+    help: 'Poisoned wrapper/meta jobs dropped without a replay record (a wrapper is not a replayable invocation)',
 })
 
 const janitorRunCounter = new Counter({
@@ -247,15 +256,15 @@ export class CyclotronV2Janitor {
     private async recordAndDeletePoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
-        // Rerun *wrapper* jobs share this table. A wrapper is a meta-job, not a
-        // replayable invocation — recording one as a `failed` result would give it
-        // `function_kind='hog_flow'` with the target's `function_id` (poisonRowToInvocation
-        // always tags hogFlow), making it indistinguishable from a genuine poisoned
-        // flow. The autodrain would then rediscover and replay a real flow with
-        // fabricated globals. So give up on poisoned wrappers separately: delete
-        // them with NO record. This is self-healing — the invocations the wrapper
-        // was draining keep their own poison rows and get picked up by a fresh rerun.
-        await this.dropRerunWrapperPoisonPills(heartbeatCutoff)
+        // Wrapper/meta jobs (rerun, batch-resolve) share this table. A wrapper is
+        // not a replayable invocation — recording one as a `failed` result would give
+        // it `function_kind='hog_flow'` with the target's `function_id`
+        // (poisonRowToInvocation always tags hogFlow), making it indistinguishable
+        // from a genuine poisoned flow. The autodrain would then rediscover and replay
+        // a real flow with fabricated globals. So give up on poisoned wrappers
+        // separately: delete them with NO record. This is self-healing — the work a
+        // wrapper was driving is re-derived on its next run.
+        await this.dropWrapperPoisonPills(heartbeatCutoff)
 
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
@@ -265,11 +274,11 @@ export class CyclotronV2Janitor {
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
                AND janitor_touch_count >= $2
-               AND queue_name <> $4
+               AND queue_name <> ALL($4::text[])
              ORDER BY last_transition ASC
              LIMIT $3
              FOR UPDATE SKIP LOCKED`,
-            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize, RERUN_QUEUE_NAME]
+            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize, WRAPPER_QUEUE_NAMES]
         )
 
         if (result.rows.length === 0) {
@@ -340,26 +349,26 @@ export class CyclotronV2Janitor {
     }
 
     /**
-     * Give up on poisoned rerun *wrapper* jobs by deleting them with no replay
-     * record — see the rationale in recordAndDeletePoisonPills. A wrapper is a
-     * meta-job, so there is nothing meaningful to replay; the invocations it was
-     * draining keep their own poison-pill rows and are re-picked-up by a fresh
-     * rerun, so dropping the wrapper is safe and self-healing.
+     * Give up on poisoned wrapper/meta jobs (rerun, batch-resolve) by deleting them
+     * with no replay record — see the rationale in recordAndDeletePoisonPills. A
+     * wrapper is not a replayable invocation, so there is nothing meaningful to
+     * record; dropping it is safe and self-healing (its work is re-derived on the
+     * next run).
      */
-    private async dropRerunWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
+    private async dropWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
         const deleted = await this.pool.query<{ id: string }>(
             `DELETE FROM cyclotron_jobs
              WHERE status = 'running'
-               AND queue_name = $1
+               AND queue_name = ANY($1::text[])
                AND COALESCE(last_heartbeat, $2) <= $2
                AND janitor_touch_count >= $3
              RETURNING id`,
-            [RERUN_QUEUE_NAME, heartbeatCutoff, this.maxTouchCount]
+            [WRAPPER_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount]
         )
         const count = deleted.rows.length
         if (count > 0) {
-            janitorRerunWrapperDroppedCounter.inc(count)
-            logger.warn('CyclotronV2Janitor dropped poisoned rerun wrapper jobs (no replay record — meta-job)', {
+            janitorWrapperDroppedCounter.inc(count)
+            logger.warn('CyclotronV2Janitor dropped poisoned wrapper jobs (no replay record — meta-job)', {
                 count,
                 ids: deleted.rows.map((r) => r.id),
             })
