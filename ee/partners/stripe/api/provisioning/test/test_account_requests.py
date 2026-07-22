@@ -1,9 +1,6 @@
-from datetime import timedelta
-
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -15,12 +12,18 @@ from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvi
 URL = f"{BASE_PATH}/provisioning/account_requests"
 
 
+# Far-future expiry used by @parameterized.expand cases which are evaluated at
+# module-load time (not at test-run time). Using timezone.now() would cause
+# expiration if the test suite takes >10 min to reach these cases.
+_FAR_FUTURE_EXPIRY = "2099-01-01T00:00:00+00:00"
+
+
 def _account_request(email: str, **overrides) -> dict:
     body = {
         "id": "acctreq_test",
         "email": email,
         "scopes": ["query:read"],
-        "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+        "expires_at": _FAR_FUTURE_EXPIRY,
         "orchestrator": {"type": "stripe", "stripe": {"account": "acct_test"}},
     }
     body.update(overrides)
