@@ -21,6 +21,8 @@ from posthog.schema import RecordingsQuery
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -175,7 +177,9 @@ class FeedbackThemesSerializer(serializers.Serializer):
     generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
 
 
-class ReplayScannerSerializer(serializers.ModelSerializer):
+class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A Replay Vision scanner: its type, targeting query, and AI configuration."""
+
     name = serializers.CharField(
         max_length=255,
         help_text="Human-readable scanner name. Unique within the team.",
@@ -311,6 +315,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "feedback_themes",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -324,6 +329,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "feedback_themes",
+            "user_access_level",
         ]
 
     @extend_schema_field(serializers.IntegerField())
@@ -476,7 +482,8 @@ class _ScannerOrderByFilter(OrderByFilter):
             organization_id = qs.values_list("team__organization_id", flat=True).first()
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
-            period_start, period_end = current_period_bounds(organization_id)
+            period = current_period_bounds(organization_id)
+            period_start, period_end = period.start, period.end
             spend = (
                 ReplayObservation.objects.filter(
                     scanner_id=OuterRef("pk"),
@@ -938,13 +945,13 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
         ]
     )
 )
-class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
     scope_object_read_actions = ["list", "retrieve", "creators", "stats"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe", "bulk_observe"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerSerializer
     queryset = ReplayScanner.objects.all()
@@ -958,7 +965,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in self._CONFIG_ACTIONS:
             return ["replay_scanner:write", "session_recording:read"]
-        return None
+        # Falls through to AccessControlViewSetMixin's scope requirements for its
+        # access_controls/resource_access_controls/users_with_access actions.
+        return super().dangerously_get_required_scopes(request, view)
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -1213,9 +1222,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         sampling_rate: float = body.validated_data["sampling_rate"]
 
         # Reject a scanner_id outside this project before doing any work, so it can't silently undercount the others-sum.
+        # Treat missing object-level access the same as missing-entirely so a denied scanner's existence and
+        # credit usage can't be inferred by comparing responses (mirrors the `suggest_tags` action below).
         scanner_id = body.validated_data.get("scanner_id")
-        if scanner_id is not None and not ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).exists():
-            raise serializers.ValidationError({"scanner_id": "No scanner with this id exists in this project."})
+        if scanner_id is not None:
+            scanner = ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).first()
+            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+                raise serializers.ValidationError({"scanner_id": "No scanner with this id exists in this project."})
 
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})

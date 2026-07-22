@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 
 from ee.hogai.session_summaries.session.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
@@ -47,7 +47,10 @@ class TestSummarizeSession:
             # Mock the SessionReplayEvents DB model to return different data for each page
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
-            mock_instance.get_events.side_effect = [(None, None, False), (None, None, False)]
+            mock_instance.get_events.side_effect = [
+                SessionEventsPage(columns=None, rows=None, has_more=False),
+                SessionEventsPage(columns=None, rows=None, has_more=False),
+            ]
             with pytest.raises(ValueError, match=f"No columns found for session_id {mock_session_id}"):
                 with patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team):
                     get_session_events(
