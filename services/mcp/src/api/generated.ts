@@ -6685,6 +6685,8 @@ export namespace Schemas {
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
@@ -6720,6 +6722,8 @@ export namespace Schemas {
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
@@ -6751,6 +6755,8 @@ export namespace Schemas {
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
+      /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+      counts_as_revenue?: boolean | null;
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
@@ -13484,6 +13490,18 @@ export namespace Schemas {
       event_count: number;
       /** List of detected UTM configuration issues */
       issues: UtmIssue[];
+    }
+
+    export type MatchField = typeof MatchField[keyof typeof MatchField];
+
+
+    export const MatchField = {
+      CampaignName: 'campaign_name',
+      CampaignId: 'campaign_id',
+    } as const;
+
+    export interface CampaignFieldPreference {
+      match_field: MatchField;
     }
 
     export interface CampaignMappingSuggestion {
@@ -35361,6 +35379,48 @@ export namespace Schemas {
       snapshot_id: string;
     }
 
+    /**
+     * Mapping of integration type to the campaign field used when matching campaigns.
+     */
+    export interface MarketingAnalyticsCampaignFieldPreferences {[key: string]: CampaignFieldPreference}
+
+    /**
+     * Mapping of integration type to canonical campaign name to the aliases folded into it.
+     */
+    export interface MarketingAnalyticsCampaignNameMappings {[key: string]: {[key: string]: string[]}}
+
+    /**
+     * List wrapper for OpenAPI schema generation - the field stores an array of conversion goals.
+     */
+    export type MarketingAnalyticsConversionGoalList = (ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)[];
+
+    /**
+     * Mapping of integration type to the custom UTM source values folded into it.
+     */
+    export interface MarketingAnalyticsCustomSourceMappings {[key: string]: string[]}
+
+    export interface SourceMap {
+      ad_group_id?: string | null;
+      ad_group_name?: string | null;
+      ad_id?: string | null;
+      ad_name?: string | null;
+      campaign?: string | null;
+      clicks?: string | null;
+      cost?: string | null;
+      currency?: string | null;
+      date?: string | null;
+      id?: string | null;
+      impressions?: string | null;
+      reported_conversion?: string | null;
+      reported_conversion_value?: string | null;
+      source?: string | null;
+    }
+
+    /**
+     * Mapping of external data source id to that source's column mapping.
+     */
+    export interface MarketingAnalyticsSourceMapping {[key: string]: SourceMap}
+
     export interface MarketingDiagnosticResponse {
       /** Per-integration cross-domain diagnostics */
       integrations: IntegrationDiagnostic[];
@@ -46270,17 +46330,30 @@ export namespace Schemas {
     }
 
     export interface TeamMarketingAnalyticsConfig {
-      sources_map?: unknown;
-      conversion_goals?: unknown;
+      /** Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source. */
+      sources_map?: MarketingAnalyticsSourceMapping;
+      /** Conversion goals to attribute against, in display order. Each goal points at an event, an action or a data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the timestamp and the distinct id. Replaces the whole list on write. */
+      conversion_goals?: MarketingAnalyticsConversionGoalList;
       /**
+         * How many days back a touchpoint can be credited for a conversion. Between 1 and 90.
          * @minimum 1
          * @maximum 90
          */
       attribution_window_days?: number;
+      /** How credit is split across touchpoints when a person saw several campaigns before converting.
+       *
+       * * `first_touch` - First Touch
+       * * `last_touch` - Last Touch
+       * * `linear` - Linear
+       * * `time_decay` - Time Decay
+       * * `position_based` - Position Based */
       attribution_mode?: AttributionModeEnum;
-      campaign_name_mappings?: unknown;
-      custom_source_mappings?: unknown;
-      campaign_field_preferences?: unknown;
+      /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
+      campaign_name_mappings?: MarketingAnalyticsCampaignNameMappings;
+      /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
+      custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
+      /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
+      campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
     export interface TeamCustomerAnalyticsConfig {

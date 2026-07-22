@@ -16,12 +16,23 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
-from pydantic import TypeAdapter
+from pydantic import (
+    RootModel as PydanticRootModel,
+    TypeAdapter,
+)
 from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode, HogQLQueryModifiers
+from posthog.schema import (
+    AttributionMode,
+    CampaignFieldPreference,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    HogQLQueryModifiers,
+    SourceMap,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
@@ -501,16 +512,109 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
+class MarketingAnalyticsConversionGoalList(PydanticRootModel):
+    """List wrapper for OpenAPI schema generation - the field stores an array of conversion goals."""
+
+    root: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+
+
+class MarketingAnalyticsSourceMapping(PydanticRootModel):
+    """Mapping of external data source id to that source's column mapping."""
+
+    root: dict[str, SourceMap]
+
+
+class MarketingAnalyticsCampaignFieldPreferences(PydanticRootModel):
+    """Mapping of integration type to the campaign field used when matching campaigns."""
+
+    root: dict[str, CampaignFieldPreference]
+
+
+class MarketingAnalyticsCampaignNameMappings(PydanticRootModel):
+    """Mapping of integration type to canonical campaign name to the aliases folded into it."""
+
+    root: dict[str, dict[str, list[str]]]
+
+
+class MarketingAnalyticsCustomSourceMappings(PydanticRootModel):
+    """Mapping of integration type to the custom UTM source values folded into it."""
+
+    root: dict[str, list[str]]
+
+
+@extend_schema_field(MarketingAnalyticsCampaignNameMappings)  # type: ignore[arg-type]
+class MarketingAnalyticsCampaignNameMappingsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsCustomSourceMappings)  # type: ignore[arg-type]
+class MarketingAnalyticsCustomSourceMappingsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsConversionGoalList)  # type: ignore[arg-type]
+class MarketingAnalyticsConversionGoalsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsSourceMapping)  # type: ignore[arg-type]
+class MarketingAnalyticsSourcesMapField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsCampaignFieldPreferences)  # type: ignore[arg-type]
+class MarketingAnalyticsCampaignFieldPreferencesField(serializers.JSONField):
+    pass
+
+
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    sources_map = serializers.JSONField(required=False)
-    conversion_goals = serializers.JSONField(required=False)
-    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
-    attribution_mode = serializers.ChoiceField(
-        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
+    sources_map = MarketingAnalyticsSourcesMapField(
+        required=False,
+        help_text=(
+            "Column mapping per external data source, keyed by source id. Tells marketing analytics which column "
+            "holds campaign, source, cost, clicks and impressions for that source."
+        ),
     )
-    campaign_name_mappings = serializers.JSONField(required=False)
-    custom_source_mappings = serializers.JSONField(required=False)
-    campaign_field_preferences = serializers.JSONField(required=False)
+    conversion_goals = MarketingAnalyticsConversionGoalsField(
+        required=False,
+        help_text=(
+            "Conversion goals to attribute against, in display order. Each goal points at an event, an action or a "
+            "data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the "
+            "timestamp and the distinct id. Replaces the whole list on write."
+        ),
+    )
+    attribution_window_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=90,
+        help_text="How many days back a touchpoint can be credited for a conversion. Between 1 and 90.",
+    )
+    attribution_mode = serializers.ChoiceField(
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+        required=False,
+        help_text="How credit is split across touchpoints when a person saw several campaigns before converting.",
+    )
+    campaign_name_mappings = MarketingAnalyticsCampaignNameMappingsField(
+        required=False,
+        help_text=(
+            "Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list "
+            "of names that should be folded into it. Applied before automatic matching."
+        ),
+    )
+    custom_source_mappings = MarketingAnalyticsCustomSourceMappingsField(
+        required=False,
+        help_text=(
+            "Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only "
+            "belong to one integration."
+        ),
+    )
+    campaign_field_preferences = MarketingAnalyticsCampaignFieldPreferencesField(
+        required=False,
+        help_text=(
+            "Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings "
+            "in campaign_name_mappings still take precedence."
+        ),
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
