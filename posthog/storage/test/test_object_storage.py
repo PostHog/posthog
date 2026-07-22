@@ -8,8 +8,9 @@ from django.test import SimpleTestCase
 
 from boto3 import resource
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ResponseStreamingError
 from parameterized import parameterized
+from urllib3.exceptions import ProtocolError
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.settings import (
@@ -220,6 +221,38 @@ class TestStorage(APIBaseTest):
 
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
+
+    @patch("posthog.storage.object_storage.time.sleep", return_value=None)
+    def test_read_bytes_retries_transient_streaming_error_then_succeeds(self, mock_sleep):
+        mock_client = MagicMock()
+
+        broken_body = MagicMock()
+        broken_body.read.side_effect = ResponseStreamingError(error="connection broken")
+        good_body = MagicMock()
+        good_body.read.return_value = b"recovered content"
+        # First GET streams a body that breaks mid-read; the re-issued GET streams a healthy body.
+        mock_client.get_object.side_effect = [{"Body": broken_body}, {"Body": good_body}]
+        storage = ObjectStorage(mock_client)
+
+        result = storage.read_bytes("test-bucket", "test-key")
+
+        assert result == b"recovered content"
+        assert mock_client.get_object.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch("posthog.storage.object_storage.time.sleep", return_value=None)
+    def test_read_bytes_raises_after_exhausting_streaming_retries(self, mock_sleep):
+        mock_client = MagicMock()
+        broken_body = MagicMock()
+        broken_body.read.side_effect = ProtocolError("Connection broken: IncompleteRead")
+        mock_client.get_object.return_value = {"Body": broken_body}
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.read_bytes("test-bucket", "test-key")
+
+        assert mock_client.get_object.call_count == 3
+        assert mock_sleep.call_count == 2
 
     def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
         mock_client = MagicMock()
