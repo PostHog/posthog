@@ -18,11 +18,14 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+
+import loopsReview from './loops/loopsReview'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
+import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
@@ -60,6 +63,7 @@ import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
+    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
 
     // Projects
@@ -91,6 +95,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,

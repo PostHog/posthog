@@ -65,6 +65,9 @@ class SignalSourceProduct(StrEnum):
     APPFIGURES = "appfigures"
     APPFOLLOW = "appfollow"
     JUDGEME_REVIEWS = "judgeme_reviews"
+    # OAuth-connected support sources
+    INTERCOM = "intercom"
+    HUBSPOT = "hubspot"
     ENGINEERING_ANALYTICS = "engineering_analytics"
 
 
@@ -145,6 +148,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.APPFIGURES: "Appfigures",
     SignalSourceProduct.APPFOLLOW: "AppFollow",
     SignalSourceProduct.JUDGEME_REVIEWS: "Judge.me",
+    SignalSourceProduct.INTERCOM: "Intercom",
+    SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
 }
 

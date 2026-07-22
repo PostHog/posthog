@@ -338,6 +338,8 @@ export interface SignalReportRefundResponseApi {
  * * `appfigures` - appfigures
  * * `appfollow` - appfollow
  * * `judgeme_reviews` - judgeme_reviews
+ * * `intercom` - intercom
+ * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
@@ -388,6 +390,8 @@ export const SignalSourceProductApi = {
     Appfigures: 'appfigures',
     Appfollow: 'appfollow',
     JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
 } as const
 
@@ -985,6 +989,20 @@ export interface JudgemeReviewsReviewSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketSignalExtraApi {
+    state: string | null
+    priority: string | null
+    admin_assignee_id: string | null
+    created_at: string | null
+}
+
+export interface HubspotTicketSignalExtraApi {
+    hs_ticket_priority: string | null
+    hs_pipeline_stage: string | null
+    hs_ticket_category: string | null
+    createdate: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -1036,6 +1054,8 @@ export type SignalExtraApi =
     | AppfiguresReviewSignalExtraApi
     | AppfollowReviewSignalExtraApi
     | JudgemeReviewsReviewSignalExtraApi
+    | IntercomTicketSignalExtraApi
+    | HubspotTicketSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -1120,6 +1140,8 @@ export interface SignalNodeApi {
      * * `appfigures` - appfigures
      * * `appfollow` - appfollow
      * * `judgeme_reviews` - judgeme_reviews
+     * * `intercom` - intercom
+     * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
@@ -2854,6 +2876,8 @@ export interface ForgetResponseApi {
  * * `appfigures` - Appfigures
  * * `appfollow` - AppFollow
  * * `judgeme_reviews` - Judge.me
+ * * `intercom` - Intercom
+ * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
@@ -2905,6 +2929,8 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Appfigures: 'appfigures',
     Appfollow: 'appfollow',
     JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
 } as const
 
