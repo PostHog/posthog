@@ -5,7 +5,6 @@ import type { BuildOptions, Plugin } from 'esbuild'
 // No externals: ioredis and every other prod dep is pure-JS (or has a Node-target
 // shim esbuild handles). Bundling everything lets the runtime image ship a single
 // .mjs with no node_modules at all.
-import { readFile } from 'node:fs/promises'
 import { resolve } from 'path'
 
 export const honoOutfile = resolve(process.cwd(), 'dist/hono-server.mjs')
@@ -32,32 +31,6 @@ const cfWorkersStub: Plugin = {
     },
 }
 
-// Bundles `import text from '...?raw'` as the file's raw contents (the Vite `?raw`
-// convention). Used for the LLM analytics parser-recipe reference YAML so it shares
-// a single source of truth with the Python MaxTool.
-const rawTextLoader: Plugin = {
-    name: 'raw-text-loader',
-    setup(build): void {
-        build.onResolve({ filter: /\?raw$/ }, async (args) => {
-            // Re-run esbuild's own resolver (tsconfig paths, node resolution) on the
-            // bare path, then hand it to the loader below via a private namespace.
-            const resolved = await build.resolve(args.path.replace(/\?raw$/, ''), {
-                importer: args.importer,
-                resolveDir: args.resolveDir,
-                kind: args.kind,
-            })
-            if (resolved.errors.length > 0) {
-                return { errors: resolved.errors }
-            }
-            return { path: resolved.path, namespace: 'raw-text' }
-        })
-        build.onLoad({ filter: /.*/, namespace: 'raw-text' }, async (args) => ({
-            contents: await readFile(args.path, 'utf8'),
-            loader: 'text',
-        }))
-    },
-}
-
 export function honoEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions {
     return {
         entryPoints: [resolve(process.cwd(), 'src/hono/index.ts')],
@@ -68,8 +41,8 @@ export function honoEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions 
         outfile: opts.outfile ?? honoOutfile,
         sourcemap: opts.sourcemap ?? true,
         external: [],
-        plugins: [cfWorkersStub, rawTextLoader, ...(opts.extraPlugins ?? [])],
-        loader: { '.html': 'text', '.md': 'text', '.json': 'json' },
+        plugins: [cfWorkersStub, ...(opts.extraPlugins ?? [])],
+        loader: { '.html': 'text', '.md': 'text', '.yaml': 'text', '.json': 'json' },
         define: { 'process.env.NODE_ENV': opts.dev ? '"development"' : '"production"' },
         // Bundled CJS modules (e.g. ioredis using `require('util')`) call through
         // to a global `require`. ESM has no `require`; banner injects one. The

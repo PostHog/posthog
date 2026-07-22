@@ -1,10 +1,10 @@
+// Copied into `shared/` by scripts/copy-instructions.ts before bundling so this stays
+// the single source of truth with the Python MaxTool, which reads the same file.
+// Too big (~14KB) to embed in a tool description.
+import parserRecipeExamples from '@shared/parser_recipe_examples.yaml'
 import { z } from 'zod'
 
 import type { ToolBase } from '@/tools/types'
-
-// Imported at build time so this stays the single source of truth with the Python
-// MaxTool, which reads the same file. Too big (~14KB) to embed in a tool description.
-import parserRecipeExamples from 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml?raw'
 
 const schema = z.object({})
 

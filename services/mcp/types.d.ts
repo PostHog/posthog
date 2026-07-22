@@ -15,9 +15,9 @@ declare namespace Cloudflare {
     }
 }
 
-// Vite `?raw` imports resolve to the file's raw text (bundled via the esbuild
-// raw-text-loader plugin; vitest resolves them natively).
-declare module '*.yaml?raw' {
+// YAML imports resolve to the file's raw text (esbuild `.yaml` text loader,
+// wrangler `Text` rule, vitest raw-text transform).
+declare module '*.yaml' {
     const content: string
     export default content
 }

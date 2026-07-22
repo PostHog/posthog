@@ -13,8 +13,9 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
-            # Bundled into the MCP image at build time (esbuild `?raw` + shared parser sources) —
-            # without these paths an edit there never rebuilds the image and the bundle goes stale.
+            # Bundled into the MCP image at build time (copy-instructions.ts `shared/` copy +
+            # shared parser sources) — without these paths an edit there never rebuilds the
+            # image and the bundle goes stale.
             - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
             - 'products/ai_observability/frontend/customParser/**'
             - 'products/ai_observability/frontend/normalizer/**'

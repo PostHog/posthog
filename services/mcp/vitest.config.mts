@@ -1,12 +1,12 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Shared markdown loader so *.md imports resolve as string exports in the
-// Node-pool project. The workers-pool project has its own transform stack.
-const markdownLoader = {
-    name: 'markdown-loader',
+// Shared raw-text loader so *.md and *.yaml imports resolve as string exports in
+// the Node-pool project. The workers-pool project has its own transform stack.
+const rawTextLoader = {
+    name: 'raw-text-loader',
     transform(code: string, id: string) {
-        if (id.endsWith('.md')) {
+        if (id.endsWith('.md') || id.endsWith('.yaml')) {
             return {
                 code: `export default ${JSON.stringify(code)}`,
                 map: null,
@@ -29,7 +29,7 @@ export default defineConfig({
         globalSetup: ['tests/global-setup.ts'],
         projects: [
             {
-                plugins: [tsconfigPaths({ root: '.' }), markdownLoader],
+                plugins: [tsconfigPaths({ root: '.' }), rawTextLoader],
                 test: {
                     name: 'unit',
                     globals: true,
