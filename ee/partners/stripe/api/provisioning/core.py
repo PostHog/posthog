@@ -664,9 +664,12 @@ def maybe_create_provisioned_pat(
     if not pat_scopes:
         capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
         return None
-    # TODO: latent bug - repeated resource creates mint a new PAT each call
-    # without revoking earlier ones; only rotate_credentials revokes (via
-    # revoke_provisioned_pats).
+    # TODO: latent bug - every call mints a new PAT without revoking earlier
+    # ones, so rotate_credentials accumulates live keys instead of rotating
+    # them. A correct fix needs a provenance marker on PersonalAPIKey (or the
+    # provisioned key id recorded on TeamProvisioningConfig) so revocation can
+    # target only provisioned keys - scope alone is ambiguous with keys a user
+    # created via /api/personal_api_keys/ carrying the same team/org scope.
     try:
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
@@ -688,23 +691,6 @@ def maybe_create_provisioned_pat(
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "team_id": team.id})
         return None
-
-
-def revoke_provisioned_pats(user: User, team: Team, app: OAuthApplication | None) -> None:
-    """Delete the PATs previously minted for this provisioned resource.
-
-    Rotation must invalidate what it replaces - a leaked provisioned PAT must
-    not survive rotate_credentials. Keys carry no provenance marker, so this
-    matches the exact scoping shape ``maybe_create_provisioned_pat`` produces:
-    this user, scoped to exactly this team and its organization. Gated on the
-    same flag as minting so apps that never issue provisioned PATs cannot
-    delete user-created keys.
-    """
-    if not app or not app.provisioning_issues_personal_api_key:
-        return
-    PersonalAPIKey.objects.filter(
-        user=user, scoped_teams=[team.id], scoped_organizations=[str(team.organization_id)]
-    ).delete()
 
 
 # ---------------------------------------------------------------------------

@@ -74,7 +74,6 @@ from ee.partners.stripe.api.provisioning.core import (
     region_to_host,
     remove_team_from_token_scopes,
     resolve_or_create_project_team,
-    revoke_provisioned_pats,
     set_provisioning_service_id,
 )
 from ee.partners.stripe.api.provisioning.exceptions import Envelope, PreRenderedError, SpecError, render_spec_error
@@ -812,7 +811,6 @@ class RotateCredentialsView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        revoke_provisioned_pats(user, team, access_token.application)
         if personal_api_key := maybe_create_provisioned_pat(
             user, team, access_token.application, access_token.scope, label_prefix=label_prefix
         ):
