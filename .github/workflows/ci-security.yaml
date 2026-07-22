@@ -3,7 +3,6 @@ on:
         branches:
             - master
     pull_request:
-    merge_group:
 
 name: Security
 
@@ -310,6 +309,7 @@ jobs:
                       --error \
                       --metrics=off \
                       --verbose \
+                      --jobs 4 \
                       --timeout 300 \
                       --exclude ./cli/ \
                       --exclude ./common/ \

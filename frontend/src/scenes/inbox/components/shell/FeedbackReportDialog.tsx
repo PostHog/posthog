@@ -7,8 +7,9 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { InboxReportFeedbackSentiment } from '../../inboxAnalytics'
 
-/** Generous cap — feedback notes can be a paragraph or two of detail about a report or its PR. */
-const FEEDBACK_NOTE_MAX_LENGTH = 10000
+// Matches the note cap on the sibling inbox dialogs (Dismiss, Refund, Discuss); the note rides
+// along as an analytics property, so keep it under the client's per-property limit.
+const FEEDBACK_NOTE_MAX_LENGTH = 4000
 
 export interface FeedbackReportDialogResult {
     sentiment: InboxReportFeedbackSentiment

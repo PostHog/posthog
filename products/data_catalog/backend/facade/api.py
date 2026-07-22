@@ -23,12 +23,15 @@ from ..logic.metrics import (
     update_metric,
     upsert_metric,
 )
+from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import validate_metric_definition
-from .models import Metric, TableCertification
+from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
     "Metric",
+    "RelationshipProposal",
     "TableCertification",
+    "accept_proposal",
     "approve_metric",
     "certifications_for_team",
     "certify",
@@ -36,7 +39,10 @@ __all__ = [
     "deprecate",
     "metrics_for_team",
     "propose_certification",
+    "propose_relationship",
     "refresh_metric_from_insight",
+    "reject_proposal",
+    "relationships_for_team",
     "revoke_certification",
     "run_metric",
     "soft_delete_metric",

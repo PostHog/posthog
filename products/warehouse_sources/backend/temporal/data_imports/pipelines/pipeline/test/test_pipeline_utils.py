@@ -682,14 +682,17 @@ def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_wide
         (pa.int32(), pa.int64(), 6178466636),  # > int32 max (2147483647)
         (pa.int16(), pa.int64(), 6178466636),  # > int16 max, fits int64
         (pa.int16(), pa.int32(), 100000),  # > int16 max (32767), fits int32
+        (pa.int64(), pa.float64(), 19.99),  # fractional float into an int column
+        (pa.int64(), pa.decimal128(4, 2), decimal.Decimal("19.99")),  # fractional decimal into an int column
     ],
 )
 def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
-    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int
+    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int | float | decimal.Decimal
 ):
-    """An incoming integer value that overflows the stored (narrower) Delta type raises a
-    clear, actionable error instructing the user to reset and re-sync — rather than a raw
-    pyarrow ArrowInvalid."""
+    """An incoming value that doesn't fit the stored integer Delta type — a wider integer
+    that overflows, or a fractional float/decimal that would be truncated — raises a clear,
+    actionable error instructing the user to reset and re-sync, rather than a raw pyarrow
+    ArrowInvalid."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),
@@ -720,6 +723,25 @@ def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
     evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
 
     assert evolved_table.schema.field("val").type == pa.int32()
+    assert evolved_table.column("val").to_pylist() == [10, 20]
+
+
+def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_column():
+    # The type-changed error must only fire on genuine truncation: a float column whose
+    # values are all whole numbers still casts losslessly into a stored integer column.
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array([10.0, 20.0], type=pa.float64()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.int64(), nullable=True)])
+    )
+
+    evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("val").type == pa.int64()
     assert evolved_table.column("val").to_pylist() == [10, 20]
 
 
@@ -921,6 +943,31 @@ def test_append_partition_key_to_table_does_not_type_error(name: str, data: list
         )
     except TypeError:
         pytest.fail(f"raised TypeError for case {name} with data: {data}")
+
+
+def test_append_partition_key_numerical_handles_null_key():
+    # Numerical partitioning is only selected when partition_size is set, so the general
+    # does-not-type-error test (partition_size=None) never reaches the `key // partition_size`
+    # path. Pipedrive *_fields endpoints partition by `id` with partition_size=1 and can emit
+    # rows with a null id, which used to crash with `NoneType // int`.
+    partition_key = "id"
+    table = pa.table({partition_key: [1, 2, None, 4]})
+    logger: FilteringBoundLogger = structlog.get_logger()
+
+    result = append_partition_key_to_table(
+        table,
+        partition_keys=[partition_key],
+        partition_mode=None,
+        partition_count=None,
+        partition_size=1,
+        partition_format=None,
+        logger=logger,
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1233,3 +1280,37 @@ def test_merge_observed_columns_unions_and_refreshes():
 )
 def test_source_uses_delta_write_column_selection(source_type, expected):
     assert source_uses_delta_write_column_selection(source_type) is expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Parseable date strings bucket by their actual date.
+        ("2024-03-15", "2024-03"),
+        ("2024-06-01T12:00:00", "2024-06"),
+        # Non-date-like strings (e.g. a UUIDv7 primary key) must not crash the repartition —
+        # they fall back to the unknown-date sentinel.
+        ("0198d26d-134b-713a-84f7-24d78a416d9c", "1970-01"),
+        ("not a date at all", "1970-01"),
+        # Empty / whitespace-only strings also fall back to the sentinel.
+        ("", "1970-01"),
+        ("   ", "1970-01"),
+    ],
+)
+def test_append_partition_key_datetime_string_column(value, expected):
+    table = pa.table({"id": pa.array([value], type=pa.string())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=None,
+        partition_keys=["id"],
+        partition_mode="datetime",
+        partition_format="month",
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "datetime"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]

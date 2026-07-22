@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
+import { resolveToolCall } from '../../utils/toolResolver'
 import { PostHogCodeToolRenderer, POSTHOG_CODE_TOOLS_SERVER } from './posthogCodeToolRenderers'
 import { lookupToolRenderer } from './toolRegistry'
-import { resolveToolCall } from './toolResolver'
 
 function textBlock(text: string): unknown {
     return { type: 'content', content: { type: 'text', text } }
@@ -157,6 +157,9 @@ describe('posthog-code tool renderers', () => {
     ])('resolves the %s key shape to the signed-commit renderer', (_label, toolCall, expectedKey) => {
         const resolved = resolveToolCall(toolCall)
         expect(resolved.resolvedKey).toEqual(expectedKey)
-        expect(lookupToolRenderer(resolved.resolvedKey).displayName).toEqual('Signed commits')
+        // The posthog-code git tools aren't origin-gated, so they resolve for a non-exec call too.
+        expect(lookupToolRenderer(resolved.resolvedKey, resolved.innerToolName != null).displayName).toEqual(
+            'Signed commits'
+        )
     })
 })

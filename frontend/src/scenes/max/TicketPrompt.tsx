@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -20,6 +20,8 @@ interface TicketPromptProps {
     summary?: string
     /** If provided, pre-populate the input field with this text */
     initialText?: string
+    /** Target area inferred from the conversation; falls back to product analytics when absent */
+    targetArea?: SupportTicketTargetArea | null
 }
 
 /**
@@ -27,14 +29,19 @@ interface TicketPromptProps {
  * - If `summary` is provided: shows "Create support ticket" button with pre-filled summary
  * - If no `summary`: shows input field for user to describe their issue
  */
-export function TicketPrompt({ conversationId, traceId, summary, initialText }: TicketPromptProps): JSX.Element {
+export function TicketPrompt({
+    conversationId,
+    traceId,
+    summary,
+    initialText,
+    targetArea,
+}: TicketPromptProps): JSX.Element {
     const [issueText, setIssueText] = useState(initialText ?? '')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
     const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
-    const { resetSendSupportRequest, setSendSupportRequestValue, submitSendSupportRequest, closeSupportForm } =
-        useActions(supportLogic)
+    const { resetSendSupportRequest, setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { appendMessageToConversation } = useActions(maxThreadLogic)
 
     const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
@@ -81,7 +88,7 @@ export function TicketPrompt({ conversationId, traceId, summary, initialText }: 
             name: '',
             email: '',
             kind: 'bug',
-            target_area: 'posthog-ai',
+            target_area: targetArea ?? 'analytics',
             severity_level: 'low',
             message: messageContent,
             tags: ['raised_from_posthog_ai_chat'],
@@ -89,14 +96,25 @@ export function TicketPrompt({ conversationId, traceId, summary, initialText }: 
         setIsSupportModalOpen(true)
     }
 
-    function handleSupportFormSubmit(): void {
+    async function handleSupportFormSubmit(): Promise<void> {
         setIsSubmitting(true)
 
         const finalMessage = appendMetadataToMessage(sendSupportRequest.message)
         setSendSupportRequestValue('message', finalMessage)
-        setTicketIdBeforeSubmission(lastSubmittedTicketId)
+        const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
+        setTicketIdBeforeSubmission(ticketIdBefore)
         setPendingTicketSubmission(true)
-        submitSendSupportRequest()
+        try {
+            await supportLogic.asyncActions.submitSendSupportRequest()
+        } catch {
+            // Failure is detected below via the unchanged ticket id
+        }
+        // Success is handled by the effect watching lastSubmittedTicketId. If no ticket was created,
+        // the submit failed — stop the spinner so the user can retry (the error toast already showed).
+        if (supportLogic.values.lastSubmittedTicketId === ticketIdBefore) {
+            setIsSubmitting(false)
+            setPendingTicketSubmission(false)
+        }
     }
 
     function handleSupportModalCancel(): void {
@@ -119,7 +137,7 @@ export function TicketPrompt({ conversationId, traceId, summary, initialText }: 
                     <LemonButton
                         type="primary"
                         data-attr="submit"
-                        onClick={handleSupportFormSubmit}
+                        onClick={() => void handleSupportFormSubmit()}
                         loading={isSubmitting}
                     >
                         Submit

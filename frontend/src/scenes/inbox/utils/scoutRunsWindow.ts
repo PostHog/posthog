@@ -9,7 +9,9 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
-import { SignalScoutConfig, SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
+import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 
 /**
  * The window every scout stat describes. The cloud runs endpoint caps each list
@@ -37,11 +39,12 @@ export function scoutRunsWindowLabel(complete: boolean): string {
 // fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.
 export const MAX_FLEET_EMITTED_RUNS = 120
 
-/** The most recent emitted runs across the fleet, newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
+/** The most recent output-producing runs across the fleet — runs that emitted a finding OR
+ * authored/edited a report via the report channel — newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
 export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScoutRunSummary[] {
     return (
         runs
-            .filter((run) => (run.emitted_count ?? 0) > 0)
+            .filter((run) => runProducedOutput(run))
             .slice()
             // "Most recently emitted" — a run can complete (and emit) later than one created after it, so
             // order by completion, falling back to creation. Matches `emittedFindingsSummary`'s `latestAt`.
@@ -387,6 +390,9 @@ export interface FleetSummary {
     enabledCount: number
     runningCount: number
     emittedCount: number
+    /** Distinct reports the fleet touched via the report channel (authored or edited) in the window,
+     * deduped across runs, scouts, and channels — the report-side counterpart of `emittedCount`. */
+    touchedReportCount: number
     /** Completed / (completed + failed) over the window, or null when no finished runs. */
     successRate: number | null
     /** Share of runs in the window that produced output — a signal OR report-channel activity — or null
@@ -401,6 +407,7 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
     let failedCount = 0
     let runCount = 0
     let emittedRunCount = 0
+    const touchedReportIds = new Set<string>()
     for (const rollup of rollups.values()) {
         if (rollup.runningRun) {
             runningCount += 1
@@ -409,6 +416,12 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         completedCount += rollup.completedCount
         failedCount += rollup.failedCount
         runCount += rollup.runCount
+        for (const reportId of rollup.authoredReportIds) {
+            touchedReportIds.add(reportId)
+        }
+        for (const reportId of rollup.editedReportIds) {
+            touchedReportIds.add(reportId)
+        }
         for (const run of rollup.runs) {
             // Output = a weak finding OR report-channel activity, consistent with `runMatchesFilter('emitted')`
             // so the fleet emit rate and the per-scout "Emitted" chip never disagree about the same runs.
@@ -423,6 +436,7 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         enabledCount: configs.filter((config) => config.enabled).length,
         runningCount,
         emittedCount,
+        touchedReportCount: touchedReportIds.size,
         successRate: finished > 0 ? completedCount / finished : null,
         emitRate: runCount > 0 ? emittedRunCount / runCount : null,
     }
@@ -457,6 +471,25 @@ export function formatRunInterval(minutes: number): string {
         return `Every ${minutes / 60} hours`
     }
     return `Every ${minutes} minutes`
+}
+
+/**
+ * "30 9 * * *" → "09:30" when the cron is a plain daily time (the shape the settings form
+ * writes). Anything richer (multiple slots, day-of-week restrictions) returns null and is
+ * displayed as the raw expression instead.
+ */
+export function dailyCronToTime(cron: string | null | undefined): string | null {
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/)
+    if (!match) {
+        return null
+    }
+    return `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}`
+}
+
+/** "09:30" → "30 9 * * *" — the inverse of `dailyCronToTime` for the settings form's time picker. */
+export function timeToDailyCron(time: string): string {
+    const [hours, minutes] = time.split(':')
+    return `${Number(minutes)} ${Number(hours)} * * *`
 }
 
 /** Short form for row badges: "hourly", "every 3h". */

@@ -28,13 +28,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.se
     FINNHUB_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
+    FinnhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://finnhub.io/docs/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -63,6 +68,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -83,7 +89,11 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: FinnhubSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FinnhubSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_finnhub_credentials(config.api_key, schema_name)
 

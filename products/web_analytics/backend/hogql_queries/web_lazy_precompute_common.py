@@ -28,7 +28,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -36,6 +36,10 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     ensure_precomputed,
     parse_ttl_schedule,
+)
+from products.analytics_platform.backend.lazy_computation.stale_policy import (
+    is_background_warming_request as shared_is_background_warming_request,
+    resolve_stale_while_revalidate_seconds,
 )
 
 logger = structlog.get_logger(__name__)
@@ -110,23 +114,17 @@ def list_oom_pinned_team_ids() -> list[int]:
 # so the two cannot drift apart.
 REVALIDATION_TRIGGER = "webAnalyticsStaleRevalidation"
 
-# Requests tagged with any of these triggers ARE the refresh mechanism: they must never
-# be served stale (they'd freeze the cache serving stale to themselves) and they keep
-# the framework's full wait budget. This named set is the belt; the primary gate in
-# `is_background_warming_request` is the CACHE_WARMUP feature tag, which classifies
-# refreshers by category — including warmers this module doesn't know by name (e.g.
-# the generic insight cache warmer, trigger "warmingV2"), which would otherwise be
-# served stale and persist it into the insight cache under a fresh timestamp.
+# Web's own refreshers. These ARE the refresh mechanism: they must never be served stale
+# (they'd freeze the cache serving stale to themselves) and they keep the framework's full
+# wait budget. Warmers shared across products (e.g. the generic insight cache warmer,
+# trigger "warmingV2") live in SHARED_BACKGROUND_WARMING_TRIGGERS and are unioned in by
+# `is_background_warming_request`. This named set is the belt; the primary gate there is the
+# CACHE_WARMUP feature tag, which classifies refreshers by category — including warmers this
+# module doesn't know by name.
 BACKGROUND_WARMING_TRIGGERS = frozenset(
     {
         "webAnalyticsEagerBaselineWarming",
         "webAnalyticsQueryWarming",
-        # The generic insight cache warmer. Its Feature.CACHE_WARMUP tag does NOT
-        # survive to the ensure call (the lazy modules re-stamp feature=QUERY before
-        # ensuring), but the trigger does — without it here, warmer runs would be
-        # served stale and persist stale rows into the insight cache as a fresh
-        # blocking result.
-        "warmingV2",
         REVALIDATION_TRIGGER,
     }
 )
@@ -139,6 +137,12 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
 # outages. Must stay well under the framework's 48h ClickHouse expiry buffer (rows must
 # still exist).
 STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
+
+WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
+    "web_analytics_lazy_precompute_check_miss_total",
+    "User-facing reads that found no covering READY jobs, fell back to the live query, and enqueued a background warm.",
+    labelnames=["family"],
+)
 
 WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED = Counter(
     "web_analytics_lazy_precompute_stale_served_total",
@@ -160,9 +164,7 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
 
 
 def is_background_warming_request() -> bool:
-    if get_query_tag_value("feature") == Feature.CACHE_WARMUP:
-        return True
-    return get_query_tag_value("trigger") in BACKGROUND_WARMING_TRIGGERS
+    return shared_is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
 
 
 # One revalidation per (team, family, query shape) per window: a dashboard burst — or a
@@ -230,10 +232,20 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     and would serve stale to themselves). Callers that see `stale=True` must hand the
     result to `handle_stale_served` so the background revalidation actually happens.
     """
+    runner = kwargs.pop("runner", None)
+    family = kwargs.pop("family", None)
+    background = is_background_warming_request()
     if "stale_while_revalidate_seconds" not in kwargs:
-        kwargs["stale_while_revalidate_seconds"] = (
-            None if is_background_warming_request() else STALE_WHILE_REVALIDATE_SECONDS
+        kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
+            STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
         )
+    # User-facing requests never compute inline: they are served from covering
+    # READY jobs (fresh or within the stale grace) or told "miss" immediately so
+    # the caller falls back to the live query. Construction happens only on
+    # background triggers (warmers, the revalidation task) — a cold dashboard
+    # must not pay for its own backfill.
+    if "run_inserts" not in kwargs:
+        kwargs["run_inserts"] = background
     pinned = is_team_oom_pinned(team.id)
     if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]
@@ -252,6 +264,11 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if not result.ready and not background and runner is not None and family is not None:
+        # Check-only miss: warm in the background (debounced per team/family/shape)
+        # so the next visit is served from precompute while this one goes live.
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS.labels(family=family).inc()
+        enqueue_stale_revalidation(team=team, query=runner.query, family=family)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
         if not pinned:
@@ -455,6 +472,13 @@ def is_precompute_enabled_for_team(team: Team) -> bool:
     if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
         return True
     if is_precompute_unrestricted_for_team(team):
+        return True
+    # Background warmers build buckets for every active team regardless of the
+    # rollout flag: warming precedes read enablement, and flag evaluation is not
+    # reliably available in the Dagster processes the warmers run in. User-facing
+    # reads still require flag enrollment; the restricted filter-shape gate keeps
+    # the warmed set bounded to canonical shapes.
+    if is_background_warming_request():
         return True
     return is_org_feature_flag_enabled(team)
 

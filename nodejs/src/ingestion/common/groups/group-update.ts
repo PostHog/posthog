@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'

@@ -42,7 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customer_i
     CIO_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_CIO_OBJECT_TYPE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerio import (
+    CustomerIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -84,6 +86,10 @@ class CustomerIOSource(
     SimpleSource[CustomerIOSourceConfig],
     WebhookSource[CustomerIOSourceConfig],
 ):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.customer.io/api/app/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -175,7 +181,11 @@ class CustomerIOSource(
         )
 
     def validate_credentials(
-        self, config: CustomerIOSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CustomerIOSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.app_api_key, config.region)
 
@@ -205,6 +215,7 @@ class CustomerIOSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # `supports_append=False` on the webhook schemas: events arrive via the realtime
         # webhook pipeline (not the polling sync), so user-facing append/full-refresh
@@ -243,7 +254,9 @@ class CustomerIOSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return api_client.create_webhook(
             api_key=config.app_api_key,
             region=config.region,
@@ -252,7 +265,12 @@ class CustomerIOSource(
         )
 
     def webhook_inputs_updated(
-        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self,
+        config: CustomerIOSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        inputs: dict[str, Any],
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The webhook is created in a disabled state so Customer.io doesn't fire
         # events at PostHog before we can verify them with the signing secret.
@@ -262,11 +280,13 @@ class CustomerIOSource(
         return api_client.enable_webhook(config.app_api_key, config.region, webhook_url)
 
     def get_external_webhook_info(
-        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return api_client.get_external_webhook_info(config.app_api_key, config.region, webhook_url)
 
-    def delete_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.app_api_key, config.region, webhook_url)
 
     def source_for_pipeline(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:

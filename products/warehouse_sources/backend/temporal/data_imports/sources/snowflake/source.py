@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
@@ -290,6 +292,14 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # matches the columns its query produces, so the view itself fails to compile. This is
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
+            # Snowflake connector error 290403 (ER_HTTP_GENERAL_ERROR + 403): a request to Snowflake
+            # returned HTTP 403 Forbidden and kept doing so through the connector's own retry budget.
+            # The connector treats 403 as retryable and retries within the request timeout, so a
+            # ForbiddenError reaching us means the 403 is persistent — an access-denied condition
+            # (a network policy/firewall/proxy blocking PostHog, or the role's access to the data
+            # being revoked), not a transient blip. Retrying the whole sync can't fix it. The errno
+            # prefix and host are volatile, so we match the stable status text.
+            "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
         }
 
     def reconcile_schema_metadata(
@@ -308,7 +318,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
-        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SnowflakeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
@@ -318,7 +332,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             return False, "Missing required parameters: username, private key"
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except (ProgrammingError, DatabaseError, ForbiddenError, HttpError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():

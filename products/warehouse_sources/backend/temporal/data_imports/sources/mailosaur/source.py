@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailosaurSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailosaur import (
+    MailosaurSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailosaur.mailosaur import (
     MailosaurResumeConfig,
     mailosaur_source,
@@ -37,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://mailosaur.com/docs/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -91,6 +94,7 @@ Use an **account-level** API key — a server-scoped key cannot list servers, so
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
@@ -110,7 +114,11 @@ Use an **account-level** API key — a server-scoped key cannot list servers, so
         return schemas
 
     def validate_credentials(
-        self, config: MailosaurSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailosaurSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_mailosaur_credentials(config.api_key)
 
@@ -126,7 +134,8 @@ Use an **account-level** API key — a server-scoped key cannot list servers, so
         return mailosaur_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

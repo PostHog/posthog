@@ -10,11 +10,11 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::config::{Config, ConsumerTarget};
+use crate::config::Config;
 use crate::kafka::analysis::Aggregates;
 use crate::kafka::client;
 use crate::kafka::fetch::{self, FetchParams, TruncatedReason};
-use crate::kafka::lag::{self, PartitionBounds};
+use crate::kafka::lag::{self, ConsumerTarget, PartitionBounds};
 use crate::teams::TeamResolver;
 
 /// Finished jobs kept around for the UI; older ones are evicted on insert.
@@ -162,6 +162,7 @@ pub struct JobView {
 #[derive(Debug, Deserialize)]
 pub struct AnalysisRequest {
     pub group: String,
+    pub topic: String,
     pub partition: i32,
     #[serde(default)]
     pub mode: AnalysisMode,

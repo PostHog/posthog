@@ -26,7 +26,7 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
-    SHOPIFY_API_VERSION,
+    SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
@@ -44,6 +44,15 @@ PHASE_LATEST = "latest"
 SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
     "Failed to retrieve Shopify access token: the app credentials are invalid or the "
     "app was uninstalled. Please reconnect your Shopify integration."
+)
+
+# Raised when the OAuth token endpoint returns 404 — there is no store at
+# `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
+# Reconnecting the app can't fix a bad store id, so this is surfaced separately from the
+# credentials error above (both are matched by `get_non_retryable_errors` to fail fast).
+SHOPIFY_STORE_NOT_FOUND_ERROR = (
+    "Couldn't find a Shopify store at that address. Check that your store id (the "
+    "'my-store' in 'my-store.myshopify.com') is correct and the store is still active."
 )
 
 # Substring of the GraphQL error Shopify returns when the connected access token lacks the
@@ -336,7 +345,12 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     }
     access_res = make_tracked_session().post(access_token_url, data=access_data)
     if not access_res.ok:
-        # A 4xx means the app credentials are invalid/revoked (e.g. the app was
+        # A 404 means there's no store at this subdomain — the store id is wrong or the store
+        # is gone. Reconnecting the app can't fix that, so point the user at the store id
+        # instead of telling them their credentials are bad.
+        if access_res.status_code == 404:
+            raise Exception(f"{SHOPIFY_STORE_NOT_FOUND_ERROR} (HTTP 404)")
+        # Any other 4xx means the app credentials are invalid/revoked (e.g. the app was
         # uninstalled) — re-auth is the only fix, so surface a non-retryable message.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
             raise Exception(f"{SHOPIFY_ACCESS_TOKEN_AUTH_ERROR} (HTTP {access_res.status_code})")
@@ -370,10 +384,11 @@ def shopify_source(
     db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
 ):
     store_id = normalize_store_id(shopify_store_id)
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
@@ -498,9 +513,16 @@ def _format_graphql_errors(errors: Any) -> str:
     return str(errors)
 
 
-def _authenticated_session(store_id: str, client_id: str, client_secret: str) -> tuple[str, requests.Session]:
-    """Fetch an access token and return the GraphQL URL plus a session that carries it."""
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+def _authenticated_session(
+    store_id: str, client_id: str, client_secret: str, api_version: str = SHOPIFY_API_VERSION_2026_07
+) -> tuple[str, requests.Session]:
+    """Fetch an access token and return the GraphQL URL plus a session that carries it.
+
+    Shopify carries the version in the URL path, so callers that have a source pin must pass it:
+    a 2025-10-pinned source has to validate and probe permissions against 2025-10, not the
+    current default. Pre-creation callers omit it and get `default_version`.
+    """
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _get_shopify_access_token(store_id, client_id, client_secret)
     sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
     return api_url, sess
@@ -521,7 +543,11 @@ def _probe_resource_permission(api_url: str, sess: requests.Session, resource: S
 
 
 def validate_credentials(
-    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, resources: list[str] | None = None
+    shopify_store_id: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
+    resources: list[str] | None = None,
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
 ) -> bool:
     """Validate Shopify credentials.
 
@@ -531,7 +557,7 @@ def validate_credentials(
       naming any whose scope is missing.
     """
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
 
     # A valid token can always read the shop resource.
     try:
@@ -560,13 +586,17 @@ def validate_credentials(
 
 
 def check_endpoint_permissions(
-    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, endpoints: list[str]
+    shopify_store_id: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
+    endpoints: list[str],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
 ) -> dict[str, str | None]:
     """Per-endpoint read-scope probe for the schema picker: {name: None} if reachable, else a
     message naming the missing scope. A throttle/5xx/transport blip on one endpoint leaves that
     table unknown rather than aborting the batch; only failing to obtain the access token raises."""
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
     results: dict[str, str | None] = {}
     for name in endpoints:
         resource = SHOPIFY_GRAPHQL_OBJECTS.get(resolve_schema_name(name))

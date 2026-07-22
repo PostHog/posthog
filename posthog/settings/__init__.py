@@ -26,6 +26,7 @@ from posthog.settings.agents import *
 from posthog.settings.async_migrations import *
 from posthog.settings.batch_exports import *
 from posthog.settings.celery import *
+from posthog.settings.cohorts import *
 from posthog.settings.kafka import *
 from posthog.settings.data_stores import *
 from posthog.settings.dagster import *
@@ -44,6 +45,7 @@ from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
 from posthog.settings.data_warehouse import *
+from posthog.settings.managed_migrations import *
 from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
