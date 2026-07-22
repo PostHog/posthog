@@ -148,6 +148,7 @@ class TestSessionsAPI(APIBaseTest):
         actual_values = {entry["name"] for entry in response.json()["results"]}
         expected_values = {
             "Affiliate",
+            "AI",
             "Audio",
             "Cross Network",
             "Direct",
