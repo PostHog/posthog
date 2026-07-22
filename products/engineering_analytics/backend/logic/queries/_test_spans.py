@@ -80,7 +80,9 @@ _SCAN = """
         coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
         resource_attributes['ci.pr_number'] AS pr_number,
         resource_attributes['ci.branch'] AS branch,
-        resource_attributes['ci.run_id'] AS run_id,
+        -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an
+        -- unstamped span from merging every execution of its test into one phantom run.
+        coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans

@@ -92,9 +92,11 @@ _TEST_SIGNAL_SELECT = f"""
         countIf(NOT is_current AND (failed_in_run OR recovered_in_run)) AS signal_count_prior,
         max(run_signal_at) AS last_seen_at
     FROM ({_RUN_EVIDENCE})
-    WHERE owner_team = {{owner_team}}
     GROUP BY nodeid
-    HAVING signal_count > 0 OR signal_count_prior > 0
+    -- Latest stamp owns the whole test, exactly as the roster counts it, so this drill-in never
+    -- shows different rows than the summary that opened it.
+    HAVING argMax(owner_team, run_signal_at) = {{owner_team}}
+        AND (signal_count > 0 OR signal_count_prior > 0)
     ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC
     LIMIT {{test_limit_plus_one}}
 """

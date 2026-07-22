@@ -21,6 +21,7 @@ T_TWO_PRS = "posthog/api/test/test_two/TestTwo::test_fails_on_two_prs"
 T_MASTER = "posthog/api/test/test_master/TestMaster::test_breaks_trunk"
 T_QUARANTINED = "posthog/api/test/test_quarantined/TestQuarantined::test_still_fails"
 T_OLD = "posthog/api/test/test_old/TestOld::test_old_flake"
+T_NO_RUN_ID = "posthog/api/test/test_norun/TestNoRun::test_unstamped_spans"
 T_TIE_A = "posthog/api/test/test_tie_a/TestTie::test_retry"
 T_TIE_B = "posthog/api/test/test_tie_b/TestTie::test_retry"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
@@ -83,6 +84,10 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(17, T_QUARANTINED, "xfailed", ts=recent, run="800", branch="master"),
             # Signal outside the default window.
             cls._span(18, T_OLD, "rerun_passed", ts=old, run="900", pr="901", branch="old1"),
+            # Two master failures whose spans carry no ci.run_id: the trace_id fallback keeps them
+            # two distinct runs instead of merging every unstamped execution into one phantom run.
+            cls._span(24, T_NO_RUN_ID, "failed", ts=recent, run="", branch="master"),
+            cls._span(25, T_NO_RUN_ID, "failed", ts=recent, run="", branch="master"),
             # Identical evidence: nodeid is the deterministic final tiebreaker.
             cls._span(19, T_TIE_B, "rerun_passed", ts=recent, run="1000", pr="1001", branch="tie"),
             cls._span(20, T_TIE_A, "rerun_passed", ts=recent, run="1001", pr="1002", branch="tie"),
@@ -115,7 +120,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         outcome: str | None,
         *,
         ts: datetime,
-        run: str,
+        run: str = "",
         pr: str = "",
         branch: str = "",
         selector: str = "",
@@ -166,6 +171,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_QUARANTINED,
             T_TIE_A,
             T_TIE_B,
+            T_NO_RUN_ID,
         }
         assert data["truncated"] is False
         assert data["limit"] == 50
@@ -215,6 +221,13 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         # Master failures outrank PR-only evidence however many PRs it hit.
         assert nodeids.index(T_MASTER) < nodeids.index(T_THREE_PRS)
         assert nodeids.index(T_TIE_A) < nodeids.index(T_TIE_B)
+
+    def test_spans_without_run_id_stay_distinct_runs(self) -> None:
+        no_run = self._rows()[T_NO_RUN_ID]
+        # Without the trace_id fallback these two unstamped failures would merge into one
+        # phantom run and halve the blast radius.
+        assert (no_run["failed_run_count"], no_run["master_failed_run_count"]) == (2, 2)
+        assert no_run["classification"] == "suspected_regression"
 
     def test_min_failed_prs_controls_the_no_recovery_threshold(self) -> None:
         assert T_TWO_PRS not in self._rows()

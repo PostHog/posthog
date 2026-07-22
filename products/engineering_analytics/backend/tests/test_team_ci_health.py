@@ -14,6 +14,7 @@ T_REPLAY_RERUN = "products/replay/backend/tests/test_playlist/TestPlaylist::test
 T_EXPORTS_RECOVERED = "products/batch_exports/backend/tests/test_snowflake/TestSnowflake::test_recovered"
 T_UNOWNED = "posthog/api/test/test_shared/TestShared::test_unowned"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
+T_RESTAMPED = "products/moved/backend/tests/test_moved/TestMoved::test_restamped"
 
 
 class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
@@ -63,6 +64,10 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(
                 14, T_EXPORTS_RECOVERED, "rerun_passed", ts=cls.current_a, owner="batch-exports", run="304", pr="304"
             ),
+            # Ownership re-stamp: prior-window failure stamped team-old, current stamped team-new.
+            # The latest stamp owns the whole test, in the roster and the drill-in alike.
+            cls._span(15, T_RESTAMPED, "failed", ts=prior, owner="team-old", run="601", pr="601"),
+            cls._span(16, T_RESTAMPED, "failed", ts=cls.current_b, owner="team-new", run="602", pr="602"),
             # No owner stamp: buckets under the literal 'unowned'.
             cls._span(12, T_UNOWNED, "rerun_passed", ts=cls.current_b, owner="", run="401", pr="401"),
             # A non-CI service must never reach the roster (the scan is fenced by service_name).
@@ -148,6 +153,21 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
         # The foreign-service span's team must not appear at all.
         assert "ghost-team" not in rows
+
+    def test_restamped_test_lands_under_its_latest_owner_in_roster_and_drill_in(self):
+        rows = {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}
+
+        # All evidence, prior window included, follows the latest stamp; the old team keeps nothing.
+        assert "team-old" not in rows
+        new = rows["team-new"]
+        assert (new["failed_run_count"], new["failed_run_count_prior"]) == (1, 1)
+
+        # The drill-in agrees with the summary that opened it.
+        assert [
+            (t["nodeid"], t["signal_count"], t["signal_count_prior"])
+            for t in self._get("team_ci_activity", owner_team="team-new")["tests"]
+        ] == [(T_RESTAMPED, 1, 1)]
+        assert self._get("team_ci_activity", owner_team="team-old")["tests"] == []
 
     def test_activity_scopes_to_team_and_pairs_windows(self):
         data = self._get("team_ci_activity", owner_team="team-replay")
