@@ -163,6 +163,89 @@ describe('action.conditional_branch', () => {
         })
     })
 
+    describe('cohort conditions', () => {
+        // Real compiled bytecode for `person in cohort 42` / `person not in cohort 42` — the
+        // compiler emits a CALL_GLOBAL that resolves against the injected inCohort/notInCohort.
+        const inCohortFilters = (cohortId: number): any => ({
+            properties: [{ key: 'id', type: 'cohort', value: cohortId, operator: 'in' }],
+            bytecode: ['_H', 1, 33, cohortId, 2, 'inCohort', 1],
+            cohort_ids: [cohortId],
+        })
+        const notInCohortFilters = (cohortId: number): any => ({
+            properties: [{ key: 'id', type: 'cohort', value: cohortId, operator: 'not_in' }],
+            bytecode: ['_H', 1, 33, cohortId, 2, 'notInCohort', 1],
+            cohort_ids: [cohortId],
+        })
+
+        let fetchMemberships: jest.Mock
+        let cohortMembershipService: any
+
+        beforeEach(() => {
+            fetchMemberships = jest.fn()
+            cohortMembershipService = { fetchMemberships }
+        })
+
+        it.each([
+            ['member matches in-cohort condition', inCohortFilters(42), true, 'condition_1'],
+            ['non-member does not match in-cohort condition', inCohortFilters(42), false, null],
+            ['non-member matches not-in-cohort condition', notInCohortFilters(42), false, 'condition_1'],
+            ['member does not match not-in-cohort condition', notInCohortFilters(42), true, null],
+        ])('%s', async (_name, filters, isMember, expectedActionId) => {
+            action.config.conditions = [{ filters }]
+            fetchMemberships.mockResolvedValue(new Map([[42, isMember]]))
+
+            const result = await checkConditions(invocation, action, cohortMembershipService)
+
+            expect(fetchMemberships).toHaveBeenCalledWith(hogFlow.team_id, 'person_id', [42])
+            expect(result.nextAction).toEqual(
+                expectedActionId ? findActionById(invocation.hogFlow, expectedActionId) : undefined
+            )
+        })
+
+        it('fetches memberships once for all conditions and fails cohort conditions closed on error', async () => {
+            invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    event: '$pageview',
+                    properties: { $current_url: 'https://posthog.com' },
+                } as any,
+            })
+            action.config.conditions = [
+                { filters: notInCohortFilters(42) }, // would match if the fetch result were guessed
+                { filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters }, // cohort-free, matches
+                { filters: inCohortFilters(7) },
+            ]
+            fetchMemberships.mockRejectedValue(new Error('db down'))
+
+            const result = await checkConditions(invocation, action, cohortMembershipService)
+
+            // One batched lookup across both cohort conditions
+            expect(fetchMemberships).toHaveBeenCalledTimes(1)
+            expect(fetchMemberships).toHaveBeenCalledWith(hogFlow.team_id, 'person_id', [42, 7])
+            // Both cohort conditions are skipped (even notInCohort must not default to true);
+            // the cohort-free condition still evaluates and wins.
+            expect(result.nextAction?.id).toEqual('condition_2')
+        })
+
+        it('treats a person-less event as in no cohort without hitting the database', async () => {
+            invocation.filterGlobals.person = null
+            action.config.conditions = [{ filters: inCohortFilters(42) }, { filters: notInCohortFilters(42) }]
+
+            const result = await checkConditions(invocation, action, cohortMembershipService)
+
+            expect(fetchMemberships).not.toHaveBeenCalled()
+            // inCohort → false, notInCohort → true, so the second condition matches
+            expect(result.nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
+        })
+
+        it('fails cohort conditions closed when no membership service is wired', async () => {
+            action.config.conditions = [{ filters: notInCohortFilters(42) }]
+
+            const result = await checkConditions(invocation, action, null)
+
+            expect(result).toEqual({})
+        })
+    })
+
     describe('wait_until_condition eventMatched short-circuit', () => {
         let waitInvocation: CyclotronJobInvocationHogFlow
         let waitAction: Extract<HogFlowAction, { type: 'wait_until_condition' }>

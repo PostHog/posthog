@@ -45,6 +45,7 @@ export function TaxonomicFilter({
     selectFirstItem = true,
     propertyAllowList,
     hideBehavioralCohorts,
+    realtimeCohortsOnly,
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     maxContextOptions,
@@ -92,6 +93,7 @@ export function TaxonomicFilter({
         metadataSource,
         propertyAllowList,
         hideBehavioralCohorts,
+        realtimeCohortsOnly,
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
         autoSelectItem: true,
@@ -129,7 +131,7 @@ export function TaxonomicFilter({
         if (taxonomicFilterRef.current) {
             setRefReady(true)
         }
-    }, [taxonomicFilterRef.current])
+    }, [])
 
     const style = {
         ...(width ? { width } : {}),

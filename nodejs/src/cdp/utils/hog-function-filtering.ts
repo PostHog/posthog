@@ -352,8 +352,10 @@ export async function filterFunctionInstrumented(options: {
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
+    /** Optional sync function implementations resolved by CALL_GLOBAL (e.g. inCohort/notInCohort) */
+    functions?: Record<string, (...args: any[]) => any>
 }): Promise<HogFilterResult> {
-    const { fn, filters, filterGlobals } = options
+    const { fn, filters, filterGlobals, functions } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const logs: LogEntry[] = []
@@ -399,7 +401,7 @@ export async function filterFunctionInstrumented(options: {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
-        const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
+        const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals, functions })
 
         if (execHogOutcome) {
             hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)

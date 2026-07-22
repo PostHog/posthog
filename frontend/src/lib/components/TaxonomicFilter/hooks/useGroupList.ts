@@ -63,6 +63,7 @@ export interface UseGroupListInput {
      *  numeric-only items locally for DataWarehousePersonProperties. */
     showNumericalPropsOnly?: boolean
     hideBehavioralCohorts?: boolean
+    realtimeCohortsOnly?: boolean
     /** Exclude event definitions not seen within the staleness window (event /
      *  custom-event endpoints only). Mirrors legacy's default-on `exclude_stale`. */
     excludeStale?: boolean
@@ -126,6 +127,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         optionsFromProp,
         showNumericalPropsOnly = false,
         hideBehavioralCohorts = false,
+        realtimeCohortsOnly = false,
         excludeStale = false,
         minSearchQueryLength: minSearchOverride,
         limit = DEFAULT_LIMIT,
@@ -233,6 +235,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            realtimeCohortsOnly,
             excludeStale,
             excludedPropertiesKey,
             propertyAllowListKey,
@@ -246,6 +249,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            realtimeCohortsOnly,
             excludeStale,
             excludedPropertiesKey,
             propertyAllowListKey,
@@ -263,6 +267,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                realtimeCohortsOnly,
                 excludeStale,
                 signal,
             }),
@@ -300,6 +305,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            realtimeCohortsOnly,
             excludeStale,
             excludedPropertiesKey,
             propertyAllowListKey,
@@ -313,6 +319,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            realtimeCohortsOnly,
             excludeStale,
             excludedPropertiesKey,
             propertyAllowListKey,
@@ -330,6 +337,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                realtimeCohortsOnly,
                 excludeStale,
                 signal,
             }),

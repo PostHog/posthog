@@ -17,6 +17,10 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "realtime_supported": {
+            "description": "Set true to only return realtime cohorts whose membership is maintained in real time (backfilled realtime cohorts) — the only cohorts usable in workflow conditions.",
+            "type": "boolean"
+        },
         "search": {
             "description": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
             "type": "string"

@@ -146,6 +146,8 @@ export interface TaxonomicFilterProps {
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
+    /** Only list realtime cohorts with maintained membership — the only cohorts usable in workflow conditions */
+    realtimeCohortsOnly?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]

@@ -104,6 +104,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                     hide_behavioral_cohorts: params.hide_behavioral_cohorts,
                     limit: params.limit,
                     offset: params.offset,
+                    realtime_supported: params.realtime_supported,
                     search: params.search,
                 },
             })

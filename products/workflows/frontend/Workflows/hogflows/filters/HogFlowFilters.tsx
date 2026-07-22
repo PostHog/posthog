@@ -49,6 +49,10 @@ export type HogFlowFiltersProps = {
     // has no such key, so a group-based wait could never be woken and would only ever time out.
     // Used by wait conditions to keep them constrained to matcher-observable signals.
     excludeGroupProperties?: boolean
+    // Offer realtime cohorts as a filterable property type. Only conditional_branch supports
+    // cohort membership checks at runtime (via the cohort_membership store), so wait conditions
+    // and other surfaces must not set this.
+    allowRealtimeCohorts?: boolean
     // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
     // as suggestions and resolve their distinct values.
     schemaColumns?: DatabaseSchemaField[]
@@ -122,12 +126,15 @@ export function HogFlowPropertyFilters({
     filters,
     setFilters,
     excludeGroupProperties,
+    allowRealtimeCohorts,
     schemaColumns,
     dataWarehouseTableName,
 }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { workflow } = useValues(workflowLogic)
+    const realtimeCohortConditionsEnabled = useFeatureFlag('WORKFLOWS_REALTIME_COHORT_CONDITIONS')
+    const showRealtimeCohorts = !!allowRealtimeCohorts && realtimeCohortConditionsEnabled
     // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
     // sees a match alongside event/person properties. The dedicated tab still works without this.
     const taxonomicFilterOptionsFromProp = {
@@ -153,11 +160,13 @@ export function HogFlowPropertyFilters({
                           TaxonomicFilterGroupType.EventProperties,
                           TaxonomicFilterGroupType.EventFeatureFlags,
                           TaxonomicFilterGroupType.PersonProperties,
+                          ...(showRealtimeCohorts ? [TaxonomicFilterGroupType.Cohorts] : []),
                           ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
                           TaxonomicFilterGroupType.HogQLExpression,
                           TaxonomicFilterGroupType.EventMetadata,
                       ]
             }
+            realtimeCohortsOnly={showRealtimeCohorts}
             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
             schemaColumns={schemaColumns}
             dataWarehouseTableName={dataWarehouseTableName}

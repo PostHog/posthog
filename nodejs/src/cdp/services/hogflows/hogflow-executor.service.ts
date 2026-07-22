@@ -32,6 +32,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { CohortMembershipService } from './cohort-membership.service'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
@@ -104,7 +105,8 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        cohortMembershipService?: CohortMembershipService
     ) {
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
@@ -128,8 +130,8 @@ export class HogFlowExecutorService {
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
-            conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            conditional_branch: new ConditionalBranchHandler(cohortMembershipService ?? null),
+            wait_until_condition: new ConditionalBranchHandler(cohortMembershipService ?? null),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),

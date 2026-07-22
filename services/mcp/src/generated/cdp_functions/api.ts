@@ -151,6 +151,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            cohort_ids: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                ),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -250,6 +256,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        cohort_ids: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe(
+                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                            ),
                     })
                     .optional(),
             })
@@ -404,6 +416,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            cohort_ids: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                ),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -503,6 +521,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        cohort_ids: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe(
+                                'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                            ),
                     })
                     .optional(),
             })
@@ -745,6 +769,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
+                    cohort_ids: zod
+                        .array(zod.number())
+                        .optional()
+                        .describe(
+                            'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                        ),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -860,6 +890,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                cohort_ids: zod
+                                    .array(zod.number())
+                                    .optional()
+                                    .describe(
+                                        'Cohort ids referenced by these filters. Compiled server-side alongside bytecode so the runtime can pre-fetch cohort membership. Do not set.'
+                                    ),
                             })
                             .optional(),
                     })

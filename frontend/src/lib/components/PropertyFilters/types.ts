@@ -65,6 +65,7 @@ export interface PropertyFilterInternalProps {
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
+    realtimeCohortsOnly?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>

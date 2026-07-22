@@ -86,6 +86,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     propertyAllowList?: AllowedProperties
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     hideBehavioralCohorts?: boolean
+    realtimeCohortsOnly?: boolean
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     showNumericalPropsOnly?: boolean
@@ -224,6 +225,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     propertyAllowList,
     optionsFromProp,
     hideBehavioralCohorts,
+    realtimeCohortsOnly,
     endpointFilters,
     hogQLGlobals,
     showNumericalPropsOnly,
@@ -306,6 +308,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             propertyAllowList={propertyAllowList}
             optionsFromProp={optionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            realtimeCohortsOnly={realtimeCohortsOnly}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             showNumericalPropsOnly={showNumericalPropsOnly}
