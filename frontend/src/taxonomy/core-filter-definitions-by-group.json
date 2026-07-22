@@ -1614,6 +1614,14 @@
             ],
             "label": "Feature flag evaluated at"
         },
+        "$feature_flag_has_experiment": {
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "Feature flag has experiment"
+        },
         "$feature_flag_id": {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": [
@@ -2118,7 +2126,7 @@
             "type": "Numeric"
         },
         "$mcp_error_message": {
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
             "label": "MCP error message"
         },
         "$mcp_error_status": {
@@ -4227,7 +4235,7 @@
             "type": "Numeric"
         },
         "$mcp_error_message": {
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
             "label": "MCP error message"
         },
         "$mcp_error_status": {
@@ -6001,6 +6009,14 @@
             ],
             "label": "Feature flag evaluated at"
         },
+        "$feature_flag_has_experiment": {
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "Feature flag has experiment"
+        },
         "$feature_flag_id": {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": [
@@ -6922,7 +6938,7 @@
             "type": "Numeric"
         },
         "$mcp_error_message": {
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
             "label": "MCP error message"
         },
         "$mcp_error_status": {

@@ -2,7 +2,9 @@ from typing import Any
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
+    ShopifySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 _TOKEN_PATH = (

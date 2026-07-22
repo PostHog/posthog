@@ -1,18 +1,18 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast import rentcast
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
     PAGE_SIZE,
     RentCastResumeConfig,
-    RentCastRetryableError,
-    check_access,
-    get_rows,
     rentcast_source,
     validate_credentials,
 )
@@ -21,164 +21,153 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.s
     RENTCAST_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = rentcast._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the rentcast module.
+RENTCAST_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: RentCastResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[RentCastResumeConfig] = []
+def _response(body: Any) -> Response:
+    # RentCast list endpoints return a bare JSON array of records.
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.rentcast.io/v1/properties"
+    return resp
 
-    def can_resume(self) -> bool:
-        return self._state is not None
 
-    def load_state(self) -> RentCastResumeConfig | None:
-        return self._state
+def _make_manager(resume_state: RentCastResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    def save_state(self, data: RentCastResumeConfig) -> None:
-        self.saved.append(data)
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Wire a mock session; capture request params AND the request object AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+    request_snapshots: list[Any] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        request_snapshots.append(request)
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots, request_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 def _full_page(start_id: int) -> list[dict]:
     return [{"id": start_id + i} for i in range(PAGE_SIZE)]
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, list[dict]], endpoint: str = "properties"
-    ) -> list[dict]:
-        def fake_fetch(session: Any, path: str, offset: int, limit: int, logger: Any) -> list[dict]:
-            return pages[offset]
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_progresses_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _ = _wire(session, [_response(_full_page(0)), _response([{"id": 999}])])
 
-        monkeypatch.setattr(rentcast, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(rentcast, "make_tracked_session", lambda **kwargs: MagicMock())
+        manager = _make_manager()
+        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="rc-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_single_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: [{"id": 1}, {"id": 2}]})
-        assert rows == [{"id": 1}, {"id": 2}]
-        # The page is short (< PAGE_SIZE), so we stop without persisting resume state.
-        assert manager.saved == []
-
-    def test_follows_offset_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _full_page(0), PAGE_SIZE: [{"id": 999}]}
-        rows = self._collect(manager, monkeypatch, pages)
         assert len(rows) == PAGE_SIZE + 1
-        # State is saved after the first full page (offset advances to PAGE_SIZE), then we stop.
-        assert [s.offset for s in manager.saved] == [PAGE_SIZE]
+        assert rows[-1] == {"id": 999}
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == PAGE_SIZE
+        assert params[1]["offset"] == PAGE_SIZE
+        # Checkpoint saved after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == RentCastResumeConfig(offset=PAGE_SIZE)
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(RentCastResumeConfig(offset=PAGE_SIZE))
-        # Offset 0 must never be fetched on resume.
-        pages = {PAGE_SIZE: [{"id": 5}]}
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}])])
+
+        manager = _make_manager()
+        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert rows == [{"id": 1}, {"id": 2}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _ = _wire(session, [_response([{"id": 5}])])
+
+        manager = _make_manager(RentCastResumeConfig(offset=PAGE_SIZE))
+        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
+        assert params[0]["offset"] == PAGE_SIZE
         assert rows == [{"id": 5}]
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: []})
-        assert rows == []
-        assert manager.saved == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_endpoint_path_matches_config(self, MockSession) -> None:
+        session = MockSession.return_value
+        _, requests_seen = _wire(session, [_response([{"id": 1}])])
 
-
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
+        _rows(
+            rentcast_source("rc-key", "sale_listings", team_id=1, job_id="j", resumable_source_manager=_make_manager())
         )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+        assert requests_seen[0].url == "https://api.rentcast.io/v1/listings/sale"
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(RentCastRetryableError):
-            _fetch_page_unwrapped(session, "/properties", 0, PAGE_SIZE, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_api_key_rides_in_x_api_key_header_and_accept_set(self, MockSession) -> None:
+        session = MockSession.return_value
+        _, requests_seen = _wire(session, [_response([{"id": 1}])])
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/properties", 0, PAGE_SIZE, MagicMock())
+        _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        # The key is wired through framework auth (redacted from logs), targeting the X-Api-Key header.
+        auth = requests_seen[0].auth
+        assert auth.name == "X-Api-Key"
+        assert auth.location == "header"
+        assert auth.api_key == "rc-key"
+        assert session.headers.get("Accept") == "application/json"
 
-    def test_success_returns_list_body(self) -> None:
-        body = [{"id": 1}]
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "/properties", 0, PAGE_SIZE, MagicMock())
-        assert result == body
+    @parameterized.expand([("bare_string", "nope"), ("dict_without_list", {"error": "nope"})])
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retryable(self, _name: str, bad_body: Any, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        session.prepare_request.return_value = mock.MagicMock()
+        session.send.return_value = _response(bad_body)
 
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(RentCastRetryableError):
-            _fetch_page_unwrapped(session, "/properties", 0, PAGE_SIZE, MagicMock())
-
-    def test_request_uses_limit_and_offset_params(self) -> None:
-        session = self._session_returning(200, [])
-        _fetch_page_unwrapped(session, "/listings/sale", 1000, PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"limit": PAGE_SIZE, "offset": 1000}
+        # A 200 body that isn't a list means an unexpected shape — retry, don't sync garbage.
+        with pytest.raises(RESTClientRetryableError, match="Unexpected 200 response body shape"):
+            _rows(
+                rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+            )
 
 
-class TestCheckAccess:
-    @staticmethod
-    def _session_for(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "RentCast returned HTTP 500"),
-        ]
-    )
-    @patch.object(rentcast, "make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_make_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_make_session.return_value = self._session_for(response)
-        assert check_access("rc-key") == (expected_status, expected_message)
-
-    @patch.object(rentcast, "make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_make_session: MagicMock) -> None:
-        mock_make_session.return_value = self._session_for(requests.ConnectionError("boom"))
-        status, message = check_access("rc-key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
+class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -187,31 +176,25 @@ class TestCheckAccess:
             ("server_error", 500, False, "RentCast returned HTTP 500"),
         ]
     )
-    @patch.object(rentcast, "make_tracked_session")
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_make_session: MagicMock,
+    @mock.patch(RENTCAST_SESSION_PATCH)
+    def test_status_mapping(
+        self, _name: str, status: int, expected_valid: bool, expected_message: str | None, mock_session
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_make_session.return_value = self._session_for(response)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("rc-key") == (expected_valid, expected_message)
+
+    @mock.patch(RENTCAST_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_session) -> None:
+        # A transport failure must not raise out of validate_credentials — it maps to "not validated".
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("rc-key") == (False, "Could not validate RentCast API key")
 
 
 class TestRentCastSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = rentcast_source(
-            api_key="rc-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
+        response = rentcast_source("rc-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # No stable creation timestamp is guaranteed across every record, so we don't partition.

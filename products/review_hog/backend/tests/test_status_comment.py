@@ -92,7 +92,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["Found no issues worth raising, so no review was posted."],
+                ["Nothing worth raising this time, so here's a calming gif instead:", "![", "pr-assets"],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.

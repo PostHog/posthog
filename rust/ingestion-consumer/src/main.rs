@@ -27,7 +27,7 @@ use ingestion_consumer::discovery::{
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::HttpTransport;
-use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
+use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
 
@@ -378,6 +378,7 @@ async fn async_main(config: Config) -> Result<()> {
                             dispatcher: load.dispatcher,
                             peer_index: load.peer_index,
                             peer_count: load.peer_count,
+                            routing: load.routing,
                             events: recorder.backlog(),
                         }))
                     };
@@ -544,8 +545,21 @@ fn build_debug_load(
         None => (None, None),
     };
     let dispatcher_load = dispatcher.debug_load();
-    let workers = registry
-        .health_snapshots()
+    // One registry pass feeds the worker rows AND the routing ring/slice, so a
+    // worker joining or changing health mid-request can't make the payload
+    // show slice badges that contradict the worker table.
+    let snapshots = registry.health_snapshots();
+    let ring_workers: Vec<WorkerId> = snapshots
+        .iter()
+        .map(|snap| WorkerId::from(snap.url.as_str()))
+        .collect();
+    let healthy: Vec<WorkerId> = snapshots
+        .iter()
+        .filter(|snap| snap.routable)
+        .map(|snap| WorkerId::from(snap.url.as_str()))
+        .collect();
+    let routing = dispatcher.debug_routing(ring_workers, &healthy);
+    let workers = snapshots
         .into_iter()
         .map(|snap| {
             let in_flight_messages = dispatcher_load
@@ -571,5 +585,6 @@ fn build_debug_load(
         dispatcher: dispatcher_load,
         peer_index,
         peer_count,
+        routing,
     }
 }

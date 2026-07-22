@@ -1,16 +1,22 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
-from requests import Session
-from requests.exceptions import RequestException
-from structlog.types import FilteringBoundLogger
+from requests import Request
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.settings import (
     PAGE_SIZE,
     PICQER_ENDPOINTS,
@@ -31,6 +37,22 @@ _ACCOUNT_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 class PicqerResumeConfig:
     # Next offset to fetch. None means "start from offset 0".
     offset: int | None = None
+
+
+class PicqerOffsetPaginator(OffsetPaginator):
+    """Picqer paginates purely by `offset`; its page size is fixed server-side at 100 with no
+    `limit`/`per_page` override, so — unlike the built-in OffsetPaginator — we must never emit a
+    limit query param. `limit` is still used internally to detect the short final page and stop."""
+
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.offset_param] = self.offset
+
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.offset_param] = self.offset
 
 
 def normalize_account(account: str) -> str:
@@ -70,22 +92,6 @@ def to_picqer_datetime(value: Any) -> str:
     return str(value).replace("T", " ")[:19]
 
 
-def _make_session(api_key: str) -> Session:
-    session = make_tracked_session(redact_values=(api_key,))
-    session.headers.update({"User-Agent": PICQER_USER_AGENT, "Accept": "application/json"})
-    # Picqer uses HTTP Basic auth with the API key as the username and a blank password.
-    session.auth = (api_key, "")
-    return session
-
-
-def _fetch_page(session: Session, url: str, params: dict[str, Any]) -> Any:
-    """Fetch a single Picqer list page. Rate limits (429) and transient 5xx are retried by the
-    tracked session's adapter; a persistent auth/permission error raises via `raise_for_status`."""
-    response = session.get(url, params=params, timeout=60)
-    response.raise_for_status()
-    return response.json()
-
-
 def _build_params(
     config: PicqerEndpointConfig,
     should_use_incremental_field: bool,
@@ -106,66 +112,70 @@ def _build_params(
     return params
 
 
-def get_rows(
-    account: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PicqerResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = PICQER_ENDPOINTS[endpoint]
-    url = f"{_base_url(account)}{config.path}"
-    session = _make_session(api_key)
-
-    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume is not None and resume.offset is not None else 0
-    if offset:
-        logger.debug(f"Picqer: resuming {endpoint} from offset {offset}")
-
-    while True:
-        items = _fetch_page(session, url, {**params, "offset": offset})
-
-        if not isinstance(items, list) or not items:
-            break
-
-        yield items
-
-        # A short page means we've reached the end of the (optionally filtered) result set.
-        if len(items) < PAGE_SIZE:
-            break
-
-        offset += PAGE_SIZE
-        # Save AFTER yielding so a crash re-runs from the next page rather than losing the last one —
-        # merge dedupes on the primary key.
-        resumable_source_manager.save_state(PicqerResumeConfig(offset=offset))
-
-
 def picqer_source(
     account: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PicqerResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = PICQER_ENDPOINTS[endpoint]
 
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(account),
+            # Non-secret headers only; the API key travels via HTTP Basic auth (below), whose base64
+            # Authorization header is redacted by the tracked session's header denylist.
+            "headers": {"User-Agent": PICQER_USER_AGENT, "Accept": "application/json"},
+            # Picqer authenticates with the API key as the HTTP Basic username and a blank password.
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            # Fixed page size of 100, offset-only advancement; termination is a short/empty page.
+            "paginator": PicqerOffsetPaginator(limit=PAGE_SIZE, total_path=None),
+            # Pin every request (including any resume URL) to `<account>.picqer.com` so the stored
+            # API key can never be sent off-host.
+            "allowed_hosts": [],
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(PicqerResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            account=account,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -183,9 +193,14 @@ def validate_credentials(account: str, api_key: str) -> tuple[bool, int | None]:
     ``403`` (valid key, insufficient scope) is treated as reachable — fulfilment keys legitimately
     have narrow scopes and per-table access is reported separately.
     """
-    url = f"{_base_url(account)}/warehouses"
-    try:
-        response = _make_session(api_key).get(url, params={"offset": 0}, timeout=10)
-    except RequestException:
-        return False, None
-    return response.status_code in (200, 403), response.status_code
+    # `_base_url` normalizes (and validates) the account before the probe; a malformed account
+    # raises ValueError here so the caller can surface a precise message.
+    url = f"{_base_url(account)}/warehouses?offset=0"
+    return validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        url,
+        headers={"User-Agent": PICQER_USER_AGENT, "Accept": "application/json"},
+        auth=HTTPBasicAuth(api_key, ""),
+        ok_statuses=(200, 403),
+        timeout=10.0,
+    )

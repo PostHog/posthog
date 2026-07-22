@@ -4416,6 +4416,35 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
         assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
 
+    def test_grouped_dashboard_property_override_does_not_crash_retrieval(self) -> None:
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        country_filter = {"key": "$country", "type": "event", "operator": "exact", "value": ["US"]}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": str(dashboard.pk),
+                "filters_override": json.dumps(
+                    {"properties": {"type": "AND", "values": [{"type": "AND", "values": [country_filter]}]}}
+                ),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        country_values = self._collect_property_values(response.json()["query"]["source"].get("properties"), "$country")
+        assert country_values == [["US"]]
+
     def test_from_dashboard_ignores_dashboard_context_without_view_access(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

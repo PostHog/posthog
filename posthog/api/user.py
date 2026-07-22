@@ -84,6 +84,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -103,6 +104,7 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
@@ -1455,6 +1457,11 @@ class UserViewSet(
 # Toolbar
 
 
+def _user_can_access_toolbar(user: User, team: Team) -> bool:
+    """Whether the user is allowed to launch the toolbar for this team."""
+    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+
+
 @require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
@@ -1475,6 +1482,9 @@ def toolbar_oauth_authorize(request):
     team = request.user.team
     if not team:
         return HttpResponse("No project found", status=400)
+
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
 
     try:
         app_url = normalize_and_validate_app_url(team, redirect_url)
@@ -1559,6 +1569,9 @@ def toolbar_oauth_callback(request):
     if not team:
         return HttpResponse("No project found", status=400)
 
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
     try:
         state_payload = validate_and_consume_toolbar_oauth_state(
             signed_state=state,
@@ -1568,6 +1581,13 @@ def toolbar_oauth_callback(request):
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
         return HttpResponse(exc.detail, status=exc.status_code)
+
+    # The first-party auto-approval path issues this grant with an org-wide
+    # scoped_teams=[] (unrestricted across every team in the org), since the generic
+    # /oauth/authorize/ view has no notion of which team a toolbar launch was verified
+    # for. Narrow it to the verified team here, before the client can exchange the code,
+    # so the resulting tokens can't be replayed against a team where toolbar access is denied.
+    OAuthGrant.objects.filter(code=code, application=oauth_app, user=request.user).update(scoped_teams=[team.id])
 
     # Re-validate app_url from the signed state against the team's allowlist.
     # validate_and_consume_toolbar_oauth_state already does this, but repeating
@@ -1625,6 +1645,23 @@ class ToolbarOAuthRefreshView(APIView):
                 {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
             )
 
+        # Re-check current toolbar access here: the token itself is the only credential on this
+        # AllowAny endpoint, so a user whose access was revoked after the token was issued must
+        # not be able to keep minting fresh tokens with it. Check against the token's own scoped
+        # team, not the user's current team - the user can switch their active team to one they
+        # still have access to while continuing to refresh a token scoped to a different, revoked
+        # project.
+        token_record = find_oauth_refresh_token(refresh_token)
+        if token_record:
+            scoped_team_ids = token_record.scoped_teams or []
+            team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
+            if not team or not _user_can_access_toolbar(token_record.user, team):
+                logger.warning("toolbar_oauth_refresh_denied", reason="access_revoked")
+                return JsonResponse(
+                    {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
+                    status=403,
+                )
+
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
         except ToolbarOAuthError as exc:
@@ -1667,6 +1704,9 @@ def get_toolbar_preloaded_flags(request):
         )
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
+    if not _user_can_access_toolbar(request.user, request.user.team):
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
@@ -1691,6 +1731,9 @@ def prepare_toolbar_preloaded_flags(request):
         if not team:
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
+
+        if not _user_can_access_toolbar(request.user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
 
         # Use Rust flags service. Pass the internal token so this Django -> Rust
         # call bypasses the team's billing limiter and isn't counted as customer
@@ -1733,12 +1776,19 @@ def redirect_to_site(request):
     # Consider removing this in favor of building the redirect URL client-side.
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
+    if not team:
+        return HttpResponse(status=404)
+
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
+    if not _user_can_access_toolbar(request.user, team):
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
+    if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         parsed_app_url = urllib.parse.urlparse(app_url)
         hostname = parsed_app_url.hostname or app_url

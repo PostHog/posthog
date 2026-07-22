@@ -1991,6 +1991,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         organization_id = team.organization_id
         team_name = team.name
 
+        # Remove the team from the org's managed warehouse first (no-op for orgs without
+        # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
+        # requires deprovisioning the warehouse (or deleting the organization) instead.
+        # Keep the product API off the core import path.
+        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
+            block_team_deletion,
+        )
+
+        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        if warehouse_block_reason:
+            raise exceptions.ValidationError(warehouse_block_reason)
+
         user = cast(User, self.request.user)
 
         # Hand off all deletion work (bulky postgres, batch exports, team record,
