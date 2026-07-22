@@ -155,6 +155,52 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == [("No email set. Skipping...",)]
 
+    def test_create_conflict_retries_as_update(self):
+        self.fetch_responses = {
+            "https://api.intercom.io/contacts/search": {
+                "status": 200,
+                "body": {"total_count": 0},
+            },
+            "https://api.intercom.io/contacts": {
+                "status": 409,
+                "body": {
+                    "type": "error.list",
+                    "errors": [
+                        {
+                            "code": "conflict",
+                            "message": "A contact matching those details already exists with id=abc123",
+                        }
+                    ],
+                },
+            },
+            "https://api.intercom.io/contacts/abc123": {
+                "status": 200,
+                "body": {"id": "abc123"},
+            },
+        }
+
+        self.run_function(inputs=self.create_inputs())
+
+        assert self.get_mock_fetch_calls()[2] == (
+            "https://api.intercom.io/contacts/abc123",
+            {
+                "method": "PUT",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
+                },
+                "body": {
+                    "email": "max@posthog.com",
+                    "custom_attributes": {},
+                    "name": "Max AI",
+                    "phone": "+1234567890",
+                    "last_seen_at": "1234567890",
+                },
+            },
+        )
+
     def test_function_errors_on_bad_status(self):
         self.fetch_responses = {
             "https://api.intercom.io/contacts/search": {

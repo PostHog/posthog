@@ -92,6 +92,48 @@ if (user.body.total_count == 1) {
         },
         'body': payload
     })
+
+    if (res.status == 409) {
+        let contactId := extractRegex(toString(res.body.errors.1.message ?? ''), 'id=([^\\s]+)')
+
+        if (empty(contactId)) {
+            user := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/search', {
+                'method': 'POST',
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Intercom-Version': '2.11',
+                    'Accept': 'application/json',
+                    'Authorization': f'Bearer {inputs.oauth.access_token}',
+                },
+                'body': {
+                    'query': {
+                        'field': 'email',
+                        'operator': '=',
+                        'value': inputs.email
+                    }
+                }
+            })
+
+            if (user.status >= 400) {
+                throw Error(f'Error from intercom api (status {user.status}): {user.body}')
+            } else if (user.body.total_count != 1) {
+                throw Error(f'Error from intercom api (status {res.status}): {res.body}')
+            } else {
+                contactId := user.body.data.1.id
+            }
+        }
+
+        res := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/{contactId}', {
+            'method': 'PUT',
+            'headers': {
+                'Content-Type': 'application/json',
+                'Intercom-Version': '2.11',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {inputs.oauth.access_token}',
+            },
+            'body': payload
+        })
+    }
 } else {
     throw Error('Found multiple contacts with the same email address. Skipping...')
 }
