@@ -71,9 +71,12 @@ export function LLMPromptScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
     const currentSearchParams = searchParams ?? {}
-    const activeViewTab = ['code', 'usage', 'experiments', 'history'].includes(searchParams?.tab)
-        ? searchParams.tab
-        : 'overview'
+    // A ?tab= pointing at a tab that is not rendered (e.g. history with the flag off)
+    // would leave LemonTabs with no matching content; fall back to overview instead.
+    const availableViewTabs = labelsEnabled
+        ? ['code', 'usage', 'experiments', 'history']
+        : ['code', 'usage', 'experiments']
+    const activeViewTab = availableViewTabs.includes(searchParams?.tab) ? searchParams.tab : 'overview'
 
     const {
         submitPromptForm,
