@@ -80,6 +80,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import type {
+    LLMPromptApi,
     LLMPromptListApi,
     LLMPromptResolveResponseApi,
     LLMPromptVersionSummaryApi,
@@ -313,6 +314,7 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
 }
 
@@ -5982,6 +5984,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -6185,6 +6188,14 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+}
+
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
 }
 
 export interface ExternalDataSourceConnectionMetadata {
@@ -7784,6 +7795,8 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** Key for this prompt's rows in the activity log (History tab). */
+    activity_item_id: LLMPromptApi['activity_item_id']
     /** All labels on the prompt with the version each points to. Only present on list responses. */
     all_labels?: LLMPromptListApi['all_labels']
 }

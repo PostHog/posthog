@@ -98,6 +98,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "visual-review-runs-finalize-create",
     "workflows-discard-draft",
     "workflows-publish",
+    "workflows-restore-revision",
     "workflows-test-run",
 )
 

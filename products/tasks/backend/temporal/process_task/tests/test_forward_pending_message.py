@@ -24,7 +24,14 @@ forward_pending_user_message = _module.forward_pending_user_message
 
 
 def _command_result(**kwargs):
-    defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
+    defaults = {
+        "success": False,
+        "status_code": 0,
+        "error": None,
+        "retryable": False,
+        "turn_in_flight": False,
+        "data": None,
+    }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
 
@@ -123,6 +130,30 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
         assert run.state.get("pending_user_message_id")
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_read_timeout_keeps_running_turn_alive(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=False,
+            status_code=504,
+            error="Sandbox request timed out",
+            retryable=True,
+            turn_in_flight=True,
+        )
+
+        forward_pending_user_message(str(run.id))
+
+        mock_send.assert_called_once()
+        run.refresh_from_db()
+        assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")

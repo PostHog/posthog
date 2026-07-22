@@ -1582,6 +1582,9 @@ importers:
       '@temporalio/worker':
         specifier: 1.15.0
         version: 1.15.0(cssnano@7.0.6(postcss@8.5.15))(esbuild@0.28.1)(postcss@8.5.15)(tslib@2.8.1)
+      '@temporalio/workflow':
+        specifier: 1.15.0
+        version: 1.15.0
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
