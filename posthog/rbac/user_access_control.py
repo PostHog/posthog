@@ -292,6 +292,16 @@ def get_project_scoped_visible_membership_ids(
     """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
     project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
     project the requester has access to."""
+    # Without the entitlement, stale AccessControl rules in the DB must be ignored, not enforced —
+    # every project falls back to its default access, so every member is visible.
+    if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return {
+            str(membership_id)
+            for membership_id in OrganizationMembership.objects.filter(organization=organization).values_list(
+                "id", flat=True
+            )
+        }
+
     team_ids = list(organization.teams.values_list("id", flat=True))
     role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
 

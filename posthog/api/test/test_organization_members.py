@@ -44,7 +44,9 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     #     assert len(response.json()["results"]) == 2
 
-    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+    def _restrict_member_list_visibility(self) -> tuple[User, User, User]:
+        from posthog.constants import AvailableFeature
+
         from ee.models.rbac.access_control import AccessControl
 
         project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
@@ -66,8 +68,15 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             organization_member=project_mate.organization_memberships.get(organization=self.organization),
             access_level="member",
         )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
         self.organization.members_can_see_org_members = False
         self.organization.save()
+        return project_mate, outsider, admin
+
+    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
 
         # Restricted members see themselves and their project mates — not org admins or other members
         response = self.client.get("/api/organizations/@current/members/")
@@ -75,6 +84,20 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_stale_access_control_rules_are_ignored_without_the_entitlement(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+        # Plan downgrade: the private-project rows stay in the DB but must stop being enforced
+        self.organization.available_product_features = []
+        self.organization.save()
 
         response = self.client.get("/api/organizations/@current/members/")
         assert {m["user"]["email"] for m in response.json()["results"]} == {
