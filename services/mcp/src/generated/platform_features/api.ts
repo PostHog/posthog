@@ -35,6 +35,7 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
