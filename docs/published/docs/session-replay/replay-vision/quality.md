@@ -4,6 +4,11 @@ sidebar: Docs
 showTitle: true
 ---
 
+<!-- TODO: retake the screenshots with more realistic data. The current ones use Hedgebox demo data
+with obviously synthetic session IDs (demo-fresh-*, demo-hist-*) and uniform confidence values.
+Retake against a scanner with real-looking sessions (UUID session IDs, varied results and feedback)
+before or shortly after launch. -->
+
 Replay vision scanners are only as good as their configuration. The **Quality** tab on each scanner turns your team's judgment into a better configuration: rate the scanner's results, see accuracy trend across versions, and let PostHog AI recommend (and safely test) improvements to the prompt and every other behavior setting.
 
 Open any scanner and select the **Quality** tab.
