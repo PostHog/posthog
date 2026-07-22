@@ -863,6 +863,33 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should group by person_id
         self.assertIn("GROUP BY", query_str)
 
+    def test_behavioral_performed_event_multiple_times_alias_does_not_raise(self) -> None:
+        """Regression: `performed_event_multiple_times` (the realtime-cohort builder's alias for
+        `performed_event_multiple`) used to leave `Property.value` as the raw alias string, so
+        this dispatch's `prop.value == "performed_event_multiple"` check fell through to
+        `else: raise ValueError`."""
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Cohort", filters={"properties": {"type": "AND", "values": []}}
+        )
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        prop = Property(
+            key="$pageview",
+            type="behavioral",
+            value="performed_event_multiple_times",
+            event_type="events",
+            operator="gte",
+            operator_value=5,
+            time_value=30,
+            time_interval="day",
+            conditionHash="xyz789abc123",
+        )
+
+        query_ast = hogql_query._get_condition_for_property(prop)
+        query_str = prepare_and_print_ast(query_ast, hogql_query.hogql_context, "clickhouse", pretty=True)[0]
+
+        self.assertIn("precalculated_events", query_str)
+
     def test_behavioral_performed_event_with_date_range(self) -> None:
         """performed_event with explicit_datetime + explicit_datetime_to bounds both ends of the window."""
         cohort_filters = {

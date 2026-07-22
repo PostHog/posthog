@@ -175,5 +175,57 @@ describe('InsightDetails', () => {
                 { properties: [browserChrome], source: 'tile' },
             ])
         })
+
+        it.each([
+            {
+                label: 'dashboard-only test account override',
+                filtersOverride: { filterTestAccounts: true },
+                tileFiltersOverride: undefined,
+                expected: { filterTestAccounts: { value: true, source: 'dashboard' }, interval: null },
+            },
+            {
+                label: 'force-off (false) still counts as a test account override',
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: undefined,
+                expected: { filterTestAccounts: { value: false, source: 'dashboard' }, interval: null },
+            },
+            {
+                label: 'dashboard-only interval override',
+                filtersOverride: { interval: 'month' },
+                tileFiltersOverride: undefined,
+                expected: { filterTestAccounts: null, interval: { value: 'month', source: 'dashboard' } },
+            },
+            {
+                label: 'tile scalar overrides beat dashboard ones',
+                filtersOverride: { filterTestAccounts: true, interval: 'week' },
+                tileFiltersOverride: { filterTestAccounts: false, interval: 'day' },
+                expected: {
+                    filterTestAccounts: { value: false, source: 'tile' },
+                    interval: { value: 'day', source: 'tile' },
+                },
+            },
+            {
+                label: 'no scalar overrides set',
+                filtersOverride: { properties: [countryUS] },
+                tileFiltersOverride: undefined,
+                expected: { filterTestAccounts: null, interval: null },
+            },
+        ])('$label', ({ filtersOverride, tileFiltersOverride, expected }) => {
+            const result = getEffectiveFilterOverrides(undefined, filtersOverride as any, tileFiltersOverride as any)
+
+            expect(result.filterTestAccounts).toEqual(expected.filterTestAccounts)
+            expect(result.interval).toEqual(expected.interval)
+        })
+
+        it('resolves scalar overrides from the backend context layers, ignoring raw props', () => {
+            const result = getEffectiveFilterOverrides(
+                { dashboard: { filterTestAccounts: true, interval: 'week' }, tile: null } as any,
+                { filterTestAccounts: false } as any,
+                undefined
+            )
+
+            expect(result.filterTestAccounts).toEqual({ value: true, source: 'dashboard' })
+            expect(result.interval).toEqual({ value: 'week', source: 'dashboard' })
+        })
     })
 })
