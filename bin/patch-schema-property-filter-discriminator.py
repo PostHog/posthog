@@ -94,27 +94,45 @@ def _ensure_import_names(source: str, module: str, extra_names: list[str]) -> st
     return source[: match.start()] + f"from {module} import " + ", ".join(names) + source[match.end() :]
 
 
-def _alias_block() -> str:
+def _tagged_members() -> list[str]:
     # `pydantic.Tag`/`pydantic.Discriminator` stay module-qualified: the generated schema
     # already contains an enum class named `Tag`, and bare names could collide with any
     # future generated symbol.
-    tagged = [f'Annotated[{member}, pydantic.Tag("{tag}")]' for member, tag in MEMBER_TAGS.items()]
-    union = "\n    | ".join(tagged)
-    group_union = "\n    | ".join(['Annotated[PropertyGroupFilterValue, pydantic.Tag("property_group")]', *tagged])
+    return [f'Annotated[{member}, pydantic.Tag("{tag}")]' for member, tag in MEMBER_TAGS.items()]
+
+
+def _main_alias_block() -> str:
+    union = "\n    | ".join(_tagged_members())
     return (
         "# Added by bin/patch-schema-property-filter-discriminator.py: tagged AnyPropertyFilter\n"
-        "# aliases so validation routes on `type` instead of trying every member. The callable\n"
+        "# alias so validation routes on `type` instead of trying every member. The callable\n"
         "# keeps legacy tolerance — see posthog/schema_discriminators.py.\n"
         f"{DISCRIMINATED_ALIAS} = Annotated[\n"
         f"    {union},\n"
         f"    pydantic.Discriminator({DISCRIMINATOR_FN}),\n"
         "]\n"
-        "\n"
+    )
+
+
+def _group_alias_block() -> str:
+    group_union = "\n    | ".join(
+        ['Annotated[PropertyGroupFilterValue, pydantic.Tag("property_group")]', *_tagged_members()]
+    )
+    return (
+        f"# Variant of {DISCRIMINATED_ALIAS} for PropertyGroupFilterValue's recursive `values`\n"
+        "# field; sits after that class because the union references the class object.\n"
         f"{DISCRIMINATED_GROUP_ALIAS} = Annotated[\n"
         f"    {group_union},\n"
         f"    pydantic.Discriminator({DISCRIMINATOR_FN}),\n"
         "]\n"
     )
+
+
+def _insert_before_next_class(source: str, after_pos: int, block: str) -> str:
+    next_class = re.compile(r"^class ", re.MULTILINE).search(source, after_pos)
+    if not next_class:
+        raise ValueError("no class definition found after the alias insertion anchor")
+    return source[: next_class.start()] + block + "\n\n" + source[next_class.start() :]
 
 
 def main() -> int:
@@ -148,13 +166,40 @@ def main() -> int:
         )
         return 1
 
-    # The aliases must be defined before the trailing model_rebuild() calls so the
-    # deferred annotations that reference them resolve.
-    rebuild_match = re.search(r"^\w+\.model_rebuild\(\)$", source, re.MULTILINE)
-    if not rebuild_match:
-        print(f"error: could not find the model_rebuild() block in {SCHEMA_PY}", file=sys.stderr)
+    # The aliases must be defined BEFORE the classes whose annotations reference them,
+    # like every other name in the generated file. A class created while its annotations
+    # are unresolvable is left fields-incomplete, and subclasses defined in other modules
+    # (e.g. TrendsQueryWithTemplateVariables in filter_to_query.py) then fail to resolve
+    # the alias from their own namespace. The main alias goes after the last member class;
+    # the group variant goes after PropertyGroupFilterValue, whose own recursive `values`
+    # annotation resolves via the trailing PropertyGroupFilterValue.model_rebuild().
+    member_def_re = re.compile(r"^class (?:" + "|".join(re.escape(m) for m in MEMBER_TAGS) + r")\(", re.MULTILINE)
+    member_defs = list(member_def_re.finditer(source))
+    if len(member_defs) != len(MEMBER_TAGS):
+        print(
+            f"error: expected {len(MEMBER_TAGS)} member class definitions in {SCHEMA_PY}, found {len(member_defs)}",
+            file=sys.stderr,
+        )
         return 1
-    source = source[: rebuild_match.start()] + _alias_block() + "\n\n" + source[rebuild_match.start() :]
+    pgfv_def = re.search(r"^class PropertyGroupFilterValue\(BaseModel\):", source, re.MULTILINE)
+    if not pgfv_def or pgfv_def.start() < member_defs[-1].end():
+        print(
+            f"error: PropertyGroupFilterValue not found after the member classes in {SCHEMA_PY}",
+            file=sys.stderr,
+        )
+        return 1
+    # Insert the later block first so the earlier anchor's offset stays valid.
+    source = _insert_before_next_class(source, pgfv_def.end(), _group_alias_block())
+    source = _insert_before_next_class(source, member_defs[-1].end(), _main_alias_block())
+
+    first_mention = source.find(DISCRIMINATED_ALIAS)
+    if first_mention != source.find(f"{DISCRIMINATED_ALIAS} = Annotated["):
+        print(
+            f"error: {DISCRIMINATED_ALIAS} is used before its definition — a union site now"
+            " precedes the last member class definition; move the alias insertion point.",
+            file=sys.stderr,
+        )
+        return 1
 
     source = _ensure_import_names(source, "typing", ["Annotated"])
     pydantic_import_re = re.compile(r"^from pydantic import ", re.MULTILINE)

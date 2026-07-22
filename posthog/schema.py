@@ -6817,6 +6817,37 @@ class SpanPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+# Added by bin/patch-schema-property-filter-discriminator.py: tagged AnyPropertyFilter
+# alias so validation routes on `type` instead of trying every member. The callable
+# keeps legacy tolerance — see posthog/schema_discriminators.py.
+AnyPropertyFilterDiscriminated = Annotated[
+    Annotated[EventPropertyFilter, pydantic.Tag("event")]
+    | Annotated[PersonPropertyFilter, pydantic.Tag("person")]
+    | Annotated[PersonMetadataPropertyFilter, pydantic.Tag("person_metadata")]
+    | Annotated[ElementPropertyFilter, pydantic.Tag("element")]
+    | Annotated[EventMetadataPropertyFilter, pydantic.Tag("event_metadata")]
+    | Annotated[SessionPropertyFilter, pydantic.Tag("session")]
+    | Annotated[CohortPropertyFilter, pydantic.Tag("cohort")]
+    | Annotated[RecordingPropertyFilter, pydantic.Tag("recording")]
+    | Annotated[LogEntryPropertyFilter, pydantic.Tag("log_entry")]
+    | Annotated[GroupPropertyFilter, pydantic.Tag("group")]
+    | Annotated[FeaturePropertyFilter, pydantic.Tag("feature")]
+    | Annotated[FlagPropertyFilter, pydantic.Tag("flag")]
+    | Annotated[HogQLPropertyFilter, pydantic.Tag("hogql")]
+    | Annotated[EmptyPropertyFilter, pydantic.Tag("empty")]
+    | Annotated[DataWarehousePropertyFilter, pydantic.Tag("data_warehouse")]
+    | Annotated[DataWarehousePersonPropertyFilter, pydantic.Tag("data_warehouse_person_property")]
+    | Annotated[ErrorTrackingIssueFilter, pydantic.Tag("error_tracking_issue")]
+    | Annotated[LogPropertyFilter, pydantic.Tag("log")]
+    | Annotated[MetricPropertyFilter, pydantic.Tag("metric_attribute")]
+    | Annotated[SpanPropertyFilter, pydantic.Tag("span")]
+    | Annotated[RevenueAnalyticsPropertyFilter, pydantic.Tag("revenue_analytics")]
+    | Annotated[AccountCustomPropertyFilter, pydantic.Tag("account_custom_property")]
+    | Annotated[WorkflowVariablePropertyFilter, pydantic.Tag("workflow_variable")],
+    pydantic.Discriminator(property_filter_discriminator),
+]
+
+
 class SpanTreeNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18188,6 +18219,37 @@ class PropertyGroupFilterValue(BaseModel):
     values: list[AnyPropertyFilterOrGroupDiscriminated]
 
 
+# Variant of AnyPropertyFilterDiscriminated for PropertyGroupFilterValue's recursive `values`
+# field; sits after that class because the union references the class object.
+AnyPropertyFilterOrGroupDiscriminated = Annotated[
+    Annotated[PropertyGroupFilterValue, pydantic.Tag("property_group")]
+    | Annotated[EventPropertyFilter, pydantic.Tag("event")]
+    | Annotated[PersonPropertyFilter, pydantic.Tag("person")]
+    | Annotated[PersonMetadataPropertyFilter, pydantic.Tag("person_metadata")]
+    | Annotated[ElementPropertyFilter, pydantic.Tag("element")]
+    | Annotated[EventMetadataPropertyFilter, pydantic.Tag("event_metadata")]
+    | Annotated[SessionPropertyFilter, pydantic.Tag("session")]
+    | Annotated[CohortPropertyFilter, pydantic.Tag("cohort")]
+    | Annotated[RecordingPropertyFilter, pydantic.Tag("recording")]
+    | Annotated[LogEntryPropertyFilter, pydantic.Tag("log_entry")]
+    | Annotated[GroupPropertyFilter, pydantic.Tag("group")]
+    | Annotated[FeaturePropertyFilter, pydantic.Tag("feature")]
+    | Annotated[FlagPropertyFilter, pydantic.Tag("flag")]
+    | Annotated[HogQLPropertyFilter, pydantic.Tag("hogql")]
+    | Annotated[EmptyPropertyFilter, pydantic.Tag("empty")]
+    | Annotated[DataWarehousePropertyFilter, pydantic.Tag("data_warehouse")]
+    | Annotated[DataWarehousePersonPropertyFilter, pydantic.Tag("data_warehouse_person_property")]
+    | Annotated[ErrorTrackingIssueFilter, pydantic.Tag("error_tracking_issue")]
+    | Annotated[LogPropertyFilter, pydantic.Tag("log")]
+    | Annotated[MetricPropertyFilter, pydantic.Tag("metric_attribute")]
+    | Annotated[SpanPropertyFilter, pydantic.Tag("span")]
+    | Annotated[RevenueAnalyticsPropertyFilter, pydantic.Tag("revenue_analytics")]
+    | Annotated[AccountCustomPropertyFilter, pydantic.Tag("account_custom_property")]
+    | Annotated[WorkflowVariablePropertyFilter, pydantic.Tag("workflow_variable")],
+    pydantic.Discriminator(property_filter_discriminator),
+]
+
+
 class PropertyValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29542,65 +29604,6 @@ class VisualizationArtifactContent(BaseModel):
         | MCPToolNeighborsQuery
         | PropertyValuesQuery
     )
-
-
-# Added by bin/patch-schema-property-filter-discriminator.py: tagged AnyPropertyFilter
-# aliases so validation routes on `type` instead of trying every member. The callable
-# keeps legacy tolerance — see posthog/schema_discriminators.py.
-AnyPropertyFilterDiscriminated = Annotated[
-    Annotated[EventPropertyFilter, pydantic.Tag("event")]
-    | Annotated[PersonPropertyFilter, pydantic.Tag("person")]
-    | Annotated[PersonMetadataPropertyFilter, pydantic.Tag("person_metadata")]
-    | Annotated[ElementPropertyFilter, pydantic.Tag("element")]
-    | Annotated[EventMetadataPropertyFilter, pydantic.Tag("event_metadata")]
-    | Annotated[SessionPropertyFilter, pydantic.Tag("session")]
-    | Annotated[CohortPropertyFilter, pydantic.Tag("cohort")]
-    | Annotated[RecordingPropertyFilter, pydantic.Tag("recording")]
-    | Annotated[LogEntryPropertyFilter, pydantic.Tag("log_entry")]
-    | Annotated[GroupPropertyFilter, pydantic.Tag("group")]
-    | Annotated[FeaturePropertyFilter, pydantic.Tag("feature")]
-    | Annotated[FlagPropertyFilter, pydantic.Tag("flag")]
-    | Annotated[HogQLPropertyFilter, pydantic.Tag("hogql")]
-    | Annotated[EmptyPropertyFilter, pydantic.Tag("empty")]
-    | Annotated[DataWarehousePropertyFilter, pydantic.Tag("data_warehouse")]
-    | Annotated[DataWarehousePersonPropertyFilter, pydantic.Tag("data_warehouse_person_property")]
-    | Annotated[ErrorTrackingIssueFilter, pydantic.Tag("error_tracking_issue")]
-    | Annotated[LogPropertyFilter, pydantic.Tag("log")]
-    | Annotated[MetricPropertyFilter, pydantic.Tag("metric_attribute")]
-    | Annotated[SpanPropertyFilter, pydantic.Tag("span")]
-    | Annotated[RevenueAnalyticsPropertyFilter, pydantic.Tag("revenue_analytics")]
-    | Annotated[AccountCustomPropertyFilter, pydantic.Tag("account_custom_property")]
-    | Annotated[WorkflowVariablePropertyFilter, pydantic.Tag("workflow_variable")],
-    pydantic.Discriminator(property_filter_discriminator),
-]
-
-AnyPropertyFilterOrGroupDiscriminated = Annotated[
-    Annotated[PropertyGroupFilterValue, pydantic.Tag("property_group")]
-    | Annotated[EventPropertyFilter, pydantic.Tag("event")]
-    | Annotated[PersonPropertyFilter, pydantic.Tag("person")]
-    | Annotated[PersonMetadataPropertyFilter, pydantic.Tag("person_metadata")]
-    | Annotated[ElementPropertyFilter, pydantic.Tag("element")]
-    | Annotated[EventMetadataPropertyFilter, pydantic.Tag("event_metadata")]
-    | Annotated[SessionPropertyFilter, pydantic.Tag("session")]
-    | Annotated[CohortPropertyFilter, pydantic.Tag("cohort")]
-    | Annotated[RecordingPropertyFilter, pydantic.Tag("recording")]
-    | Annotated[LogEntryPropertyFilter, pydantic.Tag("log_entry")]
-    | Annotated[GroupPropertyFilter, pydantic.Tag("group")]
-    | Annotated[FeaturePropertyFilter, pydantic.Tag("feature")]
-    | Annotated[FlagPropertyFilter, pydantic.Tag("flag")]
-    | Annotated[HogQLPropertyFilter, pydantic.Tag("hogql")]
-    | Annotated[EmptyPropertyFilter, pydantic.Tag("empty")]
-    | Annotated[DataWarehousePropertyFilter, pydantic.Tag("data_warehouse")]
-    | Annotated[DataWarehousePersonPropertyFilter, pydantic.Tag("data_warehouse_person_property")]
-    | Annotated[ErrorTrackingIssueFilter, pydantic.Tag("error_tracking_issue")]
-    | Annotated[LogPropertyFilter, pydantic.Tag("log")]
-    | Annotated[MetricPropertyFilter, pydantic.Tag("metric_attribute")]
-    | Annotated[SpanPropertyFilter, pydantic.Tag("span")]
-    | Annotated[RevenueAnalyticsPropertyFilter, pydantic.Tag("revenue_analytics")]
-    | Annotated[AccountCustomPropertyFilter, pydantic.Tag("account_custom_property")]
-    | Annotated[WorkflowVariablePropertyFilter, pydantic.Tag("workflow_variable")],
-    pydantic.Discriminator(property_filter_discriminator),
-]
 
 
 ProsemirrorJSONContent.model_rebuild()

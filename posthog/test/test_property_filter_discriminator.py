@@ -38,6 +38,13 @@ from posthog.schema import (
 )
 
 
+# Mirrors TrendsQueryWithTemplateVariables in filter_to_query.py: subclassing a schema
+# model from another module only works if the parent's annotations resolved at class
+# creation, i.e. the discriminated aliases were emitted before their usage sites.
+class TrendsQuerySubclassedElsewhere(TrendsQuery):
+    pass
+
+
 class TestPropertyFilterDiscriminator(SimpleTestCase):
     # The AnyPropertyFilter union was an undiscriminated smart union — Pydantic walked
     # every member per item, so one malformed filter produced an error per member and
@@ -234,6 +241,13 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         errors = ctx.exception.errors()
         assert len(errors) == 3, f"expected exactly one error per item, got {len(errors)}: {errors}"
         assert all(error["type"] == "extra_forbidden" for error in errors)
+
+    def test_subclass_in_another_module_resolves_the_alias(self) -> None:
+        query = TrendsQuerySubclassedElsewhere.model_validate(
+            {"kind": "TrendsQuery", "series": [], "properties": [{"type": "event", "key": "k", "operator": "exact"}]}
+        )
+        assert isinstance(query.properties, list)
+        assert type(query.properties[0]) is EventPropertyFilter
 
     def test_serialization_round_trip_is_stable(self) -> None:
         node = EventsNode(
