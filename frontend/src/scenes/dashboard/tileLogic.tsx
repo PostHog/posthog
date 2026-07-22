@@ -31,6 +31,9 @@ export interface tileLogicActions {
         date_to: string | null | undefined
         explicitDate: boolean | undefined
     }
+    setIgnoreDashboardFilters: (ignoreDashboardFilters: boolean) => {
+        ignoreDashboardFilters: boolean
+    }
     setProperties: (properties: AnyPropertyFilter[] | null | undefined) => {
         properties: AnyPropertyFilter[] | null | undefined
     }
@@ -60,6 +63,7 @@ export const tileLogic = kea<tileLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null | undefined) => ({ properties }),
         setBreakdown: (breakdown_filter: BreakdownFilter | null | undefined) => ({ breakdown_filter }),
+        setIgnoreDashboardFilters: (ignoreDashboardFilters: boolean) => ({ ignoreDashboardFilters }),
         resetOverrides: true,
     })),
 
@@ -96,6 +100,15 @@ export const tileLogic = kea<tileLogicType>([
                     return newState
                 },
                 setBreakdown: (state, { breakdown_filter }) => ({ ...state, breakdown_filter }),
+                setIgnoreDashboardFilters: (state, { ignoreDashboardFilters }) => {
+                    const newState = { ...state }
+                    if (ignoreDashboardFilters) {
+                        newState.ignoreDashboardFilters = true
+                    } else {
+                        delete newState.ignoreDashboardFilters
+                    }
+                    return newState
+                },
                 resetOverrides: () => ({}),
             },
         ],

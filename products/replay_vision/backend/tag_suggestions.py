@@ -301,11 +301,16 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSugge
     # Inline the key resolution (rather than importing the temporal helper) to keep this off the temporal import path.
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline on the interactive request path, so a hung provider call must time out.
-    client = genai.Client(
-        api_key=api_key,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-    )
+    try:
+        client = genai.Client(
+            api_key=api_key,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        )
+    except Exception as e:
+        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # the friendly 503 instead of a 500.
+        raise SuggestionError("model client unavailable") from e
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",

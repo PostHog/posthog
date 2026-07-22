@@ -46,7 +46,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
     const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
-    const qualityTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -77,7 +76,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {qualityTabEnabled && activeTab !== ReplayScannerTab.Quality && (
+                        {activeTab !== ReplayScannerTab.Quality && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -139,7 +138,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
-                    qualityTabEnabled && {
+                    {
                         key: ReplayScannerTab.Quality,
                         label: 'Quality',
                         content: <ScannerQualityTab scannerId={scannerId} />,
