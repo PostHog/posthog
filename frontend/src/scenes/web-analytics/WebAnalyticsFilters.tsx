@@ -36,7 +36,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyMathType, PropertyOperat
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { ProductTab, faviconUrl } from './common'
+import { INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -213,34 +213,24 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         }
     }
 
-    // The headless query tools' call input mirrored onto the open page. The args are raw agent-sent JSON
-    // (never zod-validated), so every field is presence-guarded and the property-filter type/operator
-    // defaults are stamped back on. Stats-only presentation fields (breakdownBy, includeBounceRate, limit,
-    // ...) are per-tile options with no page-level setter.
+    // The headless query tools' call input mirrored onto the open page. The input is a complete query:
+    // every field is applied, with omitted fields set to the query schema's defaults so the page shows
+    // the same results the tool returned. The args are raw agent-sent JSON (never zod-validated), so
+    // fields are coerced and the property-filter type/operator defaults are stamped back on. Stats-only
+    // presentation fields (breakdownBy, includeBounceRate, limit, ...) are per-tile options with no
+    // page-level setter.
     const applyWebQueryInput = (input: Record<string, any>): void => {
-        if (Array.isArray(input.properties)) {
-            const props = input.properties.map((f: Record<string, any>) => ({
-                ...f,
-                type: f.type || PropertyFilterType.Event,
-                ...(f.operator || f.type === PropertyFilterType.Cohort ? {} : { operator: PropertyOperator.Exact }),
-            })) as AnyPropertyFilter[]
-            setWebAnalyticsFilters(props.filter(isWebAnalyticsPropertyFilter))
-        }
-        if (input.dateRange) {
-            setDates(input.dateRange.date_from ?? null, input.dateRange.date_to ?? null)
-        }
-        if (input.doPathCleaning !== undefined) {
-            setIsPathCleaningEnabled(!!input.doPathCleaning)
-        }
-        if (input.compareFilter !== undefined) {
-            setCompareFilter(input.compareFilter)
-        }
-        if (input.filterTestAccounts !== undefined) {
-            setShouldFilterTestAccounts(!!input.filterTestAccounts)
-        }
-        if (input.conversionGoal !== undefined) {
-            setConversionGoal(input.conversionGoal ?? null)
-        }
+        const props = (Array.isArray(input.properties) ? input.properties : []).map((f: Record<string, any>) => ({
+            ...f,
+            type: f.type || PropertyFilterType.Event,
+            ...(f.operator || f.type === PropertyFilterType.Cohort ? {} : { operator: PropertyOperator.Exact }),
+        })) as AnyPropertyFilter[]
+        setWebAnalyticsFilters(props.filter(isWebAnalyticsPropertyFilter))
+        setDates(input.dateRange?.date_from ?? INITIAL_DATE_FROM, input.dateRange?.date_to ?? INITIAL_DATE_TO)
+        setIsPathCleaningEnabled(!!input.doPathCleaning)
+        setCompareFilter(input.compareFilter ?? { compare: false })
+        setShouldFilterTestAccounts(!!input.filterTestAccounts)
+        setConversionGoal(input.conversionGoal ?? null)
     }
 
     useMcpToolApplyBack({

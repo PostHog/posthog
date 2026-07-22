@@ -81,6 +81,7 @@ import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
 import {
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
     DURATION_KEYS,
     deriveOperand,
     isValidRecordingOrder,
@@ -186,49 +187,34 @@ export const RecordingsUniversalFiltersEmbedButton = ({
         setIsFiltersExpanded(true)
     }
 
-    // The headless query tool's call input mirrored onto the open list. The args are raw agent-sent JSON
-    // (never zod-validated), so every field is presence-guarded and the recording-metric `type` default is
-    // stamped back on before converting to the universal filter shape.
+    // The headless query tool's call input mirrored onto the open list. The input is a complete query:
+    // every field is applied, with omitted fields set to the query schema's defaults so the list shows
+    // the same recordings the tool returned. The args are raw agent-sent JSON (never zod-validated), so
+    // fields are coerced and the recording-metric `type` default is stamped back on before converting to
+    // the universal filter shape. person_uuid (query-level constraint), after (pagination cursor), and
+    // limit (the agent's page size, which shouldn't shrink the user's list) have no counterpart in the
+    // universal filters.
     const applyRecordingsQuery = (input: Record<string, any>): void => {
-        const partial: Partial<RecordingUniversalFilters> = {}
-        if (Array.isArray(input.properties)) {
-            const props = input.properties.map((f: Record<string, any>) =>
-                f && !f.type && RECORDING_METRIC_KEYS.has(f.key) ? { ...f, type: 'recording' } : f
-            )
-            // Duration filters have their own control in the universal shape, so the converter expects
-            // them in `having_predicates` rather than `properties`.
-            const universal = recordingsQueryToUniversalFilters({
-                kind: NodeKind.RecordingsQuery,
-                properties: props.filter((f: Record<string, any>) => !DURATION_KEYS.has(f?.key)),
-                having_predicates: props.filter((f: Record<string, any>) => DURATION_KEYS.has(f?.key)),
-            } as RecordingsQuery)
-            partial.filter_group = universal.filter_group
-            partial.duration = universal.duration
-        }
-        if ('date_from' in input) {
-            partial.date_from = input.date_from
-        }
-        if ('date_to' in input) {
-            partial.date_to = input.date_to
-        }
-        if (input.filter_test_accounts !== undefined) {
-            partial.filter_test_accounts = !!input.filter_test_accounts
-        }
-        if (isValidRecordingOrder(input.order)) {
-            partial.order = input.order
-        }
-        if (input.order_direction === 'ASC' || input.order_direction === 'DESC') {
-            partial.order_direction = input.order_direction
-        }
-        if (Array.isArray(input.session_ids)) {
-            partial.session_ids = input.session_ids
-        }
-        // person_uuid (query-level constraint), after (pagination cursor), and limit (the agent's page
-        // size, which shouldn't shrink the user's list) have no counterpart in the universal filters.
-        if (Object.keys(partial).length === 0) {
-            return
-        }
-        setFilters(partial)
+        const props = (Array.isArray(input.properties) ? input.properties : []).map((f: Record<string, any>) =>
+            f && !f.type && RECORDING_METRIC_KEYS.has(f.key) ? { ...f, type: 'recording' } : f
+        )
+        // Duration filters have their own control in the universal shape, so the converter expects
+        // them in `having_predicates` rather than `properties`.
+        const universal = recordingsQueryToUniversalFilters({
+            kind: NodeKind.RecordingsQuery,
+            properties: props.filter((f: Record<string, any>) => !DURATION_KEYS.has(f?.key)),
+            having_predicates: props.filter((f: Record<string, any>) => DURATION_KEYS.has(f?.key)),
+        } as RecordingsQuery)
+        setFilters({
+            filter_group: universal.filter_group,
+            duration: universal.duration,
+            date_from: input.date_from ?? '-3d',
+            date_to: input.date_to ?? null,
+            filter_test_accounts: !!input.filter_test_accounts,
+            order: isValidRecordingOrder(input.order) ? input.order : DEFAULT_RECORDING_FILTERS_ORDER_BY,
+            order_direction: input.order_direction === 'ASC' ? 'ASC' : 'DESC',
+            session_ids: Array.isArray(input.session_ids) ? input.session_ids : undefined,
+        })
         setIsFiltersExpanded(true)
     }
 

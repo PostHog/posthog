@@ -121,77 +121,63 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     }
 
     // The headless query tool's call input mirrored onto the open page. Unlike the incremental MaxTool
-    // patch above, the input is a complete query: its filterGroup (plus typed shortcuts) replaces the
-    // whole filter set, mirroring the backend's build_issue_filters. The args are raw agent-sent JSON
-    // (never zod-validated), so every field is presence-guarded and filter type/operator are defaulted.
+    // patch above, the input is a complete query: every field is applied, with omitted fields set to the
+    // backend's request-serializer defaults so the page shows the same results the tool returned. The
+    // args are raw agent-sent JSON (never zod-validated), so fields are coerced and type/operator are
+    // defaulted. personId and release have no representation in the issue-filters UI;
+    // limit/offset/volumeResolution are scene-managed presentation options.
     const applyIssuesListQuery = (input: Record<string, any>): void => {
-        if (input.orderBy) {
-            setOrderBy(input.orderBy)
-        }
-        if (input.orderDirection) {
-            setOrderDirection(input.orderDirection)
-        }
-        if (input.status) {
-            setStatus(input.status)
-        }
-        if (input.assignee !== undefined) {
-            setAssignee(input.assignee)
-        }
-        if (input.dateRange) {
-            setDateRange(input.dateRange)
-        }
-        if (input.filterTestAccounts !== undefined) {
-            setFilterTestAccounts(!!input.filterTestAccounts)
-        }
+        setOrderBy(input.orderBy || 'occurrences')
+        setOrderDirection(input.orderDirection === 'ASC' ? 'ASC' : 'DESC')
+        setStatus(input.status || 'active')
+        setAssignee(input.assignee ?? null)
+        setDateRange(input.dateRange ?? { date_from: '-7d', date_to: null })
+        setFilterTestAccounts(input.filterTestAccounts === undefined ? true : !!input.filterTestAccounts)
 
         // user/filePath fold into the free-text search, mirroring the backend's build_search_query.
+        // An empty result clears the page's search — the query ran without a search constraint.
         const search = [input.searchQuery, input.user, input.filePath]
             .filter((s): s is string => typeof s === 'string' && s.length > 0)
             .join(' ')
-        if (search) {
-            setSearchQuery(search)
-        }
+        setSearchQuery(search)
 
-        // Absent filter fields mean "leave the user's filters alone" (the agent may just be listing issues).
-        // personId and release have no representation in the issue-filters UI; limit/offset/volumeResolution
-        // are scene-managed presentation options.
-        if (input.filterGroup !== undefined || input.library || input.fingerprint || input.url) {
-            const flat: UniversalFiltersGroup['values'] = (
-                Array.isArray(input.filterGroup) ? input.filterGroup : []
-            ).map((f: Record<string, any>) => ({
+        const flat: UniversalFiltersGroup['values'] = (Array.isArray(input.filterGroup) ? input.filterGroup : []).map(
+            (f: Record<string, any>) => ({
                 ...f,
                 type: f.type || PropertyFilterType.Event,
                 operator: f.operator || PropertyOperator.Exact,
-            }))
-            if (input.library) {
-                flat.push({
-                    type: PropertyFilterType.Event,
-                    key: '$lib',
-                    operator: PropertyOperator.Exact,
-                    value: [input.library],
-                })
-            }
-            if (input.fingerprint) {
-                flat.push({
-                    type: PropertyFilterType.Event,
-                    key: '$exception_fingerprint',
-                    operator: PropertyOperator.Exact,
-                    value: [input.fingerprint],
-                })
-            }
-            if (input.url) {
-                flat.push({
-                    type: PropertyFilterType.Event,
-                    key: '$current_url',
-                    operator: PropertyOperator.IContains,
-                    value: input.url,
-                })
-            }
-            setFilterGroup({
-                type: FilterLogicalOperator.And,
-                values: [{ type: FilterLogicalOperator.And, values: flat }],
+            })
+        )
+        // library/fingerprint accept a string or a string list — mirror the backend's as_list.
+        if (input.library) {
+            flat.push({
+                type: PropertyFilterType.Event,
+                key: '$lib',
+                operator: PropertyOperator.Exact,
+                value: Array.isArray(input.library) ? input.library : [input.library],
             })
         }
+        if (input.fingerprint) {
+            flat.push({
+                type: PropertyFilterType.Event,
+                key: '$exception_fingerprint',
+                operator: PropertyOperator.Exact,
+                value: Array.isArray(input.fingerprint) ? input.fingerprint : [input.fingerprint],
+            })
+        }
+        if (input.url) {
+            flat.push({
+                type: PropertyFilterType.Event,
+                key: '$current_url',
+                operator: PropertyOperator.IContains,
+                value: input.url,
+            })
+        }
+        // An empty group resets the page's filters (the logic falls back to its default group).
+        setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: flat }],
+        })
     }
 
     useMcpToolApplyBack({
