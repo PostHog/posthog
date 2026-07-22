@@ -2236,6 +2236,13 @@ def get_task_run_session(run_id: str | UUID, task_id: str | UUID, team_id: int) 
     return task_session.id, download_url, task_session.revision
 
 
+def _task_session_sync_key(task_session: TaskSession, directory: str, revision: int, sync_id: UUID) -> str:
+    return (
+        f"task-sessions/{task_session.organization_id}/{task_session.task_id}/{task_session.id}/"
+        f"{directory}/{revision}-{sync_id}.jsonl"
+    )
+
+
 def prepare_task_run_session_sync(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -2260,10 +2267,7 @@ def prepare_task_run_session_sync(
 
         stale_pending_key = task_session.pending_object_storage_key
         sync_id = uuid4()
-        object_storage_key = (
-            f"task-sessions/{task_session.organization_id}/{task_session.task_id}/{task_session.id}/"
-            f"uploads/{task_session.revision + 1}-{sync_id}.jsonl"
-        )
+        object_storage_key = _task_session_sync_key(task_session, "uploads", task_session.revision + 1, sync_id)
         task_session.pending_sync_id = sync_id
         task_session.pending_object_storage_key = object_storage_key
         task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
@@ -2349,6 +2353,7 @@ def finalize_task_run_session_sync(
     task_session_id = visible_run.active_task_session_id
     pending_key: str | None = None
     promoted_key: str | None = None
+    stale_upload_key: str | None = None
 
     try:
         with transaction.atomic():
@@ -2359,9 +2364,9 @@ def finalize_task_run_session_sync(
                 raise ValueError("The task session sync is stale")
 
             locked_session = TaskSession.objects.select_for_update().get(id=task_session_id)
-            promoted_object_storage_key = (
-                f"task-sessions/{locked_session.organization_id}/{locked_session.task_id}/{locked_session.id}/"
-                f"revisions/{expected_revision + 1}-{sync_id}.jsonl"
+            submitted_upload_key = _task_session_sync_key(locked_session, "uploads", expected_revision + 1, sync_id)
+            promoted_object_storage_key = _task_session_sync_key(
+                locked_session, "revisions", expected_revision + 1, sync_id
             )
             promoted_key = promoted_object_storage_key
             if (
@@ -2375,6 +2380,8 @@ def finalize_task_run_session_sync(
                 or locked_session.pending_sync_id != sync_id
                 or not pending_object_storage_key
             ):
+                if locked_session.pending_sync_id != sync_id or pending_object_storage_key != submitted_upload_key:
+                    stale_upload_key = submitted_upload_key
                 raise ValueError("The task session sync is stale")
 
             pending_key = pending_object_storage_key
@@ -2443,6 +2450,8 @@ def finalize_task_run_session_sync(
         _reject_task_session_sync(task_session_id, sync_id, pending_key, promoted_key)
         raise
     except Exception:
+        if stale_upload_key is not None:
+            _delete_task_session_objects(task_session_id, (stale_upload_key,))
         if promoted_key is not None:
             finalized_session = TaskSession.objects.get(id=task_session_id)
             if (
