@@ -482,7 +482,7 @@ class TestRESTClient:
         # the request rather than letting it skip this retry loop and fail the import.
         mock_session = MockSession.return_value
         mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
 
         ok = _make_response({"results": [{"id": 1}]})
         mock_session.send.side_effect = [
@@ -503,7 +503,7 @@ class TestRESTClient:
     def test_send_request_raises_retryable_after_persistent_connection_error(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
 
         mock_session.send.side_effect = ProxyError("Cannot connect to proxy.")
 

@@ -352,7 +352,15 @@ class RESTClient:
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
         except RequestsConnectionError as e:
-            raise RESTClientRetryableError(self._redact(f"Connection error: {e}")) from e
+            # Unlike ChunkedEncodingError, a ConnectionError's message (e.g. urllib3's "Max
+            # retries exceeded with url: ...") embeds the full request URL including the query
+            # string. `_redact` only replaces a secret's raw value, not the percent-encoded form
+            # a query-param API key takes there — so build the message from `_safe_url` (scheme/
+            # host/path only) rather than the raw exception text, the same way the 5xx path below
+            # avoids leaking an encoded credential into the persisted `latest_error`.
+            raise RESTClientRetryableError(
+                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
         # through to JSON parsing; reject it explicitly so a redirect can't smuggle the request
