@@ -22,6 +22,7 @@ import type {
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
+    EngineeringAnalyticsMergeActivityParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
@@ -43,6 +44,7 @@ import type {
     FlakyTestListApi,
     GitHubSourceApi,
     MasterFailureGroupApi,
+    MergeActivityApi,
     PRCostSummaryApi,
     PRLifecycleApi,
     PullRequestListApi,
@@ -319,6 +321,39 @@ export const engineeringAnalyticsMasterFailures = async (
     options?: RequestInit
 ): Promise<MasterFailureGroupApi[]> => {
     return apiMutator<MasterFailureGroupApi[]>(getEngineeringAnalyticsMasterFailuresUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsMergeActivityUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsMergeActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/merge_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/merge_activity/`
+}
+
+/**
+ * Merged pull requests per time bucket across a window (date_from default -30d): the PR throughput trend. Buckets cover the whole window, oldest first, zero-filled (a 0 means nothing merged); the bucket width adapts to the window length (hour / day / week). Bots are excluded, matching the default throughput recipe. Counts key on the PR snapshot's merged_at, so they are exact and never lag CI webhooks.
+ */
+export const engineeringAnalyticsMergeActivity = async (
+    projectId: string,
+    params?: EngineeringAnalyticsMergeActivityParams,
+    options?: RequestInit
+): Promise<MergeActivityApi> => {
+    return apiMutator<MergeActivityApi>(getEngineeringAnalyticsMergeActivityUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

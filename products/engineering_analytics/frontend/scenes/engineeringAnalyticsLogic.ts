@@ -25,6 +25,7 @@ import {
     engineeringAnalyticsBrokenTests,
     engineeringAnalyticsCiCards,
     engineeringAnalyticsFlakyTests,
+    engineeringAnalyticsMergeActivity,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
@@ -35,6 +36,7 @@ import {
 import type {
     BrokenTestRowApi,
     GitHubSourceApi,
+    MergeActivityApi,
     PullRequestListItemApi,
     PushCISampleApi,
     QuarantineRequestApi,
@@ -232,6 +234,57 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
         billableMinutes: it.billable_minutes ?? null,
+    }
+}
+
+// Rolling window of the merged-per-day trend line; a week flattens the weekday/weekend cycle.
+export const MERGE_TREND_WINDOW_DAYS = 7
+
+export interface MergedPerDayData {
+    /** Merged-PR count per complete day, oldest first (the trailing in-progress day is trimmed). */
+    values: number[]
+    labels: string[]
+    /** Trailing 7-day average aligned with `values` — the trend line over the noisy daily counts. */
+    trend: number[]
+    /** Sum of the last 7 complete days vs the 7 before; null with under 14 complete days or a zero baseline. */
+    weekOverWeekPct: number | null
+    totalMerged: number
+    /** Mean merges per complete day across the series. */
+    avgPerDay: number
+}
+
+/** Shapes the merge-activity endpoint response for the merged-per-day card. Null when the series
+ * can't be read honestly: no data, a non-day granularity, or nothing but the in-progress day. */
+export function mergedPerDayOf(activity: MergeActivityApi | null): MergedPerDayData | null {
+    if (!activity || activity.granularity !== 'day') {
+        return null
+    }
+    // The endpoint zero-fills through now, so the trailing bucket is today, still in progress.
+    // Keeping it would end every series on a false dip; trim it and trend complete days only.
+    const complete = activity.buckets.slice(0, -1)
+    if (!complete.length) {
+        return null
+    }
+    const values = complete.map((bucket) => bucket.merged_count)
+    const labels = complete.map((bucket) => dayjs(bucket.bucket_start).format('MMM D'))
+    const trend = values.map((_, index) => {
+        const window = values.slice(Math.max(0, index - (MERGE_TREND_WINDOW_DAYS - 1)), index + 1)
+        return Math.round((window.reduce((sum, value) => sum + value, 0) / window.length) * 10) / 10
+    })
+    const sum = (series: number[]): number => series.reduce((total, value) => total + value, 0)
+    const lastWeek = sum(values.slice(-MERGE_TREND_WINDOW_DAYS))
+    const previousWeek =
+        values.length >= MERGE_TREND_WINDOW_DAYS * 2
+            ? sum(values.slice(-MERGE_TREND_WINDOW_DAYS * 2, -MERGE_TREND_WINDOW_DAYS))
+            : null
+    const totalMerged = sum(values)
+    return {
+        values,
+        labels,
+        trend,
+        weekOverWeekPct: previousWeek ? ((lastWeek - previousWeek) / previousWeek) * 100 : null,
+        totalMerged,
+        avgPerDay: totalMerged / values.length,
     }
 }
 
@@ -652,6 +705,9 @@ export interface engineeringAnalyticsLogicValues {
     hasActiveWorkflowFilters: boolean
     hasMultipleSources: boolean
     hiddenBrokenTestCount: number
+    mergeActivity: MergeActivityApi | null
+    mergeActivityLoading: boolean
+    mergedPerDay: MergedPerDayData | null
     notConnected: boolean
     pullRequests: PullRequestRow[]
     pullRequestsLoadError: boolean
@@ -769,6 +825,21 @@ export interface engineeringAnalyticsLogicActions {
         payload?: any
     ) => {
         githubSources: GitHubSourceApi[]
+        payload?: any
+    }
+    loadMergeActivity: () => any
+    loadMergeActivityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMergeActivitySuccess: (
+        mergeActivity: MergeActivityApi,
+        payload?: any
+    ) => {
+        mergeActivity: MergeActivityApi
         payload?: any
     }
     loadPullRequests: () => any
@@ -963,6 +1034,7 @@ export interface engineeringAnalyticsLogicMeta {
             thrashOnly: boolean
         ) => CardFilter | null
         filteredPullRequests: (pullRequests: PullRequestRow[], filters: PullRequestFilters) => PullRequestRow[]
+        mergedPerDay: (mergeActivity: MergeActivityApi | null) => MergedPerDayData | null
         hasActiveFilters: (filters: PullRequestFilters) => boolean
         readyCount: (pullRequests: PullRequestRow[]) => number
         thrashCount: (pullRequests: PullRequestRow[]) => number
@@ -1093,6 +1165,17 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         })
                         return response.items.map(toPullRequestRow)
                     },
+                },
+            ],
+            mergeActivity: [
+                null as MergeActivityApi | null,
+                {
+                    loadMergeActivity: async (): Promise<MergeActivityApi> =>
+                        // Server default window (-30d) so the card and the PR list cover the same span.
+                        await engineeringAnalyticsMergeActivity(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
+                        }),
                 },
             ],
             workflowHealth: [
@@ -1521,6 +1604,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (pullRequests: PullRequestRow[], filters: PullRequestFilters): PullRequestRow[] =>
                     filterPullRequests(pullRequests, filters),
             ],
+            mergedPerDay: [
+                (s) => [s.mergeActivity],
+                (mergeActivity: MergeActivityApi | null): MergedPerDayData | null => mergedPerDayOf(mergeActivity),
+            ],
             hasActiveFilters: [
                 (s) => [s.filters],
                 (filters: PullRequestFilters): boolean =>
@@ -1712,6 +1799,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             refresh: () => {
                 actions.loadCards()
                 actions.loadPullRequests()
+                actions.loadMergeActivity()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
                 actions.loadFlakyTests()

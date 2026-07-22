@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsMergeActivity,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
@@ -38,6 +39,7 @@ import {
     engineeringAnalyticsLogic,
     filterPullRequests,
     filterWorkflowHealth,
+    mergedPerDayOf,
     workflowFailureSeries,
     filterQuarantineEntries,
     inferOwnerFromSelector,
@@ -49,6 +51,7 @@ import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
+    engineeringAnalyticsMergeActivity: jest.fn(),
     engineeringAnalyticsPrLifecycle: jest.fn(),
     engineeringAnalyticsPullRequests: jest.fn(),
     engineeringAnalyticsQuarantine: jest.fn(),
@@ -58,6 +61,9 @@ jest.mock('../generated/api', () => ({
 }))
 
 const mockCiCards = engineeringAnalyticsCiCards as jest.MockedFunction<typeof engineeringAnalyticsCiCards>
+const mockMergeActivity = engineeringAnalyticsMergeActivity as jest.MockedFunction<
+    typeof engineeringAnalyticsMergeActivity
+>
 const mockPullRequests = engineeringAnalyticsPullRequests as jest.MockedFunction<
     typeof engineeringAnalyticsPullRequests
 >
@@ -239,6 +245,7 @@ describe('engineeringAnalyticsLogic', () => {
         jest.clearAllMocks()
         // Happy-path defaults; individual tests override before mounting where needed.
         mockCiCards.mockResolvedValue(CARDS)
+        mockMergeActivity.mockResolvedValue({ granularity: 'day', buckets: [] })
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
         mockQuarantine.mockResolvedValue(QUARANTINE)
@@ -785,6 +792,50 @@ describe('engineeringAnalyticsLogic', () => {
         ]
         const result = filterQuarantineEntries(rows, { ...DEFAULT_QUARANTINE_FILTERS, ...partial })
         expect(result.map((row) => row.id)).toEqual(expectedIds)
+    })
+
+    it('mergedPerDayOf trims the in-progress day, averages over 7 days, and compares whole weeks', () => {
+        // 14 complete days (a 2/day week then a 4/day week) plus today's partial bucket, which must
+        // never reach the series — an untrimmed partial day would end the trend on a false dip.
+        const buckets = [
+            ...Array.from({ length: 7 }, (_, i) => ({ bucket_start: `2026-06-0${i + 1}`, merged_count: 2 })),
+            ...Array.from({ length: 7 }, (_, i) => ({
+                bucket_start: `2026-06-${String(8 + i).padStart(2, '0')}`,
+                merged_count: 4,
+            })),
+            { bucket_start: '2026-06-15', merged_count: 99 },
+        ]
+
+        const data = mergedPerDayOf({ granularity: 'day', buckets })
+
+        expect(data).not.toBeNull()
+        expect(data!.values).toHaveLength(14)
+        expect(data!.values).not.toContain(99)
+        expect(data!.labels[0]).toBe('Jun 1')
+        expect(data!.trend[0]).toBe(2) // partial leading window averages what exists
+        expect(data!.trend[13]).toBe(4) // full trailing week of 4/day
+        expect(data!.weekOverWeekPct).toBe(100) // 28 merges vs 14
+        expect(data!.totalMerged).toBe(42)
+        expect(data!.avgPerDay).toBe(3)
+    })
+
+    it.each([
+        ['no data', null],
+        ['a non-day granularity', { granularity: 'week', buckets: [{ bucket_start: '2026-06-01', merged_count: 5 }] }],
+        [
+            'only the in-progress day',
+            { granularity: 'day', buckets: [{ bucket_start: '2026-06-01', merged_count: 5 }] },
+        ],
+    ])('mergedPerDayOf returns null for %s', (_label, activity) => {
+        expect(mergedPerDayOf(activity)).toBeNull()
+    })
+
+    it('mergedPerDayOf hides the week-over-week delta until two whole weeks exist', () => {
+        const buckets = Array.from({ length: 10 }, (_, i) => ({
+            bucket_start: `2026-06-${String(i + 1).padStart(2, '0')}`,
+            merged_count: 3,
+        }))
+        expect(mergedPerDayOf({ granularity: 'day', buckets })!.weekOverWeekPct).toBeNull()
     })
 
     it('quarantineCountsOf tallies lifecycle buckets, past expiry, and skips', () => {

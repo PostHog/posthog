@@ -91,6 +91,26 @@ tools:
     engineering-analytics-master-failures:
         operation: engineering_analytics_master_failures
         enabled: false
+    engineering-analytics-merge-activity:
+        operation: engineering_analytics_merge_activity
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Merged PRs per time bucket
+        description: >
+            Merged pull requests per time bucket across a window (date_from default -30d): the PR throughput trend.
+            Use this for "how many PRs are we merging per day", "is merge throughput up or down", and
+            before/after comparisons around a process or tooling change. Buckets cover the whole window, oldest
+            first, zero-filled (a 0 means nothing merged), and the bucket width adapts to the window length (hour /
+            day / week). Bots are excluded, matching the default throughput recipe; counts key on the PR snapshot's
+            merged_at, so they are exact and never lag CI webhooks. The trailing bucket is usually still in
+            progress; treat it as partial rather than a real drop. For merge *timing* (open to merge seconds) use
+            pull-requests; for a team-scoped trend use team-merge-trend.
+        feature_flag: engineering-analytics
     engineering-analytics-pr-cost:
         operation: engineering_analytics_pr_cost
         enabled: true

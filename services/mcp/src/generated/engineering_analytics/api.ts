@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -88,6 +88,34 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .describe(
             'A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
         ),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * Merged pull requests per time bucket across a window (date_from default -30d): the PR throughput trend. Buckets cover the whole window, oldest first, zero-filled (a 0 means nothing merged); the bucket width adapts to the window length (hour / day / week). Bots are excluded, matching the default throughput recipe. Counts key on the PR snapshot's merged_at, so they are exact and never lag CI webhooks.
+ */
+export const EngineeringAnalyticsMergeActivityParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsMergeActivityQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     repo: zod
         .string()
         .optional()

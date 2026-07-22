@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    MergeActivity,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -59,6 +60,7 @@ from products.engineering_analytics.backend.logic.queries.flaky_tests import que
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
 from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
+from products.engineering_analytics.backend.logic.queries.merge_activity import query_merge_activity
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_author_workflow_costs,
     query_pr_cost,
@@ -402,6 +404,16 @@ def build_team_ci_activity(
         date_to=parsed_to,
         test_limit=test_limit,
     )
+
+
+def build_merge_activity(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> MergeActivity:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_merge_activity(curated=curated, date_from=parsed_from, date_to=parsed_to)
 
 
 def build_team_merge_trend(

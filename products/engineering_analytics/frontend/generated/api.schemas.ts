@@ -262,6 +262,20 @@ export interface MasterFailureGroupApi {
     latest_run_id: number
 }
 
+export interface MergeActivityBucketApi {
+    /** Bucket start, aligned to the granularity (top of hour, midnight, or Monday). Keyed on merge time. */
+    bucket_start: string
+    /** Pull requests merged in this bucket, bots excluded. 0 means nothing merged, never missing data. */
+    merged_count: number
+}
+
+export interface MergeActivityApi {
+    /** Merged-PR count per bucket across the whole window, oldest first, zero-filled. */
+    buckets: MergeActivityBucketApi[]
+    /** Bucket width of `buckets`, chosen to fit the window: 'hour', 'day', or 'week'. */
+    granularity: string
+}
+
 export interface RunCostApi {
     /** GitHub Actions run id this cost is for. */
     run_id: number
@@ -1251,6 +1265,25 @@ export type EngineeringAnalyticsMasterFailuresParams = {
     branch?: string
     /**
      * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsMergeActivityParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string
     /**

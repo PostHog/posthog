@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@pos
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
+import { MergedPerDayCard } from '../components/MergedPerDayCard'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { SourceScopeChip } from '../components/ScopeBar'
 import { HeroStat } from '../components/StatCard'
@@ -28,6 +29,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         activeSource,
         notConnected,
         pullRequestsLoadError,
+        mergedPerDay,
+        mergeActivityLoading,
     } = useValues(engineeringAnalyticsLogic)
     const { setStateFilter, setCiStatusFilter, setSearch, resetFilters, applyCardFilter, refresh } =
         useActions(engineeringAnalyticsLogic)
@@ -97,6 +100,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     filterHint="Show open, non-draft PRs with green CI"
                 />
             </div>
+
+            <MergedPerDayCard data={mergedPerDay} loading={mergeActivityLoading} />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput

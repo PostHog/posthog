@@ -12,6 +12,7 @@ from products.engineering_analytics.backend.presentation.serializers.pull_reques
     BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
+    MergeActivitySerializer,
     PRCostSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
@@ -56,6 +57,36 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(CICardSummarySerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_merge_activity",
+        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID, _REPO],
+        responses={
+            200: MergeActivitySerializer,
+            400: OpenApiResponse(description="Invalid date or source_id."),
+        },
+        description=(
+            "Merged pull requests per time bucket across a window (date_from default -30d): the PR throughput "
+            "trend. Buckets cover the whole window, oldest first, zero-filled (a 0 means nothing merged); the "
+            "bucket width adapts to the window length (hour / day / week). Bots are excluded, matching the "
+            "default throughput recipe. Counts key on the PR snapshot's merged_at, so they are exact and never "
+            "lag CI webhooks."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def merge_activity(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_merge_activity(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date or source_id")
+        return Response(MergeActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pull_requests",
