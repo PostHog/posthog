@@ -8,9 +8,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1261_alter_personalapikey_scoped_organizations_and_more"),
-    ]
+    dependencies = [("posthog", "1262_organization_members_can_see_org_members")]
 
     operations = [
         migrations.CreateModel(
