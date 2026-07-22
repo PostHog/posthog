@@ -2,7 +2,6 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-
 import {
     AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
