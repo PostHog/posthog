@@ -13,6 +13,7 @@ from posthog.models.scoping import team_scope
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
+    _INBOX_OPT_OUT_DISMISS_MESSAGE,
     _upsert_pull_request,
     process_inbox_pr_review,
     process_installation_event,
@@ -779,15 +780,15 @@ def test_inbox_carve_out_rereviews_a_selfdriving_pr_past_every_gate(team, repo_c
     assert run.status == ReviewRunStatus.QUEUED
     assert run.head_sha == "sha-2"
     assert run.output["inbox_review"] == {
-        "trigger": "inbox",
+        "trigger": "webhook",
         "signal_report_id": str(dto.signal_report_id),
         "task_run_id": str(dto.run_id),
         "acting_user_id": 777,
     }
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
-    # Fork-safety feeds the lookup the base repo and both PR locators.
+    # Fork-safety feeds the lookup the base repo and both PR locators; the config's team scopes it.
     mock_find.assert_called_once_with(
-        repository=REPO, pr_url=f"https://github.com/{REPO}/pull/42", head_branch="feature-branch"
+        team_id=team.id, repository=REPO, pr_url=f"https://github.com/{REPO}/pull/42", head_branch="feature-branch"
     )
 
 
@@ -821,6 +822,8 @@ def test_inbox_carve_out_toggle_off_still_dismisses_stale_approvals(team, repo_c
         mock_execute = _run_task(_selfdriving_payload(), "delivery-inbox-off-2", team.id)
 
     dismiss.assert_called_once()
+    # The copy must say why (nobody is opted in), not the generic no-longer-qualifies message.
+    assert dismiss.call_args.kwargs["message"] == _INBOX_OPT_OUT_DISMISS_MESSAGE
     mock_execute.assert_not_called()
 
 
@@ -969,15 +972,29 @@ def test_inbox_receiver_leg_noops_without_a_reviewable_config(team, repo_config,
 
 
 @pytest.mark.parametrize(
-    "existing_status,expect_restart",
-    [(ReviewRunStatus.QUEUED, True), (ReviewRunStatus.COMPLETED, False)],
-    ids=["stranded_queued_run_restarts", "completed_run_noop"],
+    "existing_status,fetched_head,expect_started,expected_runs",
+    [
+        (ReviewRunStatus.QUEUED, "sha-1", "existing", 1),
+        (ReviewRunStatus.COMPLETED, "sha-1", None, 1),
+        (ReviewRunStatus.COMPLETED, "sha-2", "new", 2),
+        (ReviewRunStatus.QUEUED, "sha-2", "new", 2),
+    ],
+    ids=[
+        "stranded_queued_run_restarts",
+        "completed_run_noop",
+        "missed_webhook_head_gets_reviewed",
+        "stale_queued_run_superseded_for_new_head",
+    ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_inbox_receiver_leg_refires_are_idempotent(team, repo_config, existing_status, expect_restart):
-    # The TaskRun receiver re-fires on every output save carrying the PR URL, so this leg must not
-    # mint a second run (and a second sandbox) per save. The one exception: a still-QUEUED run whose
-    # post-commit workflow start failed gets restarted instead of stranded.
+def test_inbox_receiver_leg_refires_dedupe_on_the_current_head(
+    team, repo_config, existing_status, fetched_head, expect_started, expected_runs
+):
+    # The TaskRun receiver re-fires on every output save carrying the PR URL. At an already-handled
+    # head it must not mint a second run (and a second sandbox) per save — except a still-QUEUED run
+    # whose post-commit workflow start failed, which gets restarted instead of stranded. At a head
+    # the webhook leg never delivered (a lost synchronize), the refire is the only path left that
+    # reviews the new commits, so it must supersede and create.
     _sync_repo_config(team.id, repo_config)
     with team_scope(team.id):
         pr_obj = PullRequest.objects.create(team_id=team.id, repo_config=repo_config, pr_number=42)
@@ -985,14 +1002,45 @@ def test_inbox_receiver_leg_refires_are_idempotent(team, repo_config, existing_s
             team_id=team.id, pull_request=pr_obj, head_sha="sha-1", status=existing_status
         )
 
-    mock_execute, _ = _run_inbox_task(team.id, _inbox_pr())
+    mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(head_sha=fetched_head))
 
     with team_scope(team.id):
+        assert ReviewRun.objects.count() == expected_runs
+        if expect_started == "existing":
+            mock_execute.assert_called_once_with(review_run_id=str(existing.id), team_id=team.id)
+        elif expect_started == "new":
+            new_run = ReviewRun.objects.exclude(id=existing.id).get()
+            assert new_run.head_sha == fetched_head
+            mock_execute.assert_called_once_with(review_run_id=str(new_run.id), team_id=team.id)
+        else:
+            mock_execute.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_receiver_leg_stale_fetch_does_not_supersede_a_newer_run(team, repo_config):
+    # Race: the receiver's REST fetch returns a pre-push snapshot while the push's synchronize
+    # delivery already committed a run at the new head. Without the payload-clock recheck the
+    # older snapshot would supersede that run and re-review the outdated head.
+    _sync_repo_config(team.id, repo_config)
+    with team_scope(team.id):
+        pr_obj = PullRequest.objects.create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=42,
+            payload_updated_at=parse_datetime("2026-07-21T00:00:00Z"),
+        )
+        newer = ReviewRun.objects.create(
+            team_id=team.id, pull_request=pr_obj, head_sha="sha-2", status=ReviewRunStatus.QUEUED
+        )
+
+    # _inbox_pr's updated_at (2026-07-20) is older than the stored payload clock.
+    mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(head_sha="sha-1"))
+
+    with team_scope(team.id):
+        newer.refresh_from_db()
+        assert newer.status == ReviewRunStatus.QUEUED
         assert ReviewRun.objects.count() == 1
-    if expect_restart:
-        mock_execute.assert_called_once_with(review_run_id=str(existing.id), team_id=team.id)
-    else:
-        mock_execute.assert_not_called()
+    mock_execute.assert_not_called()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

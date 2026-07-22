@@ -1414,6 +1414,10 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
     # Trust-signal adaptation: the machine user's merged-PR history must not feed familiarity.
     assert context["author_pr_numbers"] == []
 
+    # The provenance must also reach the env stamp — it's what segments these runs in analytics.
+    sandbox_env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert json.loads(sandbox_env["STAMPHOG_EXTRA_PROPERTIES"])["stamphog_self_driving_review"] is True
+
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     assert len(approvals) == 1
     assert approvals[0]["body"]["commit_id"] == "sha120a"

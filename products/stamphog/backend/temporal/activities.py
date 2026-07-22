@@ -165,14 +165,16 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(
-        {
-            "stamphog_runtime": "hosted",
-            "stamphog_team_id": run.team_id,
-            "stamphog_review_run_id": str(run.id),
-        },
-        separators=(",", ":"),
-    )
+    extra_properties: dict[str, object] = {
+        "stamphog_runtime": "hosted",
+        "stamphog_team_id": run.team_id,
+        "stamphog_review_run_id": str(run.id),
+    }
+    # Attribution for self-driving inbox reviews (never set for human PRs), so the engine's
+    # completed events and LLM traces segment cleanly in analytics.
+    if (run.output or {}).get("inbox_review"):
+        extra_properties["stamphog_self_driving_review"] = True
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
     return env
 
 
