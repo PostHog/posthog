@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PagerDutySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pagerduty import (
+    PagerDutySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
     PagerDutyResumeConfig,
     pagerduty_source,
@@ -28,13 +33,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.settings import (
     ENDPOINTS,
-    PAGERDUTY_ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class PagerDutySource(ResumableSource[PagerDutySourceConfig, PagerDutyResumeConfig]):
+    supported_versions = ("2",)
+    default_version = "2"
+    api_docs_url = "https://developer.pagerduty.com/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -82,23 +91,17 @@ You can create a read-only API key in your PagerDuty account under **Integration
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=PAGERDUTY_ENDPOINTS[endpoint].supports_since,
-                supports_append=False,
-                incremental_fields=PAGERDUTY_ENDPOINTS[endpoint].incremental_fields,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # incidents mutates after creation, so it merges (incremental) but is never append-only.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"incidents"})
 
     def validate_credentials(
-        self, config: PagerDutySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PagerDutySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status, error = validate_pagerduty_credentials(config.api_token, schema_name)
         if ok:
@@ -130,7 +133,8 @@ You can create a read-only API key in your PagerDuty account under **Integration
         return pagerduty_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

@@ -3,7 +3,7 @@ import './Toolbar.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PostHog } from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 
 import {
     IconApp,
@@ -35,33 +35,79 @@ import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { retryImport } from 'lib/utils/retryImport'
 
-import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { AnimatedLogomark } from '~/toolbar/bar/AnimatedLogomark'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
-import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
-import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
-import { FieldNotesOverlay } from '~/toolbar/field-notes/FieldNotesOverlay'
-import { FieldNotesToolbarMenu } from '~/toolbar/field-notes/FieldNotesToolbarMenu'
-import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
-import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
-import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
-import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
-import { SurveySidebar } from '~/toolbar/surveys/SurveySidebar'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
-import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
-import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { ToolbarButton } from './ToolbarButton'
+
+// Each feature menu is a lazy split point: its component graph (and per-tab logics only it
+// mounts, like the event debugger's 200KB+ taxonomy) is fetched when the tab first opens, not
+// on toolbar boot. Styles are unaffected — the shadow root loads the entry stylesheet, and
+// bin/check-toolbar-size.mjs fails the build if a lazy chunk holds CSS the entry doesn't.
+const ActionsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/actions/ActionsToolbarMenu')).then((m) => ({
+        default: m.ActionsToolbarMenu,
+    }))
+)
+const EventDebugMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/debug/EventDebugMenu')).then((m) => ({ default: m.EventDebugMenu }))
+)
+const ExperimentsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/experiments/ExperimentsToolbarMenu')).then((m) => ({
+        default: m.ExperimentsToolbarMenu,
+    }))
+)
+const FieldNotesOverlay = lazy(() =>
+    retryImport(() => import('~/toolbar/field-notes/FieldNotesOverlay')).then((m) => ({
+        default: m.FieldNotesOverlay,
+    }))
+)
+const FieldNotesToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/field-notes/FieldNotesToolbarMenu')).then((m) => ({
+        default: m.FieldNotesToolbarMenu,
+    }))
+)
+const FlagsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/flags/FlagsToolbarMenu')).then((m) => ({ default: m.FlagsToolbarMenu }))
+)
+const ProductToursSidebar = lazy(() =>
+    retryImport(() => import('~/toolbar/product-tours/ProductToursSidebar')).then((m) => ({
+        default: m.ProductToursSidebar,
+    }))
+)
+const ProductToursToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/product-tours/ProductToursToolbarMenu')).then((m) => ({
+        default: m.ProductToursToolbarMenu,
+    }))
+)
+const HeatmapToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/stats/HeatmapToolbarMenu')).then((m) => ({ default: m.HeatmapToolbarMenu }))
+)
+const SurveySidebar = lazy(() =>
+    retryImport(() => import('~/toolbar/surveys/SurveySidebar')).then((m) => ({ default: m.SurveySidebar }))
+)
+const SurveysToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/surveys/SurveysToolbarMenu')).then((m) => ({
+        default: m.SurveysToolbarMenu,
+    }))
+)
+const WebVitalsToolbarMenu = lazy(() =>
+    retryImport(() => import('~/toolbar/web-vitals/WebVitalsToolbarMenu')).then((m) => ({
+        default: m.WebVitalsToolbarMenu,
+    }))
+)
 
 const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -383,7 +429,15 @@ export function ToolbarInfoMenu(): JSX.Element | null {
                     maxHeight: menuProperties.maxHeight,
                 }}
             >
-                {content}
+                <Suspense
+                    fallback={
+                        <div className="flex items-center justify-center p-4">
+                            <Spinner />
+                        </div>
+                    }
+                >
+                    {content}
+                </Suspense>
             </div>
         </div>
     )
@@ -450,9 +504,11 @@ export function Toolbar(): JSX.Element | null {
 
     return (
         <>
-            {showToursSidebar && <ProductToursSidebar />}
-            {showFieldNotes && <FieldNotesOverlay />}
-            {isSurveyCreating && <SurveySidebar />}
+            <Suspense fallback={null}>
+                {showToursSidebar && <ProductToursSidebar />}
+                {showFieldNotes && <FieldNotesOverlay />}
+                {isSurveyCreating && <SurveySidebar />}
+            </Suspense>
             <ToolbarInfoMenu />
             <div
                 ref={ref}

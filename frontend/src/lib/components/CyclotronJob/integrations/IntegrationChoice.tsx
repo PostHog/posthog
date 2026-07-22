@@ -1,3 +1,6 @@
+// Side-effect import: register all integration setups
+import './integrationSetups'
+
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -13,9 +16,6 @@ import { urls } from 'scenes/urls'
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 
-// Side-effect import: register all integration setups
-import './integrationSetups'
-
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
@@ -23,6 +23,7 @@ export type IntegrationConfigureProps = {
     schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
+    allowClear?: boolean
 }
 
 export function IntegrationChoice({
@@ -32,6 +33,7 @@ export function IntegrationChoice({
     integration,
     redirectUrl,
     beforeRedirect,
+    allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
@@ -139,7 +141,7 @@ export function IntegrationChoice({
                             label: 'Manage integrations',
                             sideIcon: <IconExternal />,
                         },
-                        value
+                        value && allowClear
                             ? {
                                   onClick: () => onChange?.(null),
                                   label: 'Clear selection',

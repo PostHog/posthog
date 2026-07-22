@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
     SolarwindsServiceDeskSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
@@ -44,6 +44,9 @@ class SolarwindsServiceDeskSource(
     ResumableSource[SolarwindsServiceDeskSourceConfig, SolarwindsServiceDeskResumeConfig]
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2.1",)  # pinned via Accept: application/vnd.samanage.v2.1+json
+    default_version = "v2.1"
+    api_docs_url = "https://apidoc.samanage.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -65,7 +68,6 @@ class SolarwindsServiceDeskSource(
             releaseStatus=ReleaseStatus.ALPHA,
             # Kept hidden for now: the implementation follows the public API docs but its
             # end-to-end sync behavior hasn't been exercised against a live account yet.
-            unreleasedSource=True,
             caption="""Enter your SolarWinds Service Desk JSON web token to pull your service desk data into the PostHog Data warehouse.
 
 You can generate a token in SolarWinds Service Desk under **Setup → Users & Access → Users** — open the user and use **Actions → Generate JSON Web Token**. The token inherits that user's role, so it needs read access to the records you want to sync, and requests stop working if that user is ever disabled.
@@ -128,6 +130,7 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -144,7 +147,11 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
         return schemas
 
     def validate_credentials(
-        self, config: SolarwindsServiceDeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SolarwindsServiceDeskSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # At source-create only the token is probed (a 403 there can just mean the token's role
         # doesn't cover the probe resource); with a schema_name we probe that endpoint's own path.
@@ -169,7 +176,8 @@ SolarWinds Service Desk runs independent regional stacks that do not share data 
             region=config.region,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

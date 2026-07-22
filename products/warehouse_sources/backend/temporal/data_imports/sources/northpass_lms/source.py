@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NorthpassLMSSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
+    NorthpassLMSSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
     NorthpassResumeConfig,
     northpass_source,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # surface in public docs.
     lists_tables_without_credentials = True
@@ -80,7 +85,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked API key surfaces as an HTTPError when `_fetch_page` calls
+            # An invalid or revoked API key surfaces as an HTTPError when the REST client calls
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
             "401 Client Error: Unauthorized for url: https://api.northpass.com": "Your Northpass API key is invalid or has been revoked. Create a new key in your Northpass admin panel under Apps → API Access, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.northpass.com": "Your Northpass API key does not have permission to access this data. Check the key's permissions in your Northpass admin panel, then reconnect.",
@@ -93,6 +98,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Northpass documents no server-side timestamp filter, so every endpoint is full refresh only.
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -114,7 +120,11 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         return schemas
 
     def validate_credentials(
-        self, config: NorthpassLMSSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: NorthpassLMSSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_northpass_credentials(config.api_key)
         if ok:
@@ -136,6 +146,7 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
         return northpass_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

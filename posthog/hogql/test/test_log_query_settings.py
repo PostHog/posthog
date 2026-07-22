@@ -1,13 +1,23 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest import TestCase
 
 from clickhouse_driver.errors import ServerException
+from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.errors import CHQueryErrorTooManyBytes, ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    CHQueryErrorTableIsReadOnly,
+    CHQueryErrorTooManyBytes,
+    ExposedCHQueryError,
+    QueryErrorCategory,
+    classify_query_error,
+    wrap_clickhouse_query_error,
+)
 
 
 class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
@@ -117,3 +127,30 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         )
         wrapped = wrap_clickhouse_query_error(server_error)
         assert getattr(wrapped, "code_name", None) == "too_many_bytes"
+
+    def test_wrap_clickhouse_query_error_read_only_is_stable_and_transient(self):
+        # Code 242 (TABLE_IS_READ_ONLY) is a self-healing replica error; it must map to the
+        # importable class that lives in CH_TRANSIENT_ERRORS so tasks can retry it, rather than
+        # falling back to a dynamically generated class that no autoretry tuple references.
+        server_error = ServerException("DB::Exception: Table is in readonly mode.", code=242)
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorTableIsReadOnly)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+
+class TestArgumentCountErrorsAreUserFacing(TestCase):
+    """Wrong-function-arg-count errors are user query mistakes, not internal bugs, so they must
+    surface as exposed 4xx errors and be classified USER_ERROR rather than captured as internals."""
+
+    @parameterized.expand(
+        [
+            (34, "TOO_MANY_ARGUMENTS_FOR_FUNCTION"),
+            (35, "TOO_FEW_ARGUMENTS_FOR_FUNCTION"),
+            (42, "NUMBER_OF_ARGUMENTS_DOESNT_MATCH"),
+        ]
+    )
+    def test_argument_count_error_is_exposed_and_user_error(self, code: int, name: str) -> None:
+        server_error = ServerException(f"DB::Exception: Function minus {name.lower()}.", code=code)
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR

@@ -12,35 +12,33 @@ from products.feature_flags.backend.tasks import (
 
 class TestRefreshExpiringFlagDefinitionsCacheEntries(PushGatewayTaskTestMixin, TestCase):
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
-    def test_refreshes_both_cache_variants(self, mock_refresh: MagicMock) -> None:
+    def test_refreshes_cache(self, mock_refresh: MagicMock) -> None:
         mock_refresh.return_value = (5, 0)
 
         refresh_expiring_flag_definitions_cache_entries()
 
-        assert mock_refresh.call_count == 2
+        mock_refresh.assert_called_once()
 
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
-    def test_continues_to_next_variant_on_error(self, mock_refresh: MagicMock) -> None:
-        mock_refresh.side_effect = [Exception("variant 1 failed"), (3, 0)]
+    def test_propagates_error(self, mock_refresh: MagicMock) -> None:
+        mock_refresh.side_effect = Exception("refresh failed")
 
-        refresh_expiring_flag_definitions_cache_entries()
-
-        assert mock_refresh.call_count == 2
+        with self.assertRaises(Exception):
+            refresh_expiring_flag_definitions_cache_entries()
 
 
 class TestCleanupStaleFlagDefinitionsExpiryTrackingTask(PushGatewayTaskTestMixin, TestCase):
     @patch("posthog.storage.cache_expiry_manager.cleanup_stale_expiry_tracking")
-    def test_cleans_up_both_cache_variants(self, mock_cleanup: MagicMock) -> None:
+    def test_cleans_up_cache(self, mock_cleanup: MagicMock) -> None:
         mock_cleanup.return_value = 3
 
         cleanup_stale_flag_definitions_expiry_tracking_task()
 
-        assert mock_cleanup.call_count == 2
+        mock_cleanup.assert_called_once()
 
     @patch("posthog.storage.cache_expiry_manager.cleanup_stale_expiry_tracking")
-    def test_continues_to_next_variant_on_error(self, mock_cleanup: MagicMock) -> None:
-        mock_cleanup.side_effect = [Exception("variant 1 failed"), 2]
+    def test_propagates_error(self, mock_cleanup: MagicMock) -> None:
+        mock_cleanup.side_effect = Exception("cleanup failed")
 
-        cleanup_stale_flag_definitions_expiry_tracking_task()
-
-        assert mock_cleanup.call_count == 2
+        with self.assertRaises(Exception):
+            cleanup_stale_flag_definitions_expiry_tracking_task()

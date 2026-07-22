@@ -344,6 +344,56 @@
                     },
                     "required": ["type", "config"],
                     "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a Snowflake batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "database": {
+                                    "description": "Snowflake database to write to.",
+                                    "type": "string"
+                                },
+                                "role": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Optional Snowflake role to assume for the session."
+                                },
+                                "schema": {
+                                    "description": "Schema inside the database containing the destination table.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "default": "events",
+                                    "description": "Destination table name.",
+                                    "type": "string"
+                                },
+                                "warehouse": {
+                                    "description": "Snowflake compute warehouse to use.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["database", "warehouse", "schema"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Snowflake"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "config"],
+                    "type": "object"
                 }
             ],
             "description": "Destination configuration. Required integration_id is enforced per destination type."

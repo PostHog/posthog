@@ -28,11 +28,14 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountAssignment
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -1960,6 +1963,51 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
+
+    def _person_definition_and_schema(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Plan tier", target_type=TargetType.PERSON.value
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+        return definition, schema
+
+    def test_create_person_source_round_trip(self):
+        # Wiring guard: the viewset routes a person-target source through serializer + facade.
+        definition, schema = self._person_definition_and_schema()
+
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        body = created.json()
+        assert body["external_data_schema"] == str(schema.id)
+        assert body["column_property_map"] == {"plan": "plan_tier"}
+        assert body["saved_query"] is None
+
+    def test_create_person_source_with_account_binding_is_rejected(self):
+        definition, _schema = self._person_definition_and_schema()
+
+        response = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
 class TestAccountNotesViewSet(APIBaseTest):

@@ -20,6 +20,7 @@ from django.core.cache import cache
 from posthog import redis
 from posthog.constants import FlagRequestType
 from posthog.models.team.team import Team
+from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
 from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.flag_analytics import (
@@ -1033,6 +1034,17 @@ class TestEnrichedAnalytics(BaseTest):
         f1.refresh_from_db()
         self.assertEqual(f1.has_enriched_analytics, True)
         self.assertEqual(f1.usage_dashboard, None)
+
+
+class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
+    @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
+    def test_logs_and_reraises_on_failure(self, mock_find_flags: MagicMock) -> None:
+        mock_find_flags.side_effect = Exception("boom")
+
+        with patch("posthog.tasks.tasks.capture_exception") as mock_capture, self.assertRaises(Exception):
+            find_flags_with_enriched_analytics_task()
+
+        mock_capture.assert_called_once()
 
 
 class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):

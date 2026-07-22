@@ -17,6 +17,7 @@ export const LogsAlertsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const LogsAlertsListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod.string().optional().describe('Only return log alerts created by the user with this UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -55,7 +56,8 @@ export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOne
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `workflow_variable`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
 export const logsAlertsCreateBodyThresholdCountDefault = 100
 export const logsAlertsCreateBodyThresholdCountMin = 0
 
@@ -699,7 +701,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 .default(
                                                     logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                 )
-                                                .describe('Event property with "$feature/" prepended'),
+                                                .describe('Event property with "$feature/\" prepended'),
                                             value: zod
                                                 .union([
                                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1166,9 +1168,66 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'not_icontains_multi',
                                             ]),
                                             type: zod
-                                                .literal('workflow_variable')
+                                                .literal('account_custom_property')
                                                 .default(
                                                     logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                )
+                                                .describe(
+                                                    'Customer analytics account custom property — the key is the property definition id'
+                                                ),
+                                            value: zod
+                                                .union([
+                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                    zod.string(),
+                                                    zod.number(),
+                                                    zod.boolean(),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.object({
+                                            key: zod.string(),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                            operator: zod.enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ]),
+                                            type: zod
+                                                .literal('workflow_variable')
+                                                .default(
+                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                 ),
                                             value: zod
                                                 .union([
@@ -1281,7 +1340,8 @@ export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValues
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `workflow_variable`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
 export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
@@ -1919,7 +1979,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .default(
                                                     logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                 )
-                                                .describe('Event property with "$feature/" prepended'),
+                                                .describe('Event property with "$feature/\" prepended'),
                                             value: zod
                                                 .union([
                                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2386,9 +2446,66 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'not_icontains_multi',
                                             ]),
                                             type: zod
-                                                .literal('workflow_variable')
+                                                .literal('account_custom_property')
                                                 .default(
                                                     logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                )
+                                                .describe(
+                                                    'Customer analytics account custom property — the key is the property definition id'
+                                                ),
+                                            value: zod
+                                                .union([
+                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                    zod.string(),
+                                                    zod.number(),
+                                                    zod.boolean(),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.object({
+                                            key: zod.string(),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                            operator: zod.enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ]),
+                                            type: zod
+                                                .literal('workflow_variable')
+                                                .default(
+                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                 ),
                                             value: zod
                                                 .union([
@@ -2483,19 +2600,14 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
         .enum(['slack', 'webhook', 'teams'])
         .describe('* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams')
-        .describe(
-            'Destination type — slack, webhook, or teams.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'
-        ),
+        .describe('Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod
-        .url()
-        .optional()
-        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
 })
 
 /**
@@ -2510,10 +2622,13 @@ export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
+export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
+
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.string())
         .min(1)
+        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 
@@ -2568,7 +2683,8 @@ export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValue
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `workflow_variable`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
 export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
 
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
@@ -3203,7 +3319,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 .default(
                                                     logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                 )
-                                                .describe('Event property with "$feature/" prepended'),
+                                                .describe('Event property with "$feature/\" prepended'),
                                             value: zod
                                                 .union([
                                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3670,9 +3786,66 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'not_icontains_multi',
                                             ]),
                                             type: zod
-                                                .literal('workflow_variable')
+                                                .literal('account_custom_property')
                                                 .default(
                                                     logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                )
+                                                .describe(
+                                                    'Customer analytics account custom property — the key is the property definition id'
+                                                ),
+                                            value: zod
+                                                .union([
+                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                                    zod.string(),
+                                                    zod.number(),
+                                                    zod.boolean(),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.object({
+                                            key: zod.string(),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                            operator: zod.enum([
+                                                'exact',
+                                                'is_not',
+                                                'icontains',
+                                                'not_icontains',
+                                                'regex',
+                                                'not_regex',
+                                                'gt',
+                                                'gte',
+                                                'lt',
+                                                'lte',
+                                                'is_set',
+                                                'is_not_set',
+                                                'is_date_exact',
+                                                'is_date_before',
+                                                'is_date_after',
+                                                'between',
+                                                'not_between',
+                                                'min',
+                                                'max',
+                                                'in',
+                                                'not_in',
+                                                'is_cleaned_path_exact',
+                                                'flag_evaluates_to',
+                                                'semver_eq',
+                                                'semver_neq',
+                                                'semver_gt',
+                                                'semver_gte',
+                                                'semver_lt',
+                                                'semver_lte',
+                                                'semver_tilde',
+                                                'semver_caret',
+                                                'semver_wildcard',
+                                                'icontains_multi',
+                                                'not_icontains_multi',
+                                            ]),
+                                            type: zod
+                                                .literal('workflow_variable')
+                                                .default(
+                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                 ),
                                             value: zod
                                                 .union([
@@ -3779,7 +3952,7 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .describe(
-                        'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                        'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                     ),
                 type: zod
                     .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -3889,7 +4062,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -3998,7 +4171,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4114,7 +4287,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4204,7 +4377,7 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4294,7 +4467,7 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4418,7 +4591,7 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4525,7 +4698,7 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4622,7 +4795,7 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4714,7 +4887,7 @@ export const LogsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .describe(
-                        'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                        'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                     ),
                 type: zod
                     .enum(['log', 'log_attribute', 'log_resource_attribute'])

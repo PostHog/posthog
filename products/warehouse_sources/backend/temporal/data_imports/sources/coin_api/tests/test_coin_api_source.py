@@ -7,7 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source import CoinApiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoinApiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
+    CoinApiSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -25,8 +27,6 @@ class TestCoinApiSource:
         assert config.name.value == "CoinApi"
         assert config.label == "CoinAPI"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Shipped behind the unreleased flag until the alpha has been exercised end to end.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coin-api"
         assert [f.name for f in config.fields] == [
             "api_key",

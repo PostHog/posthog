@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TempoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source import TempoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.tempo import TempoResumeConfig

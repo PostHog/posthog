@@ -3622,7 +3622,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # Hypercache/service cohort schema: these 18 fields must always be present in the serialized payload
+        # Hypercache/service cohort schema: these 19 fields must always be present in the serialized payload
         expected_fields = {
             "id",
             "name",
@@ -3640,6 +3640,7 @@ class TestSerializeCohort(BaseTest):
             "groups",
             "created_by_id",
             "cohort_type",
+            "condition_type",
             "last_backfill_person_properties_at",
             "last_backfill_events_at",
         }

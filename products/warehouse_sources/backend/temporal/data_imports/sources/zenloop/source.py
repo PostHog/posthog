@@ -19,10 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZenloopSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
+    ZenloopSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     ZENLOOP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.zenloop import (
@@ -35,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.zenloop.com/reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,25 +102,18 @@ You can generate an API token under **Settings → API** in the [Zenloop app](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the survey and property catalogs expose no reliable
-        # server-side timestamp cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # server-side timestamp cursor to advance (INCREMENTAL_FIELDS is empty).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ZenloopSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZenloopSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API token is account-wide, so a single probe validates access to every schema; there
         # is no per-endpoint scope to check.
@@ -136,6 +139,7 @@ You can generate an API token under **Settings → API** in the [Zenloop app](ht
         return zenloop_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

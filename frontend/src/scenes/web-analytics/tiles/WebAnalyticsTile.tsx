@@ -918,12 +918,15 @@ export const WebStatsTableTile = ({
     attachTo,
     headerSlot,
     uniqueKey,
+    enablePagination,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
     tileId: TileId
     headerSlot?: React.ReactNode
     uniqueKey: string
+    /** Show the "load more" footer so long-tail breakdowns can be paginated (used by the expanded modal). */
+    enablePagination?: boolean
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
@@ -1076,8 +1079,9 @@ export const WebStatsTableTile = ({
             insightProps,
             rowProps,
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
@@ -1435,12 +1439,15 @@ export const WebQuery = ({
     attachTo,
     uniqueKey,
     headerSlot,
+    enablePagination,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
     tileId: TileId
     uniqueKey: string
     headerSlot?: React.ReactNode
+    /** Show the "load more" footer on breakdown tables (used by the expanded modal). */
+    enablePagination?: boolean
 }): JSX.Element => {
     const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
     const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
@@ -1469,6 +1476,7 @@ export const WebQuery = ({
                 tileId={tileId}
                 headerSlot={headerSlot}
                 uniqueKey={uniqueKey}
+                enablePagination={enablePagination}
             />
         )
     }

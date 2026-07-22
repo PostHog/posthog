@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.carequalitycommission import (
     CareQualityCommissionSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -39,6 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CareQualityCommissionSource(ResumableSource[CareQualityCommissionSourceConfig, CQCResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://api-portal.service.cqc.org.uk/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -104,6 +107,7 @@ The `partner code` is optional but recommended: requests sent with a partner cod
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CQC_ENDPOINTS[endpoint]
@@ -124,7 +128,11 @@ The `partner code` is optional but recommended: requests sent with a partner cod
         return schemas
 
     def validate_credentials(
-        self, config: CareQualityCommissionSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CareQualityCommissionSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_cqc_credentials(config.api_key, config.partner_code):
             return True, None

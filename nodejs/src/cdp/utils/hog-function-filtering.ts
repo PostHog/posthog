@@ -226,7 +226,11 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
 export function convertToHogFunctionFilterGlobal(
     globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'>
 ): HogFunctionFilterGlobals {
-    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
+    // Rehydrated invocation events (e.g. a rerun of a janitor-recorded poison pill,
+    // whose stored globals are trimmed) can arrive without `properties` — default it
+    // rather than dereferencing undefined.
+    const properties = globals.event.properties ?? {}
+    const elementsChain = globals.event.elements_chain ?? properties['$elements_chain']
 
     const response: HogFunctionFilterGlobals = {
         event: globals.event.event,
@@ -237,7 +241,7 @@ export function convertToHogFunctionFilterGlobal(
         elements_chain_ids: [] as string[],
         elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
-        properties: globals.event.properties,
+        properties,
         person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : null,
         pdi: globals.person
             ? {

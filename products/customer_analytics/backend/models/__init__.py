@@ -1,5 +1,13 @@
 from .account import Account
-from .custom_property_definition import DATA_TYPE_BY_DISPLAY_TYPE, CustomPropertyDefinition, DataType, DisplayType
+from .announcement import Announcement
+from .announcement_delivery import AnnouncementDelivery
+from .custom_property_definition import (
+    DATA_TYPE_BY_DISPLAY_TYPE,
+    CustomPropertyDefinition,
+    DataType,
+    DisplayType,
+    TargetType,
+)
 from .custom_property_source import CustomPropertySource
 from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
@@ -12,6 +20,8 @@ __all__ = [
     "Account",
     "AccountRelationship",
     "AccountRelationshipDefinition",
+    "Announcement",
+    "AnnouncementDelivery",
     "CustomPropertyDefinition",
     "CustomPropertySource",
     "CustomPropertyValue",
@@ -20,5 +30,6 @@ __all__ = [
     "DataType",
     "DisplayType",
     "RelationshipDefinition",
+    "TargetType",
     "TeamCustomerAnalyticsConfig",
 ]

@@ -86,6 +86,10 @@ export interface BulkNotificationIdsRequestApi {
 
 export type NotificationsListParams = {
     /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean
+    /**
      * ISO 8601 timestamp; only events at or after this time
      */
     created_after?: string

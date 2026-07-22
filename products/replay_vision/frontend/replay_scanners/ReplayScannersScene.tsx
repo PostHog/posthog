@@ -3,10 +3,9 @@ import { router } from 'kea-router'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,17 +13,20 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
+import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { formatCredits } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
@@ -63,9 +65,14 @@ export function ReplayScannersScene(): JSX.Element {
     const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
     const { push } = useActions(router)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 
@@ -88,20 +95,19 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'enabled',
             render: (_, scanner) => (
                 <div className="flex items-center gap-2">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonSwitch
-                            checked={scanner.enabled}
-                            onChange={() => toggleScannerEnabled(scanner.id)}
-                            disabledReason={togglingIds.includes(scanner.id) ? 'Updating…' : undefined}
-                            size="small"
-                            data-attr="vision-scanner-toggle-enabled"
-                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                            data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                        />
-                    </AccessControlAction>
+                    <LemonSwitch
+                        checked={scanner.enabled}
+                        onChange={() => toggleScannerEnabled(scanner.id)}
+                        disabledReason={
+                            togglingIds.includes(scanner.id)
+                                ? 'Updating…'
+                                : getReplayVisionEditDisabledReason(scanner.user_access_level)
+                        }
+                        size="small"
+                        data-attr="vision-scanner-toggle-enabled"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                    />
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
@@ -126,6 +132,14 @@ export function ReplayScannersScene(): JSX.Element {
             sorter: true,
         },
         {
+            title: 'Spend this month',
+            key: 'credits_this_month',
+            render: (_, scanner) => (
+                <span className="text-sm tabular-nums">{formatCredits(scanner.credits_this_month)}</span>
+            ),
+            sorter: true,
+        },
+        {
             title: 'Created by',
             key: 'created_by',
             render: (_, scanner) =>
@@ -141,48 +155,43 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'actions',
             render: (_, scanner) => (
                 <div className="flex gap-1">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPencil />}
-                            to={urls.replayVision(scanner.id)}
-                            tooltip="Edit"
-                            data-attr="vision-scanner-edit-row"
-                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status="danger"
-                            icon={<IconTrash />}
-                            loading={deletingIds.includes(scanner.id)}
-                            disabledReason={deletingIds.includes(scanner.id) ? 'Deleting…' : undefined}
-                            onClick={() =>
-                                LemonDialog.open({
-                                    title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                    description: 'This cannot be undone.',
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => deleteScanner(scanner.id),
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }
-                            tooltip="Delete"
-                            data-attr="vision-scanner-delete"
-                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        />
-                    </AccessControlAction>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconPencil />}
+                        to={urls.replayVision(scanner.id)}
+                        disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                        tooltip="Edit"
+                        data-attr="vision-scanner-edit-row"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    />
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        loading={deletingIds.includes(scanner.id)}
+                        disabledReason={
+                            deletingIds.includes(scanner.id)
+                                ? 'Deleting…'
+                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
+                        }
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
+                                description: 'This cannot be undone.',
+                                primaryButton: {
+                                    children: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => deleteScanner(scanner.id),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }
+                        tooltip="Delete"
+                        data-attr="vision-scanner-delete"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    />
                 </div>
             ),
         },
@@ -197,23 +206,21 @@ export function ReplayScannersScene(): JSX.Element {
                 actions={
                     <>
                         <ReplayVisionFeedbackButton />
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlus />}
+                            to={urls.replayVisionTemplates()}
+                            disabledReason={getReplayVisionEditDisabledReason()}
+                            data-attr="vision-scanner-create"
                         >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={<IconPlus />}
-                                to={urls.replayVisionTemplates()}
-                                data-attr="vision-scanner-create"
-                            >
-                                New scanner
-                            </LemonButton>
-                        </AccessControlAction>
+                            New scanner
+                        </LemonButton>
                     </>
                 }
             />
+
+            <IngestionLimitBanner />
 
             <ProductIntroduction
                 productName="Replay vision"

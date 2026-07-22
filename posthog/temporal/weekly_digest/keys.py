@@ -12,6 +12,8 @@ class TeamDataKey(StrEnum):
     SAVED_FILTERS = "saved-filters"
     EXPIRING_RECORDINGS = "expiring-recordings"
     SURVEYS_LAUNCHED = "surveys-launched"
+    USAGE_TRENDS = "usage-trends"
+    ERROR_ISSUES = "error-issues"
 
 
 class UserDataKey(StrEnum):

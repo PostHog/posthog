@@ -28,13 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AviationstackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviationstack import (
+    AviationstackSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AviationstackSource(ResumableSource[AviationstackSourceConfig, AviationstackResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://aviationstack.com/documentation"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -70,6 +73,7 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # aviationstack has no server-side updated-at cursor, so every table is full refresh only.
         schemas = [
@@ -90,7 +94,11 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
         return schemas
 
     def validate_credentials(
-        self, config: AviationstackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AviationstackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_aviationstack_credentials(config.access_key):
             return True, None
@@ -109,8 +117,10 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
         return aviationstack_source(
             access_key=config.access_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # aviationstack has no server-side cursor; full refresh only
         )
 
     @property
@@ -120,7 +130,6 @@ class AviationstackSource(ResumableSource[AviationstackSourceConfig, Aviationsta
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Aviationstack",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your aviationstack access key to pull real-time, scheduled, and historical flight data plus aviation reference tables into the PostHog Data warehouse.
 
 You can find your access key in your [aviationstack dashboard](https://aviationstack.com/dashboard).
