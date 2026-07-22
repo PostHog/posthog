@@ -22358,6 +22358,8 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -22394,6 +22396,8 @@ export namespace Schemas {
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by: UserBasic;
       /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
@@ -47369,6 +47373,8 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /** The user who created this early access feature. Null for features created before creator tracking was added. */
+      readonly created_by?: UserBasic;
       /**
          * The effective access level the user has for this object
          * @nullable
