@@ -11,11 +11,9 @@ def process_custom_property_sync(team_id: int, saved_query_id: str) -> None:
     run_custom_property_sync(team_id=team_id, saved_query_id=saved_query_id)
 
 
-# Retry policy: autoretry_for=(Exception,) with backoff and jitter — bare max_retries
-# kwargs without autoretry (or bind=True + self.retry()) are silently inert. Per-channel
-# Slack failures and a missing bot connection are handled inside the logic (retrying
-# can't fix them) and never reach autoretry; the delivery's idempotency (only pending
-# rows are posted) makes a retry safe.
+# autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.
+# Rate-limited channels stay pending and raise AnnouncementRateLimited so this backoff
+# drives the retry (no worker sleep); the per-row in-flight claim makes retries safe.
 @shared_task(
     name="customer_analytics.send_announcement",
     ignore_result=True,

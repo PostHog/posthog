@@ -2,6 +2,11 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from products.conversations.backend.facade.api import SupportMessageSendError, SupportSlackNotConfigured
+from products.customer_analytics.backend.logic.announcements import (
+    DELIVERY_IN_FLIGHT_ERROR,
+    DELIVERY_INTERRUPTED_ERROR,
+    AnnouncementRateLimited,
+)
 from products.customer_analytics.backend.models import Announcement, AnnouncementDelivery
 from products.customer_analytics.backend.tasks import send_announcement
 
@@ -67,7 +72,6 @@ class TestSendAnnouncement(BaseTest):
         assert announcement.status == Announcement.Status.FAILED
         assert announcement.failed_count == 2
         assert "not connected" in self._delivery(announcement, "C1").error
-        # The batch stops on the first not-configured failure rather than retrying per channel.
         assert mock_post.call_count == 1
 
     @patch(POST)
@@ -78,12 +82,59 @@ class TestSendAnnouncement(BaseTest):
         send_announcement(str(announcement.id), self.team.pk)
         assert mock_post.call_count == 2
 
-        # Re-running must skip already-sent rows (idempotent on retry / duplicate dispatch).
         send_announcement(str(announcement.id), self.team.pk)
         assert mock_post.call_count == 2
 
+    @patch(POST)
+    def test_crashed_in_flight_row_is_never_reposted(self, mock_post: MagicMock):
+        mock_post.return_value = "1"
+
+        announcement = self._make(["Ccrashed", "Cok"])
+        AnnouncementDelivery.all_teams.filter(announcement=announcement, slack_channel_id="Ccrashed").update(
+            error=DELIVERY_IN_FLIGHT_ERROR
+        )
+
+        send_announcement(str(announcement.id), self.team.pk)
+
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.args[1] == "Cok"
+        crashed = self._delivery(announcement, "Ccrashed")
+        assert crashed.status == AnnouncementDelivery.Status.FAILED
+        assert crashed.error == DELIVERY_INTERRUPTED_ERROR
+
+    @patch(POST)
+    def test_rate_limited_channel_defers_once_then_fails(self, mock_post: MagicMock):
+        mock_post.side_effect = SupportMessageSendError("rate_limited", retry_after=30.0)
+
+        announcement = self._make(["C1"])
+        try:
+            send_announcement(str(announcement.id), self.team.pk)
+            raise AssertionError("expected AnnouncementRateLimited")
+        except AnnouncementRateLimited:
+            pass
+        assert self._delivery(announcement, "C1").status == AnnouncementDelivery.Status.PENDING
+
+        send_announcement(str(announcement.id), self.team.pk)
+        assert mock_post.call_count == 2
+        assert self._delivery(announcement, "C1").status == AnnouncementDelivery.Status.FAILED
+
+    @patch(POST)
+    def test_rate_limited_channel_sends_on_retry(self, mock_post: MagicMock):
+        mock_post.side_effect = [SupportMessageSendError("rate_limited", retry_after=1.0), "9.9"]
+
+        announcement = self._make(["C1"])
+        try:
+            send_announcement(str(announcement.id), self.team.pk)
+            raise AssertionError("expected AnnouncementRateLimited")
+        except AnnouncementRateLimited:
+            pass
+
+        send_announcement(str(announcement.id), self.team.pk)
+        announcement.refresh_from_db()
+        assert announcement.status == Announcement.Status.SENT
+        assert self._delivery(announcement, "C1").slack_message_ts == "9.9"
+
     def test_retry_config_is_not_inert(self):
-        # Guards the ported defect: bare max_retries/default_retry_delay without autoretry (or
-        # bind + self.retry) silently never retries. Assert the autoretry wiring is real.
+        # Bare max_retries without autoretry_for is silently inert; assert the wiring is real.
         assert Exception in send_announcement.autoretry_for
         assert send_announcement.max_retries == 3
