@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -6,6 +7,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -124,6 +126,7 @@ class TestForwardPendingUserMessage(TestCase):
             cpu_cores=4.0,
             memory_gb=16.0,
             ttl_seconds=3600,
+            ttl_expires_at=timezone.now() + timedelta(seconds=3600),
         )
         mock_send.return_value = _command_result(success=True, status_code=200)
 

@@ -8,7 +8,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1231_duckgresserverteam"),
-        ("tasks", "0062_sandbox_custom_image_base_reference"),
+        ("tasks", "0068_loop_creator_backfill"),
     ]
 
     operations = [
@@ -81,6 +81,10 @@ class Migration(migrations.Migration):
                     models.DateTimeField(default=django.utils.timezone.now, help_text="Sandbox provisioned"),
                 ),
                 (
+                    "ttl_expires_at",
+                    models.DateTimeField(help_text="Absolute provider kill deadline (creation boundary + TTL)"),
+                ),
+                (
                     "user_attributed_at",
                     models.DateTimeField(
                         blank=True,
@@ -98,7 +102,7 @@ class Migration(migrations.Migration):
                     "ended_at",
                     models.DateTimeField(
                         blank=True,
-                        help_text="Sandbox destroyed; NULL rows are clamped to created_at + ttl_seconds",
+                        help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at",
                         null=True,
                     ),
                 ),
@@ -134,6 +138,11 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_task_sandbox_session",
                 "indexes": [
                     models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+                    models.Index(
+                        condition=models.Q(("ended_at__isnull", True)),
+                        fields=["ttl_expires_at"],
+                        name="sandbox_session_open_ttl_idx",
+                    ),
                     models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
                 ],
             },

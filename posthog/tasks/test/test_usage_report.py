@@ -4674,6 +4674,7 @@ class TestTaskSandboxUsageReport(APIBaseTest):
             "ended_at": datetime(2026, 1, 2, 2, tzinfo=UTC),
         }
         defaults.update(overrides)
+        defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
         SandboxSession.objects.unscoped().create(**defaults)
 
     def test_counts_attributed_in_period_usage_only(self) -> None:

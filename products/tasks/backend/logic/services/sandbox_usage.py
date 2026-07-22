@@ -45,8 +45,14 @@ def _best_effort(fn: Callable[P, R]) -> Callable[P, R | None]:
 
 
 @_best_effort
-def open_sandbox_session(*, run_id: str | UUID, sandbox_id: str, config: SandboxConfig) -> None:
+def open_sandbox_session(
+    *, run_id: str | UUID, sandbox_id: str, config: SandboxConfig, sandbox_created_at: datetime | None = None
+) -> None:
     """Record a freshly provisioned sandbox against its run.
+
+    ``sandbox_created_at`` is the ``Sandbox.create()`` boundary — the provider's TTL
+    clock starts there, minutes before repo setup finishes and this row is opened, so
+    the TTL deadline must anchor on it rather than on insert time.
 
     Reads the live ``TaskRun`` row rather than any workflow-start snapshot: a warm
     run claimed while its sandbox was still provisioning has already lost the
@@ -56,6 +62,7 @@ def open_sandbox_session(*, run_id: str | UUID, sandbox_id: str, config: Sandbox
     """
     run = TaskRun.objects.select_related("task").only("id", "team_id", "state", "task__origin_product").get(id=run_id)
     state = run.state or {}
+    created_at = sandbox_created_at or timezone.now()
     shape = {
         "team_id": run.team_id,
         "task_run_id": run.id,
@@ -68,6 +75,8 @@ def open_sandbox_session(*, run_id: str | UUID, sandbox_id: str, config: Sandbox
         "burstable": config.burstable_resources,
         "cpu_request_cores": config.cpu_request_cores if config.burstable_resources else None,
         "memory_request_mb": config.memory_request_mb if config.burstable_resources else None,
+        "created_at": created_at,
+        "ttl_expires_at": created_at + timedelta(seconds=config.ttl_seconds),
     }
     SandboxSession.objects.for_team(run.team_id).update_or_create(
         sandbox_id=sandbox_id,
@@ -119,12 +128,13 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
 
     Only the attributed slice of a session bills: ``[user_attributed_at,
     effective_end)``, clipped to the period so sessions spanning report boundaries
-    apportion across them. Every end is clamped to ``created_at + ttl_seconds`` —
-    the provider kills the sandbox by then regardless, whether cleanup never ran
-    (crashed workflows), stamped late, or the session is genuinely live (clamped
-    to now). Resource-second metrics use the configured limits; burstable request
-    floors are recorded on the row for future pricing policy but don't affect raw
-    usage.
+    apportion across them. Every end is clamped to ``ttl_expires_at`` — the provider
+    kills the sandbox by then regardless, whether cleanup never ran (crashed
+    workflows), stamped late, or the session is genuinely live (clamped to now).
+    Open rows whose TTL expired before the period are excluded in the query itself,
+    so missed close stamps can't grow the scan without bound. Resource-second
+    metrics use the configured limits; burstable request floors are recorded on the
+    row for future pricing policy but don't affect raw usage.
     """
     now = timezone.now()
     # Unscoped: the usage report aggregates across every team in the region.
@@ -134,15 +144,14 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
         )
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=begin))
+        .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
     )
 
     usage: dict[int, list[float]] = {}
     for session in sessions.iterator():
         assert session.user_attributed_at is not None
         start = max(session.user_attributed_at, begin)
-        ttl_end = session.created_at + timedelta(seconds=session.ttl_seconds)
-        effective_end = min(session.ended_at or now, ttl_end)
+        effective_end = min(session.ended_at or now, session.ttl_expires_at)
         stop = min(effective_end, end)
         if stop <= start:
             continue

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -70,6 +70,18 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.burstable is True
         assert session.cpu_request_cores == 0.5
         assert session.memory_request_mb == 1024
+
+    def test_open_anchors_ttl_deadline_at_the_sandbox_creation_boundary(self):
+        # The provider's TTL clock starts at Sandbox.create(), minutes before repo
+        # setup finishes and the row is opened — the deadline must anchor there.
+        run = self._run()
+        boundary = datetime(2026, 1, 2, 9, tzinfo=UTC)
+
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-anchor", config=_config(), sandbox_created_at=boundary)
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-anchor")
+        assert session.created_at == boundary
+        assert session.ttl_expires_at == boundary + timedelta(hours=6)
 
     def test_open_records_vm_runtime(self):
         run = self._run()
@@ -182,6 +194,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         }
         defaults.update(overrides)
         defaults.setdefault("sandbox_id", f"sb-{SandboxSession.objects.unscoped().count()}")
+        defaults.setdefault("ttl_expires_at", defaults["created_at"] + timedelta(seconds=defaults["ttl_seconds"]))
         return SandboxSession.objects.unscoped().create(**defaults)
 
     def test_sums_attributed_window_with_resource_multipliers(self):
@@ -224,6 +237,19 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         # Cleanup never ran; the sandbox died at created_at + 6h regardless.
         assert usage.seconds == [(self.team.id, 6 * 3600)]
+
+    def test_expired_open_sessions_are_excluded(self):
+        # A row that never got a close stamp and whose TTL expired before the period
+        # is dropped by the query's open-arm TTL bound, not just the Python clamp.
+        self._session(
+            created_at=datetime(2025, 12, 20, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2025, 12, 20, 1, tzinfo=UTC),
+            ended_at=None,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.seconds == []
 
     def test_late_close_clamps_to_ttl(self):
         # Cleanup stamped hours after the provider already killed the sandbox at created_at + 6h.

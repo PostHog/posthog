@@ -2035,6 +2035,9 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     memory_request_mb = models.IntegerField(null=True, blank=True, help_text="Reserved memory floor when burstable")
 
     created_at = models.DateTimeField(default=django_timezone.now, help_text="Sandbox provisioned")
+    # Anchored at the Sandbox.create() boundary, not ledger-row insert time: the
+    # provider's TTL clock starts there, before repo setup runs and the row is opened.
+    ttl_expires_at = models.DateTimeField(help_text="Absolute provider kill deadline (creation boundary + TTL)")
     user_attributed_at = models.DateTimeField(
         null=True, blank=True, help_text="Start of the user-attributable window; NULL while (pre)warm and unclaimed"
     )
@@ -2042,7 +2045,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True, blank=True, help_text="Most recent user message routed to this sandbox's run"
     )
     ended_at = models.DateTimeField(
-        null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to created_at + ttl_seconds"
+        null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
     )
     ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
 
@@ -2050,8 +2053,15 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_task_sandbox_session"
         indexes = [
             # The usage report scans sessions overlapping the period instance-wide:
-            # ended recently or still open (ended_at IS NULL / ended_at > begin).
+            # closed recently (ended_at > begin) or open and not yet past their TTL
+            # (ended_at IS NULL AND ttl_expires_at > begin) — the partial index keeps
+            # rows that never got a close stamp from being re-fetched forever.
             models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+            models.Index(
+                fields=["ttl_expires_at"],
+                condition=models.Q(ended_at__isnull=True),
+                name="sandbox_session_open_ttl_idx",
+            ),
             # For per-team/per-origin re-aggregation once pricing decides which origins bill.
             models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
         ]

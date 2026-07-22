@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
@@ -296,6 +297,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         )
         with StepTimer("sandbox_creation", used_snapshot=used_snapshot) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
+            # The provider's TTL clock starts here — the usage ledger anchors its
+            # kill deadline on this boundary, not on when the row is opened below.
+            sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
         snapshot_outcome = "used" if used_snapshot else "fresh" if snapshot_source == "none" else "fallback"
@@ -373,7 +377,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # Best-effort usage-ledger row (swallows its own failures). Only after the
         # sandbox is fully reachable, mirroring create_sandbox_for_repository: the
         # failure paths above destroy the sandbox, and those must not enter the ledger.
-        open_sandbox_session(run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config)
+        open_sandbox_session(
+            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
+        )
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 
