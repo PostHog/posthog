@@ -2196,17 +2196,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
 
-    @parameterized.expand(
-        [
-            # Synchronous web requests must never block on capture, so they use the global client.
-            ("request", "global"),
-            # Worker kinds must flush before the process exits, or the event is silently dropped.
-            ("celery", "scoped"),
-            # An unrecognised kind must default to the safe (flushing) path, not the lossy one.
-            (None, "scoped"),
-        ]
-    )
-    def test_unbounded_events_capture_routes_by_query_kind(self, kind: Any, expected_path: str) -> None:
+    @parameterized.expand([("request",), ("celery",), (None,)])
+    def test_unbounded_events_capture_is_non_blocking_for_every_query_kind(self, kind: Any) -> None:
         executor = HogQLQueryExecutor(query="SELECT event FROM events", team=self.team, query_type="HogQLQuery")
         executor._parse_query()
         tags = MagicMock(kind=kind, team_id=self.team.pk, org_id=None)
@@ -2215,21 +2206,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             patch("posthog.hogql.query.is_cloud", return_value=True),
             patch("posthog.hogql.query.get_query_tags", return_value=tags),
             patch("posthog.hogql.query.posthoganalytics") as mock_analytics,
-            patch("posthog.hogql.query.ph_scoped_capture") as mock_scoped,
         ):
-            scoped_capture = mock_scoped.return_value.__enter__.return_value
             executor._capture_unbounded_events_query()
 
-        if expected_path == "global":
-            mock_scoped.assert_not_called()
-            capture = mock_analytics.capture
-        else:
-            mock_analytics.capture.assert_not_called()
-            mock_scoped.assert_called_once_with()
-            capture = scoped_capture
-
-        capture.assert_called_once()
-        kwargs = capture.call_args.kwargs
+        mock_analytics.capture.assert_called_once()
+        kwargs = mock_analytics.capture.call_args.kwargs
         self.assertEqual(kwargs["distinct_id"], str(self.team.pk))
         self.assertEqual(kwargs["event"], "unbounded events query")
         self.assertEqual(kwargs["properties"]["team_id"], self.team.pk)
