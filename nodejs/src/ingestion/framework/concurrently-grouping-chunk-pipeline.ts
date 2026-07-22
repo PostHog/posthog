@@ -2,11 +2,22 @@ import pLimit from 'p-limit'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
-import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
 import { isOkResult } from './results'
 
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
+
+/**
+ * Synchronous scan over a group's queued chunk, run before the items are
+ * processed sequentially. Receives the OK items in processing order and may
+ * attach group-scoped state by mutating item values (the same convention
+ * beforeBatch steps use to attach batch-scoped stores). Runs once per started
+ * group chunk (items queued while a group is active get their own scan when
+ * their chunk starts). A thrown error poisons the pipeline, same as a
+ * processor error.
+ */
+export type GroupPrescanFunction<T, C> = (items: { value: T; context: PipelineContext<C> }[]) => void
 
 /**
  * A chunk pipeline that groups inputs by a key and processes each group concurrently.
@@ -70,7 +81,8 @@ export class ConcurrentlyGroupingChunkPipeline<
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
         private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
-        maxConcurrency?: number
+        maxConcurrency?: number,
+        private prescan?: GroupPrescanFunction<TIntermediate, COutput>
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
         this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
@@ -191,6 +203,15 @@ export class ConcurrentlyGroupingChunkPipeline<
     private async processGroupSequentially(
         items: PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]
     ): Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]> {
+        if (this.prescan) {
+            const okItems = items.flatMap((item) =>
+                isOkResult(item.result) ? [{ value: item.result.value, context: item.context }] : []
+            )
+            if (okItems.length > 0) {
+                this.prescan(okItems)
+            }
+        }
+
         const results: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[] = []
 
         for (const item of items) {
