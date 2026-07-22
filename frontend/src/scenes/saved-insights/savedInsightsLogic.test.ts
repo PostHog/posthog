@@ -324,4 +324,40 @@ describe('savedInsightsLogic', () => {
             }).toDispatchActions(['addInsight'])
         })
     })
+
+    describe('draft insight row', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const draft = {
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+            timestamp: 1721000000000,
+        }
+
+        afterEach(() => {
+            localStorage.removeItem(draftKey)
+        })
+
+        it('loads a stored draft into the draft row', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            await expectLogic(logic).toMatchValues({
+                draftQuery: draft,
+                draftInsightRow: partial({ id: -1, query: draft.query }),
+            })
+        })
+
+        it('drops an unparseable draft instead of surfacing it', async () => {
+            localStorage.setItem(draftKey, 'not json')
+            logic.actions.loadDraftQuery()
+            await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it('discarding a draft clears localStorage so it does not come back', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            logic.actions.discardDraftQuery()
+            await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+    })
 })
