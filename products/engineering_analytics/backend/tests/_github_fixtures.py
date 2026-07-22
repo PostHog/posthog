@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
-TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
+TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github_fixtures"
 
 # Non-default prefix on purpose: every fixture below lands tables named
 # `myprefixgithub_*`, so the resolver and builders are proven against a name the old
