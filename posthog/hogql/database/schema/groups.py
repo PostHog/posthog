@@ -238,15 +238,19 @@ EVENTS_LAZY_JOIN_ALIASES = frozenset(
 )
 
 
-def _group_type_name_aliases(context: HogQLContext) -> frozenset[str]:
-    """Per-project group-type-name aliases on the events table (FieldTraversers to `group_N`)."""
+def _guarded_events_aliases(context: HogQLContext) -> frozenset[str]:
+    """Events-table aliases whose reference must skip the prefilter: the static lazy joins,
+    plus every FieldTraverser on events (this catches the per-project group-type-name aliases
+    like `organization`; the always-present `person`/`person_id` traversers are already in the
+    static set, so the union just dedupes them)."""
     if context.database is None:
-        return frozenset()
+        return EVENTS_LAZY_JOIN_ALIASES
     try:
         events_table = context.database.get_table(["events"])
     except Exception:
-        return frozenset()
-    return frozenset(name for name, field in events_table.fields.items() if isinstance(field, FieldTraverser))
+        return EVENTS_LAZY_JOIN_ALIASES
+    traversers = frozenset(name for name, field in events_table.fields.items() if isinstance(field, FieldTraverser))
+    return EVENTS_LAZY_JOIN_ALIASES | traversers
 
 
 def _outer_events_prefilter(node: SelectQuery, context: HogQLContext):
@@ -287,7 +291,7 @@ def _outer_events_prefilter(node: SelectQuery, context: HogQLContext):
 
     if not _references_timestamp(where):
         return None
-    guarded_aliases = EVENTS_LAZY_JOIN_ALIASES | _group_type_name_aliases(context)
+    guarded_aliases = _guarded_events_aliases(context)
     if any(_chain_hits_guarded_alias(chain, guarded_aliases) for chain in find_field_chains(where)):
         return None
     return clone_expr(where)
