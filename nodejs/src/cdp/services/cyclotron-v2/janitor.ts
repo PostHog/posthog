@@ -356,14 +356,26 @@ export class CyclotronV2Janitor {
      * next run).
      */
     private async dropWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
+        // Bound the delete to cleanupBatchSize and pick rows via FOR UPDATE SKIP
+        // LOCKED, mirroring the genuine-poison-pill path below. This runs first in
+        // the tick: an unbounded delete could both lock a large row set and block on
+        // a row a worker/other janitor holds, stalling the whole tick before genuine
+        // pills get recorded. Skipping locked rows and capping the batch keeps the
+        // wrapper drain from starving the rest of the sweep — leftovers drain next tick.
         const deleted = await this.pool.query<{ id: string }>(
             `DELETE FROM cyclotron_jobs
-             WHERE status = 'running'
-               AND queue_name = ANY($1::text[])
-               AND COALESCE(last_heartbeat, $2) <= $2
-               AND janitor_touch_count >= $3
+             WHERE id IN (
+                 SELECT id FROM cyclotron_jobs
+                 WHERE status = 'running'
+                   AND queue_name = ANY($1::text[])
+                   AND COALESCE(last_heartbeat, $2) <= $2
+                   AND janitor_touch_count >= $3
+                 ORDER BY last_transition ASC
+                 LIMIT $4
+                 FOR UPDATE SKIP LOCKED
+             )
              RETURNING id`,
-            [WRAPPER_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount]
+            [WRAPPER_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
         )
         const count = deleted.rows.length
         if (count > 0) {
