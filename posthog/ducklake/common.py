@@ -665,11 +665,35 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
     )
     suffix = table_name
     if already_enabled:
+        existing = DuckgresServerTeam.objects.get(team_id=team_id)
+        if not existing.backfill_enabled:
+            existing.backfill_enabled = True
+            existing.save(update_fields=["backfill_enabled", "updated_at"])
+        _ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
         return suffix
 
     server = DuckgresServer.objects.get(organization_id=organization_id)
     DuckgresServerTeam.objects.create(server=server, team_id=team_id, backfill_enabled=True, table_suffix=suffix)
+    _ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
     return suffix
+
+
+def _ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> None:
+    """Best-effort: register the org's managed warehouse as a restricted query connection.
+
+    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
+    ExternalDataSource pointed at the org server. Duckgres scopes its credential to the project
+    and enforces read-only SQL. Isolated from backfill enablement: a failure here must never block
+    a team from joining the warehouse.
+    """
+    try:
+        # Lazy import: keep the data_warehouse/warehouse_sources stack off this module's import
+        # path (it's loaded by the API and by Dagster, which don't need it).
+        from products.data_warehouse.backend.facade.api import ensure_managed_warehouse_direct_source  # noqa: PLC0415
+
+        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
+    except Exception:
+        logger.exception("Failed to register managed warehouse query source for team %s", team_id)
 
 
 def get_team_backfill_state(team_id: int) -> dict[str, object]:
