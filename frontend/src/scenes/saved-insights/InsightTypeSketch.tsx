@@ -1,6 +1,6 @@
 import { InsightType } from '~/types'
 
-import { WORLD_MAP_REGIONS } from './worldMapSketchData'
+import { WORLD_MAP_BASE_D, WORLD_MAP_HIGHLIGHTS } from './worldMapSketchData'
 
 // Hand-drawn-style previews for the new insight picker. Colors come from theme
 // CSS variables so the sketches adapt to light/dark mode automatically.
@@ -236,13 +236,17 @@ export function AiSketch(): JSX.Element {
 export function WorldMapSketch(): JSX.Element {
     return (
         <SketchSvg>
-            {WORLD_MAP_REGIONS.map(({ opacity, d }, index) => (
+            {/* Mirrors the insight: countries without data in border color, countries with data shaded by value */}
+            <path d={WORLD_MAP_BASE_D} fill={AXIS} fillRule="evenodd" />
+            {/* Hairline stroke keeps thin necks (e.g. New England) visible at sketch scale */}
+            {WORLD_MAP_HIGHLIGHTS.map(({ opacity, d }, index) => (
                 <path
                     key={index}
                     d={d}
                     fill={INK}
+                    fillRule="evenodd"
                     stroke={INK}
-                    strokeWidth="0.5"
+                    strokeWidth="0.6"
                     strokeLinejoin="round"
                     opacity={opacity}
                 />
