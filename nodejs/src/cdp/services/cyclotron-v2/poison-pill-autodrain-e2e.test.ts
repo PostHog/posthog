@@ -228,7 +228,7 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         const drainAgain = await autodrain.runOnce()
         expect(drainAgain).toEqual({ groups: 1, enqueued: 0 })
         const wrappersAfter = await nodePool.query(
-            `SELECT count()::int AS c FROM cyclotron_jobs WHERE team_id = $1 AND queue_name = $2`,
+            `SELECT count(*)::int AS c FROM cyclotron_jobs WHERE team_id = $1 AND queue_name = $2`,
             [TEST_TEAM_ID, RERUN_QUEUE_NAME]
         )
         expect(wrappersAfter.rows[0].c).toBe(1)
