@@ -600,15 +600,6 @@ export interface eventUsageLogicActions {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         properties: Record<string, boolean | number | string | null | undefined>
     }
-    reportDashboardTileIgnoreDashboardFiltersToggled: (
-        dashboardId: number | undefined,
-        insightId: number | null,
-        ignored: boolean
-    ) => {
-        dashboardId: number | undefined
-        ignored: boolean
-        insightId: number | null
-    }
     reportDashboardFrontEndUpdate: (
         dashboardId: number | undefined,
         attribute: 'description' | 'name' | 'tags',
@@ -770,6 +761,15 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         isShared: boolean
+    }
+    reportDashboardTileIgnoreDashboardFiltersToggled: (
+        dashboardId: number | undefined,
+        insightId: number | null,
+        ignored: boolean
+    ) => {
+        dashboardId: number | undefined
+        ignored: boolean
+        insightId: number | null
     }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,

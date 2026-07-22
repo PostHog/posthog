@@ -42,7 +42,7 @@ def resolve_filter_layers_by_priority(
     override = override_filters or {}
 
     if _ignores_dashboard_filters(override):
-        overridden_base = {key: value for key, value in base.items() if value is not None}
+        overridden_base: dict = {key: value for key, value in base.items() if value is not None}
         if overridden_base.get("properties") is not None:
             overridden_base["properties"] = flatten_property_leaves(overridden_base["properties"])
         return {
@@ -52,7 +52,7 @@ def resolve_filter_layers_by_priority(
         }
 
     effective_base = {**base}
-    overridden_base: dict = {}
+    overridden_base = {}
 
     for field in _SCALAR_OVERRIDE_FIELDS:
         if override.get(field) is not None:
