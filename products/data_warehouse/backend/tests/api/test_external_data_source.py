@@ -6,12 +6,13 @@ from datetime import date, timedelta
 from typing import Any, cast
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, FuzzyInt
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import psycopg
@@ -2089,19 +2090,32 @@ class TestExternalDataSource(APIBaseTest):
         assert "'private_key'" in response.json()["message"]
         assert "'private_key_id'" in response.json()["message"]
 
-    def test_list_external_data_source(self):
+    def test_list_external_data_source_query_count_does_not_scale_with_sources(self):
+        # N+1 regression guard: created_by, revenue_analytics_config, schemas and the latest job are
+        # all fetched up front, so listing must cost the same number of queries regardless of how many
+        # sources exist. Comparing two source counts catches a re-introduced per-source query (e.g.
+        # dropping select_related on the revenue_analytics_config reverse 1:1) without pinning a magic
+        # number. A warm-up request first primes any per-process caches so the two measurements match.
         self._create_external_data_source()
         self._create_external_data_source()
+        self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
-        # A cached instance setting lookup can shave off one query depending on test order.
-        # The list no longer builds the full HogQL Database (only needed to serialize table columns,
-        # which the list omits), so it's much cheaper than the single-source read path.
-        with self.assertNumQueries(FuzzyInt(13, 15)):
+        with CaptureQueriesContext(connection) as two_sources:
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
-        payload = response.json()
-
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(payload["results"]), 2)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        self._create_external_data_source()
+        self._create_external_data_source()
+        with CaptureQueriesContext(connection) as four_sources:
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        self.assertEqual(len(response.json()["results"]), 4)
+
+        self.assertEqual(
+            len(four_sources.captured_queries),
+            len(two_sources.captured_queries),
+            "Listing external data sources should not issue additional queries per source",
+        )
 
     def test_list_omits_table_columns_but_retrieve_includes_them(self):
         source = ExternalDataSource.objects.create(
