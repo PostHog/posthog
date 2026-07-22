@@ -42,18 +42,24 @@ function SlackDestinationChannel({
     return <>{channelName ? `#${channelName}` : 'channel'}</>
 }
 
+// Written by every producer of this destination (inline alerts, error tracking alerts, logs
+// alerting, MCP) as `{value: int}` / `{value: str}`. Destinations from before `slack_workspace`
+// existed simply lack the key — that's the only real-world gap, not a type mismatch.
+interface SlackDestinationInputs {
+    slack_workspace?: { value: number }
+    channel?: { value: string }
+}
+
 function getHogFunctionDestination(
     hogFunction: HogFunctionType,
     slackIntegrations: IntegrationType[] | undefined
 ): { type: string; detail: ReactNode } {
-    const channelValue = hogFunction.inputs?.channel?.value
+    const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
+    const channelValue = inputs?.channel?.value
     if (channelValue) {
-        const workspaceId = hogFunction.inputs?.slack_workspace?.value
-        const workspaceName =
-            typeof workspaceId === 'number'
-                ? slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
-                : undefined
-        if (typeof channelValue !== 'string' || typeof workspaceId !== 'number') {
+        const workspaceId = inputs?.slack_workspace?.value
+        const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
+        if (workspaceId === undefined) {
             return { type: 'Slack', detail: workspaceName ?? null }
         }
         return {
