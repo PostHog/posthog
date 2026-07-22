@@ -126,7 +126,8 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         existingHogFunctions,
         existingHogFunctionsLoading,
         pendingNotifications,
-        firstSlackIntegration,
+        slackIntegrations,
+        selectedSlackIntegration,
         selectedType,
         slackChannelValue,
         webhookUrl,
@@ -136,29 +137,30 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         removePendingNotification,
         deleteExistingHogFunction,
         setSelectedType,
+        setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
     } = useActions(logic)
 
-    const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
+    const slackLogic = slackIntegrationLogic({ id: selectedSlackIntegration?.id ?? 0 })
     const { slackChannels } = useValues(slackLogic)
     const { loadAllSlackChannels } = useActions(slackLogic)
 
     useEffect(() => {
-        if (firstSlackIntegration) {
+        if (selectedSlackIntegration) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
+    }, [selectedSlackIntegration?.id, loadAllSlackChannels, selectedSlackIntegration])
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
-            if (!slackChannelValue || !firstSlackIntegration) {
+            if (!slackChannelValue || !selectedSlackIntegration) {
                 return null
             }
             const [channelId, channelLabel] = slackChannelValue.split('|')
             return {
                 type: ALERT_NOTIFICATION_TYPE_SLACK,
-                slackWorkspaceId: firstSlackIntegration.id,
+                slackWorkspaceId: selectedSlackIntegration.id,
                 slackChannelId: channelId,
                 slackChannelName: channelLabel?.replace('#', '') ?? channelId,
             }
@@ -233,7 +235,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             }}
             slack={{
                 notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
-                integration: firstSlackIntegration,
+                integrations: slackIntegrations,
+                integration: selectedSlackIntegration,
+                onIntegrationChange: setSelectedSlackIntegrationId,
                 channelValue: slackChannelValue,
                 onChannelValueChange: setSlackChannelValue,
             }}
@@ -242,7 +246,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 onClick: handleAdd,
                 disabledReason: getAddDisabledReason(
                     selectedType,
-                    Boolean(firstSlackIntegration),
+                    Boolean(selectedSlackIntegration),
                     slackChannelValue,
                     webhookUrl
                 ),

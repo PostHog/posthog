@@ -43,6 +43,8 @@ export interface alertNotificationLogicValues {
     existingHogFunctionsLoading: boolean
     firstSlackIntegration: IntegrationType | undefined
     pendingNotifications: PendingAlertNotification[]
+    selectedSlackIntegration: IntegrationType | undefined
+    selectedSlackIntegrationId: number | null
     selectedType: AlertNotificationType
     slackChannelValue: string | null
     webhookUrl: string
@@ -191,6 +193,9 @@ export interface alertNotificationLogicActions {
     setSelectedType: (selectedType: AlertNotificationType) => {
         selectedType: AlertNotificationType
     }
+    setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => {
+        selectedSlackIntegrationId: number | null
+    }
     setSlackChannelValue: (slackChannelValue: string | null) => {
         slackChannelValue: string | null
     }
@@ -204,6 +209,10 @@ export interface alertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
+        selectedSlackIntegration: (
+            slackIntegrations: IntegrationType[] | undefined,
+            selectedSlackIntegrationId: number | null
+        ) => IntegrationType | undefined
     }
 }
 
@@ -232,6 +241,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         deleteExistingHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         createPendingHogFunctions: (alertId: string, alertName?: string) => ({ alertId, alertName }),
         setSelectedType: (selectedType: AlertNotificationType) => ({ selectedType }),
+        setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => ({
+            selectedSlackIntegrationId,
+        }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
     }),
@@ -252,6 +264,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue,
                 // Reset the input when switching destination type so stale values don't carry over.
                 setSelectedType: () => null,
+                setSelectedSlackIntegrationId: () => null,
+            },
+        ],
+        selectedSlackIntegrationId: [
+            null as number | null,
+            {
+                setSelectedSlackIntegrationId: (_, { selectedSlackIntegrationId }) => selectedSlackIntegrationId,
             },
         ],
         webhookUrl: [
@@ -281,6 +300,15 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         firstSlackIntegration: [
             (s) => [s.slackIntegrations],
             (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
+        ],
+        selectedSlackIntegration: [
+            (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
+            (
+                slackIntegrations: IntegrationType[] | undefined,
+                selectedSlackIntegrationId: number | null
+            ): IntegrationType | undefined =>
+                slackIntegrations?.find((integration) => integration.id === selectedSlackIntegrationId) ??
+                slackIntegrations?.[0],
         ],
     }),
 

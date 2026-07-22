@@ -45,6 +45,10 @@ describe('alertNotificationLogic', () => {
         // A staged Slack channel is cleared the same way.
         logic.actions.setSlackChannelValue('C123|#general')
         await expectLogic(logic).toMatchValues({ slackChannelValue: 'C123|#general' })
+        logic.actions.setSelectedSlackIntegrationId(2)
+        await expectLogic(logic).toMatchValues({ slackChannelValue: null })
+
+        logic.actions.setSlackChannelValue('C456|#alerts')
         logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
         await expectLogic(logic).toMatchValues({ slackChannelValue: null })
     })
