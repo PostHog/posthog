@@ -190,6 +190,91 @@ def _request(
     return Response(body, status=resp.status_code)
 
 
+def _get_project_team_row(*, organization_id: UUID | str, team_id: int) -> dict | None:
+    """Fetch the org-team row Duckgres currently holds for this project, if any."""
+    resp = _request("GET", organization_id, "/teams", require_enabled=False)
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        raise RuntimeError("Failed to read the organization's managed warehouse team rows")
+    for row in resp.data.get("teams") or []:
+        if isinstance(row, dict) and row.get("team_id") == team_id:
+            return row
+    return None
+
+
+def configure_project_reader(
+    *, organization_id: UUID | str, team_id: int, table_suffix: str, password: str
+) -> dict[str, str]:
+    """Apply the project's read-only credential, creating its team row only when absent.
+
+    The org-team row is Duckgres-owned state that also drives external-writer discovery
+    (viaduck/millpond write targets) and may be hand-set (break-glass edits, legacy layouts).
+    An existing row is therefore never rewritten from this path; the derived naming below is
+    used only to create a row that does not exist yet.
+    """
+    row = _get_project_team_row(organization_id=organization_id, team_id=team_id)
+    if row is None:
+        team_response = _request(
+            "POST",
+            organization_id,
+            "/teams",
+            json_body={
+                "team_id": team_id,
+                "schema_name": f"team_{team_id}",
+                "enabled": True,
+                "events_table_name": f"events_{table_suffix}",
+                "persons_table_name": f"persons_{table_suffix}",
+                "schema_data_imports_name": f"posthog_data_imports_{table_suffix}",
+            },
+            require_enabled=False,
+        )
+        if not status.is_success(team_response.status_code):
+            raise RuntimeError("Failed to register the project's managed warehouse namespaces")
+    elif row.get("enabled") is not True:
+        # `enabled` is an operator-facing serving hold; do not silently lift it here.
+        raise RuntimeError("The project's managed warehouse team row is disabled")
+
+    credential_response = _request(
+        "PUT",
+        organization_id,
+        f"/teams/{team_id}/project-reader",
+        json_body={"password": password},
+        require_enabled=False,
+    )
+    if not status.is_success(credential_response.status_code) or not isinstance(credential_response.data, dict):
+        raise RuntimeError("Failed to create the project's managed warehouse reader")
+    username = credential_response.data.get("username")
+    response_password = credential_response.data.get("password")
+    if not isinstance(username, str) or not username or not isinstance(response_password, str) or not response_password:
+        raise RuntimeError("Managed warehouse reader response did not include credentials")
+    return {"username": username, "password": response_password}
+
+
+def project_reader_namespaces(
+    *, organization_id: UUID | str, team_id: int
+) -> tuple[set[str], set[tuple[str, str]]] | None:
+    """Return the (whole schemas, legacy posthog-schema tables) the project's reader may see.
+
+    Mirrors the Duckgres policy derivation from the org-team row: the reader is granted the row's
+    schema_name, its data-imports schema (override or `<schema>_data_imports`), the modeled-data
+    schema, and `posthog.<override>` for each non-NULL legacy events/persons override — including
+    overrides that spell the derived default name. None means no enabled row exists (fail closed).
+    """
+    row = _get_project_team_row(organization_id=organization_id, team_id=team_id)
+    if row is None or row.get("enabled") is not True:
+        return None
+    schema_name = str(row.get("schema_name") or "")
+    if not schema_name:
+        return None
+    imports_schema = str(row.get("schema_data_imports_name") or "") or f"{schema_name}_data_imports"
+    schemas = {schema_name, imports_schema, f"shadow_{team_id}_models"}
+    relations: set[tuple[str, str]] = set()
+    for override_field in ("events_table_name", "persons_table_name"):
+        override = row.get(override_field)
+        if isinstance(override, str) and override:
+            relations.add(("posthog", override))
+    return schemas, relations
+
+
 def provision(
     organization_id: UUID | str,
     database_name: str | None,
@@ -640,7 +725,66 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
 
 
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
-    return _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+    resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        # Deprovision is not re-POSTable (Duckgres 409s once the org leaves a deprovisionable
+        # state), so a failed local cleanup must converge via the retrying task, not the operator.
+        try:
+            _remove_direct_connection_sources(organization_id)
+        except Exception:
+            logger.exception("Failed to remove managed warehouse query sources", organization_id=str(organization_id))
+            try:
+                _schedule_remove_direct_connection_sources(organization_id)
+            except Exception:
+                logger.exception(
+                    "Failed to schedule managed warehouse query source removal",
+                    organization_id=str(organization_id),
+                )
+                return Response(
+                    {
+                        "error": "The warehouse was deprovisioned but its SQL connections could not be removed or scheduled for removal. They must be cleaned up manually."
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+    return resp
+
+
+def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
+    """Soft-delete the org's auto-created Postgres query connections after deprovisioning."""
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import soft_delete_managed_warehouse_sources  # noqa: PLC0415
+
+    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+
+
+def _schedule_remove_direct_connection_sources(organization_id: UUID | str) -> None:
+    """Queue the retrying cleanup task when the inline soft-delete failed."""
+    # Keep the Celery task stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+        schedule_soft_delete_managed_warehouse_sources,
+    )
+
+    schedule_soft_delete_managed_warehouse_sources(organization_id=organization_id)
+
+
+def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -> None:
+    """Queue discovery of the team's managed-warehouse tables for the SQL editor.
+
+    Called from the warehouse-status read once the warehouse is `ready`. Repeated requests are
+    coalesced for a short interval, while later runs re-introspect the live catalog so newly created
+    project tables appear automatically.
+    """
+    # Keep the Celery and data-warehouse task stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import schedule_managed_warehouse_tables_reconcile  # noqa: PLC0415
+
+    try:
+        schedule_managed_warehouse_tables_reconcile(team_id=team_id, organization_id=organization_id)
+    except Exception:
+        logger.exception(
+            "Failed to schedule managed warehouse direct connection table reconciliation",
+            organization_id=str(organization_id),
+            team_id=team_id,
+        )
 
 
 def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
@@ -756,7 +900,25 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
 
 
 def reset_password(organization_id: UUID | str) -> Response:
-    return _request("POST", organization_id, "/reset-password")
+    resp = _request("POST", organization_id, "/reset-password")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict) and resp.data.get("password"):
+        try:
+            _update_direct_connection_password(organization_id, resp.data["password"])
+        except Exception:
+            logger.exception("Failed to update managed warehouse stored password", organization_id=str(organization_id))
+            return Response(
+                {"error": "The password was rotated but could not be saved. Retry the password reset."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    return resp
+
+
+def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:
+    """Sync the rotated root password into the server row and query connections."""
+    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
+    from products.data_warehouse.backend.facade.api import update_managed_warehouse_root_password  # noqa: PLC0415
+
+    update_managed_warehouse_root_password(organization_id=organization_id, password=password)
 
 
 def check_name(organization_id: UUID | str, name: str | None) -> Response:
