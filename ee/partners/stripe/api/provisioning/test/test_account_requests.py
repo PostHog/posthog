@@ -57,6 +57,25 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert code_data["user_id"] == self.user.id
         assert code_data["team_id"] == self.team.id
 
+    def test_optional_fields_accept_explicit_null(self):
+        # Spec JSON tolerance: an explicit null on an optional field is treated
+        # as absent, not rejected with a 400.
+        res = self._post_signed(
+            URL,
+            data=_account_request(
+                self.user.email,
+                id=None,
+                scopes=None,
+                confirmation_secret=None,
+                expires_at=None,
+                code_challenge=None,
+                code_challenge_method=None,
+                configuration=None,
+            ),
+        )
+        assert res.status_code == 200
+        assert res.json()["type"] == "oauth"
+
     def test_wizard_configuration_block_is_ignored(self):
         res = self._post_signed(
             URL,
