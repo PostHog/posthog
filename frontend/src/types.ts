@@ -6188,6 +6188,14 @@ export interface ExternalDataSourceCreatePayload {
     payload: Record<string, any>
 }
 
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
+}
+
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
