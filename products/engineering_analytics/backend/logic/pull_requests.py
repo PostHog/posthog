@@ -9,6 +9,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
+    MergeActivity,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
 from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
+from products.engineering_analytics.backend.logic.queries.merge_activity import query_merge_activity
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_author_workflow_costs, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
@@ -103,6 +105,16 @@ def build_author_workflow_costs(
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
     return query_ci_cards(curated=curated)
+
+
+def build_merge_activity(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> MergeActivity:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_merge_activity(curated=curated, date_from=parsed_from, date_to=parsed_to)
 
 
 def build_pull_request_list(

@@ -35,6 +35,7 @@ class EngineeringAnalyticsViewSet(
         "sources",
         # pull_requests
         "ci_cards",
+        "merge_activity",
         "pull_requests",
         "pr_lifecycle",
         "resolve_branch",

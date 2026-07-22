@@ -945,6 +945,36 @@ class OpenToMergeBucket:
 
 
 @dataclass(frozen=True)
+class MergeActivityBucket:
+    """One time bucket of merged-PR throughput: how many pull requests merged in this bucket,
+    bots excluded (the locked throughput recipe; a merged PR is never a draft). Unlike the
+    median buckets, an empty bucket carries a real 0 (nothing merged), never None: for a
+    count, zero is data, not a gap.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour, midnight, or Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Pull requests merged in this bucket, bots excluded.
+    merged_count: int
+
+
+@dataclass(frozen=True)
+class MergeActivity:
+    """Merged-PR throughput across a window on one bucket granularity: the "PRs merged per
+    day" trend. Counts key on merged_at from the GitHub source's PR snapshot, so they are as
+    fresh as the source's last sync (a merge never un-happens, but a stalled sync zero-fills
+    recent buckets); bots are excluded per the locked throughput rule (SPEC section 6). The
+    window start is floored to its bucket boundary, so every bucket except the trailing
+    in-progress one covers its full span.
+    """
+
+    # Bucket width of `buckets`: 'hour', 'day', or 'week', chosen from the window length.
+    granularity: str
+    # One bucket per step across the whole window, oldest first, zero-filled.
+    buckets: list[MergeActivityBucket]
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one

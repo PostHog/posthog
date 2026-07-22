@@ -8,6 +8,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     CIStatusRollup,
+    MergeActivity,
+    MergeActivityBucket,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -23,6 +25,36 @@ from products.engineering_analytics.backend.presentation.serializers._shared imp
     CIJobFailureLogSerializer,
     RepoRefSerializer,
 )
+
+
+class MergeActivityBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = MergeActivityBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to the granularity (top of hour, midnight, or Monday). "
+                "Keyed on merge time.",
+            },
+            "merged_count": {
+                "help_text": "Pull requests merged in this bucket, bots excluded. 0 means nothing merged, "
+                "never missing data.",
+            },
+        }
+
+
+class MergeActivitySerializer(DataclassSerializer):
+    buckets = MergeActivityBucketSerializer(
+        many=True,
+        help_text="Merged-PR count per bucket across the whole window, oldest first, zero-filled.",
+    )
+
+    class Meta:
+        dataclass = MergeActivity
+        extra_kwargs = {
+            "granularity": {
+                "help_text": "Bucket width of `buckets`, chosen to fit the window: 'hour', 'day', or 'week'.",
+            },
+        }
 
 
 class AuthorSerializer(DataclassSerializer):

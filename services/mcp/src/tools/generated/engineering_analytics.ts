@@ -6,6 +6,7 @@ import {
     EngineeringAnalyticsBrokenTestsQueryParams,
     EngineeringAnalyticsCiFailureLogsQueryParams,
     EngineeringAnalyticsFlakyTestsQueryParams,
+    EngineeringAnalyticsMergeActivityQueryParams,
     EngineeringAnalyticsPrCostQueryParams,
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
@@ -87,6 +88,30 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
+const EngineeringAnalyticsMergeActivitySchema = EngineeringAnalyticsMergeActivityQueryParams
+
+const engineeringAnalyticsMergeActivity = (): ToolBase<
+    typeof EngineeringAnalyticsMergeActivitySchema,
+    Schemas.MergeActivity
+> => ({
+    name: 'engineering-analytics-merge-activity',
+    schema: EngineeringAnalyticsMergeActivitySchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsMergeActivitySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MergeActivity>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/merge_activity/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
     },
 })
 
@@ -310,6 +335,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'engineering-analytics-broken-tests': engineeringAnalyticsBrokenTests,
     'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
     'engineering-analytics-flaky-tests': engineeringAnalyticsFlakyTests,
+    'engineering-analytics-merge-activity': engineeringAnalyticsMergeActivity,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
     'engineering-analytics-run-failure-logs': engineeringAnalyticsRunFailureLogs,
     'engineering-analytics-sources': engineeringAnalyticsSources,
