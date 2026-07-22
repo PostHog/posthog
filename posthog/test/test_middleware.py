@@ -2537,3 +2537,14 @@ class TestLoginAsFromTicket(APIBaseTest):
         session.save()
         res = self.client.get(reverse("impersonation-ticket"))
         assert res.status_code == 404
+
+    def test_impersonation_ticket_404s_after_staff_deactivated(self):
+        # The impersonation session authenticates as the customer, so deactivating the
+        # staff user doesn't revoke it — the endpoint must re-check is_active itself.
+        ticket = self._create_ticket({"email": "customer@posthog.com"})
+        with self._as_internal_team():
+            self._post({"ticket_id": str(ticket.id)})
+            self.user.is_active = False
+            self.user.save()
+            res = self.client.get(reverse("impersonation-ticket"))
+        assert res.status_code == 404

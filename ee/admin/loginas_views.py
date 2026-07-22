@@ -139,7 +139,7 @@ def upgrade_impersonation(request):
         return JsonResponse({"error": "A reason is required to upgrade impersonation"}, status=400)
 
     staff_user = get_original_user_from_session(request)
-    if not staff_user or not staff_user.is_staff:
+    if not staff_user or not staff_user.is_active or not staff_user.is_staff:
         return JsonResponse({"error": "Unable to upgrade impersonation"}, status=400)
 
     if IMPERSONATION_READ_ONLY_SESSION_KEY in request.session:
@@ -286,7 +286,7 @@ def get_impersonation_ticket(request):
     staff user stored on the session — request.user is the impersonated customer.
     """
     staff_user = get_original_user_from_session(request)
-    if not staff_user or not staff_user.is_staff:
+    if not staff_user or not staff_user.is_active or not staff_user.is_staff:
         return JsonResponse({"error": "Not found"}, status=404)
 
     if not is_impersonated_session(request):
