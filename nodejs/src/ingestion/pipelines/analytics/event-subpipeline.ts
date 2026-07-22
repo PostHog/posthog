@@ -6,6 +6,7 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -51,6 +52,8 @@ export interface EventSubpipelineInput {
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    /** Fold plan attached by the merge-fold group prescan; absent when folding is off or the event is not part of a planned run. */
+    mergeFoldPlan?: MergeFoldPlan
 }
 
 export interface EventSubpipelineConfig {

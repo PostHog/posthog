@@ -162,6 +162,12 @@ export type IngestionConsumerConfig = {
     // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
     // means "no teams", not "all teams"; use '*' to open the gate.
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
+    // Fold consecutive runs of $identify merges for the same distinct_id in a batch into a single
+    // merge operation (merge-storm mitigation). Master switch; when off, no prescan is wired and
+    // behavior is identical to sequential merges.
+    PERSON_MERGE_FOLD_ENABLED: boolean
+    // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
+    PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -279,6 +285,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
+        PERSON_MERGE_FOLD_ENABLED: false,
+        PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,

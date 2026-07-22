@@ -14,6 +14,7 @@ import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { createMergeFoldPrescan } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createDenyEventsStep } from '~/ingestion/common/steps/deny-events'
 import {
@@ -181,6 +182,10 @@ export function createJoinedIngestionPipeline<
         topHog: topHogWrapper,
     }
 
+    const mergeFoldPrescan = createMergeFoldPrescan<PerDistinctIdPipelineInput, JoinedIngestionPipelineContext>(
+        perDistinctIdOptions
+    )
+
     return (
         newCommonIngestionPipeline<TInput, TContext, OverflowOutput | AsyncOutput>({
             teamManager,
@@ -222,9 +227,14 @@ export function createJoinedIngestionPipeline<
             .pipe(createEnrichSurveyPersonPropertiesStep())
             .compose((b) => createPostTeamPreprocessingSubpipeline(b, postTeamConfig))
             // Group by token:distinctId and process each group concurrently.
-            // Events within each group are processed sequentially.
+            // Events within each group are processed sequentially. When merge
+            // folding is enabled, a prescan plans folds over each group's
+            // chunk before its events run; when disabled, no prescan is wired
+            // and the pipeline is identical to the sequential-only shape.
             .concurrentlyPerGroup(getTokenAndDistinctId, (group) =>
-                group.sequentially((event) => createPerDistinctIdPipeline(event, perEventConfig))
+                (mergeFoldPrescan ? group.prescan(mergeFoldPrescan) : group).sequentially((event) =>
+                    createPerDistinctIdPipeline(event, perEventConfig)
+                )
             )
             .afterBatch((afterBatch) =>
                 afterBatch
