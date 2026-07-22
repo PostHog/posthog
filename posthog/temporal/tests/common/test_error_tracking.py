@@ -1,6 +1,7 @@
 """Test that we capture exceptions in activities and workflows to PostHog."""
 
 import uuid
+import socket
 import datetime as dt
 from dataclasses import dataclass
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -15,7 +17,7 @@ from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_transient_dns_error
 
 
 @dataclass
@@ -109,6 +111,27 @@ class EgressBackpressureActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             egress_backpressure_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def dns_failure_activity(inputs: OptionallyFailingInputs) -> None:
+    # aiohttp's ClientConnectorDNSError chains a socket.gaierror via `from`; libpq (Postgres)
+    # instead surfaces name-resolution failures as message text on an OperationalError. Raise the
+    # underlying gaierror to stand in for the connection-time DNS blip both wrap.
+    raise socket.gaierror(-2, "Name or service not known")
+
+
+@workflow.defn
+class DnsFailureActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            dns_failure_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -245,6 +268,68 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "EgressBackpressureActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+class TestIsTransientDnsError:
+    @parameterized.expand(
+        [
+            ("direct_gaierror", socket.gaierror(-2, "Name or service not known"), True),
+            (
+                "aiohttp_style_chained_gaierror",
+                ConnectionError("Cannot connect to host clickhouse"),
+                True,
+            ),
+            (
+                "libpq_message_errno_2",
+                Exception(
+                    'connection failed: could not translate host name "pg" to address: Name or service not known'
+                ),
+                True,
+            ),
+            (
+                "libpq_message_temporary_failure",
+                Exception("could not translate host name: Temporary failure in name resolution"),
+                True,
+            ),
+            ("unrelated_value_error", ValueError("Activity failed!"), False),
+            ("unrelated_connection_reset", ConnectionResetError("Connection reset by peer"), False),
+        ]
+    )
+    def test_detection(self, _name: str, exc: BaseException, expected: bool):
+        if _name == "aiohttp_style_chained_gaierror":
+            # Rebuild the aiohttp shape: a ClientConnector-style error whose __cause__ is the gaierror.
+            exc.__cause__ = socket.gaierror(-3, "Temporary failure in name resolution")
+        assert _is_transient_dns_error(exc) is expected
+
+
+@pytest.mark.asyncio
+async def test_dns_failure_is_not_captured(temporal_client: Client):
+    """A transient DNS / name-resolution failure (an infra blip Temporal's retry policy recovers
+    from) is expected control flow, not a defect, so the interceptor must re-raise it without
+    reporting it to error tracking. Guards that _is_transient_dns_error is actually wired into the
+    activity interceptor's skip condition."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DnsFailureActivityWorkflow],
+            activities=[dns_failure_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DnsFailureActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

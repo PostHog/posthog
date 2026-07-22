@@ -1,3 +1,4 @@
+import socket
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -19,6 +20,35 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+# Substrings that identify a DNS / name-resolution failure in an exception message. Clients like
+# libpq (Postgres) surface these as plain text on an OperationalError rather than raising a
+# socket.gaierror, so we match the message in addition to the exception type.
+_DNS_ERROR_MESSAGE_MARKERS = (
+    "name or service not known",  # getaddrinfo EAI_NONAME (errno -2)
+    "temporary failure in name resolution",  # getaddrinfo EAI_AGAIN (errno -3)
+    "nodename nor servname provided",  # macOS getaddrinfo
+)
+
+
+def _is_transient_dns_error(exc: BaseException) -> bool:
+    """Return True if exc (or anything in its cause/context chain) is a transient DNS /
+    name-resolution failure. These are the kind of infra hiccup Temporal's retry policies recover
+    from automatically, so a single DNS blip that ripples across activities shouldn't mint a fresh
+    error-tracking issue per activity. Covers both socket.gaierror (raised by aiohttp's
+    ClientConnectorDNSError, which chains it via `from`) and clients like libpq that report name
+    resolution failures as message text."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, socket.gaierror):
+            return True
+        message = str(current).lower()
+        if any(marker in message for marker in _DNS_ERROR_MESSAGE_MARKERS):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -66,11 +96,17 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
+            # Cancellations (worker drain, activity timeout, workflow cancellation), our own
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # rate limiter already records via record_outbound_decision), and transient DNS /
+            # name-resolution failures (an infra blip Temporal's retry policy recovers from
+            # automatically) are expected control flow, not defects — re-raise without reporting
+            # them to error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or _is_transient_dns_error(e)
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
