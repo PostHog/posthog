@@ -976,12 +976,14 @@ def test_inbox_receiver_leg_noops_without_a_reviewable_config(team, repo_config,
     [
         (ReviewRunStatus.QUEUED, "sha-1", "existing", 1),
         (ReviewRunStatus.COMPLETED, "sha-1", None, 1),
+        (ReviewRunStatus.FAILED, "sha-1", "new", 2),
         (ReviewRunStatus.COMPLETED, "sha-2", "new", 2),
         (ReviewRunStatus.QUEUED, "sha-2", "new", 2),
     ],
     ids=[
         "stranded_queued_run_restarts",
         "completed_run_noop",
+        "failed_run_recreated_on_refire",
         "missed_webhook_head_gets_reviewed",
         "stale_queued_run_superseded_for_new_head",
     ],
@@ -992,9 +994,11 @@ def test_inbox_receiver_leg_refires_dedupe_on_the_current_head(
 ):
     # The TaskRun receiver re-fires on every output save carrying the PR URL. At an already-handled
     # head it must not mint a second run (and a second sandbox) per save — except a still-QUEUED run
-    # whose post-commit workflow start failed, which gets restarted instead of stranded. At a head
-    # the webhook leg never delivered (a lost synchronize), the refire is the only path left that
-    # reviews the new commits, so it must supersede and create.
+    # whose post-commit workflow start failed, which gets restarted instead of stranded. A FAILED
+    # run doesn't count as handled: the refire recreates it, so a single-commit PR whose one review
+    # died isn't permanently stranded without a verdict. At a head the webhook leg never delivered
+    # (a lost synchronize), the refire is the only path left that reviews the new commits, so it
+    # must supersede and create.
     _sync_repo_config(team.id, repo_config)
     with team_scope(team.id):
         pr_obj = PullRequest.objects.create(team_id=team.id, repo_config=repo_config, pr_number=42)

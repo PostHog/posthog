@@ -1061,7 +1061,9 @@ function TriggersSection(): JSX.Element {
                         checked={settings?.stamphog_review_inbox_prs ?? false}
                         onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
                         disabledReason={
-                            settings && !settings.stamphog_connected
+                            // An already-on switch stays interactive while disconnected, so the
+                            // opt-out is never dead-ended behind reconnecting Stamphog first.
+                            settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
                                 ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
                                 : switchDisabledReason
                         }
