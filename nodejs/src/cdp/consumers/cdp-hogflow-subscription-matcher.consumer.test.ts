@@ -1413,14 +1413,32 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(lastUpdate()!.params[1]).toEqual(['survivor-B'])
         })
 
-        it('skips a job not parked on a wait_until_condition step, so a delay is never re-keyed', async () => {
-            // action_id points at the trigger (any non-wait step, e.g. a delay) — must be left untouched.
-            matcher.moveRows = [parkedWaitRow({ action_id: 'trigger_node' })]
+        it('skips a job parked on a delay step and scopes the lock to wait actions only', async () => {
+            // A job of the same wait-containing flow can sit on a delay step; rewriting its person_id off
+            // a repoint would be wrong. Two layers keep it safe: the SELECT is scoped to wait action_ids
+            // ($4), and the JS guard skips any row whose action isn't a wait_until_condition. Assert both.
+            const flow = makeHogFlow({ id: 'flow-1', team_id: 1 })
+            flow.actions.push({
+                id: 'delay_node',
+                name: 'Delay',
+                type: 'delay',
+                config: { delay_duration: '1h' },
+            } as any)
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            matcher.moveRows = [parkedWaitRow({ action_id: 'delay_node' })]
             await matcher.processMoveBatch([
                 { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
             ])
 
+            // JS guard: the delay-parked job is left untouched.
             expect(lastUpdate()).toBeUndefined()
+            // SQL scoping: the lock/state fetch targets the wait step only — the delay/trigger/exit
+            // actions are excluded from the $4 action_id list.
+            const select = matcher.calls.find((c) =>
+                c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')
+            )!
+            expect(select.params[3]).toEqual(['wait_node'])
         })
     })
 
