@@ -11,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -32,6 +32,7 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
+    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_readonly_github_token,
     get_sandbox_api_url,
@@ -149,12 +150,13 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
 
     Modal fences the whole sandbox and supports `*.` wildcards that match the
-    apex and any subdomain, so union in the infra (and local tunnel) domains the
-    agent needs, drop loopback aliases Modal rejects as invalid domains, and
-    collapse entries already covered by a wildcard.
+    apex and any subdomain, so union in the shared egress source set (infra
+    plus settings-derived sandbox hosts) the agent needs, drop loopback
+    aliases Modal rejects as invalid domains, and collapse entries already
+    covered by a wildcard.
     """
     domains = list(allowed_domains)
-    extra = list(INFRASTRUCTURE_DOMAINS)
+    extra = enforced_egress_domains()
     if settings.DEBUG:
         extra += _get_debug_only_domains()
     for domain in extra:
@@ -321,9 +323,7 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
-        environment_variables["AI_GATEWAY_URL"] = settings.SANDBOX_AI_GATEWAY_URL
-        environment_variables["AI_GATEWAY_PRODUCTS"] = settings.SANDBOX_AI_GATEWAY_PRODUCTS
+    environment_variables.update(ai_gateway_env_vars())
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a

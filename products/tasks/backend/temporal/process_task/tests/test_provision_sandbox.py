@@ -99,7 +99,16 @@ def test_build_sandbox_tags_drops_none_values():
     assert all(isinstance(value, str) for value in tags.values())
 
 
-@override_settings(DEBUG=False)
+# All four SANDBOX_*_URL settings are pinned: they feed the enforced allowlist
+# outside DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL)
+# would otherwise leak into these exact-equality expectations.
+@override_settings(
+    DEBUG=False,
+    SANDBOX_API_URL=None,
+    SANDBOX_LLM_GATEWAY_URL=None,
+    SANDBOX_AI_GATEWAY_URL=None,
+    SANDBOX_MCP_URL=None,
+)
 @pytest.mark.parametrize(
     "allowed_domains, expected",
     [
@@ -127,6 +136,41 @@ def test_build_sandbox_tags_drops_none_values():
 )
 def test_to_modal_domain_allowlist_resolves_exact_list(allowed_domains, expected):
     assert _to_modal_domain_allowlist(allowed_domains) == expected
+
+
+@override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
+def test_to_modal_domain_allowlist_admits_configured_gateway_host():
+    # Modal fences egress independently of agentsh, so the settings-derived
+    # gateway host must clear this layer too; dev's host is outside
+    # *.posthog.com and nothing else admits it.
+    assert "ai-gateway.dev.posthog.dev" in _to_modal_domain_allowlist([])
+
+
+@override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://127.0.0.1:3308")
+def test_to_modal_domain_allowlist_drops_loopback_ip_settings_host():
+    # 127.0.0.1 contains dots, so the fqdn filter alone would pass it into
+    # Modal's outbound_domain_allowlist, which rejects non-domain entries;
+    # the loopback exclusion in sandbox_url_setting_domains is the only
+    # defense on this path.
+    assert "127.0.0.1" not in _to_modal_domain_allowlist([])
+
+
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@override_settings(
+    SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
+    SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout",
+)
+def test_build_environment_variables_injects_ai_gateway_pair(_api, _jwt, _git):
+    # Pins this site's wiring of the shared helper: the conjunction itself is
+    # tested in test_utils.py, but deleting the update() call here would merge
+    # green without this assertion and Modal-provisioned sandboxes would
+    # silently stay on the legacy gateway.
+    env = _build_environment_variables(_context(), MagicMock(), "", "access-token")
+
+    assert env["AI_GATEWAY_URL"] == "https://ai-gateway.us.posthog.com"
+    assert env["AI_GATEWAY_PRODUCTS"] == "signals_scout"
 
 
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})

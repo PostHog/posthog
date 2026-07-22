@@ -192,14 +192,103 @@ class TestGeneratePolicyYaml(TestCase):
 
     @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://example.local:3308")
     def test_non_debug_mode_omits_debug_rule_entirely(self):
-        # Outside DEBUG the debug rule should not exist, and the prod rule
-        # must not absorb any sandbox URL hostnames or non-cloud ports.
+        # Outside DEBUG the debug rule should not exist and the prod rule keeps
+        # cloud-routing ports only. The hostname itself still joins the prod
+        # rule: the sandbox is configured to call it.
         policy = yaml.safe_load(generate_policy_yaml([]))
         rule_names = [rule["name"] for rule in policy["network_rules"]]
         self.assertNotIn("allow-debug-domains", rule_names)
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
-        self.assertNotIn("example.local", allow_rule["domains"])
+        self.assertIn("example.local", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
+    def test_configured_gateway_host_reachable_outside_debug(self):
+        # Dev's gateway host is outside *.posthog.com, so only the
+        # settings-derived entry admits it; without one, every routed model
+        # call in a restricted dev sandbox is denied at the syscall layer.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("ai-gateway.dev.posthog.dev", allow_rule["domains"])
+
+    # One case per member of _SANDBOX_URL_SETTINGS: the enforced-rule path is
+    # shared, so each entry needs its own tripping input or its deletion
+    # merges green.
+    @parameterized.expand(
+        [
+            ("SANDBOX_API_URL", "api.sandbox.example.dev"),
+            ("SANDBOX_LLM_GATEWAY_URL", "llm-gw.sandbox.example.dev"),
+            ("SANDBOX_AI_GATEWAY_URL", "ai-gw.sandbox.example.dev"),
+            ("SANDBOX_MCP_URL", "mcp.sandbox.example.dev"),
+        ]
+    )
+    def test_each_sandbox_url_setting_reaches_enforced_rule(self, setting_name, host):
+        with override_settings(DEBUG=False, **{setting_name: f"https://{host}"}):
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn(host, allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://localhost:3308")
+    def test_loopback_sandbox_hosts_stay_off_prod_rule(self):
+        # Loopback is already allowed by CIDR; the alias would be noise in the
+        # enforced domain rule.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn("localhost", allow_rule["domains"])
+
+    @parameterized.expand(
+        [
+            ("bare_wildcard", "https://*", "*"),
+            ("wildcard_subdomain", "https://*.evil.example", "*.evil.example"),
+        ]
+    )
+    def test_wildcard_settings_hosts_rejected_from_enforced_rule(self, _name, url, parsed_host):
+        # `*` is match-everything syntax at both enforcement layers, so a
+        # malformed setting value must narrow the policy, never widen it.
+        with override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL=url):
+            with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING"):
+                policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn(parsed_host, allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://10.0.5.3:3308")
+    def test_ip_literal_settings_hosts_rejected_from_enforced_rule(self):
+        # Both layers match DNS names; an IP literal would be inert on the
+        # agentsh rule and rejected by Modal, so it is excluded with a warning.
+        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING"):
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn("10.0.5.3", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="ai-gateway.dev.posthog.dev")
+    def test_schemeless_setting_warns_and_admits_nothing(self):
+        # A scheme-less value passes the injection sites' truthiness gate but
+        # parses to no hostname, so the URL reaches the sandbox while its host
+        # is never admitted; the warning is the only backend-side signal.
+        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING") as logs:
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        self.assertTrue(any("SANDBOX_AI_GATEWAY_URL" in line for line in logs.output))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn("ai-gateway.dev.posthog.dev", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gw.example.dev:8443")
+    def test_non_cloud_port_outside_debug_warns_but_keeps_host(self):
+        # The enforced rule stays on cloud ports, so a hosted URL on another
+        # port is admitted by hostname yet denied on connect; the warning keeps
+        # that from surfacing only as opaque denied connections in the sandbox.
+        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING") as logs:
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        self.assertTrue(any("port 8443" in line for line in logs.output))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("ai-gw.example.dev", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://degraded-host:abc")
+    def test_malformed_port_outside_debug_keeps_hostname_on_enforced_rule(self):
+        # Documented degrade contract: hostname kept, port dropped. The host
+        # still reaches the enforced rule so the sandbox can connect on 443/80.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("degraded-host", allow_rule["domains"])
 
     @override_settings(
         DEBUG=True,

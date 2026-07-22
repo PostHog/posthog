@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     ServiceError as ModalServiceError,
@@ -39,6 +41,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _image_ref_cache,
     _merge_runtime_dependency_specs,
     _resource_create_kwargs,
+    _session_init_probe_hosts,
 )
 from products.tasks.backend.logic.services.sandbox import (
     AgentServerResult,
@@ -1170,3 +1173,25 @@ class TestModalSandboxCreateSnapshot:
         mock_sandbox._sandbox.snapshot_directory.assert_called_once_with(
             "/tmp/workspace", timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
         )
+
+
+class TestSessionInitProbeHosts:
+    @override_settings(
+        SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
+        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",
+    )
+    def test_includes_both_configured_gateway_hosts(self):
+        # Routed products call the ai-gateway during session init; if the probe
+        # omits its host, a blocked ai-gateway diagnoses as "no egress block
+        # detected" (the exact failure class this probe exists to name).
+        hosts = _session_init_probe_hosts()
+        assert "gateway.dev.posthog.dev" in hosts
+        assert "ai-gateway.dev.posthog.dev" in hosts
+
+    @override_settings(
+        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
+        SANDBOX_AI_GATEWAY_URL=None,
+    )
+    def test_deduplicates_against_static_hosts_and_skips_unset(self):
+        hosts = _session_init_probe_hosts()
+        assert hosts.count("gateway.us.posthog.com") == 1

@@ -1053,11 +1053,23 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
-        env_vars["AI_GATEWAY_URL"] = settings.SANDBOX_AI_GATEWAY_URL
-        env_vars["AI_GATEWAY_PRODUCTS"] = settings.SANDBOX_AI_GATEWAY_PRODUCTS
+    env_vars.update(ai_gateway_env_vars())
 
     return env_vars
+
+
+def ai_gateway_env_vars() -> dict[str, str]:
+    """Env vars routing listed products to the Go ai-gateway, shared by every
+    injection site so the both-or-nothing guard cannot drift per site. Both
+    settings or nothing: a URL with no product allowlist would route every
+    sandbox caller, and a product list with no URL has nowhere to go.
+    """
+    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
+        return {
+            "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+            "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+        }
+    return {}
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
