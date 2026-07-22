@@ -925,7 +925,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
         <div className="flex flex-col gap-6">
             <p className="text-muted m-0 max-w-2xl">
                 Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
-                ratings power the PostHog AI prompt recommendation below.
+                ratings power the PostHog AI recommendation below.
             </p>
 
             <ConfigRecommendationPanel scannerId={scannerId} />
