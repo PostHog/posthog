@@ -271,25 +271,27 @@ def process_batch(batch: PendingBatch) -> None:
                 _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
         return
 
-    conn, session_created_at = _session_cache.acquire(org_id, batch.team_id, batch.schema_id)
+    # Distinct name from the backfill branch's `with ... as conn` binding: this
+    # one is Optional until the cache miss connects, and mypy types by first use.
+    session_conn, session_created_at = _session_cache.acquire(org_id, batch.team_id, batch.schema_id)
     try:
-        if conn is None:
-            conn = _connect_to_duckgres(org_id)
-            setup_duckgres_session(conn, extensions=("httpfs",))
-            _create_extract_read_secret(conn)
+        if session_conn is None:
+            session_conn = _connect_to_duckgres(org_id)
+            setup_duckgres_session(session_conn, extensions=("httpfs",))
+            _create_extract_read_secret(session_conn)
         _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
         try:
-            _process_batch(conn, batch, schema, timings=timings)
+            _process_batch(session_conn, batch, schema, timings=timings)
         except DuckgresBatchAlreadyAppliedError:
             _log_applied_by_concurrent_processor(batch)
     except BaseException:
         # The connection may hold aborted-transaction or half-streamed state;
         # never cache it. The queue's retry gets a fresh session.
-        if conn is not None:
-            _DuckgresSessionCache._close_quietly(conn)
+        if session_conn is not None:
+            _DuckgresSessionCache._close_quietly(session_conn)
         raise
     else:
-        _session_cache.store(org_id, batch.team_id, batch.schema_id, conn, created_at=session_created_at)
+        _session_cache.store(org_id, batch.team_id, batch.schema_id, session_conn, created_at=session_created_at)
     finally:
         if "connect_setup" not in timings:
             _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
