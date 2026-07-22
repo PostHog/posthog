@@ -350,7 +350,8 @@ describe('EmailTrackingService', () => {
                 })
 
                 const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(metrics).toHaveLength(1)
+                // Permanent bounces emit the rollup plus the hard-only sub-metric
+                expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
                 expect(metrics[0].value).toMatchObject({
                     team_id: team.id,
                     metric_name: 'email_bounced',
@@ -364,7 +365,8 @@ describe('EmailTrackingService', () => {
 
                 await waitForExpect(() => {
                     const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    expect(metrics).toHaveLength(1)
+                    // Permanent bounces emit the rollup plus the hard-only sub-metric
+                    expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
                     expect(metrics[0].value).toMatchObject({
                         team_id: team.id,
                         metric_name: 'email_bounced',
