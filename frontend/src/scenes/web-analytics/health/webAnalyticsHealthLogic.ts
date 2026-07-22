@@ -133,7 +133,9 @@ export interface webAnalyticsHealthLogicValues {
     healthIssues: HealthIssuesResponse | null
     healthIssuesLoading: boolean
     nextRefreshAvailableAt: number | null
+    now: number
     overallHealthStatus: OverallHealthStatus
+    refreshDisabledReason: string | null
     urgentFailedChecks: HealthCheck[]
 }
 
@@ -217,6 +219,12 @@ export interface webAnalyticsHealthLogicActions {
     setNextRefreshAvailableAt: (timestamp: number | null) => {
         timestamp: number | null
     }
+    setNow: (now: number) => {
+        now: number
+    }
+    startCooldownCountdown: () => {
+        value: true
+    }
     trackActionClicked: (
         checkId: HealthCheckId,
         category: HealthCheckCategory,
@@ -254,6 +262,7 @@ export interface webAnalyticsHealthLogicMeta {
         hasIssues: (overallHealthStatus: OverallHealthStatus) => boolean
         urgentFailedChecks: (allChecks: HealthCheck[]) => HealthCheck[]
         hasUrgentIssues: (urgentFailedChecks: HealthCheck[]) => boolean
+        refreshDisabledReason: (nextRefreshAvailableAt: number | null, now: number) => string | null
     }
 }
 
