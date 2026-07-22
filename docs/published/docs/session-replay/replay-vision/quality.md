@@ -4,7 +4,7 @@ sidebar: Docs
 showTitle: true
 ---
 
-Replay vision scanners are only as good as their prompts. The **Quality** tab on each scanner turns your team's judgment into better prompts: rate the scanner's results, see accuracy trend across prompt versions, and let PostHog AI recommend (and safely test) prompt improvements.
+Replay vision scanners are only as good as their configuration. The **Quality** tab on each scanner turns your team's judgment into a better configuration: rate the scanner's results, see accuracy trend across versions, and let PostHog AI recommend (and safely test) improvements to the prompt and every other behavior setting.
 
 Open any scanner and select the **Quality** tab.
 
@@ -16,7 +16,7 @@ The **Rate results** table lists the scanner's successful results. For each one,
 
 - **Thumbs up** if the result is correct.
 - **Thumbs down** if it's wrong.
-- Optionally, add written feedback explaining why. Feedback is the highest-signal input for prompt recommendations, so a short note like "user only reached the review step, payment never completed" goes a long way.
+- Optionally, add written feedback explaining why. Feedback is the highest-signal input for configuration recommendations, so a short note like "user only reached the review step, payment never completed" goes a long way.
 
 Click a session ID to open the full observation in a new tab, or use **View recording** to watch the recording itself before deciding.
 
@@ -25,47 +25,55 @@ Click a session ID to open the full observation in a new tab, or use **View reco
 A few things help you rate efficiently:
 
 - The table defaults to **Unrated** results, so it works as a review queue. Switch to **Rated** or **All** at any time.
-- The **Confidence** column shows how sure the scanner was of each result. Rating low-confidence sessions first teaches the prompt the most.
-- The **Version** column shows which prompt version produced each result, so you can focus on results from the current version.
+- The **Confidence** column shows how sure the scanner was of each result. Rating low-confidence sessions first teaches the scanner the most.
+- The **Version** column shows which configuration version produced each result, so you can focus on results from the current version.
 
 Rating requires edit access on the scanner.
 
 ### Feedback themes
 
-Once your team leaves written feedback, PostHog AI summarizes it into recurring failure modes, shown as **Feedback themes** chips above the table. They tell raters what to look out for, and they steer the prompt recommendation. Click a theme to filter the table to the sessions behind it.
+Once your team leaves written feedback, PostHog AI summarizes it into recurring failure modes, shown as **Feedback themes** chips above the table. They tell raters what to look out for, and they steer the configuration recommendation. Click a theme to filter the table to the sessions behind it.
 
 ![Rated results with written feedback and feedback themes](https://raw.githubusercontent.com/PostHog/pr-assets/de6544f087f35939077d57c035f54e18d136e497/2026/07/4d222403-2108-4028-9387-56b2ad2fd54c.png)
 
 ## Track quality over time
 
-The **Ratings over time** chart shows thumbs up and thumbs down per day, with markers for when each prompt version went live. As you improve the prompt, thumbs down should trend down.
+The **Ratings over time** chart shows thumbs up and thumbs down per day, with markers for when each configuration version went live. As the configuration improves, thumbs down should trend down.
 
-![Ratings over time with prompt version markers](https://raw.githubusercontent.com/PostHog/pr-assets/07836d741e09278096a5047a3ce547a7ec08eee5/2026/07/6a76c29e-4e16-41bb-817e-15382f4cec2f.png)
+![Ratings over time with version markers](https://raw.githubusercontent.com/PostHog/pr-assets/07836d741e09278096a5047a3ce547a7ec08eee5/2026/07/6a76c29e-4e16-41bb-817e-15382f4cec2f.png)
 
 Two views are available:
 
 - **By session day** places ratings on the day the session was scanned. This shows how scanner quality trends over time and is the default.
 - **By rating day** places ratings on the day they were given. This shows your team's rating activity.
 
-Above the chart, each prompt version gets a chip with its thumbs-up share among rated sessions, for example `v3 · 96% thumbs up (24)`. This is the quickest way to confirm a new prompt version actually improved accuracy. A version shows "no ratings yet" until someone rates results it produced.
+Above the chart, each version gets a chip with its thumbs-up share among rated sessions, for example `v3 · 96% thumbs up (24)`. This is the quickest way to confirm a new version actually improved accuracy. A version shows "no ratings yet" until someone rates results it produced.
 
-## Get a prompt recommendation
+## Get a recommendation
 
-Your team's ratings and feedback power the **Recommendation** panel at the top of the tab. PostHog AI reviews the rated sessions, focusing on the ones marked wrong, and proposes changes to the scanner configuration, typically a rewritten prompt. Each recommendation comes with:
+Your team's ratings and feedback power the **Recommendation** panel at the top of the tab. PostHog AI reviews the rated sessions, focusing on the ones marked wrong, and proposes changes to the scanner's behavior configuration. That covers every field that shapes results, depending on the scanner type:
 
-- A side-by-side diff of the current and suggested values. The suggested side is editable, so you can tweak the wording before testing or applying.
-- A **Why** section explaining what failure modes the change addresses.
-- The ratings it was based on, when it was generated, and against which prompt version.
+- The **prompt**, for any scanner type.
+- The **tag vocabulary** of a classifier, including adding, removing, or renaming tags, and the **multiple tags per session** and **freeform tags** settings.
+- The **scale** of a scorer.
+- The **summary length** of a summarizer.
+- Whether a monitor **allows inconclusive verdicts**.
 
-![A prompt recommendation with a diff and rationale](https://raw.githubusercontent.com/PostHog/pr-assets/3e5fa9a70d68fed2f9a44d62343f349ac2e8bf33/2026/07/0ec201c8-2816-4e37-b686-0a6deada2490.png)
+Each recommendation comes with:
 
-Recommendations refresh automatically about once a day while new ratings come in. A "New ratings since this was generated" tag appears when the recommendation is out of date, and you can **Regenerate** on demand. Sometimes the verdict is "Looks good": the current prompt already handles the rated sessions well and there is nothing to change.
+- A side-by-side diff of the current and suggested value for every changed field. The suggested side is editable, so you can tweak it before testing or applying.
+- A **Why** section explaining what failure modes the changes address.
+- The ratings it was based on, when it was generated, and against which version.
+
+![A configuration recommendation with a diff and rationale](https://raw.githubusercontent.com/PostHog/pr-assets/3e5fa9a70d68fed2f9a44d62343f349ac2e8bf33/2026/07/0ec201c8-2816-4e37-b686-0a6deada2490.png)
+
+Recommendations refresh automatically about once a day while new ratings come in. A "New ratings since this was generated" tag appears when the recommendation is out of date, and you can **Regenerate** on demand. Sometimes the verdict is "Looks good": the current configuration already handles the rated sessions well and there is nothing to change.
 
 Past recommendations, including dismissed and superseded ones, are kept under **Past recommendations** at the bottom of the panel.
 
 ## Test before applying
 
-For monitor and classifier scanners, **Test against rated sessions** re-runs the scanner with the suggested prompt against your most useful rated sessions, so you see what would change before committing:
+For monitor and classifier scanners, **Test against rated sessions** re-runs the scanner with the suggested configuration (including your edits) against your most useful rated sessions, so you see what would change before committing:
 
 - **Fixed**: a session rated wrong now gets a different result.
 - **Still wrong**: a session rated wrong is unchanged.
@@ -80,7 +88,7 @@ Scorer and summarizer scanners have no discrete right or wrong outcome, so their
 
 ## Apply or dismiss
 
-- **Apply to scanner** writes the suggested configuration (including any edits you made) to the scanner as a new prompt version. The new version shows up as a marker in the ratings chart, so its accuracy is comparable against earlier versions as new ratings come in.
+- **Apply to scanner** writes the suggested configuration (including any edits you made) to the scanner as a new version. The new version shows up as a marker in the ratings chart, so its accuracy is comparable against earlier versions as new ratings come in.
 - **Dismiss** rejects the recommendation without changing the scanner. It stays visible under past recommendations.
 
 Applying never rewrites history: every observation keeps a snapshot of the scanner configuration that produced it, and version accuracy chips always attribute ratings to the version that was live at the time.
@@ -91,6 +99,6 @@ Putting it together, the quality tab supports a simple loop your team can run co
 
 1. Rate new results as they come in, leaving feedback on the wrong ones.
 2. Watch the feedback themes to see which failure modes recur.
-3. Generate or wait for a prompt recommendation.
+3. Generate or wait for a configuration recommendation.
 4. Test it against your rated sessions.
 5. Apply it, then keep rating to confirm the new version's accuracy improved.
