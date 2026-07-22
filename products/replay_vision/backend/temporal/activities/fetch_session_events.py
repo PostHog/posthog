@@ -265,6 +265,8 @@ def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[N
     last_url_by_window: dict[str | None, str] = {}
     seen_windows: set[str | None] = set()
     for relative_ms, window, url in points:
+        if not _is_navigable_url(url):
+            continue
         if last_url_by_window.get(window) == url:
             continue
         new_window = bool(seen_windows) and window not in seen_windows
@@ -283,6 +285,13 @@ def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[N
         kept.append(entry)
         url_chars += len(entry.url)
     return kept, len(changes) - len(kept)
+
+
+def _is_navigable_url(url: str) -> bool:
+    """Gate for the prompt timeline. `$current_url` is client-supplied free text rendered into the trusted preamble,
+    so only values shaped like real web URLs (http scheme, no whitespace or control characters) get in. Anything
+    else is dropped rather than escaped."""
+    return url.startswith(("http://", "https://")) and url.isprintable() and not any(c.isspace() for c in url)
 
 
 def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:
