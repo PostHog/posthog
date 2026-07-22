@@ -11,8 +11,10 @@ from __future__ import annotations
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.integration import Integration
+from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
@@ -1505,20 +1507,42 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
     )
 
 
-def _validate_output_destinations(value: dict, project_id: int) -> dict:
+def _validate_output_destinations(value: dict, context: dict) -> dict:
     slack = value.get("slack")
     if slack is None:
         return {}
 
+    project_id = context.get("project_id")
+    if not isinstance(project_id, int):
+        raise RuntimeError("Scout config output destination validation requires project_id in its context")
+
     integration_id = slack["integration_id"]
-    if not Integration.objects.filter(
+    integration = Integration.objects.filter(
         id=integration_id,
         team__project_id=project_id,
         kind=Integration.IntegrationKind.SLACK,
-    ).exists():
+    ).first()
+    if integration is None:
         raise serializers.ValidationError(
             {"slack": {"integration_id": "No Slack integration with this ID exists on this project."}}
         )
+
+    request = context.get("request")
+    view = context.get("view")
+    if request is None or view is None:
+        raise RuntimeError("Scout config output destination validation requires request and view in its context")
+
+    key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if (
+        key_scopes is not None
+        and "*" not in key_scopes
+        and not any(scope in key_scopes for scope in ("integration:read", "integration:write"))
+    ):
+        raise PermissionDenied("API key missing required scope 'integration:read'")
+
+    if not view.user_access_control.check_access_level_for_object(integration, "viewer"):
+        raise PermissionDenied("Viewer access to this Slack integration is required.")
+
     return {"slack": slack}
 
 
@@ -1623,10 +1647,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     )
 
     def validate_output_destinations(self, value: dict) -> dict:
-        project_id = self.context.get("project_id")
-        if not isinstance(project_id, int):
-            raise RuntimeError("SignalScoutConfigUpdateSerializer requires project_id in its context")
-        return _validate_output_destinations(value, project_id)
+        return _validate_output_destinations(value, self.context)
 
     class Meta:
         model = SignalScoutConfig
@@ -1677,7 +1698,7 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         return value
 
     def validate_output_destinations(self, value: dict) -> dict:
-        return _validate_output_destinations(value, self.context["project_id"])
+        return _validate_output_destinations(value, self.context)
 
 
 class SignalScoutManualRunSerializer(serializers.Serializer):

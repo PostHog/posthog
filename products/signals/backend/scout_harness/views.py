@@ -1412,7 +1412,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        serializer = SignalScoutConfigCreateSerializer(data=request.data, context={"project_id": self.team.project_id})
+        serializer = SignalScoutConfigCreateSerializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
         if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
@@ -1453,7 +1456,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 config,
                 data=tunables,
                 partial=True,
-                context={"project_id": self.team.project_id},
+                context={**self.get_serializer_context(), "project_id": self.team.project_id},
             )
             update.is_valid(raise_exception=True)
             save_kwargs = {}
@@ -1493,7 +1496,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             config,
             data=request.data,
             partial=True,
-            context={"project_id": self.team.project_id},
+            context={**self.get_serializer_context(), "project_id": self.team.project_id},
         )
         serializer.is_valid(raise_exception=True)
         enabling = not config.enabled and serializer.validated_data.get("enabled")

@@ -1128,6 +1128,38 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.output_destinations == destination
 
+    @parameterized.expand(
+        [
+            ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "integration_read_scope",
+                ["signal_scout:write", "integration:read"],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_partial_update_slack_destination_requires_integration_scope(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}}
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.output_destinations == (destination if expected_status == status.HTTP_200_OK else {})
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "integration:read" in response.json()["detail"]
+
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         # 20 is below the 30-minute floor (the tightest cadence the UI offers) but above the old

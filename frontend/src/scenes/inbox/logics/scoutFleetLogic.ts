@@ -524,28 +524,51 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     listeners(({ actions, values, cache }) => ({
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutConfigIds ??= new Set())
+            const pendingUpdates: Map<string, SignalScoutConfigUpdate> = (cache.pendingScoutConfigUpdates ??= new Map())
+
             if (inFlight.has(configId)) {
+                actions.patchScoutConfigLocally(configId, updates)
+                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
                 return
             }
+
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.updateScoutConfigFinished(configId)
+                return
+            }
+
+            let confirmedConfig = values.scoutConfigs?.find((config) => config.id === configId)
+            let updatesToSend: SignalScoutConfigUpdate | undefined = updates
             inFlight.add(configId)
-            const previousConfig = values.scoutConfigs?.find((config) => config.id === configId)
+            actions.patchScoutConfigLocally(configId, updates)
+
             try {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
+                while (updatesToSend) {
+                    const updated = await signalsScoutConfigUpdate(String(teamId), configId, updatesToSend)
+                    confirmedConfig = updated
+
+                    const queuedUpdates = pendingUpdates.get(configId)
+                    if (!queuedUpdates) {
+                        actions.patchScoutConfigLocally(configId, updated)
+                        updatesToSend = undefined
+                        continue
+                    }
+
+                    pendingUpdates.delete(configId)
+                    // Keep queued optimistic changes visible while their follow-up request runs.
+                    actions.patchScoutConfigLocally(configId, { ...updated, ...queuedUpdates })
+                    updatesToSend = queuedUpdates
                 }
-                // Optimistic update so the toggle/select feels instant.
-                actions.patchScoutConfigLocally(configId, updates)
-                const updated = await signalsScoutConfigUpdate(String(teamId), configId, updates)
-                // Reconcile this one row against the server (preserves concurrent edits to others).
-                actions.patchScoutConfigLocally(configId, updated)
             } catch (error: any) {
-                if (previousConfig) {
-                    actions.patchScoutConfigLocally(configId, previousConfig)
+                pendingUpdates.delete(configId)
+                if (confirmedConfig) {
+                    actions.patchScoutConfigLocally(configId, confirmedConfig)
                 }
                 lemonToast.error(error?.detail || error?.message || 'Failed to update scout config')
             } finally {
                 inFlight.delete(configId)
+                pendingUpdates.delete(configId)
                 actions.updateScoutConfigFinished(configId)
             }
         },
