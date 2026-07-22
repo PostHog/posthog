@@ -17,7 +17,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
-import { FanInFunction, FanOutFunction } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
+import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { RetryOptions } from '~/ingestion/framework/retry'
@@ -335,8 +335,8 @@ export class CommonPreTeamStage<
  * need into the sub-element value.
  */
 type FanOutViaCallback<TSub, TSubOut, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TSub, TSub, Record<never, never>, Record<never, never>>
-) => ChunkPipelineBuilder<TSub, TSubOut, Record<never, never>, Record<never, never>, ROut>
+    builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext>
+) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, ROut>
 
 export class CommonTeamStage<
     TInput extends { message: Message },

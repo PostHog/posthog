@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
-import { PipelineContext, PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
+import { PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResultType, isDropResult, isOkResult, ok } from './results'
 
 /**
@@ -24,21 +24,31 @@ export type FanInFunction<TElement, TSubOut, TMerged> = (original: TElement, res
  * Correlates a sub-element's context back to its parent. A symbol-keyed
  * property survives the `{ ...context }` spreads steps perform, and keeps
  * working when the subpipeline reorders elements (e.g. via
- * `concurrentlyPerGroup`) — index-based correlation would not. The key is
- * module-private; sub contexts are typed as the minimal base context outwardly.
+ * `concurrentlyPerGroup`) — index-based correlation would not.
  */
-const FAN_OUT_PARENT = Symbol('fanOutParent')
+export const FAN_OUT_PARENT = Symbol('fanOutParent')
 
 /**
- * Sub-pipelines are context-agnostic: they are typed over the empty context
- * shape, decoupled from the parent pipeline's context type. Sub-elements carry
- * only the minimal context (fresh per-sub arrays plus the correlation tag), and
- * context-gated builder surface (`teamAware`, `messageAware`,
- * `handleIngestionWarnings`, `handleResults`) is uncallable inside a
- * sub-pipeline. `Record<never, never>` (not `Record<string, never>`, whose
- * never-typed index signature would make the context type uninhabitable).
+ * Opaque token correlating a sub-element back to its parent. The stage mints
+ * one per fanned-out parent; the private brand makes the type nominal, so no
+ * structurally-forged object passes for one. Sub steps may see the token on
+ * their context but can't do anything with it — a token the stage doesn't
+ * recognize fails loudly on fan-in.
  */
-type SubPipelineContext = Record<never, never>
+export class FanOutParentRef {
+    declare private readonly fanOutParentBrand: never
+}
+
+/**
+ * The context type sub-elements carry: nothing but the correlation tag (plus
+ * the base `PipelineContext` fields, with fresh per-sub arrays). Sub-pipelines
+ * are context-agnostic — decoupled from the parent pipeline's context type, so
+ * context-gated builder surface (`teamAware`, `messageAware`,
+ * `handleIngestionWarnings`, `handleResults`) is uncallable inside them. Not
+ * deriving sub contexts from the parent's also keeps an inner nested fan-out's
+ * subs from carrying an outer stage's tag.
+ */
+export type FanOutSubContext = { readonly [FAN_OUT_PARENT]: FanOutParentRef }
 
 interface PendingParent<TElement, TSubOut, C> {
     original: TElement
@@ -46,20 +56,6 @@ interface PendingParent<TElement, TSubOut, C> {
     context: PipelineContext<C>
     outstanding: number
     collected: TSubOut[]
-}
-
-/**
- * What a sub-element's context actually carries: fresh per-sub arrays plus the
- * correlation tag. Deliberately not derived from the parent's context — sub
- * pipelines are context-agnostic, nothing reads inherited parent fields from a
- * sub context, and a minimal literal keeps an inner nested fan-out's subs from
- * inheriting an outer stage's correlation tag.
- */
-interface SubContext<TElement, TSubOut, C> {
-    lastStep?: string
-    sideEffects: Promise<unknown>[]
-    warnings: PipelineWarning[]
-    [FAN_OUT_PARENT]?: PendingParent<TElement, TSubOut, C>
 }
 
 /**
@@ -94,12 +90,13 @@ interface SubContext<TElement, TSubOut, C> {
  * Ordering: parents emit as their sub-results complete (unordered), the same
  * contract as `concurrentlyPerGroup`. Non-OK parents pass through untouched.
  *
- * Sub-pipelines are context-agnostic (typed over the minimal base context, not
- * the parent's context type): context-gated surface like `teamAware`,
- * `messageAware`, `handleIngestionWarnings`, and `handleResults` is uncallable
- * inside them — sub warnings and side effects merge into the parent and are
- * handled once by the outer pipeline. If sub-steps need team or message data,
- * the fan-out function should put it in the sub-element value.
+ * Sub-pipelines are context-agnostic: their context type is
+ * {@link FanOutSubContext} — nothing but a public, opaque correlation token —
+ * so context-gated surface like `teamAware`, `messageAware`,
+ * `handleIngestionWarnings`, and `handleResults` is uncallable inside them.
+ * Sub warnings and side effects merge into the parent and are handled once by
+ * the outer pipeline. If sub-steps need team or message data, the fan-out
+ * function should put it in the sub-element value.
  *
  * Failures poison the stage: if the upstream, `fanOutFn`, `fanInFn`, or the
  * subpipeline throws, results already in flight still drain, then next()
@@ -120,7 +117,7 @@ export class FanOutFanInChunkPipeline<
 > implements ChunkPipeline<TInput, TMerged, CInput, COutput, RPrev>
 {
     private inner: InterleavingChunkPipeline<TInput, TMerged, CInput, COutput, RPrev>
-    private pendingParents = new Set<PendingParent<TElement, TSubOut, COutput>>()
+    private pendingParents = new Map<FanOutParentRef, PendingParent<TElement, TSubOut, COutput>>()
     /** Parents completed by sub-results, drained by onProcessPull before pulling the subpipeline again. */
     private readyResults: PipelineResultWithContext<TMerged, COutput, RPrev>[] = []
     private fanOutName: string
@@ -129,7 +126,7 @@ export class FanOutFanInChunkPipeline<
     constructor(
         private previousPipeline: ChunkPipeline<TInput, TElement, CInput, COutput, RPrev>,
         private fanOutFn: FanOutFunction<TElement, TSub>,
-        private subPipeline: ChunkPipeline<TSub, TSubOut, SubPipelineContext, SubPipelineContext, RSub>,
+        private subPipeline: ChunkPipeline<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub>,
         private fanInFn: FanInFunction<TElement, TSubOut, TMerged>
     ) {
         this.fanOutName = fanOutFn.name || 'anonymousFanOut'
@@ -161,7 +158,7 @@ export class FanOutFanInChunkPipeline<
         }
 
         const settled: PipelineResultWithContext<TMerged, COutput, RPrev>[] = []
-        const subElements: OkResultWithContext<TSub, SubPipelineContext>[] = []
+        const subElements: OkResultWithContext<TSub, FanOutSubContext>[] = []
 
         for (const element of previousResults) {
             if (!isOkResult(element.result)) {
@@ -187,12 +184,13 @@ export class FanOutFanInChunkPipeline<
                 outstanding: subs.length,
                 collected: [],
             }
-            this.pendingParents.add(parent)
+            const ref = new FanOutParentRef()
+            this.pendingParents.set(ref, parent)
             for (const sub of subs) {
-                const subContext: SubContext<TElement, TSubOut, COutput> = {
+                const subContext: PipelineContext<FanOutSubContext> = {
                     sideEffects: [],
                     warnings: [],
-                    [FAN_OUT_PARENT]: parent,
+                    [FAN_OUT_PARENT]: ref,
                 }
                 subElements.push({ result: ok(sub), context: subContext })
             }
@@ -243,15 +241,15 @@ export class FanOutFanInChunkPipeline<
         return chunk
     }
 
-    private settleSubResult(subResult: PipelineResultWithContext<TSubOut, SubPipelineContext, RSub>): void {
-        // Recover the correlation tag, which is intentionally absent from the
-        // sub-pipeline's public context type (the key is module-private).
-        const subContext = subResult.context as SubContext<TElement, TSubOut, COutput>
-        const parent = subContext[FAN_OUT_PARENT]
+    private settleSubResult(subResult: PipelineResultWithContext<TSubOut, FanOutSubContext, RSub>): void {
+        const ref = subResult.context[FAN_OUT_PARENT]
+        const parent = this.pendingParents.get(ref)
         if (!parent) {
+            // Also catches forged or stale tokens: an unknown ref fails loudly
+            // here instead of silently settling against whatever it pointed at.
             throw new Error(
                 `Fan-out/fan-in (${this.fanOutName}/${this.fanInName}) received a sub-result without a ` +
-                    `parent tag — the subpipeline must preserve context`
+                    `known parent tag — the subpipeline must preserve context`
             )
         }
 
@@ -281,7 +279,7 @@ export class FanOutFanInChunkPipeline<
             return
         }
 
-        this.pendingParents.delete(parent)
+        this.pendingParents.delete(ref)
         this.readyResults.push(this.completeParent(parent.original, parent.context, parent.collected))
     }
 
