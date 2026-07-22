@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -12,13 +14,29 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     CI_SIGNAL_SOURCE_TYPES,
 )
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
+from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
 from products.engineering_analytics.backend.tests.test_views import (
     connect_github_source_without_data,
     create_github_source,
 )
 from products.signals.backend.models import SignalSourceConfig
 
-_VIEWS = "products.engineering_analytics.backend.presentation.views.api"
+
+class TestScopeEnrollment(SimpleTestCase):
+    def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
+        # An action's extra HTTP methods (`@action.mapping.<verb>`) dispatch under the mapped
+        # handler's name, so each mapped name needs its own scope enrollment too.
+        actions = {name for a in EngineeringAnalyticsViewSet.get_extra_actions() for name in a.mapping.values()}
+        enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
+            EngineeringAnalyticsViewSet.scope_object_write_actions
+        )
+        assert actions == enrolled, (
+            f"unenrolled actions (personal API keys get 403): {sorted(actions - enrolled)}; "
+            f"stale scope entries: {sorted(enrolled - actions)}"
+        )
+
+
+_VIEWS = "products.engineering_analytics.backend.facade.api"
 
 
 def _pr_lifecycle() -> contracts.PRLifecycle:

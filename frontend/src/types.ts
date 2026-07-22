@@ -292,8 +292,10 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -5563,6 +5565,7 @@ export interface SharingConfigurationType {
     password_required: boolean
     settings?: SharingConfigurationSettings
     share_passwords?: SharePasswordType[]
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExporterFormat {
@@ -5742,6 +5745,7 @@ export const API_SCOPE_OBJECTS = [
     'link',
     'live_debugger',
     'llm_analytics',
+    'ai_observability_clusters',
     'llm_gateway',
     'llm_prompt',
     'llm_provider_key',

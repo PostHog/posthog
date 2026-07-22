@@ -71,9 +71,11 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "hog_flow",
     "insight",
     "llm_analytics",
+    "ai_observability_clusters",
     "notebook",
     "revenue_analytics",
     "session_recording",
+    "sharing_configuration",
     "survey",
     "web_analytics",
     "activity_log",
@@ -160,6 +162,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "hog_flow":
         return "workflows"
+    if resource == "ai_observability_clusters":
+        return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
     if resource == "warehouse_objects":
@@ -311,6 +315,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "plugin"
     if name == "sessionrecording":
         return "session_recording"
+    if name == "sharingconfiguration":
+        return "sharing_configuration"
     if name == "exportedasset":
         return "export"
     if name == "sessionrecordingplaylist":

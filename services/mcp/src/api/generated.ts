@@ -7935,11 +7935,23 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
+    export interface TileFilters {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+      ignoreDashboardFilters?: boolean | null;
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
     export interface InsightFilterOverrideContext {
       /** Dashboard filters that remain active after applying tile precedence. */
       dashboard?: DashboardFilter | null;
       /** Tile filters applied above the dashboard filters. */
-      tile?: DashboardFilter | null;
+      tile?: TileFilters | null;
       /** Dashboard filters replaced by the tile filters. */
       overridden_dashboard?: DashboardFilter | null;
     }
@@ -14093,6 +14105,27 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_decision: string | null;
+    }
+
+    export interface ChangeRequestApprove {
+      /** Optional note recorded with the approval vote explaining the decision. */
+      reason?: string;
+    }
+
+    export interface ChangeRequestDecisionResponse {
+      /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+      status: string;
+      /** Human-readable summary of what happened. */
+      message: string;
+      /** The change request after the vote was recorded. */
+      change_request: ChangeRequest;
+      /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+      result?: unknown;
+    }
+
+    export interface ChangeRequestReject {
+      /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+      reason: string;
     }
 
     /**
@@ -45009,6 +45042,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -52904,6 +52942,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id?: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -60694,6 +60737,9 @@ export namespace Schemas {
       interview_url: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface SharingConfiguration {
       readonly created_at: string;
       enabled?: boolean;
@@ -60702,6 +60748,11 @@ export namespace Schemas {
       settings?: unknown;
       password_required?: boolean;
       readonly share_passwords: readonly SharePassword[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface ShipVariant {
@@ -67088,11 +67139,6 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
-      /**
-         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
-         * @maxLength 120
-         */
-      home_quick_action?: string;
     }
 
     export interface TaskRunCancelRequest {
@@ -69035,7 +69081,6 @@ export namespace Schemas {
       workflow_name: string;
       /** Total runs started in the window. */
       run_count: number;
-      /** Completed successful runs used for duration percentiles. */
       successful_run_count: number;
       conclusive_run_count: number;
       /**
@@ -69068,15 +69113,9 @@ export namespace Schemas {
          * @nullable
          */
       latest_run_conclusion: string | null;
-      /**
-         * GitHub run ID for the most recent completed workflow run, or null.
-         * @nullable
-         */
+      /** @nullable */
       latest_run_id: number | null;
-      /**
-         * Attempt number for the most recent completed workflow run, or null.
-         * @nullable
-         */
+      /** @nullable */
       latest_run_attempt: number | null;
       /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
       granularity: string;

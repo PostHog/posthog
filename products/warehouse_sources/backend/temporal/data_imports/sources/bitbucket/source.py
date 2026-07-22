@@ -170,6 +170,7 @@ Your credentials need the **repository**, **pullrequest**, **pipeline**, and **a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = BITBUCKET_ENDPOINTS[endpoint]
@@ -189,7 +190,11 @@ Your credentials need the **repository**, **pullrequest**, **pipeline**, and **a
         return schemas
 
     def validate_credentials(
-        self, config: BitbucketSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BitbucketSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             auth = self._get_auth(config)

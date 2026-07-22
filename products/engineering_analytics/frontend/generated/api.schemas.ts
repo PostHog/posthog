@@ -1039,7 +1039,6 @@ export interface WorkflowHealthItemApi {
     workflow_name: string
     /** Total runs started in the window. */
     run_count: number
-    /** Completed successful runs used for duration percentiles. */
     successful_run_count: number
     conclusive_run_count: number
     /**
@@ -1072,15 +1071,9 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     latest_run_conclusion: string | null
-    /**
-     * GitHub run ID for the most recent completed workflow run, or null.
-     * @nullable
-     */
+    /** @nullable */
     latest_run_id: number | null
-    /**
-     * Attempt number for the most recent completed workflow run, or null.
-     * @nullable
-     */
+    /** @nullable */
     latest_run_attempt: number | null
     /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
     granularity: string
