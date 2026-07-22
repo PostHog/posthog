@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -55,7 +56,15 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                     let Some(batch) = batch else {
                         break;
                     };
-                    self.process_batch(batch).await;
+                    // A failed flush leaves its offsets uncommitted, and
+                    // Kafka commits are cumulative per partition — if a
+                    // later batch committed, the failed one would be
+                    // silently skipped after restart. signal_failure only
+                    // starts an async shutdown, so the halt has to be
+                    // structural: stop receiving here and now.
+                    if self.process_batch(batch).await.is_break() {
+                        break;
+                    }
                 }
 
                 _ = heartbeat.tick() => {
@@ -67,7 +76,9 @@ impl<D: PersonDb + 'static> WriterTask<D> {
         info!("Writer task stopped");
     }
 
-    async fn process_batch(&mut self, batch: FlushBatch) {
+    /// Returns `Break` after signaling a failure — the run loop must stop
+    /// receiving so no later batch can commit offsets past this one.
+    async fn process_batch(&mut self, batch: FlushBatch) -> ControlFlow<()> {
         let FlushBatch {
             persons,
             offsets,
@@ -89,7 +100,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
             match self.store.upsert_batch(to_process).await {
                 BatchOutcome::Success => {
                     self.finish(total_rows, &offsets, oldest_message_ts_ms);
-                    return;
+                    return ControlFlow::Continue(());
                 }
 
                 BatchOutcome::Partial {
@@ -114,14 +125,14 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                                 first.person_id,
                                 first.kind
                             ));
-                            return;
+                            return ControlFlow::Break(());
                         }
                         retry.extend(fallback.transient);
                     }
 
                     if retry.is_empty() {
                         self.finish(total_rows, &offsets, oldest_message_ts_ms);
-                        return;
+                        return ControlFlow::Continue(());
                     }
 
                     // Transient failures remain — retry just those with backoff.
@@ -138,7 +149,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                         self.handle.signal_failure(format!(
                             "store flush failed {MAX_CONSECUTIVE_FAILURES} consecutive times"
                         ));
-                        return;
+                        return ControlFlow::Break(());
                     }
 
                     tokio::time::sleep(backoff).await;
@@ -148,7 +159,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                 BatchOutcome::Fatal(fatal) => {
                     self.handle
                         .signal_failure(format!("upsert_batch fatal: {fatal}"));
-                    return;
+                    return ControlFlow::Break(());
                 }
             }
         }

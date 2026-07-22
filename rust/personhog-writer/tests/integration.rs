@@ -553,10 +553,12 @@ async fn writer_processes_batch_from_channel() {
 // ============================================================
 
 /// Mock DB that fails chunks a configurable number of times, then succeeds.
-/// Rows always succeed. Exercises the full orchestration layer above it.
+/// Rows succeed unless `row_error_kind` is set. Exercises the full
+/// orchestration layer above it.
 struct MockDb {
     chunk_remaining_failures: std::sync::atomic::AtomicU32,
     chunk_error_kind: WriteErrorKind,
+    row_error_kind: Option<WriteErrorKind>,
 }
 
 #[async_trait::async_trait]
@@ -578,7 +580,13 @@ impl PersonDb for MockDb {
     }
 
     async fn execute_row(&self, _person: &Person) -> Result<(), WriteError> {
-        Ok(())
+        match self.row_error_kind {
+            Some(kind) => Err(WriteError {
+                message: "mock row failure".to_string(),
+                kind,
+            }),
+            None => Ok(()),
+        }
     }
 }
 
@@ -605,6 +613,7 @@ async fn writer_crashes_after_exhausting_transient_retries() {
     let mock_db = MockDb {
         chunk_remaining_failures: std::sync::atomic::AtomicU32::new(100),
         chunk_error_kind: WriteErrorKind::Transient,
+        row_error_kind: None,
     };
     let store = PersonWriteStore::new(
         mock_db,
@@ -656,6 +665,7 @@ async fn writer_recovers_on_transient_retry() {
     let mock_db = MockDb {
         chunk_remaining_failures: std::sync::atomic::AtomicU32::new(1),
         chunk_error_kind: WriteErrorKind::Transient,
+        row_error_kind: None,
     };
     let store = PersonWriteStore::new(
         mock_db,
@@ -711,6 +721,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
     let mock_db = MockDb {
         chunk_remaining_failures: std::sync::atomic::AtomicU32::new(100),
         chunk_error_kind: WriteErrorKind::Data,
+        row_error_kind: None,
     };
     let store = PersonWriteStore::new(
         mock_db,
@@ -741,6 +752,76 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         flush_tx.send(batch2).await.is_ok(),
         "writer should still be alive after data error fallback"
     );
+}
+
+/// After a batch with unapplyable rows signals failure, the writer must
+/// stop receiving entirely: Kafka offset commits are cumulative per
+/// partition, so processing a later batch and committing its offsets
+/// would silently skip the failed batch's uncommitted rows after restart.
+/// The observable halt is the flush channel closing.
+#[tokio::test]
+async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
+    let (flush_tx, flush_rx) = mpsc::channel::<FlushBatch>(4);
+
+    let (mock_cluster, _) = create_mock_kafka().await;
+    let mut client_config = ClientConfig::new();
+    client_config
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "test-writer-halt")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false");
+    let kafka_consumer = Arc::new(PersonConsumer::new(&client_config, TOPIC.to_string()).unwrap());
+
+    let mut manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .build();
+    let writer_handle = manager.register("writer", lifecycle::ComponentOptions::new());
+    let monitor = manager.monitor_background();
+
+    // The first chunk fails with a data error and its per-row fallback
+    // fails too — an unapplyable batch despite leader admission. Later
+    // chunks would succeed, so a writer that kept going would commit the
+    // buffered batch's offsets past the failed one.
+    let mock_db = MockDb {
+        chunk_remaining_failures: std::sync::atomic::AtomicU32::new(1),
+        chunk_error_kind: WriteErrorKind::Data,
+        row_error_kind: Some(WriteErrorKind::PropertiesSizeViolation),
+    };
+    let store = PersonWriteStore::new(
+        mock_db,
+        personhog_writer::store::StoreConfig {
+            chunk_size: 10,
+            row_fallback_concurrency: 4,
+        },
+    );
+
+    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+    tokio::spawn(async move { writer_task.run().await });
+
+    // A second batch is already buffered behind the poison one — the
+    // regression this guards is the writer pulling and committing it.
+    let poison = FlushBatch {
+        persons: vec![make_person(99_043, 1, 1)],
+        offsets: HashMap::new(),
+        oldest_message_ts_ms: None,
+    };
+    let buffered = FlushBatch {
+        persons: vec![make_person(99_043, 2, 1)],
+        offsets: HashMap::new(),
+        oldest_message_ts_ms: None,
+    };
+    flush_tx.send(poison).await.unwrap();
+    flush_tx.send(buffered).await.unwrap();
+
+    // The writer must drop its receiver without consuming the buffered
+    // batch, and the lifecycle must report the failure.
+    tokio::time::timeout(Duration::from_secs(5), flush_tx.closed())
+        .await
+        .expect("writer should stop receiving after an unapplyable batch");
+    let result = tokio::time::timeout(Duration::from_secs(5), monitor.wait())
+        .await
+        .expect("lifecycle should shut down");
+    assert!(result.is_err(), "lifecycle should report component failure");
 }
 
 // ============================================================
