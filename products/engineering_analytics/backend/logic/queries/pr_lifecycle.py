@@ -42,6 +42,21 @@ _RUNS = """
     ORDER BY run_started_at ASC
 """
 
+# Draft/ready transitions for this PR, when the (forward-only) transitions table is synced.
+# pr_number alone is the key: the table carries no repo columns because a resolved source is a
+# single repo — the same repo the PR header was resolved from.
+_STATE_EVENTS = """
+    SELECT event, created_at, actor_login
+    FROM __STATE_EVENTS_SOURCE__ AS se
+    WHERE pr_number = {pr_number}
+    ORDER BY created_at ASC
+"""
+
+_STATE_EVENT_KINDS = {
+    "ready_for_review": PRLifecycleEventKind.READY_FOR_REVIEW,
+    "convert_to_draft": PRLifecycleEventKind.CONVERTED_TO_DRAFT,
+}
+
 
 def query_pr_lifecycle(
     *,
@@ -109,6 +124,19 @@ def query_pr_lifecycle(
             events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id))
 
     add(PRLifecycleEventKind.OPENED, created_at)
+
+    state_events_source = curated.state_events_source()
+    if state_events_source is not None:
+        transitions = curated.run(
+            _STATE_EVENTS.replace("__STATE_EVENTS_SOURCE__", state_events_source),
+            query_type="engineering_analytics.pr_lifecycle.state_events",
+            placeholders={"pr_number": ast.Constant(value=pr_number)},
+        )
+        for event, at, actor_login in transitions.results:
+            kind = _STATE_EVENT_KINDS.get(event)
+            if kind is not None:
+                add(kind, at, detail=actor_login or None)
+
     runs = (
         curated.run(
             _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),

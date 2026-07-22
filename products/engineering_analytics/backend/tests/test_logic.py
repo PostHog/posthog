@@ -35,7 +35,10 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_github_tables,
     resolve_job_cost_source_pairs,
 )
-from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PR_STATE_EVENTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
+)
 from products.engineering_analytics.backend.tests.test_views import (
     _PULL_REQUESTS_COLUMNS,
     _WORKFLOW_RUNS_COLUMNS,
@@ -91,6 +94,16 @@ def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
     return started_at.strftime(fmt), updated_at.strftime(fmt)
+
+
+def _state_event_row(event_id: int, event: str, pr_number: int, created_at: str) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "event": event,
+        "pr_number": pr_number,
+        "actor_login": "alice",
+        "created_at": created_at,
+    }
 
 
 def _job_row(
@@ -227,6 +240,39 @@ class TestPRLifecycleMapping(BaseTest):
         ]
         assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
+    def test_includes_draft_ready_transitions_when_synced(self) -> None:
+        # With the pr_state_events schema synced, the timeline interleaves draft/ready transitions
+        # (mapped to their event kinds, actor as detail) between opened and CI events. Guards the
+        # query order (header → transitions → runs) and the kind mapping; the other tests in this
+        # class prove the no-schema path skips the transitions query entirely.
+        source = ExternalDataSource.objects.get(team=self.team)
+        table = create_warehouse_table_row(
+            self.team, name=f"{GITHUB_SOURCE_PREFIX}github_pr_state_events", source=source
+        )
+        link_schema(self.team, source, name="pr_state_events", table=table)
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        transitions = [
+            ("ready_for_review", _dt("2026-01-10T12:00:00"), "alice"),
+            ("convert_to_draft", _dt("2026-01-10T15:00:00"), "alice"),
+            ("ready_for_review", _dt("2026-01-11T08:00:00"), "bob"),
+        ]
+        runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(transitions), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [e.kind for e in lifecycle.events] == [
+            PRLifecycleEventKind.OPENED,
+            PRLifecycleEventKind.READY_FOR_REVIEW,
+            PRLifecycleEventKind.CONVERTED_TO_DRAFT,
+            PRLifecycleEventKind.READY_FOR_REVIEW,
+            PRLifecycleEventKind.CI_STARTED,
+            PRLifecycleEventKind.CI_FINISHED,
+            PRLifecycleEventKind.MERGED,
+        ]
+        assert lifecycle.events[1].detail == "alice"
+        assert lifecycle.events[3].detail == "bob"
+
     def test_skips_events_with_null_timestamps(self) -> None:
         # parseDateTimeBestEffort yields NULL on a malformed/missing timestamp, so an event's `at`
         # can come back None. A single bad run timestamp must drop just that event, not raise and
@@ -301,6 +347,7 @@ class TestEndpointMapping(BaseTest):
             _dt("2026-01-10T09:00:00"),
             None,
             None,
+            None,
             ["bug", "p1"],
             3,
             2,
@@ -351,6 +398,7 @@ class TestEndpointMapping(BaseTest):
             "open",
             False,
             _dt("2026-01-10T09:00:00"),
+            None,
             None,
             None,
             ["bug"],
@@ -1082,6 +1130,48 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
+        # No pr_state_events source seeded: the column degrades to "not observed", never errors.
+        assert by_number[14].ready_to_merge_seconds is None
+
+    def test_pull_request_list_ready_to_merge_from_transitions(self) -> None:
+        # The north-star cycle-time rollup: ready→merge must be computed from the LAST observed
+        # ready_for_review (a re-draft cycle resets it), a merged PR with no transition rows must
+        # stay None ("not observed", never 0), and an open re-drafted PR must not carry a stale
+        # ready timestamp into the figure.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(20, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha20"),
+                _pr_row(21, "bob", "closed", 0, _ago(8), merged_at=_ago(3), head_sha="sha21"),
+                _pr_row(22, "carol", "open", 1, _ago(6), head_sha="sha22"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(2101, "CI", "sha20", "completed", "success", _ago(2), _ago(2), pr_number=20)],
+        )
+        self._create_table(
+            "github_pr_state_events",
+            PR_STATE_EVENTS_COLUMNS,
+            [
+                # PR 20: drafted → ready → re-draft → ready; the last ready (4d ago) starts the cycle
+                _state_event_row(1, "ready_for_review", 20, _ago(9)),
+                _state_event_row(2, "convert_to_draft", 20, _ago(7)),
+                _state_event_row(3, "ready_for_review", 20, _ago(4)),
+                # PR 22: readied then re-drafted — currently a draft, so no ready timestamp applies
+                _state_event_row(4, "ready_for_review", 22, _ago(5)),
+                _state_event_row(5, "convert_to_draft", 22, _ago(1)),
+            ],
+        )
+
+        result = api.list_pull_requests(team=self.team)
+        by_number = {item.number: item for item in result.items}
+        # merged 2d ago, last ready 4d ago → 2 days ready→merge (loose bound: _ago re-reads the clock)
+        assert by_number[20].ready_to_merge_seconds == pytest.approx(2 * 86400, abs=10)
+        assert by_number[21].ready_to_merge_seconds is None  # merged, transition not observed
+        assert by_number[22].ready_to_merge_seconds is None  # open + re-drafted
 
     def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, the list carries per-PR cost + billable minutes.

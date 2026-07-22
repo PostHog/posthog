@@ -96,11 +96,12 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                            |
 | Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
-| Draft/ready transitions, time-in-review, approvals                           | PR lifecycle events (webhooks to events, PR as group type): deferred |
+| Draft/ready transitions, ready→merge time (`ready_to_merge_seconds`)         | `github_pr_state_events` (immutable issue events, forward-only)      |
+| Time-in-review, approvals                                                    | PR lifecycle events (webhooks to events, PR as group type): deferred |
 | Deploys and DORA                                                             | Deploy data: deferred                                                |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
-Immutable lifecycle events are the only thing the deferred events destination is for.
+Draft/ready transitions ride GitHub's own immutable issue events (synced as `github_pr_state_events`, forward-only from connect); the deferred events destination remains for the rest.
 
 ## Locked decisions
 
@@ -115,7 +116,7 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - No author leaderboards or per-developer performance rankings, ever. The author page (own PRs plus own CI cost, reached only from PR-row author links) is allowed; ranking people against each other is not.
 - Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping.
-- Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse until state-transition events exist, and named so.
+- Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse, and named so. Ready→merge = `ready_to_merge_seconds`, from observed `ready_for_review` transitions (forward-only); absence means "not observed", never "never drafted".
 - The GitHub `reviews` endpoint syncs, but review reads stay deferred until a wedge tool needs them.
 
 ## Glossary

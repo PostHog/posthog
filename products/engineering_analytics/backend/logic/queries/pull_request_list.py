@@ -33,7 +33,9 @@ _SELECT = f"""
         pr.number, pr.title, pr.repo_owner, pr.repo_name,
         pr.author_handle, pr.author_avatar_url, pr.is_bot,
         pr.state, pr.is_draft, pr.created_at, pr.merged_at,
-        pr.open_to_merge_seconds, pr.labels,
+        pr.open_to_merge_seconds,
+        __READY_TO_MERGE__,
+        pr.labels,
         coalesce(ci.runs, 0) AS runs,
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
@@ -45,6 +47,7 @@ _SELECT = f"""
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
+    __READY_JOIN__
     WHERE (
             pr.state = 'open'
             OR pr.merged_at >= {{date_from}}
@@ -53,6 +56,16 @@ _SELECT = f"""
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
+
+# The ready→merge cycle time, when the (forward-only) transitions table is synced: the last
+# observed transition must be a ready_for_review (for a merged PR it always is — a draft can't
+# merge) and the PR must be merged. A missed join leaves last_is_ready NULL/0 → NULL, meaning
+# "not observed" (opened ready, or transitions predate the sync), never 0.
+_READY_TO_MERGE = """
+        if(pr.merged_at IS NOT NULL AND re.last_is_ready,
+           dateDiff('second', re.last_transition_at, pr.merged_at), NULL) AS ready_to_merge_seconds
+"""
+_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 
 # Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
@@ -130,8 +143,16 @@ def query_pull_request_list(
     if author:
         author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
+    # The transitions table is optional (forward-only sync); without it the column degrades to
+    # NULL rather than referencing the absent ready_by_pr CTE.
+    has_state_events = curated.state_events_source() is not None
+    select = (
+        _SELECT.replace("__READY_TO_MERGE__", _READY_TO_MERGE if has_state_events else "NULL AS ready_to_merge_seconds")
+        .replace("__READY_JOIN__", _READY_JOIN if has_state_events else "")
+        .replace("__AUTHOR__", author_clause)
+    )
     response = curated.run(
-        curated.pr_list_rollup_query(_SELECT.replace("__AUTHOR__", author_clause)),
+        curated.pr_list_rollup_query(select),
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )
@@ -165,6 +186,7 @@ def _map_row(
         created_at,
         merged_at,
         open_to_merge_seconds,
+        ready_to_merge_seconds,
         labels,
         runs,
         passing,
@@ -190,6 +212,7 @@ def _map_row(
         created_at=created_at,
         merged_at=merged_at,
         open_to_merge_seconds=open_to_merge_seconds,
+        ready_to_merge_seconds=ready_to_merge_seconds,
         labels=list(labels),
         # A PR with no CI misses the LEFT JOIN; the array column then comes back empty or NULL
         # depending on join_use_nulls — normalize both to [].

@@ -144,6 +144,33 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # create, unlike the org-scoped teams tables, so leave the table selectable by default.
         should_sync_default=True,
     ),
+    "pr_state_events": GithubEndpointConfig(
+        name="pr_state_events",
+        # Repo-wide issue events list, filtered to the PR draft/ready transitions (see
+        # _is_pr_state_event in github.py). The PR object only carries a current `draft` boolean —
+        # ready_for_review timing exists solely as issue events — and the repo-wide list returns
+        # them newest-first with the PR number attached, so no per-PR timeline fan-out is needed.
+        path="/repos/{repository}/issues/events",
+        partition_key="created_at",
+        incremental_fields=[
+            # Events are immutable, so created_at is both the cursor and the emission order: the
+            # API always returns newest-first with no sort/direction/time params, and incremental
+            # sync stops once a page crosses below the watermark (same desc walk as workflow_runs).
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        sort_mode="desc",  # API always returns newest-first; sort/direction are not supported
+        # Forward-only: the repo-wide list spans every label/assign/close event since repo
+        # creation, so the first sync only bootstraps a day (get_rows floors the desc walk) and
+        # the metric accrues from connect. Non-zero on purpose — 0 means webhook-only, and this
+        # endpoint has no webhook.
+        initial_lookback_days=1,
+    ),
     "commits": GithubEndpointConfig(
         name="commits",
         path="/repos/{repository}/commits",

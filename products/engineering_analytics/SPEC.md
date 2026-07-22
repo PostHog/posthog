@@ -132,7 +132,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 - **No author leaderboards or per-developer performance rankings; the author page is allowed.** The surveillance risk is ranking people against each other, not an engineer viewing their own PRs and CI cost. The page is reachable only from PR-row author links; `author_workflow_costs` stays a UI-only read (MCP `enabled: false`).
 - **Bot detection, defined once:** `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist; per-team config deferred.
 - **Bots and drafts excluded by default** in throughput / cycle-time reads; first-class in bot-impact analysis, so never strip them at the substrate.
-- **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined) until state-transition events exist.
+- **Time to merge**: `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined). `ready_to_merge_seconds` = `merged_at -` the last observed `ready_for_review` transition (from `github_pr_state_events`), the true cycle time — non-null only when the transition was observed, since the transitions table is forward-only. Absence means "not observed" (opened ready, or predates the sync), never "never drafted".
 - **Team ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter stamps `test.owner_team` from the repo's ownership map (`products/*/product.yaml` + CODEOWNERS, first listed owner); unstamped spans aggregate as the first-class team `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when it flaked. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; a slug mismatch yields an empty series, never another team's data.
 - **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical.
 
@@ -144,6 +144,7 @@ Warehouse tables (GitHub source):
 - `github_workflow_runs`: CI runs. Webhook-only (the webhook is the source of truth; history is a deliberate one-off backfill). A settled run never changes, so durations and trends are precise; until settled, `status` / `conclusion` mutate (see the freshness caveat).
 - `github_workflow_jobs`: per-job attempts (runner labels, queue and duration timestamps), the cost substrate. Webhook stream plus a window-limited backfill poll; per-run polling is infeasible at this volume.
 - `github_team_members`: org team membership, the author→team key. Optional at the source; every read that touches it must degrade gracefully when unsynced.
+- `github_pr_state_events`: PR draft/ready transitions (`ready_for_review` / `convert_to_draft`), one immutable row per transition from the repo-wide issue events list. Forward-only — the first sync bootstraps a day, rows accrue from connect — and optional, so reads degrade to "not observed" like the other optional tables. This lands the draft/ready slice of lifecycle events through the warehouse; the deferred events destination remains for reviews/approvals/deploys.
 
 Other products read as sources:
 
