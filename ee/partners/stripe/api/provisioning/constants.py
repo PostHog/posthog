@@ -7,8 +7,6 @@ import re
 from posthog.models.integration import StripeIntegration
 
 SUPPORTED_VERSIONS = ["0.1d"]
-API_VERSION_HEADER = "API-Version"
-SIGNATURE_HEADER = "Stripe-Signature"
 MAX_TIMESTAMP_DRIFT_SECONDS = 300
 
 AUTH_CODE_TTL_SECONDS = 300

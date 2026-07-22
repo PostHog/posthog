@@ -7,7 +7,6 @@ Projects OAuth app resolved from ``settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID``.
 
 from __future__ import annotations
 
-import re
 import secrets
 import unicodedata
 from typing import Any
@@ -689,9 +688,6 @@ def region_to_host(region: str) -> str:
     elif region_lower in ("us", "dev"):
         return "https://us.posthog.com"
     return settings.SITE_URL
-
-
-CODE_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_\-]+")
 
 
 def is_safe_deep_link_path(path: object) -> bool:

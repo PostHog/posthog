@@ -547,6 +547,11 @@ class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
         except (ValueError, TypeError):
             raise SpecError("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
+        # TODO: latent bug - this checks only the token's issuance-time scoped_teams,
+        # not the user's current team-level access. If the user is later removed from
+        # the team/org, the (long-lived) bearer can still read/rotate/update/remove
+        # the resource until it is refreshed (refresh re-derives scope via
+        # compute_partner_scoped_teams). Revalidate live access here to close it.
         if team_id not in (access_token.scoped_teams or []):
             raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
         return team_id
