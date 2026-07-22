@@ -84,8 +84,10 @@ mod sdk_info_tests {
                 Bytes::from(
                     json!({
                         "distinct_id": "user123",
-                        "$lib": "web",
-                        "$lib_version": "body-1.0"
+                        "person_properties": {
+                            "$lib": "web",
+                            "$lib_version": "body-1.0"
+                        }
                     })
                     .to_string(),
                 ),
