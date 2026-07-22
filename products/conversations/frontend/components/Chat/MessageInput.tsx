@@ -7,8 +7,10 @@ import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import type { MacroActionsApi } from '../../generated/api.schemas'
 import type { TicketStatus } from '../../types'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
+import { MacroVariableValues } from '../Editor/macroVariables'
 
 export interface MessageInputProps {
     onSendMessage: (
@@ -46,6 +48,12 @@ export interface MessageInputProps {
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
+    /** Enables the `/` macro slash command and the macro toolbar button in the composer */
+    enableMacros?: boolean
+    /** Values used to fill {{variable}} tokens when a macro is inserted */
+    macroVariables?: MacroVariableValues
+    /** Applies a macro's ticket actions (status/assignee/tags/priority) when inserted */
+    onApplyMacroActions?: (actions: MacroActionsApi) => void
 }
 
 export function MessageInput({
@@ -66,6 +74,9 @@ export function MessageInput({
     sendConfirmationMessage,
     sendAndSetStatusOptions,
     unsavedTicketChanges,
+    enableMacros,
+    macroVariables,
+    onApplyMacroActions,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -179,6 +190,9 @@ export function MessageInput({
                 onUploadingChange={setIsUploading}
                 disabled={messageSending}
                 minRows={minRows}
+                enableMacros={enableMacros}
+                macroVariables={macroVariables}
+                onApplyMacroActions={onApplyMacroActions}
                 className={
                     isPrivate
                         ? 'bg-warning-highlight border-warning'

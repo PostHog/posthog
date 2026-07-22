@@ -45,6 +45,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -1183,6 +1184,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'email',
                     'browser',
                 ],
+            },
+            {
+                id: 'conversations-macros',
+                title: 'Macros',
+                description:
+                    'Reusable replies your team can drop into a conversation with / or the macro button. Macros can also set the ticket status, priority, or tags and fill in customer details automatically.',
+                component: <MacrosSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['macro', 'canned', 'saved', 'reply', 'template', 'snippet', 'support', 'conversation'],
             },
             {
                 id: 'conversations-imports',

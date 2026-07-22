@@ -44,6 +44,12 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import type { MacroActionsApi } from '../../generated/api.schemas'
+import { applyMacroToEditor } from '../Macros/applyMacro'
+import { MacroPicker } from '../Macros/MacroPicker'
+import { MacrosExtension } from '../Macros/MacrosExtension'
+import { MacroVariableValues } from './macroVariables'
+
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))
 
@@ -142,6 +148,12 @@ export type SupportEditorProps = {
     disabled?: boolean
     minRows?: number
     className?: string
+    /** Enables the `/` macro slash command and the macro toolbar button. */
+    enableMacros?: boolean
+    /** Values used to fill {{variable}} tokens when a macro is inserted. */
+    macroVariables?: MacroVariableValues
+    /** Applies a macro's ticket actions (status/assignee/tags/priority) when inserted. */
+    onApplyMacroActions?: (actions: MacroActionsApi) => void
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -386,6 +398,9 @@ export function SupportEditor({
     disabled = false,
     minRows,
     className,
+    enableMacros = false,
+    macroVariables,
+    onApplyMacroActions,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -393,6 +408,13 @@ export function SupportEditor({
     const [, setEditorState] = useState(0)
     const [linkPopoverOpen, setLinkPopoverOpen] = useState(false)
     const [linkUrl, setLinkUrl] = useState('')
+    const [macroPickerOpen, setMacroPickerOpen] = useState(false)
+
+    // Refs so the once-configured macro extension always reads the latest ticket context.
+    const macroVariablesRef = useRef<MacroVariableValues>({})
+    macroVariablesRef.current = macroVariables ?? {}
+    const onApplyMacroActionsRef = useRef<((actions: MacroActionsApi) => void) | undefined>(undefined)
+    onApplyMacroActionsRef.current = onApplyMacroActions
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
 
@@ -414,6 +436,11 @@ export function SupportEditor({
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            MacrosExtension.configure({
+                enabled: enableMacros,
+                getVariables: () => macroVariablesRef.current,
+                onApplyActions: (actions) => onApplyMacroActionsRef.current?.(actions),
+            }),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -669,6 +696,36 @@ export function SupportEditor({
                             }
                         }}
                     />
+                    {enableMacros && (
+                        <>
+                            <div className="w-px h-4 bg-border mx-1" />
+                            <Popover
+                                visible={macroPickerOpen}
+                                onClickOutside={() => setMacroPickerOpen(false)}
+                                overlay={
+                                    <MacroPicker
+                                        showSearchInput
+                                        onSelect={(macro) => {
+                                            if (ttEditor) {
+                                                applyMacroToEditor(ttEditor, macro, {
+                                                    variables: macroVariablesRef.current,
+                                                    onApplyActions: onApplyMacroActionsRef.current,
+                                                })
+                                            }
+                                            setMacroPickerOpen(false)
+                                        }}
+                                    />
+                                }
+                            >
+                                <LemonButton
+                                    size="small"
+                                    onClick={() => setMacroPickerOpen((open) => !open)}
+                                    icon={<span className="font-semibold text-sm">M</span>}
+                                    tooltip="Insert a macro (or type / in the message)"
+                                />
+                            </Popover>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

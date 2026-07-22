@@ -18,16 +18,20 @@ import type {
     ComposeTicketResponseApi,
     ConversationApi,
     ConversationsListParams,
+    ConversationsMacrosListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    MacroApi,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
+    PaginatedMacroListApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
+    PatchedMacroApi,
     PatchedTicketApi,
     PatchedTicketViewApi,
     SandboxMessageResponseApi,
@@ -288,6 +292,116 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsMacrosListUrl = (projectId: string, params?: ConversationsMacrosListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/macros/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/macros/`
+}
+
+export const conversationsMacrosList = async (
+    projectId: string,
+    params?: ConversationsMacrosListParams,
+    options?: RequestInit
+): Promise<PaginatedMacroListApi> => {
+    return apiMutator<PaginatedMacroListApi>(getConversationsMacrosListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/`
+}
+
+export const conversationsMacrosCreate = async (
+    projectId: string,
+    macroApi: NonReadonly<MacroApi>,
+    options?: RequestInit
+): Promise<MacroApi> => {
+    return apiMutator<MacroApi>(getConversationsMacrosCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(macroApi),
+    })
+}
+
+export const getConversationsMacrosRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+}
+
+export const conversationsMacrosRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<MacroApi> => {
+    return apiMutator<MacroApi>(getConversationsMacrosRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+}
+
+export const conversationsMacrosUpdate = async (
+    projectId: string,
+    shortId: string,
+    macroApi: NonReadonly<MacroApi>,
+    options?: RequestInit
+): Promise<MacroApi> => {
+    return apiMutator<MacroApi>(getConversationsMacrosUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(macroApi),
+    })
+}
+
+export const getConversationsMacrosPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+}
+
+export const conversationsMacrosPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedMacroApi?: NonReadonly<PatchedMacroApi>,
+    options?: RequestInit
+): Promise<MacroApi> => {
+    return apiMutator<MacroApi>(getConversationsMacrosPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMacroApi),
+    })
+}
+
+export const getConversationsMacrosDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+}
+
+export const conversationsMacrosDestroy = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsMacrosDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

@@ -604,6 +604,12 @@ SPECTACULAR_SETTINGS = {
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
+        # Conversations ticket + macro-action priority share one choice set; pin its name so the
+        # macro-action `priority` field doesn't collide with other products' `priority` enums.
+        "SupportPriorityEnum": "products.conversations.backend.models.constants.Priority",
+        # Keep the existing private/shared visibility enum name stable so the conversations macro
+        # `visibility` field (team/personal) doesn't rename it and churn unrelated generated types.
+        "VisibilityEnum": "posthog.models.column_configuration.ColumnConfiguration.Visibility",
         # Pin the subscriptions target enum to its existing name so adding customer_analytics'
         # `target_type` (below, inline-list category) doesn't auto-rename this shared-basename enum
         # and churn subscriptions' generated types.

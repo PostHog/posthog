@@ -573,6 +573,152 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
+ * * `new` - New
+ * * `open` - Open
+ * * `pending` - Pending
+ * * `on_hold` - On hold
+ * * `resolved` - Resolved
+ */
+export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
+
+export const TicketStatusEnumApi = {
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
+} as const
+
+/**
+ * * `low` - Low
+ * * `medium` - Medium
+ * * `high` - High
+ * * `critical` - Critical
+ */
+export type SupportPriorityEnumApi = (typeof SupportPriorityEnumApi)[keyof typeof SupportPriorityEnumApi]
+
+export const SupportPriorityEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * Who a macro assigns the ticket to when applied.
+ */
+export interface MacroAssigneeApi {
+    /** Assignee kind: "user" or "role". */
+    type: string
+    /**
+     * User id (for type=user) or role id (for type=role). Null clears the assignee.
+     * @nullable
+     */
+    id: string | null
+}
+
+/**
+ * Optional ticket changes applied when a macro is used. Omit or leave empty for a text-only macro.
+ */
+export interface MacroActionsApi {
+    /** Set the ticket status when the macro is applied.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    status?: TicketStatusEnumApi | null
+    /** Set the ticket priority when the macro is applied.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    priority?: SupportPriorityEnumApi | null
+    /** Replace the ticket's tags with this list when the macro is applied. */
+    tags?: string[]
+    /** Assign the ticket to this user or role when the macro is applied. */
+    assignee?: MacroAssigneeApi | null
+}
+
+/**
+ * * `team` - Team
+ * * `personal` - Personal
+ */
+export type MacroVisibilityEnumApi = (typeof MacroVisibilityEnumApi)[keyof typeof MacroVisibilityEnumApi]
+
+export const MacroVisibilityEnumApi = {
+    Team: 'team',
+    Personal: 'personal',
+} as const
+
+export interface MacroApi {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * Display name shown in the macro picker.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Optional short description of when to use this macro.
+     * @maxLength 400
+     */
+    description?: string
+    /** Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket. */
+    content?: string
+    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+    rich_content?: unknown
+    /** Optional ticket changes (status, priority, tags, assignee) applied when the macro is used. */
+    actions?: MacroActionsApi
+    /** "team" shares the macro with everyone on the team; "personal" keeps it private to you.
+     *
+     * * `team` - Team
+     * * `personal` - Personal */
+    visibility?: MacroVisibilityEnumApi
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedMacroListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MacroApi[]
+}
+
+export interface PatchedMacroApi {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * Display name shown in the macro picker.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * Optional short description of when to use this macro.
+     * @maxLength 400
+     */
+    description?: string
+    /** Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket. */
+    content?: string
+    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+    rich_content?: unknown
+    /** Optional ticket changes (status, priority, tags, assignee) applied when the macro is used. */
+    actions?: MacroActionsApi
+    /** "team" shares the macro with everyone on the team; "personal" keeps it private to you.
+     *
+     * * `team` - Team
+     * * `personal` - Personal */
+    visibility?: MacroVisibilityEnumApi
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+}
+
+/**
  * * `widget` - Widget
  * * `email` - Email
  * * `slack` - Slack
@@ -610,38 +756,6 @@ export const ChannelDetailEnumApi = {
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
     GithubIssue: 'github_issue',
-} as const
-
-/**
- * * `new` - New
- * * `open` - Open
- * * `pending` - Pending
- * * `on_hold` - On hold
- * * `resolved` - Resolved
- */
-export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
-
-export const TicketStatusEnumApi = {
-    New: 'new',
-    Open: 'open',
-    Pending: 'pending',
-    OnHold: 'on_hold',
-    Resolved: 'resolved',
-} as const
-
-/**
- * * `low` - Low
- * * `medium` - Medium
- * * `high` - High
- * * `critical` - Critical
- */
-export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
-
-export const TicketPriorityEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Critical: 'critical',
 } as const
 
 /**
@@ -704,7 +818,7 @@ export interface TicketApi {
      * * `medium` - Medium
      * * `high` - High
      * * `critical` - Critical */
-    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    priority?: SupportPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -797,7 +911,7 @@ export interface PatchedTicketApi {
      * * `medium` - Medium
      * * `high` - High
      * * `critical` - Critical */
-    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    priority?: SupportPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -1171,6 +1285,17 @@ export interface ZendeskImportErrorApi {
 }
 
 export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsMacrosListParams = {
     /**
      * Number of results to return per page.
      */

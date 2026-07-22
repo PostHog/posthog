@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.conversations.backend.api import TicketViewSet, TicketViewViewSet, ZendeskImportViewSet
+from products.conversations.backend.api import MacroViewSet, TicketViewSet, TicketViewViewSet, ZendeskImportViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -8,6 +8,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/tickets",
         TicketViewSet,
         "environment_conversations_tickets",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/macros",
+        MacroViewSet,
+        "project_conversations_macros",
         ["team_id"],
     )
     routers.projects.register(

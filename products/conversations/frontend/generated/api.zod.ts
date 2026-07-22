@@ -154,6 +154,247 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const conversationsMacrosCreateBodyNameMax = 200
+
+export const conversationsMacrosCreateBodyDescriptionMax = 400
+
+export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(conversationsMacrosCreateBodyNameMax).describe('Display name shown in the macro picker.'),
+    description: zod
+        .string()
+        .max(conversationsMacrosCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional short description of when to use this macro.'),
+    content: zod
+        .string()
+        .optional()
+        .describe('Plain-text\/markdown body of the reply. May contain {{variables}} filled in from the ticket.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
+    actions: zod
+        .object({
+            status: zod
+                .union([
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket status when the macro is applied.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                ),
+            priority: zod
+                .union([
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket priority when the macro is applied.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                ),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe("Replace the ticket's tags with this list when the macro is applied."),
+            assignee: zod
+                .union([
+                    zod
+                        .object({
+                            type: zod.string().describe('Assignee kind: \"user\" or \"role\".'),
+                            id: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    'User id (for type=user) or role id (for type=role). Null clears the assignee.'
+                                ),
+                        })
+                        .describe('Who a macro assigns the ticket to when applied.'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Assign the ticket to this user or role when the macro is applied.'),
+        })
+        .describe('Optional ticket changes applied when a macro is used. Omit or leave empty for a text-only macro.')
+        .optional()
+        .describe('Optional ticket changes (status, priority, tags, assignee) applied when the macro is used.'),
+    visibility: zod
+        .enum(['team', 'personal'])
+        .describe('\* `team` - Team\n\* `personal` - Personal')
+        .optional()
+        .describe(
+            '\"team\" shares the macro with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
+        ),
+})
+
+export const conversationsMacrosUpdateBodyNameMax = 200
+
+export const conversationsMacrosUpdateBodyDescriptionMax = 400
+
+export const ConversationsMacrosUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(conversationsMacrosUpdateBodyNameMax).describe('Display name shown in the macro picker.'),
+    description: zod
+        .string()
+        .max(conversationsMacrosUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Optional short description of when to use this macro.'),
+    content: zod
+        .string()
+        .optional()
+        .describe('Plain-text\/markdown body of the reply. May contain {{variables}} filled in from the ticket.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
+    actions: zod
+        .object({
+            status: zod
+                .union([
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket status when the macro is applied.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                ),
+            priority: zod
+                .union([
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket priority when the macro is applied.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                ),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe("Replace the ticket's tags with this list when the macro is applied."),
+            assignee: zod
+                .union([
+                    zod
+                        .object({
+                            type: zod.string().describe('Assignee kind: \"user\" or \"role\".'),
+                            id: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    'User id (for type=user) or role id (for type=role). Null clears the assignee.'
+                                ),
+                        })
+                        .describe('Who a macro assigns the ticket to when applied.'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Assign the ticket to this user or role when the macro is applied.'),
+        })
+        .describe('Optional ticket changes applied when a macro is used. Omit or leave empty for a text-only macro.')
+        .optional()
+        .describe('Optional ticket changes (status, priority, tags, assignee) applied when the macro is used.'),
+    visibility: zod
+        .enum(['team', 'personal'])
+        .describe('\* `team` - Team\n\* `personal` - Personal')
+        .optional()
+        .describe(
+            '\"team\" shares the macro with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
+        ),
+})
+
+export const conversationsMacrosPartialUpdateBodyNameMax = 200
+
+export const conversationsMacrosPartialUpdateBodyDescriptionMax = 400
+
+export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name shown in the macro picker.'),
+    description: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Optional short description of when to use this macro.'),
+    content: zod
+        .string()
+        .optional()
+        .describe('Plain-text\/markdown body of the reply. May contain {{variables}} filled in from the ticket.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
+    actions: zod
+        .object({
+            status: zod
+                .union([
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket status when the macro is applied.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                ),
+            priority: zod
+                .union([
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Set the ticket priority when the macro is applied.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
+                ),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe("Replace the ticket's tags with this list when the macro is applied."),
+            assignee: zod
+                .union([
+                    zod
+                        .object({
+                            type: zod.string().describe('Assignee kind: \"user\" or \"role\".'),
+                            id: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    'User id (for type=user) or role id (for type=role). Null clears the assignee.'
+                                ),
+                        })
+                        .describe('Who a macro assigns the ticket to when applied.'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Assign the ticket to this user or role when the macro is applied.'),
+        })
+        .describe('Optional ticket changes applied when a macro is used. Omit or leave empty for a text-only macro.')
+        .optional()
+        .describe('Optional ticket changes (status, priority, tags, assignee) applied when the macro is used.'),
+    visibility: zod
+        .enum(['team', 'personal'])
+        .describe('\* `team` - Team\n\* `personal` - Personal')
+        .optional()
+        .describe(
+            '\"team\" shares the macro with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
+        ),
+})
+
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod

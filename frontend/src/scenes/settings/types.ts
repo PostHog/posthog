@@ -112,6 +112,7 @@ export type SettingId =
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-imports'
+    | 'conversations-macros'
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'

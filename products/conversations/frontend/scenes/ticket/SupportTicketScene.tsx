@@ -87,6 +87,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         chatPanelWidth,
         hasUnsavedChanges,
         unsavedTicketChanges,
+        macroVariables,
         ticketUpdating,
         draftContent,
         draftIsPrivate,
@@ -104,6 +105,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setPriority,
         setAssignee,
         setTags,
+        applyMacroActions,
         setSnoozedUntil,
         sendMessage,
         updateTicket,
@@ -233,6 +235,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
+                        enableMacros
+                        macroVariables={macroVariables}
+                        onApplyMacroActions={applyMacroActions}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
