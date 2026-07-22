@@ -161,6 +161,16 @@ class TestResources(StripeProvisioningTestBase):
             "error": {"code": "unauthorized", "message": message},
         }
 
+    def test_signature_required_even_with_valid_bearer(self):
+        token = self._get_bearer_token()
+        res = self.client.get(
+            f"{RESOURCES_URL}/{self.team.id}",
+            HTTP_API_VERSION="0.1d",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert res.status_code == 401
+        assert res.json() == {"error": {"code": "invalid_signature", "message": "Signature verification failed"}}
+
     def test_bearer_from_non_stripe_partner_app_rejected(self):
         # Even a fully enabled provisioning partner must not pass: this
         # namespace only accepts the Stripe Projects app.

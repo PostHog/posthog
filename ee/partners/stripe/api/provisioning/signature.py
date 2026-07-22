@@ -114,17 +114,6 @@ def verify_stripe_signature(request: Request) -> Response | None:
     return None
 
 
-def verify_stripe_signature_if_present(request: Request) -> Response | None:
-    """Verify the HMAC only when the Stripe-Signature header is present.
-
-    Bearer-authenticated resource endpoints accept the signature as an extra
-    factor when the caller sends one, but do not require it.
-    """
-    if request.headers.get("stripe-signature"):
-        return verify_stripe_signature(request)
-    return None
-
-
 def compute_signature(secret: str, timestamp: int, body: bytes) -> str:
     """Compute HMAC-SHA256 signature for a request body. Exposed for testing."""
     mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)

@@ -27,6 +27,20 @@ from rest_framework.response import Response
 Envelope = Literal["typed", "status", "oauth", "flat"]
 
 
+class PreRenderedError(Exception):
+    """Carries an already-rendered error Response through DRF's exception flow.
+
+    The signature/version helpers return flat-envelope Responses; when those
+    checks run in ``initial()`` (outside a handler) the only way to
+    short-circuit is to raise, so this wraps the Response for the base view's
+    ``handle_exception`` to unwrap unchanged.
+    """
+
+    def __init__(self, response: Response) -> None:
+        super().__init__()
+        self.response = response
+
+
 class SpecError(Exception):
     """An error with a spec-defined code, message, and envelope."""
 

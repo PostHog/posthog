@@ -1,13 +1,17 @@
 """Stripe Projects provisioning endpoints (APP 0.1d provider surface).
 
 Mounted under ``/api/partners/stripe/``. Stripe is the only accepted caller:
-requests are authenticated with the global ``Stripe-Signature`` HMAC and/or
-bearer tokens issued to the Stripe Projects OAuth app.
+every request is authenticated with the global ``Stripe-Signature`` HMAC, and
+resource endpoints additionally require a bearer token issued to the Stripe
+Projects OAuth app (the token endpoint accepts PKCE in place of the HMAC).
 
-Check order inside each handler is part of the observable wire behavior (which
-error a request with several problems gets), so handlers run their signature,
-version, and body checks explicitly instead of relying on DRF's pre-dispatch
-hooks.
+Check order is part of the observable wire behavior (which error a request
+with several problems gets). Endpoints whose checks are uniform - signature
+then API-Version before the handler - inherit them from
+:class:`SignatureCheckedMixin` so a new endpoint cannot ship without them.
+``account_requests`` and ``oauth/token`` interleave their checks with body
+parsing (body errors before the signature requirement; PKCE accepted in place
+of the HMAC), so those two run every check explicitly in the handler.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ import base64
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import ClassVar, cast
+from typing import Any, ClassVar, cast
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -73,7 +77,7 @@ from ee.partners.stripe.api.provisioning.core import (
     revoke_provisioned_pats,
     set_provisioning_service_id,
 )
-from ee.partners.stripe.api.provisioning.exceptions import Envelope, SpecError, render_spec_error
+from ee.partners.stripe.api.provisioning.exceptions import Envelope, PreRenderedError, SpecError, render_spec_error
 from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyMixin
 from ee.partners.stripe.api.provisioning.serializers import (
     AccountRequestSerializer,
@@ -84,11 +88,7 @@ from ee.partners.stripe.api.provisioning.serializers import (
     first_error_message,
 )
 from ee.partners.stripe.api.provisioning.services_catalog import get_services
-from ee.partners.stripe.api.provisioning.signature import (
-    verify_api_version,
-    verify_stripe_signature,
-    verify_stripe_signature_if_present,
-)
+from ee.partners.stripe.api.provisioning.signature import verify_api_version, verify_stripe_signature
 from ee.partners.stripe.api.provisioning.throttling import (
     AccountRequestsThrottle,
     ResourceCreatesThrottle,
@@ -104,9 +104,8 @@ _CODE_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_\-]+")
 class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     """Base for every endpoint in this namespace.
 
-    Unauthenticated by default (signature checks run inside handlers so their
-    order stays explicit); errors raised as :class:`SpecError` render in the
-    view's spec envelope.
+    Unauthenticated by default; errors raised as :class:`SpecError` render in
+    the view's spec envelope.
     """
 
     authentication_classes: list[type[BaseAuthentication]] = []
@@ -114,9 +113,26 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     spec_envelope: ClassVar[Envelope] = "flat"
 
     def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, PreRenderedError):
+            return exc.response
         if isinstance(exc, SpecError):
             return render_spec_error(exc, self.spec_envelope)
         return super().handle_exception(exc)
+
+
+class SignatureCheckedMixin:
+    """Runs the spec's mandatory Stripe-Signature and API-Version checks as
+    part of the request flow (after authentication, before the handler), so
+    every endpoint built on it is signed-only by construction. A bearer alone
+    is never sufficient: a stolen token without the signing secret cannot mint
+    keys or read credentials."""
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)  # type: ignore[misc]
+        if error := verify_stripe_signature(request):
+            raise PreRenderedError(error)
+        if error := verify_api_version(request):
+            raise PreRenderedError(error)
 
 
 def _stripe_app_if_partner_flagged() -> OAuthApplication | None:
@@ -135,14 +151,9 @@ def _stripe_app_if_partner_flagged() -> OAuthApplication | None:
 # ---------------------------------------------------------------------------
 
 
-class HealthView(StripeProvisioningAPIView):
+class HealthView(SignatureCheckedMixin, StripeProvisioningAPIView):
     @extend_schema(exclude=True)
     def get(self, request: Request) -> Response:
-        if error := verify_stripe_signature(request):
-            return error
-        if error := verify_api_version(request):
-            return error
-
         return Response({"supported_versions": SUPPORTED_VERSIONS, "status": "ok"})
 
 
@@ -151,14 +162,9 @@ class HealthView(StripeProvisioningAPIView):
 # ---------------------------------------------------------------------------
 
 
-class ServicesView(StripeProvisioningAPIView):
+class ServicesView(SignatureCheckedMixin, StripeProvisioningAPIView):
     @extend_schema(exclude=True)
     def get(self, request: Request) -> Response:
-        if error := verify_stripe_signature(request):
-            return error
-        if error := verify_api_version(request):
-            return error
-
         return Response({"data": get_services()})
 
 
@@ -586,24 +592,10 @@ class OAuthTokenView(StripeProvisioningAPIView):
 # ---------------------------------------------------------------------------
 
 
-class StripeResourceAPIView(StripeProvisioningAPIView):
+class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
     spec_envelope = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [StripeBearerAuthentication]
-
-    def run_common_checks(self, request: Request) -> Response | None:
-        """Optional HMAC, then API-Version - bearer auth already ran via the
-        authentication class.
-
-        TODO: latent gap - the spec mandates a signature on every orchestrator
-        call, but only update_service and deep_links enforce one; here a
-        missing Stripe-Signature header is accepted.
-        """
-        if error := verify_stripe_signature_if_present(request):
-            return error
-        if error := verify_api_version(request):
-            return error
-        return None
 
     def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
         try:
@@ -627,9 +619,6 @@ class ResourcesCreateView(StripeResourceAPIView):
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
-
-        if error := self.run_common_checks(request):
-            return error
 
         app = access_token.application
         if app and app.provisioning_partner_type:
@@ -758,9 +747,6 @@ class ResourceDetailView(StripeResourceAPIView):
     def get(self, request: Request, resource_id: str) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
-        if error := self.run_common_checks(request):
-            return error
-
         # TODO: latent gap - unlike update_service/remove there is no
         # cross-application ownership check on TeamProvisioningConfig, so a
         # token whose scope includes a team provisioned by another application
@@ -792,9 +778,6 @@ class RotateCredentialsView(StripeResourceAPIView):
     def post(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
-
-        if error := self.run_common_checks(request):
-            return error
 
         serializer = RotateCredentialsSerializer(data=request.data, context={"resource_id": resource_id})
         if not serializer.is_valid():
@@ -852,13 +835,6 @@ class UpdateServiceView(StripeResourceAPIView):
     def post(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
-
-        # update_service changes what the customer pays for, so the orchestrator
-        # signature is required on top of the bearer, not merely accepted.
-        if error := verify_stripe_signature(request):
-            return error
-        if error := verify_api_version(request):
-            return error
 
         team_id = self.parse_resource_team_id(resource_id, access_token)
         team = self.get_team(team_id, resource_id)
@@ -947,9 +923,6 @@ class ResourceRemoveView(StripeResourceAPIView):
     def post(self, request: Request, resource_id: str) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
-        if error := self.run_common_checks(request):
-            return error
-
         team_id = self.parse_resource_team_id(resource_id, access_token)
 
         try:
@@ -984,19 +957,6 @@ class DeepLinksView(StripeResourceAPIView):
     @extend_schema(exclude=True)
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
-
-        # HMAC partners must include a valid signature on this endpoint - bearer alone
-        # is not sufficient to mint a full web session via the deep-link primitive.
-        if access_token.application.provisioning_auth_method == "hmac":
-            if not request.META.get("HTTP_STRIPE_SIGNATURE"):
-                raise SpecError("hmac_signature_required", "HMAC signature required for this partner", status=401)
-            if error := verify_stripe_signature(request):
-                return error
-        elif error := verify_stripe_signature_if_present(request):
-            return error
-
-        if error := verify_api_version(request):
-            return error
 
         if not access_token.application.provisioning_can_issue_deep_links:
             capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
