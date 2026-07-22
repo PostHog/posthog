@@ -40,7 +40,7 @@ export function ClusteringAdminModal(): JSX.Element {
                         Cancel
                     </LemonButton>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmClusters}
+                        resourceType={AccessControlResourceType.AiObservabilityClusters}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton

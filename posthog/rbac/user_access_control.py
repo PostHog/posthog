@@ -71,7 +71,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "hog_flow",
     "insight",
     "llm_analytics",
-    "llm_clusters",
+    "ai_observability_clusters",
     "notebook",
     "revenue_analytics",
     "session_recording",
@@ -161,8 +161,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "hog_flow":
         return "workflows"
-    if resource == "llm_clusters":
-        return "clusters"
+    if resource == "ai_observability_clusters":
+        return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
     if resource == "warehouse_objects":
