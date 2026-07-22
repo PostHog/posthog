@@ -2595,6 +2595,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-temporal"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "fernet",
+ "hex",
+ "prost 0.14.3",
+ "serde",
+ "serde_json",
+ "temporalio-client",
+ "temporalio-common",
+ "thiserror 2.0.18",
+ "url",
+]
+
+[[package]]
 name = "common-types"
 version = "0.1.0"
 dependencies = [
@@ -2994,13 +3010,12 @@ dependencies = [
  "common-metrics",
  "common-posthog",
  "common-redis",
+ "common-temporal",
  "common-types",
  "cymbal-proto",
  "envconfig",
- "fernet",
  "futures",
  "health",
- "hex",
  "hogvm",
  "httpmock",
  "insta",
@@ -3011,7 +3026,6 @@ dependencies = [
  "posthog-rs",
  "posthog-symbol-data",
  "proguard",
- "prost 0.14.3",
  "rand 0.8.5",
  "rdkafka",
  "regex",
@@ -3025,8 +3039,6 @@ dependencies = [
  "sqlx",
  "subtle",
  "symbolic",
- "temporalio-client",
- "temporalio-common",
  "testcontainers",
  "thiserror 2.0.18",
  "tiktoken-rs",
