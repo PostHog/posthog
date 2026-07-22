@@ -58,5 +58,12 @@ class TestNavigationDigest:
     def test_truncates_oversized_urls(self) -> None:
         rows = [_row("u1", 0, "https://ex.com/" + "a" * 400, "w-a")]
         navigation, _ = _navigation(rows)
-        assert len(navigation[0].url) == 301
+        assert len(navigation[0].url) == 201
         assert navigation[0].url.endswith("…")
+
+    def test_total_url_character_budget_bounds_the_timeline(self) -> None:
+        base = "https://ex.com/" + "b" * 179  # 194 chars + unique 6-char suffix = exactly 200 per URL
+        rows = [_row(f"u{i}", i, f"{base}/{i:05d}", "w-a") for i in range(25)]
+        navigation, dropped = _navigation(rows)
+        assert len(navigation) == 15  # 15 * 200 chars fills the 3000-char budget
+        assert dropped == 10

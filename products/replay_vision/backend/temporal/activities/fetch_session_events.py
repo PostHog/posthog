@@ -57,9 +57,11 @@ _WINDOW_PREFIX = "window"
 _MAX_FIELD_LEN = 2000
 # Fixed-size dedup key — keeps `seen_hashes` bounded on chatty sessions where each row can carry ~KB-sized truncated exception text.
 _DEDUP_HASH_BYTES = 8
-# The preamble's navigation timeline stays a skim-able digest, not a second event dump.
+# The preamble's navigation timeline stays a skim-able digest, not a second event dump: bounded per URL, per entry
+# count, and in total URL characters, so a bouncy session with long URLs can't bloat the cached prompt.
 _MAX_NAVIGATION_ENTRIES = 30
-_MAX_NAVIGATION_URL_LEN = 300
+_MAX_NAVIGATION_URL_LEN = 200
+_MAX_NAVIGATION_TOTAL_URL_CHARS = 3000
 
 
 @activity.defn
@@ -240,9 +242,9 @@ def _process_events(
 
 def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[NavigationEntry], int]:
     """Collapse per-event URL sightings into the ordered URL-change timeline: one entry each time a window's URL
-    changes, capped so a bouncy session can't flood the preamble (the count of dropped tail entries is returned)."""
+    changes, kept within the entry and character budgets (the count of dropped tail entries is returned)."""
     points.sort(key=lambda point: point[0])
-    entries: list[NavigationEntry] = []
+    changes: list[NavigationEntry] = []
     last_url_by_window: dict[str | None, str] = {}
     seen_windows: set[str | None] = set()
     for relative_ms, window, url in points:
@@ -252,11 +254,18 @@ def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[N
         seen_windows.add(window)
         last_url_by_window[window] = url
         display_url = url if len(url) <= _MAX_NAVIGATION_URL_LEN else url[:_MAX_NAVIGATION_URL_LEN] + "…"
-        entries.append(
+        changes.append(
             NavigationEntry(rec_t=relative_ms // 1000, window=window, url=display_url, new_window=new_window)
         )
-    dropped = max(0, len(entries) - _MAX_NAVIGATION_ENTRIES)
-    return entries[:_MAX_NAVIGATION_ENTRIES], dropped
+
+    kept: list[NavigationEntry] = []
+    url_chars = 0
+    for entry in changes:
+        if len(kept) >= _MAX_NAVIGATION_ENTRIES or url_chars + len(entry.url) > _MAX_NAVIGATION_TOTAL_URL_CHARS:
+            break
+        kept.append(entry)
+        url_chars += len(entry.url)
+    return kept, len(changes) - len(kept)
 
 
 def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:
