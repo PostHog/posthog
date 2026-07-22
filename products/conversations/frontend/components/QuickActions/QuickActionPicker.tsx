@@ -8,7 +8,6 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { isKeyOf } from 'lib/utils/guards'
 
 import type { QuickActionApi } from '../../generated/api.schemas'
-import { QuickActionKindEnumApi } from '../../generated/api.schemas'
 import { quickActionsLogic } from './quickActionsLogic'
 
 export type QuickActionPickerRef = {
@@ -124,13 +123,7 @@ export const QuickActionPicker = forwardRef<QuickActionPickerRef, QuickActionPic
                         active={index === selectedIndex}
                         onClick={() => execute(quickAction)}
                         tooltip={quickAction.description || undefined}
-                        sideIcon={
-                            <LemonTag
-                                type={quickAction.kind === QuickActionKindEnumApi.Workflow ? 'completion' : 'muted'}
-                            >
-                                {quickAction.kind === QuickActionKindEnumApi.Workflow ? 'Workflow' : 'Response'}
-                            </LemonTag>
-                        }
+                        sideIcon={quickAction.workflow_id ? <LemonTag type="completion">Workflow</LemonTag> : undefined}
                     >
                         <div className="flex flex-col items-start">
                             <span>{quickAction.name}</span>

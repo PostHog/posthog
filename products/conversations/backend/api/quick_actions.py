@@ -25,7 +25,7 @@ from products.conversations.backend.events import (
     _get_ticket_base_properties,
     _resolve_org_groups,
 )
-from products.conversations.backend.models import QuickAction, QuickActionKind, QuickActionVisibility, Ticket
+from products.conversations.backend.models import QuickAction, QuickActionVisibility, Ticket
 from products.conversations.backend.models.constants import Priority, Status
 from products.workflows.backend.facade.api import HogFlowNotRunnableError, invoke_hog_flow_now, workflow_is_runnable
 
@@ -82,29 +82,24 @@ class QuickActionSerializer(serializers.ModelSerializer):
         max_length=400,
         help_text="Optional short description of when to use this quick action.",
     )
-    kind = serializers.ChoiceField(
-        choices=QuickActionKind.choices,
-        required=False,
-        help_text='"response" inserts a saved reply; "workflow" runs a workflow against the ticket.',
-    )
     content = serializers.CharField(
         required=False,
         allow_blank=True,
         max_length=MAX_CONTENT_SIZE_CHARS,
-        help_text="Response body (plain-text/markdown). May contain {{variables}} filled in from the ticket.",
+        help_text="Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.",
     )
     rich_content = serializers.JSONField(
         required=False,
-        help_text="TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved.",
+        help_text="TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.",
     )
     actions = QuickActionActionsSerializer(
         required=False,
-        help_text="Ticket changes (status, priority, tags, assignee) applied when a response quick action is used.",
+        help_text="Ticket changes (status, priority, tags, assignee) applied when the quick action is used.",
     )
     workflow_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="For kind=workflow: id of the workflow to run against the ticket.",
+        help_text="Optional: id of a workflow to run against the ticket when the quick action is used.",
     )
     visibility = serializers.ChoiceField(
         choices=QuickActionVisibility.choices,
@@ -119,7 +114,6 @@ class QuickActionSerializer(serializers.ModelSerializer):
             "short_id",
             "name",
             "description",
-            "kind",
             "content",
             "rich_content",
             "actions",
@@ -149,19 +143,25 @@ class QuickActionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Actions payload is too large.")
         return value
 
+    def _effective(self, attrs: dict[str, Any], field: str) -> Any:
+        """Value after this write: the incoming value if present, else the instance's (for PATCH)."""
+        if field in attrs:
+            return attrs[field]
+        return getattr(self.instance, field, None)
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = self.instance
-        # Effective kind: the incoming value, else the instance's, else the default.
-        kind = attrs.get("kind") or (instance.kind if instance else QuickActionKind.RESPONSE)
 
-        # A workflow quick action is only useful if it points at a runnable workflow. A response
-        # quick action can be text, ticket-actions-only, or both, so it has no body requirement.
-        if kind == QuickActionKind.WORKFLOW:
-            workflow_id = attrs.get("workflow_id") or (instance.workflow_id if instance else None)
-            if not workflow_id:
-                raise serializers.ValidationError({"workflow_id": "A workflow quick action must reference a workflow."})
-            if not workflow_is_runnable(self.context["team_id"], workflow_id):
-                raise serializers.ValidationError({"workflow_id": "That workflow does not exist or is not active."})
+        # A quick action must do something: insert a reply, apply ticket actions, or run a workflow.
+        has_reply = bool(self._effective(attrs, "content") or self._effective(attrs, "rich_content"))
+        has_actions = bool(self._effective(attrs, "actions"))
+        workflow_id = self._effective(attrs, "workflow_id")
+        if not (has_reply or has_actions or workflow_id):
+            raise serializers.ValidationError("A quick action needs a reply, a ticket action, or a workflow to run.")
+
+        # If it runs a workflow, that workflow must be active for the team.
+        if workflow_id and not workflow_is_runnable(self.context["team_id"], workflow_id):
+            raise serializers.ValidationError({"workflow_id": "That workflow does not exist or is not active."})
 
         # Only the creator may turn a shared team quick action personal — otherwise a teammate's
         # edit would make it vanish for everyone else (and the editor), with no way to reach it again.
@@ -260,9 +260,10 @@ class QuickActionViewSet(
             {
                 "id": str(instance.id),
                 "short_id": instance.short_id,
-                "kind": instance.kind,
                 "visibility": instance.visibility,
+                "has_reply": bool(instance.content or instance.rich_content),
                 "has_actions": bool(instance.actions),
+                "has_workflow": bool(instance.workflow_id),
             },
             team=self.team,
             request=self.request,
@@ -286,8 +287,8 @@ class QuickActionViewSet(
     def run(self, request: Request, **kwargs: Any) -> Response:
         """Run a workflow quick action against a ticket, synthesizing the ticket's event context."""
         quick_action = self.get_object()
-        if quick_action.kind != QuickActionKind.WORKFLOW or not quick_action.workflow_id:
-            raise serializers.ValidationError({"kind": "This quick action does not run a workflow."})
+        if not quick_action.workflow_id:
+            raise serializers.ValidationError({"workflow_id": "This quick action does not run a workflow."})
 
         request_serializer = QuickActionRunRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)

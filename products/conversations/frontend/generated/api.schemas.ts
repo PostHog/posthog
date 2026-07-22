@@ -573,17 +573,6 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
- * * `response` - Response
- * * `workflow` - Workflow
- */
-export type QuickActionKindEnumApi = (typeof QuickActionKindEnumApi)[keyof typeof QuickActionKindEnumApi]
-
-export const QuickActionKindEnumApi = {
-    Response: 'response',
-    Workflow: 'workflow',
-} as const
-
-/**
  * * `new` - New
  * * `open` - Open
  * * `pending` - Pending
@@ -678,22 +667,17 @@ export interface QuickActionApi {
      * @maxLength 400
      */
     description?: string
-    /** "response" inserts a saved reply; "workflow" runs a workflow against the ticket.
-     *
-     * * `response` - Response
-     * * `workflow` - Workflow */
-    kind?: QuickActionKindEnumApi
     /**
-     * Response body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
+     * Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
      * @maxLength 50000
      */
     content?: string
-    /** TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved. */
+    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
     rich_content?: unknown
-    /** Ticket changes (status, priority, tags, assignee) applied when a response quick action is used. */
+    /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
     actions?: QuickActionActionsApi
     /**
-     * For kind=workflow: id of the workflow to run against the ticket.
+     * Optional: id of a workflow to run against the ticket when the quick action is used.
      * @nullable
      */
     workflow_id?: string | null
@@ -728,22 +712,17 @@ export interface PatchedQuickActionApi {
      * @maxLength 400
      */
     description?: string
-    /** "response" inserts a saved reply; "workflow" runs a workflow against the ticket.
-     *
-     * * `response` - Response
-     * * `workflow` - Workflow */
-    kind?: QuickActionKindEnumApi
     /**
-     * Response body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
+     * Reply body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
      * @maxLength 50000
      */
     content?: string
-    /** TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved. */
+    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
     rich_content?: unknown
-    /** Ticket changes (status, priority, tags, assignee) applied when a response quick action is used. */
+    /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
     actions?: QuickActionActionsApi
     /**
-     * For kind=workflow: id of the workflow to run against the ticket.
+     * Optional: id of a workflow to run against the ticket when the quick action is used.
      * @nullable
      */
     workflow_id?: string | null

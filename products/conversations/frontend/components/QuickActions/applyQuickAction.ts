@@ -4,7 +4,6 @@ import { Editor } from '@tiptap/react'
 import { EditorRange } from 'lib/components/RichContentEditor/types'
 
 import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
-import { QuickActionKindEnumApi } from '../../generated/api.schemas'
 import { applyTemplateVariablesToRichContent, TemplateVariableValues } from '../Editor/templateVariables'
 
 /** True if the TipTap tree contains any non-empty text node or a media node worth rendering. */
@@ -71,20 +70,37 @@ export function applyQuickActionToEditor(
     }
 }
 
-export interface RunOrInsertOptions extends ApplyQuickActionOptions {
-    /** Called for workflow-kind quick actions instead of inserting text. */
+/** True if the quick action has a reply worth inserting (rich content with text, or plain content). */
+export function quickActionHasReply(quickAction: QuickActionApi): boolean {
+    const richContent = quickAction.rich_content as JSONContent | undefined
+    if (richContent && richContent.type === 'doc' && hasVisibleText(richContent)) {
+        return true
+    }
+    return !!quickAction.content
+}
+
+export interface ApplyOptions extends ApplyQuickActionOptions {
+    /** Runs the quick action's workflow, if it has one. */
     onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
-/** Dispatch a chosen quick action by kind: workflow kind runs, response kind inserts its body. */
-export function runOrInsertQuickAction(editor: Editor, quickAction: QuickActionApi, options: RunOrInsertOptions): void {
-    if (quickAction.kind === QuickActionKindEnumApi.Workflow) {
-        // Remove the "/query" trigger text (slash flow) — a workflow inserts nothing.
+/**
+ * Apply a chosen quick action: insert its reply (if any) and apply ticket actions, then run its
+ * workflow (if any). Any combination is valid — a quick action can reply, run a workflow, or both.
+ */
+export function applyQuickAction(editor: Editor, quickAction: QuickActionApi, options: ApplyOptions): void {
+    if (quickActionHasReply(quickAction)) {
+        applyQuickActionToEditor(editor, quickAction, options)
+    } else {
+        // Nothing to insert (workflow-only): still apply ticket actions and clear the "/query" text.
         if (options.range) {
             editor.chain().focus().deleteRange(options.range).run()
         }
-        options.onRunWorkflow?.(quickAction)
-        return
+        if (quickAction.actions && Object.keys(quickAction.actions).length > 0) {
+            options.onApplyActions?.(quickAction.actions)
+        }
     }
-    applyQuickActionToEditor(editor, quickAction, options)
+    if (quickAction.workflow_id) {
+        options.onRunWorkflow?.(quickAction)
+    }
 }

@@ -8,7 +8,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 
 import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import { TemplateVariableValues } from '../Editor/templateVariables'
-import { runOrInsertQuickAction } from './applyQuickAction'
+import { applyQuickAction } from './applyQuickAction'
 import { QuickActionPicker, QuickActionPickerRef } from './QuickActionPicker'
 
 export interface QuickActionsExtensionOptions {
@@ -36,7 +36,7 @@ const QuickActionSuggestionPopover = forwardRef<QuickActionPickerRef, QuickActio
         ref
     ): JSX.Element {
         const onSelect = (quickAction: QuickActionApi): void => {
-            runOrInsertQuickAction(editor, quickAction, {
+            applyQuickAction(editor, quickAction, {
                 variables: options.getVariables(),
                 range,
                 onApplyActions: options.onApplyActions,

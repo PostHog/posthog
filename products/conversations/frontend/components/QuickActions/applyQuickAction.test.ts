@@ -1,15 +1,13 @@
 import { Editor } from '@tiptap/react'
 
 import type { QuickActionApi } from '../../generated/api.schemas'
-import { QuickActionKindEnumApi } from '../../generated/api.schemas'
-import { quickActionToDoc, runOrInsertQuickAction } from './applyQuickAction'
+import { applyQuickAction, quickActionToDoc } from './applyQuickAction'
 
 function quickAction(overrides: Partial<QuickActionApi>): QuickActionApi {
     return {
         id: '1',
         short_id: 'abc',
         name: 'Test',
-        kind: QuickActionKindEnumApi.Response,
         created_at: '2026-01-01T00:00:00Z',
         created_by: {} as QuickActionApi['created_by'],
         ...overrides,
@@ -77,31 +75,40 @@ describe('applyQuickAction', () => {
         })
     })
 
-    // Regression: the kind dispatch must not cross wires — a workflow must run (not insert text or
-    // fire ticket actions), and a response must insert (not trigger a workflow run).
-    describe('runOrInsertQuickAction', () => {
-        it('runs a workflow quick action without inserting text', () => {
+    // Regression: a quick action applies whatever it has. Workflow-only runs without inserting;
+    // reply-only inserts without running; a quick action with both does both.
+    describe('applyQuickAction', () => {
+        it('runs a workflow-only quick action without inserting text', () => {
             const { editor, state } = fakeEditor()
             const onRunWorkflow = jest.fn()
-            const onApplyActions = jest.fn()
-            const wf = quickAction({ kind: QuickActionKindEnumApi.Workflow, workflow_id: 'w1' })
+            const wf = quickAction({ workflow_id: 'w1' })
 
-            runOrInsertQuickAction(editor, wf, { onRunWorkflow, onApplyActions })
+            applyQuickAction(editor, wf, { onRunWorkflow })
 
             expect(onRunWorkflow).toHaveBeenCalledWith(wf)
-            expect(onApplyActions).not.toHaveBeenCalled()
             expect(state.insertedContent).toBe(false)
         })
 
-        it('inserts a response quick action without running a workflow', () => {
+        it('inserts a reply-only quick action without running a workflow', () => {
             const { editor, state } = fakeEditor()
             const onRunWorkflow = jest.fn()
-            const resp = quickAction({ kind: QuickActionKindEnumApi.Response, content: 'hello' })
+            const resp = quickAction({ content: 'hello' })
 
-            runOrInsertQuickAction(editor, resp, { onRunWorkflow })
+            applyQuickAction(editor, resp, { onRunWorkflow })
 
             expect(onRunWorkflow).not.toHaveBeenCalled()
             expect(state.insertedContent).toBe(true)
+        })
+
+        it('both inserts the reply and runs the workflow when the quick action has both', () => {
+            const { editor, state } = fakeEditor()
+            const onRunWorkflow = jest.fn()
+            const both = quickAction({ content: 'generating that for you', workflow_id: 'w1' })
+
+            applyQuickAction(editor, both, { onRunWorkflow })
+
+            expect(state.insertedContent).toBe(true)
+            expect(onRunWorkflow).toHaveBeenCalledWith(both)
         })
     })
 })

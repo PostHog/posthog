@@ -170,22 +170,15 @@ export const ConversationsQuickActionsCreateBody = /* @__PURE__ */ zod.object({
         .max(conversationsQuickActionsCreateBodyDescriptionMax)
         .optional()
         .describe('Optional short description of when to use this quick action.'),
-    kind: zod
-        .enum(['response', 'workflow'])
-        .describe('\* `response` - Response\n\* `workflow` - Workflow')
-        .optional()
-        .describe(
-            '\"response\" inserts a saved reply; \"workflow\" runs a workflow against the ticket.\n\n\* `response` - Response\n\* `workflow` - Workflow'
-        ),
     content: zod
         .string()
         .max(conversationsQuickActionsCreateBodyContentMax)
         .optional()
-        .describe('Response body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
+        .describe('Reply body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
     rich_content: zod
         .unknown()
         .optional()
-        .describe('TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved.'),
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
     actions: zod
         .object({
             status: zod
@@ -236,8 +229,11 @@ export const ConversationsQuickActionsCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
         .optional()
-        .describe('Ticket changes (status, priority, tags, assignee) applied when a response quick action is used.'),
-    workflow_id: zod.uuid().nullish().describe('For kind=workflow: id of the workflow to run against the ticket.'),
+        .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
     visibility: zod
         .enum(['team', 'personal'])
         .describe('\* `team` - Team\n\* `personal` - Personal')
@@ -263,22 +259,15 @@ export const ConversationsQuickActionsUpdateBody = /* @__PURE__ */ zod.object({
         .max(conversationsQuickActionsUpdateBodyDescriptionMax)
         .optional()
         .describe('Optional short description of when to use this quick action.'),
-    kind: zod
-        .enum(['response', 'workflow'])
-        .describe('\* `response` - Response\n\* `workflow` - Workflow')
-        .optional()
-        .describe(
-            '\"response\" inserts a saved reply; \"workflow\" runs a workflow against the ticket.\n\n\* `response` - Response\n\* `workflow` - Workflow'
-        ),
     content: zod
         .string()
         .max(conversationsQuickActionsUpdateBodyContentMax)
         .optional()
-        .describe('Response body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
+        .describe('Reply body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
     rich_content: zod
         .unknown()
         .optional()
-        .describe('TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved.'),
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
     actions: zod
         .object({
             status: zod
@@ -329,8 +318,11 @@ export const ConversationsQuickActionsUpdateBody = /* @__PURE__ */ zod.object({
         })
         .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
         .optional()
-        .describe('Ticket changes (status, priority, tags, assignee) applied when a response quick action is used.'),
-    workflow_id: zod.uuid().nullish().describe('For kind=workflow: id of the workflow to run against the ticket.'),
+        .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
     visibility: zod
         .enum(['team', 'personal'])
         .describe('\* `team` - Team\n\* `personal` - Personal')
@@ -357,22 +349,15 @@ export const ConversationsQuickActionsPartialUpdateBody = /* @__PURE__ */ zod.ob
         .max(conversationsQuickActionsPartialUpdateBodyDescriptionMax)
         .optional()
         .describe('Optional short description of when to use this quick action.'),
-    kind: zod
-        .enum(['response', 'workflow'])
-        .describe('\* `response` - Response\n\* `workflow` - Workflow')
-        .optional()
-        .describe(
-            '\"response\" inserts a saved reply; \"workflow\" runs a workflow against the ticket.\n\n\* `response` - Response\n\* `workflow` - Workflow'
-        ),
     content: zod
         .string()
         .max(conversationsQuickActionsPartialUpdateBodyContentMax)
         .optional()
-        .describe('Response body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
+        .describe('Reply body (plain-text\/markdown). May contain {{variables}} filled in from the ticket.'),
     rich_content: zod
         .unknown()
         .optional()
-        .describe('TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved.'),
+        .describe('TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved.'),
     actions: zod
         .object({
             status: zod
@@ -423,8 +408,11 @@ export const ConversationsQuickActionsPartialUpdateBody = /* @__PURE__ */ zod.ob
         })
         .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
         .optional()
-        .describe('Ticket changes (status, priority, tags, assignee) applied when a response quick action is used.'),
-    workflow_id: zod.uuid().nullish().describe('For kind=workflow: id of the workflow to run against the ticket.'),
+        .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
     visibility: zod
         .enum(['team', 'personal'])
         .describe('\* `team` - Team\n\* `personal` - Personal')

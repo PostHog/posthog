@@ -45,7 +45,7 @@ import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
-import { runOrInsertQuickAction } from '../QuickActions/applyQuickAction'
+import { applyQuickAction } from '../QuickActions/applyQuickAction'
 import { QuickActionPicker, QuickActionsKeepAlive } from '../QuickActions/QuickActionPicker'
 import { QuickActionsExtension } from '../QuickActions/QuickActionsExtension'
 import { TemplateVariableValues } from './templateVariables'
@@ -714,7 +714,7 @@ export function SupportEditor({
                                         showSearchInput
                                         onSelect={(quickAction) => {
                                             if (ttEditor) {
-                                                runOrInsertQuickAction(ttEditor, quickAction, {
+                                                applyQuickAction(ttEditor, quickAction, {
                                                     variables: templateVariablesRef.current,
                                                     onApplyActions: onApplyTicketActionsRef.current,
                                                     onRunWorkflow: onRunWorkflowRef.current,

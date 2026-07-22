@@ -14,8 +14,9 @@ class TestQuickActionAPI(APIBaseTest):
         self.other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
         self.base_url = f"/api/projects/{self.team.id}/conversations/quick_actions/"
 
-    def _create(self, name: str, visibility: str = "team") -> dict:
-        response = self.client.post(self.base_url, {"name": name, "visibility": visibility}, format="json")
+    def _create(self, name: str, visibility: str = "team", **extra: object) -> dict:
+        body = {"name": name, "visibility": visibility, "content": "Hi {{customer.name}}", **extra}
+        response = self.client.post(self.base_url, body, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         return response.json()
 
@@ -24,7 +25,12 @@ class TestQuickActionAPI(APIBaseTest):
         quick_action = QuickAction.objects.unscoped().get(short_id=created["short_id"])
         self.assertEqual(quick_action.team_id, self.team.id)
         self.assertEqual(quick_action.created_by_id, self.user.id)
-        self.assertEqual(quick_action.kind, "response")
+
+    def test_quick_action_must_do_something(self) -> None:
+        # Regression guard: a quick action with no reply, no ticket actions, and no workflow is
+        # useless and must be rejected.
+        response = self.client.post(self.base_url, {"name": "Empty"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
     def test_visibility_scoping(self) -> None:
         # Regression guard: if safely_get_queryset drops the visibility filter, one agent's
@@ -92,13 +98,13 @@ class TestQuickActionAPI(APIBaseTest):
         response = self.client.post(self.base_url, {"name": "Too long", "content": "x" * 50_001}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
-    def test_workflow_kind_requires_a_runnable_workflow(self) -> None:
-        # A workflow quick action must reference an active workflow; the serializer validates it.
+    def test_workflow_must_be_runnable(self) -> None:
+        # A quick action that runs a workflow must reference an active workflow.
         workflow_id = "01890000-0000-0000-0000-000000000001"
         with patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=False):
             rejected = self.client.post(
                 self.base_url,
-                {"name": "Escalate", "kind": "workflow", "workflow_id": workflow_id},
+                {"name": "Escalate", "workflow_id": workflow_id},
                 format="json",
             )
         self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST, rejected.content)
@@ -106,19 +112,33 @@ class TestQuickActionAPI(APIBaseTest):
         with patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True):
             created = self.client.post(
                 self.base_url,
-                {"name": "Escalate", "kind": "workflow", "workflow_id": workflow_id},
+                {"name": "Escalate", "workflow_id": workflow_id},
                 format="json",
             )
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
 
+    def test_reply_and_workflow_combine(self) -> None:
+        # Regression guard: a quick action can carry both a reply and a workflow at once.
+        workflow_id = "01890000-0000-0000-0000-000000000003"
+        with patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True):
+            created = self.client.post(
+                self.base_url,
+                {"name": "Reply + run", "content": "Generating that for you", "workflow_id": workflow_id},
+                format="json",
+            )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
+        quick_action = QuickAction.objects.unscoped().get(short_id=created.json()["short_id"])
+        self.assertEqual(quick_action.content, "Generating that for you")
+        self.assertEqual(str(quick_action.workflow_id), workflow_id)
+
     def test_run_invokes_workflow_against_ticket(self) -> None:
         # Regression guard: the run endpoint must invoke the workflow with globals carrying the
-        # ticket id, and reject non-workflow quick actions.
+        # ticket id, and reject quick actions that have no workflow.
         workflow_id = "01890000-0000-0000-0000-000000000002"
         with patch("products.conversations.backend.api.quick_actions.workflow_is_runnable", return_value=True):
             workflow_qa = self.client.post(
                 self.base_url,
-                {"name": "Escalate", "kind": "workflow", "workflow_id": workflow_id},
+                {"name": "Escalate", "workflow_id": workflow_id},
                 format="json",
             ).json()
         response_qa = self._create("Canned reply")

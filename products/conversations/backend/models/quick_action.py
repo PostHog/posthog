@@ -13,13 +13,9 @@ class QuickActionVisibility(models.TextChoices):
     PERSONAL = "personal", "Personal"
 
 
-class QuickActionKind(models.TextChoices):
-    RESPONSE = "response", "Response"
-    WORKFLOW = "workflow", "Workflow"
-
-
 class QuickAction(TeamScopedRootMixin, UUIDModel):
-    """A saved action an agent triggers from the composer: a canned response or a workflow run."""
+    """A saved action an agent triggers from the composer. When used it inserts its reply (if any),
+    applies its ticket actions (if any), and runs its workflow (if any) — in any combination."""
 
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.
@@ -35,21 +31,20 @@ class QuickAction(TeamScopedRootMixin, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=200)
     description = models.CharField(max_length=400, blank=True, default="")
-    # "response" inserts the reply body (and applies `actions`); "workflow" runs `workflow_id`.
-    kind = models.CharField(max_length=20, choices=QuickActionKind.choices, default=QuickActionKind.RESPONSE)
 
-    # --- Response fields (kind="response") ---
-    # Reply body: `content` is the markdown/plain-text fallback, `rich_content` the TipTap JSON.
-    # Mirrors the dual storage on Ticket messages so the composer can round-trip formatting.
+    # --- Reply (optional) ---
+    # `content` is the markdown/plain-text fallback, `rich_content` the TipTap JSON. Mirrors the
+    # dual storage on Ticket messages so the composer can round-trip formatting.
     content = models.TextField(blank=True, default="")
     rich_content = models.JSONField(default=dict, blank=True)
     # Optional ticket actions applied when used, e.g.
-    # {"status": "closed", "priority": "high", "tags": [...], "assignee": {...}}. Empty = text-only.
+    # {"status": "closed", "priority": "high", "tags": [...], "assignee": {...}}.
     actions = models.JSONField(default=dict, blank=True)
 
-    # --- Workflow field (kind="workflow") ---
+    # --- Workflow (optional) ---
     # Soft reference to a HogFlow (products/workflows) id — no cross-product FK; the API layer
-    # validates that it resolves to an active workflow for the team.
+    # validates that it resolves to an active workflow for the team. When set, using the quick
+    # action runs the workflow against the ticket in addition to inserting the reply above.
     workflow_id = models.UUIDField(null=True, blank=True)
 
     # "team" quick actions are shared with everyone on the team; "personal" ones are only
