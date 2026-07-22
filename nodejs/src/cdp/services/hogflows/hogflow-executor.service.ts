@@ -99,6 +99,7 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
+    private readonly hogFlowFunctionsService: HogFlowFunctionsService
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
@@ -106,6 +107,7 @@ export class HogFlowExecutorService {
         emailValidationService: EmailValidationService,
         duplicateObserver?: HogFlowDuplicateObserverService
     ) {
+        this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -139,6 +141,11 @@ export class HogFlowExecutorService {
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
+    }
+
+    // Decrypted secret input values across the flow's function actions, for redacting test-run logs.
+    async getSensitiveValues(hogFlow: HogFlow): Promise<string[]> {
+        return this.hogFlowFunctionsService.getSensitiveValues(hogFlow)
     }
 
     async buildHogFlowInvocations(
