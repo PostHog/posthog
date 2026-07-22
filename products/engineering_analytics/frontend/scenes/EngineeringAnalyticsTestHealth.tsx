@@ -44,7 +44,7 @@ import {
 
 // Runners with an enforcement adapter; mirrors ADAPTED_RUNNERS in the quarantine
 // contract (tools/hogli-commands/hogli_commands/quarantine/core.py), which the frontend can't import.
-const ENFORCED_RUNNERS = ['pytest', 'jest']
+const ENFORCED_RUNNERS = ['pytest', 'jest', 'playwright']
 
 function relativeExpiry(daysUntilExpiry: number): string {
     if (daysUntilExpiry === 0) {
@@ -665,7 +665,7 @@ function QuarantineRegister(): JSX.Element {
                                 <Tooltip
                                     title={
                                         isEnforced
-                                            ? 'Enforced by the Jest adapter.'
+                                            ? `Enforced by the ${row.runner} adapter.`
                                             : 'No enforcement adapter yet. This entry is informational.'
                                     }
                                 >

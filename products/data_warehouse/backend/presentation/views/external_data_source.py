@@ -3569,13 +3569,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
-        if not source_type_supports_cdc(source_type):
+        if not isinstance(source_type, str) or not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
-        source_impl: PostgresSource = PostgresSource()
+        # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
+        # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        if not isinstance(source_impl, PostgresSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC prerequisite checks are not supported for source type: {source_type}"},
+            )
         is_valid, errors = source_impl.validate_config(request.data)
         if not is_valid:
             return Response(
