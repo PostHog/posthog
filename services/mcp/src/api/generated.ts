@@ -15984,6 +15984,35 @@ export namespace Schemas {
     }
 
     /**
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet
+     */
+    export type CreateTableFromUploadFileFormatEnum = typeof CreateTableFromUploadFileFormatEnum[keyof typeof CreateTableFromUploadFileFormatEnum];
+
+
+    export const CreateTableFromUploadFileFormatEnum = {
+      Csv: 'csv',
+      Json: 'json',
+      Parquet: 'parquet',
+    } as const;
+
+    export interface CreateTableFromUpload {
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: CreateTableFromUploadFileFormatEnum;
+      /** Name the resulting table is queried by in HogQL. */
+      table_name: string;
+    }
+
+    /**
      * The PostHog Task created from an observation.
      */
     export interface CreateTaskFromObservationResponse {
@@ -31093,6 +31122,17 @@ export namespace Schemas {
       ordered_ids: string[];
     }
 
+    export interface FileUploadResponse {
+      /** Id of the stored upload. Pass it to create_from_upload to build the table. */
+      upload_id: string;
+      /** Sanitized name the file was stored under. */
+      filename: string;
+      /** Format the file will be read as: 'csv', 'json', or 'parquet'. */
+      file_format: string;
+      /** Size of the stored file in bytes. */
+      size_bytes: number;
+    }
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -32359,7 +32399,7 @@ export namespace Schemas {
       type: string;
       /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
-      /** Output variable definition for downstream actions. */
+      /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
     }
 
@@ -32533,7 +32573,7 @@ export namespace Schemas {
     } as const;
 
     export interface HogFlowGraphOperation {
-      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
        *
        * * `update_action` - update_action
        * * `add_action` - add_action
@@ -32550,7 +32590,7 @@ export namespace Schemas {
       action?: unknown;
       /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
       edge?: HogFlowEdge;
-      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+      /** replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op. */
       edges?: HogFlowEdge[];
     }
 
@@ -32687,6 +32727,27 @@ export namespace Schemas {
       impact: HogFlowPublishImpact | null;
       /** The workflow after publishing (only set when published=true). */
       workflow?: HogFlow | null;
+    }
+
+    export interface HogFlowRevision {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFlowRevisionBasic {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFlowRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
     }
 
     /**
@@ -36146,6 +36207,8 @@ export namespace Schemas {
       readonly outline: readonly LLMPromptOutlineEntry[];
       /** Names of the labels currently pointing at this version. */
       readonly labels: readonly string[];
+      /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+      readonly activity_item_id: string;
     }
 
     export interface LLMPromptDuplicate {
@@ -36205,6 +36268,8 @@ export namespace Schemas {
       readonly outline: readonly LLMPromptOutlineEntry[];
       /** Names of the labels currently pointing at this version. */
       readonly labels: readonly string[];
+      /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+      readonly activity_item_id: string;
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
@@ -41138,6 +41203,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
+    }
+
+    export interface PaginatedHogFlowRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowRevisionBasic[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -75635,6 +75709,17 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFlowsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type HogFlowsMetricsGlobalRetrieveParams = {
     /**
      * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
@@ -80013,6 +80098,25 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    /**
+     * How the file will be read when the table is created.
+     */
+    export type WarehouseTablesUploadFileCreateBodyFileFormat = typeof WarehouseTablesUploadFileCreateBodyFileFormat[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat];
+
+
+    export const WarehouseTablesUploadFileCreateBodyFileFormat = {
+      Csv: 'csv',
+      Json: 'json',
+      Parquet: 'parquet',
+    } as const;
+
+    export type WarehouseTablesUploadFileCreateBody = {
+      /** The file to upload. */
+      file: Blob;
+      /** How the file will be read when the table is created. */
+      file_format: WarehouseTablesUploadFileCreateBodyFileFormat;
     };
 
     export type WarehouseViewLinkListParams = {

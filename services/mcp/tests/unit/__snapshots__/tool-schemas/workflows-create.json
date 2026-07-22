@@ -295,7 +295,7 @@
                         "description": "On failure: continue (skip the action and proceed) or abort (stop the run).\n\n* `continue` - continue\n* `abort` - abort"
                     },
                     "output_variable": {
-                        "description": "Output variable definition for downstream actions."
+                        "description": "Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those."
                     },
                     "type": {
                         "description": "trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",

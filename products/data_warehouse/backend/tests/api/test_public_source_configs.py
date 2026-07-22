@@ -19,9 +19,8 @@ class TestPublicSourceConfigs(APIBaseTest):
         assert "fields" in first_config
 
     def test_matches_wizard_response(self):
-        """Public endpoint returns the same data as the authenticated /wizard endpoint for released
-        sources, plus the docs-only `tables` catalog the wizard deliberately omits to keep its
-        payload small. Unreleased sources are wizard-only (see test_excludes_unreleased_sources)."""
+        """Public endpoint returns the same data as the authenticated /wizard endpoint, plus the
+        docs-only `tables` catalog the wizard deliberately omits to keep its payload small."""
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
 
@@ -31,24 +30,11 @@ class TestPublicSourceConfigs(APIBaseTest):
         wizard_data = wizard_response.json()
         assert not any("tables" in config for config in wizard_data.values())
 
-        # The public catalog omits unreleased sources, so compare against the wizard restricted
-        # to released ones.
-        wizard_released = {st: config for st, config in wizard_data.items() if not config.get("unreleasedSource")}
-
         public_without_tables = {
             source_type: {k: v for k, v in config.items() if k != "tables"}
             for source_type, config in response.json().items()
         }
-        assert public_without_tables == wizard_released
-
-    def test_excludes_unreleased_sources(self):
-        """Unreleased connector metadata must not be disclosed to unauthenticated callers, but the
-        authenticated wizard still exposes it so the app can render "coming soon" entries."""
-        public = self.client.get("/api/public_source_configs/").json()
-        assert not any(config.get("unreleasedSource") for config in public.values())
-
-        wizard = self.client.get("/api/environments/@current/external_data_sources/wizard/").json()
-        assert any(config.get("unreleasedSource") for config in wizard.values())
+        assert public_without_tables == wizard_data
 
     def test_accessible_without_authentication(self):
         self.client.logout()

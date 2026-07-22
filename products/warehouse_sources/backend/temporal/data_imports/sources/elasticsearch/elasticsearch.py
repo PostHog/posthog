@@ -21,6 +21,14 @@ MAX_RETRY_ATTEMPTS = 5
 # get_non_retryable_errors without the two strings silently drifting apart.
 NON_JSON_RESPONSE_ERROR = "Elasticsearch returned a non-JSON response"
 
+# Elasticsearch numeric types whose _source JSON alternates between whole (40) and fractional
+# (40.5) representations across documents. Left alone, that makes a column infer as int64 on one
+# scroll page and double on the next, which PyArrow/Delta refuse to merge ("incompatible types:
+# int64 vs double"). Coercing these fields to float up front pins the type deterministically.
+# Integer types (long/integer/short/byte) are excluded on purpose: they're always whole in JSON,
+# and widening a large `long` id to float64 would silently lose precision past 2^53.
+_ES_FLOAT_TYPES = frozenset({"float", "double", "half_float", "scaled_float"})
+
 
 class ElasticsearchRetryableError(Exception):
     pass
@@ -91,6 +99,74 @@ def list_indices(host: str, auth: ElasticsearchAuth) -> list[str]:
     return sorted(index for index in indices if index and not index.startswith("."))
 
 
+def _collect_float_paths(properties: dict[str, Any], prefix: str, paths: set[str]) -> None:
+    """Walk an Elasticsearch mapping's `properties` tree, recording dotted paths of float-typed fields."""
+    for name, spec in properties.items():
+        if not isinstance(spec, dict):
+            continue
+        path = f"{prefix}{name}"
+        if spec.get("type") in _ES_FLOAT_TYPES:
+            paths.add(path)
+        sub_properties = spec.get("properties")
+        if isinstance(sub_properties, dict):
+            _collect_float_paths(sub_properties, f"{path}.", paths)
+
+
+def get_float_field_paths(session: requests.Session, base_url: str, index: str) -> set[str]:
+    """Dotted paths of fields the index mapping types as floating point.
+
+    Best-effort: a mapping we can't read (permissions, non-JSON body) yields no paths, so the sync
+    behaves as before rather than failing on the mapping lookup alone.
+    """
+    try:
+        response = session.get(f"{base_url}/{quote(index)}/_mapping", timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        body = response.json()
+    except (requests.exceptions.RequestException, requests.exceptions.JSONDecodeError, ValueError):
+        return set()
+
+    paths: set[str] = set()
+    # Shape: {"<index>": {"mappings": {"properties": {...}}}}. An alias resolves to several indices,
+    # so union every block's float paths.
+    if isinstance(body, dict):
+        for index_block in body.values():
+            properties = ((index_block or {}).get("mappings") or {}).get("properties")
+            if isinstance(properties, dict):
+                _collect_float_paths(properties, "", paths)
+    return paths
+
+
+def _to_float(value: Any) -> Any:
+    # bool is an int subclass but never a numeric field value here — leave it untouched.
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return float(value)
+    if isinstance(value, list):
+        return [_to_float(item) for item in value]
+    return value
+
+
+def _coerce_path(obj: Any, parts: list[str]) -> None:
+    key = parts[0]
+    if isinstance(obj, list):
+        for item in obj:
+            _coerce_path(item, parts)
+        return
+    if not isinstance(obj, dict) or key not in obj:
+        return
+    if len(parts) == 1:
+        obj[key] = _to_float(obj[key])
+    else:
+        _coerce_path(obj[key], parts[1:])
+
+
+def coerce_float_fields(doc: dict[str, Any], float_paths: set[str]) -> None:
+    """Rewrite whole-number values under float-typed fields to float, in place."""
+    for path in float_paths:
+        _coerce_path(doc, path.split("."))
+
+
 def get_rows(
     host: str,
     auth: ElasticsearchAuth,
@@ -99,6 +175,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     session = _get_session(auth)
     base_url = normalize_host(host)
+    float_paths = get_float_field_paths(session, base_url, index)
 
     @retry(
         retry=retry_if_exception_type((ElasticsearchRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -133,6 +210,10 @@ def get_rows(
         while True:
             hits = ((data.get("hits") or {}).get("hits")) or []
             items = [{**(hit.get("_source") or {}), "_id": hit["_id"]} for hit in hits]
+
+            if float_paths:
+                for item in items:
+                    coerce_float_fields(item, float_paths)
 
             if items:
                 yield items
