@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.presentation.serializers import (
+from products.engineering_analytics.backend.presentation.serializers.workflows import (
     CurrentBranchHealthSerializer,
     MasterFailureGroupSerializer,
     RepoOverviewSerializer,

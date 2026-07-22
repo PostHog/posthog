@@ -6,7 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.presentation.serializers import GitHubSourceSerializer
+from products.engineering_analytics.backend.presentation.serializers.sources import GitHubSourceSerializer
 from products.engineering_analytics.backend.presentation.views._base import EngineeringAnalyticsViewSetBase
 
 
