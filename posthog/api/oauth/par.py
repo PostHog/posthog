@@ -13,8 +13,10 @@ rehydrated by the authorization endpoint (see `OAuthAuthorizationView.get`),
 which then validates them exactly as it would a normal query-string request.
 """
 
+import base64
 import secrets
-from urllib.parse import urlencode
+import binascii
+from urllib.parse import unquote, urlencode
 
 from django.core.cache import cache
 
@@ -31,7 +33,13 @@ from rest_framework.views import APIView
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
 
-from .cimd import get_application_by_client_id
+from .cimd import (
+    CIMDFetchError,
+    CIMDValidationError,
+    get_application_by_client_id,
+    get_or_create_cimd_application,
+    is_cimd_client_id,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -158,7 +166,12 @@ class OAuthPushedAuthorizationRequestView(APIView):
         extensions={"x-product": "core"},
     )
     def post(self, request: Request) -> Response:
-        serializer = PushedAuthorizationRequestSerializer(data=request.data)
+        # Confidential clients may authenticate with client_secret_basic (creds in
+        # the Authorization header) just as they can at /oauth/token/, so fold any
+        # Basic credentials into the payload before validating.
+        payload = _merge_basic_auth(request)
+
+        serializer = PushedAuthorizationRequestSerializer(data=payload)
         if not serializer.is_valid():
             logger.warning("oauth_par_validation_error", errors=serializer.errors)
             return Response(
@@ -177,9 +190,8 @@ class OAuthPushedAuthorizationRequestView(APIView):
             )
 
         client_id = data["client_id"]
-        try:
-            application = get_application_by_client_id(client_id)
-        except OAuthApplication.DoesNotExist:
+        application = _resolve_application(client_id)
+        if application is None:
             logger.warning("oauth_par_invalid_client", client_id=client_id)
             return Response(
                 {"error": "invalid_client", "error_description": "Invalid client_id."},
@@ -200,7 +212,7 @@ class OAuthPushedAuthorizationRequestView(APIView):
         # client-auth and nested-request_uri params) so the request replays at
         # /oauth/authorize/ exactly as pushed. client_id is required, so it is
         # always present for the binding check in consume_pushed_authorization_request.
-        stored = {key: value for key, value in request.data.items() if key not in PAR_EXCLUDED_PARAMS}
+        stored = {key: value for key, value in payload.items() if key not in PAR_EXCLUDED_PARAMS}
         stored["client_id"] = client_id
 
         if len(urlencode(stored)) > PAR_MAX_STORED_BYTES:
@@ -230,6 +242,60 @@ class OAuthPushedAuthorizationRequestView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+def _resolve_application(client_id: str) -> OAuthApplication | None:
+    """Resolve the pushing client, provisioning first-use CIMD clients exactly as
+    the authorization endpoint does.
+
+    A CIMD (URL-form) client_id has no pre-registration — first use is what fetches
+    the metadata and creates the row — so mirror `OAuthValidator.validate_client_id`
+    and lazily provision here. Otherwise a CIMD client's first PAR push would 401
+    where `/oauth/authorize/` succeeds, breaking exactly the many-scope client
+    population PAR is meant to help.
+    """
+    if is_cimd_client_id(client_id):
+        try:
+            return get_or_create_cimd_application(client_id)
+        except (CIMDFetchError, CIMDValidationError) as e:
+            logger.warning("oauth_par_cimd_resolution_failed", client_id=client_id, error=str(e))
+            return None
+    try:
+        return get_application_by_client_id(client_id)
+    except OAuthApplication.DoesNotExist:
+        return None
+
+
+def _merge_basic_auth(request: Request) -> dict:
+    """Return the request body with any HTTP Basic client credentials folded in.
+
+    Confidential clients using `client_secret_basic` send `client_id:client_secret`
+    in the Authorization header rather than the form body. Body values take
+    precedence; Basic only fills in what the body omits.
+    """
+    # dict(request.data) would yield lists per key for a QueryDict; .items() keeps
+    # the last scalar value per key, matching how the fields are read downstream.
+    payload = dict(request.data.items())
+    basic_client_id, basic_client_secret = _parse_basic_auth_header(request)
+    if basic_client_id and not payload.get("client_id"):
+        payload["client_id"] = basic_client_id
+    if basic_client_secret and not payload.get("client_secret"):
+        payload["client_secret"] = basic_client_secret
+    return payload
+
+
+def _parse_basic_auth_header(request: Request) -> tuple[str | None, str | None]:
+    """Extract `client_id`/`client_secret` from an HTTP Basic Authorization header
+    (RFC 6749 §2.3.1). Returns (None, None) when absent or malformed."""
+    header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not header.startswith("Basic "):
+        return None, None
+    try:
+        decoded = base64.b64decode(header[len("Basic ") :].strip()).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None, None
+    client_id, _, client_secret = decoded.partition(":")
+    return (unquote(client_id) or None), (unquote(client_secret) or None)
 
 
 def _client_secret_valid(application: OAuthApplication, provided_secret: str | None) -> bool:
