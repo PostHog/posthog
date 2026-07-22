@@ -2005,6 +2005,32 @@ describe('generateToolCode with confirmed_action', () => {
             'const params = __guard.verifiedArgs\n        const projectId = await context.stateManager.getProjectId()'
         )
     })
+
+    it('resolves an omitted state-fallback id and signs it into the confirmed args (cross-org replay guard)', () => {
+        // When the target id is optional with a state fallback, prepare must
+        // resolve the active org/project to a concrete value and sign it, so a
+        // switch-organization between prepare and execute can't retarget the
+        // confirmed action at a different entity where the user is also an admin.
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            param_overrides: {
+                id: { optional: true, fallback: 'orgId', description: 'Organization ID.' },
+            },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('const id = params.id ?? await context.stateManager.getOrgID()')
+        expect(result.code).toContain('args: { ...params, id }')
+        // The unresolved args object must not be what gets signed.
+        expect(result.code).not.toContain('args: params,')
+    })
 })
 
 describe('optional param with state fallback', () => {
