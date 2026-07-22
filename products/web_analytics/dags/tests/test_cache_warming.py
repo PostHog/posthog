@@ -1,10 +1,13 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import dagster
 from parameterized import parameterized
 
 from products.web_analytics.dags.cache_warming import (
+    build_replay_runner,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
     maybe_opt_into_lazy_precompute,
@@ -91,6 +94,48 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
     )
     def test_leaves_non_precompute_replays_untouched(self, _name: str, query: dict) -> None:
         self.assertEqual(maybe_expand_warming_date_range(query), query)
+
+
+class TestBuildReplayRunner(BaseTest):
+    def test_lazy_eligible_shape_keeps_widened_range(self) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "properties": [],
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-7d"},
+        }
+
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            runner, used_json = build_replay_runner(self.team, query)
+
+        self.assertIsNotNone(runner)
+        self.assertEqual(used_json["dateRange"]["date_from"], "-30d")
+
+    @parameterized.expand(
+        [
+            # Shapes the lazy gate rejects execute on the raw path — a widened
+            # replay there is a 30-day scan the tenant never ran, outside their
+            # request throttles. If this stops falling back, the warmer becomes
+            # a background-load amplifier for mintable ineligible shapes.
+            ("team_not_enrolled", False, {}),
+            ("conversion_goal", True, {"conversionGoal": {"customEventName": "purchase"}}),
+        ]
+    )
+    def test_gate_rejected_shape_replays_faithful_range(self, _name: str, enroll: bool, extra: dict) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "properties": [],
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-7d"},
+            **extra,
+        }
+
+        enrolled_ids = [self.team.pk] if enroll else []
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=enrolled_ids):
+            runner, used_json = build_replay_runner(self.team, query)
+
+        self.assertIsNotNone(runner)
+        self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
 
 class TestFleetQuerySelection(BaseTest):
