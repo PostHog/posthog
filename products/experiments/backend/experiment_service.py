@@ -81,10 +81,10 @@ from products.experiments.backend.result_serialization import strip_step_session
 from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
+    apply_default_evaluation_contexts,
     archive_flag,
     create_flag,
     flag_disable_requires_approval,
-    get_default_evaluation_contexts,
     set_flag_active,
     ship_variant as ship_flag_variant,
     unarchive_flag,
@@ -1267,9 +1267,7 @@ class ExperimentService:
             feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
-        default_evaluation_contexts = get_default_evaluation_contexts(self.team, self.user)
-        if default_evaluation_contexts:
-            feature_flag_data["evaluation_contexts"] = default_evaluation_contexts
+        apply_default_evaluation_contexts(feature_flag_data, self.team, self.user)
 
         feature_flag = create_flag(
             feature_flag_data,

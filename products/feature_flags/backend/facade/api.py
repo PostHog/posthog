@@ -275,6 +275,17 @@ def get_default_evaluation_contexts(team: Team, user: Any) -> list[str]:
     )
 
 
+def apply_default_evaluation_contexts(flag_data: dict[str, Any], team: Team, user: Any) -> None:
+    """Add the team's default evaluation contexts to an auto-created flag's payload, in place.
+
+    A no-op when defaults don't apply (see ``get_default_evaluation_contexts``), so callers
+    can call this unconditionally before handing ``flag_data`` to ``create_flag``.
+    """
+    default_evaluation_contexts = get_default_evaluation_contexts(team, user)
+    if default_evaluation_contexts:
+        flag_data["evaluation_contexts"] = default_evaluation_contexts
+
+
 def serialize_flags(flags: Any, *, context: dict) -> Any:
     """The flag API's full list representation for the given flags.
 

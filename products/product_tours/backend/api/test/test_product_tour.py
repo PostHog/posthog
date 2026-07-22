@@ -10,6 +10,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.team.team import Team
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.api.product_tour import get_product_tours_response
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
@@ -613,6 +614,38 @@ class TestProductTourInternalTargetingFlag(APIBaseTest):
         tour = ProductTour.objects.get(id=response.json()["id"])
         assert tour.internal_targeting_flag is not None
         assert not tour.internal_targeting_flag.active  # Draft state, no start_date
+
+    def test_flag_created_via_patch_when_evaluation_contexts_required(self):
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/product_tours/",
+                data={"name": "Tour to auto-launch later", "content": {"steps": []}, "auto_launch": False},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            tour_id = response.json()["id"]
+
+            # Turning on auto_launch here creates the internal targeting flag from inside
+            # update(), so the flag create is carried by this PATCH request rather than a POST.
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+                data={"auto_launch": True},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        tour = ProductTour.objects.get(id=tour_id)
+        assert tour.internal_targeting_flag is not None
+        context_names = set(
+            tour.internal_targeting_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == {"production"}
 
     def test_flag_activated_when_tour_launched(self):
         response = self.client.post(
