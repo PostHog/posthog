@@ -87,10 +87,13 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     try:
         response = client.chat_postMessage(channel=channel_id, text=text, **message_kwargs)
     except SlackApiError as e:
-        error_code = str((getattr(e, "response", None) or {}).get("error", "unknown"))
+        slack_response = getattr(e, "response", None)
+        error_code = str((slack_response or {}).get("error", "unknown"))
         retry_after = None
-        if error_code == "rate_limited":
-            raw_retry_after = ((getattr(e, "response", None) or {}).get("headers") or {}).get("Retry-After")
+        # Slack's error code is "ratelimited"; Retry-After is an HTTP header on
+        # SlackResponse.headers, not in the JSON body that .get() reads.
+        if error_code == "ratelimited":
+            raw_retry_after = (getattr(slack_response, "headers", None) or {}).get("Retry-After")
             try:
                 retry_after = float(raw_retry_after) if raw_retry_after is not None else None
             except (TypeError, ValueError):

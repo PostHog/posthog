@@ -9,6 +9,13 @@ from products.conversations.backend.facade.api import SupportMessageSendError, p
 CLIENT = "products.conversations.backend.facade.api.get_slack_client"
 
 
+class FakeSlackResponse(dict):
+    # Mimics slack_sdk's SlackResponse: .get() reads the JSON body, HTTP headers are an attribute.
+    def __init__(self, data: dict, headers: dict | None = None) -> None:
+        super().__init__(data)
+        self.headers = headers or {}
+
+
 class TestPostSupportMessage(BaseTest):
     @patch(CLIENT)
     def test_applies_configured_bot_identity(self, mock_get_client: MagicMock):
@@ -34,9 +41,12 @@ class TestPostSupportMessage(BaseTest):
         [
             (
                 "slack_rate_limited",
-                SlackApiError(message="x", response={"error": "rate_limited", "headers": {"Retry-After": "7"}}),
+                SlackApiError(
+                    message="x",
+                    response=FakeSlackResponse({"error": "ratelimited"}, headers={"Retry-After": "7"}),
+                ),
                 None,
-                "rate_limited",
+                "ratelimited",
                 7.0,
             ),
             ("transport_error", ConnectionError("boom"), None, "transport_error", None),

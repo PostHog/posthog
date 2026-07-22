@@ -33,6 +33,7 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.RevenueAnalytics]: FEATURE_FLAGS.REVENUE_ANALYTICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
+    [AccessControlResourceType.ReplayScanner]: FEATURE_FLAGS.REPLAY_VISION,
 }
 
 export function isResourceRolledOut(
@@ -185,6 +186,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
                     AccessControlResourceType.ErrorTracking,
+                    AccessControlResourceType.ReplayScanner,
                     AccessControlResourceType.Survey,
                     AccessControlResourceType.WebAnalytics,
                     AccessControlResourceType.Toolbar,
