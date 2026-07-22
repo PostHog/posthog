@@ -49,10 +49,10 @@ The product is: **measure every gap in a PR's life, average it, and watch it shr
 The middle of PostHog's AI-to-prod loop (CI / review / merge / deploy) is invisible to both ends. This product fills it:
 
 ```text
-PostHog Desktop              engineering_analytics            PostHog product analytics
-(generates code,      →   (CI / review / merge / deploy) →  (events, errors, flags,
- opens PRs)                                                  surveys, replays)
-        ↑                                                            │
+PostHog Desktop              engineering_analytics             PostHog product analytics
+(generates code,      →   (CI / review / merge / deploy)  →    (events, errors, flags,
+ opens PRs)                                                     surveys, replays)
+        ↑                                                              │
         └───────────  Signals feed back to PostHog Desktop  ───────────┘
 ```
 
