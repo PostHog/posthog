@@ -47,7 +47,7 @@ def api_client(user):
             return_value=(True, None),
         ),
         mock.patch(
-            "products.data_warehouse.backend.presentation.views.external_data_source.bulk_create_external_data_job_schedules",
+            "products.warehouse_sources.backend.presentation.views.external_data_source.bulk_create_external_data_job_schedules",
             return_value=[],
         ) as mock_sync_workflow,
         mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),

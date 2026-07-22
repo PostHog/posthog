@@ -7935,11 +7935,23 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
+    export interface TileFilters {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+      ignoreDashboardFilters?: boolean | null;
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
     export interface InsightFilterOverrideContext {
       /** Dashboard filters that remain active after applying tile precedence. */
       dashboard?: DashboardFilter | null;
       /** Tile filters applied above the dashboard filters. */
-      tile?: DashboardFilter | null;
+      tile?: TileFilters | null;
       /** Dashboard filters replaced by the tile filters. */
       overridden_dashboard?: DashboardFilter | null;
     }
@@ -12527,6 +12539,38 @@ export namespace Schemas {
     }
 
     /**
+     * @nullable
+     */
+    export type BatchImportResponseCreatedBy = { [key: string]: unknown } | null;
+
+    /**
+     * Serializer for BatchImport responses that matches frontend expectations
+     */
+    export interface BatchImportResponse {
+      readonly id: string;
+      readonly source_type: string;
+      readonly content_type: string;
+      status?: BatchImportStatusEnum;
+      readonly display_status: string;
+      /** @nullable */
+      readonly start_date: string | null;
+      /** @nullable */
+      readonly end_date: string | null;
+      /** @nullable */
+      readonly created_by: BatchImportResponseCreatedBy;
+      readonly created_at: string;
+      /** @nullable */
+      status_message: string | null;
+      state?: unknown;
+      /** Whether this job is a trial run (stores browsable results instead of ingesting). */
+      readonly is_trial: boolean;
+      /** @nullable */
+      readonly trial_record_limit: number | null;
+      /** @nullable */
+      readonly promoted_from_trial_id: string | null;
+    }
+
+    /**
      * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
      * @nullable
      */
@@ -14061,6 +14105,27 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_decision: string | null;
+    }
+
+    export interface ChangeRequestApprove {
+      /** Optional note recorded with the approval vote explaining the decision. */
+      reason?: string;
+    }
+
+    export interface ChangeRequestDecisionResponse {
+      /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+      status: string;
+      /** Human-readable summary of what happened. */
+      message: string;
+      /** The change request after the vote was recorded. */
+      change_request: ChangeRequest;
+      /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+      result?: unknown;
+    }
+
+    export interface ChangeRequestReject {
+      /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+      reason: string;
     }
 
     /**
@@ -23641,6 +23706,46 @@ export namespace Schemas {
       Snowflake: 'snowflake',
       Redshift: 'redshift',
     } as const;
+
+    export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      branch: string;
+      conclusive_success_rate: number;
+      conclusive_run_count: number;
+      latest_conclusion: string;
+      window_hours: number;
+    }
+
+    export interface EngineeringAnalyticsCIDurationRegressionSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      current_p95_seconds: number;
+      baseline_p95_seconds: number;
+      pct_increase: number;
+      current_p50_seconds: number;
+      baseline_p50_seconds: number;
+      window_days: number;
+    }
+
+    /**
+     * One immutable flaky observation: failed then passed on a later attempt of the same run,
+     * so only non-determinism can explain the flip.
+     */
+    export interface EngineeringAnalyticsCIFlakyCheckSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      job_name: string;
+      run_id: number;
+      head_sha: string;
+      failed_attempt: number;
+      passed_attempt: number;
+      flaky_count: number;
+      window_days: number;
+    }
 
     /**
      * * `open` - OPEN
@@ -39889,6 +39994,8 @@ export namespace Schemas {
          */
       members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
+      /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+      members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count: number;
       /** @nullable */
@@ -43316,6 +43423,7 @@ export namespace Schemas {
      * * `judgeme_reviews` - Judge.me
      * * `intercom` - Intercom
      * * `hubspot` - HubSpot
+     * * `engineering_analytics` - Engineering analytics
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -43368,6 +43476,7 @@ export namespace Schemas {
       JudgemeReviews: 'judgeme_reviews',
       Intercom: 'intercom',
       Hubspot: 'hubspot',
+      EngineeringAnalytics: 'engineering_analytics',
     } as const;
 
     /**
@@ -43386,6 +43495,9 @@ export namespace Schemas {
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
      * * `anomaly_investigation` - Anomaly investigation
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -43406,6 +43518,9 @@ export namespace Schemas {
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
       AnomalyInvestigation: 'anomaly_investigation',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
     } as const;
 
     export interface SignalSourceConfig {
@@ -44929,6 +45044,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -49600,6 +49720,8 @@ export namespace Schemas {
          */
       members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
+      /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+      members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count?: number;
       /** @nullable */
@@ -51406,44 +51528,26 @@ export namespace Schemas {
       summary?: string;
     }
 
-    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
-
-
-    export const ScoutOriginEnum = {
-      Canonical: 'canonical',
-      Custom: 'custom',
-    } as const;
-
     /**
-     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
-     *
-     * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
-     * when it discovers a scout skill; this serializer lets agents tune the row.
+     * Editable schedule, enablement, and emit posture for one scout config.
      */
-    export interface PatchedSignalScoutConfig {
-      readonly id?: string;
-      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
-      readonly skill_name?: string;
-      /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
-      readonly description?: string;
-      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
-      readonly scout_origin?: ScoutOriginEnum;
+    export interface PatchedSignalScoutConfigUpdate {
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
       /**
-         * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+         * Minutes between runs (30–43200). Use 1440 for a daily schedule.
          * @minimum 30
          * @maximum 43200
          */
       run_interval_minutes?: number;
       /**
-         * When the coordinator last dispatched this scout. Null if it has never run.
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule.
+         * @maxLength 100
          * @nullable
          */
-      readonly last_run_at?: string | null;
-      readonly created_at?: string;
+      run_cron_schedule?: string | null;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -52824,6 +52928,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id?: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -58731,6 +58840,7 @@ export namespace Schemas {
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
      * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -58783,6 +58893,7 @@ export namespace Schemas {
       JudgemeReviews: 'judgeme_reviews',
       Intercom: 'intercom',
       Hubspot: 'hubspot',
+      EngineeringAnalytics: 'engineering_analytics',
     } as const;
 
     /**
@@ -58804,6 +58915,9 @@ export namespace Schemas {
      * * `anomaly_investigation` - anomaly_investigation
      * * `feedback` - feedback
      * * `review` - review
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -58827,6 +58941,9 @@ export namespace Schemas {
       AnomalyInvestigation: 'anomaly_investigation',
       Feedback: 'feedback',
       Review: 'review',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -58951,7 +59068,7 @@ export namespace Schemas {
       createdDate: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -59008,7 +59125,8 @@ export namespace Schemas {
        * * `appfollow` - appfollow
        * * `judgeme_reviews` - judgeme_reviews
        * * `intercom` - intercom
-       * * `hubspot` - hubspot */
+       * * `hubspot` - hubspot
+       * * `engineering_analytics` - engineering_analytics */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -59029,7 +59147,10 @@ export namespace Schemas {
        * * `scanner_finding` - scanner_finding
        * * `anomaly_investigation` - anomaly_investigation
        * * `feedback` - feedback
-       * * `review` - review */
+       * * `review` - review
+       * * `ci_flaky_check` - ci_flaky_check
+       * * `ci_broken_default_branch` - ci_broken_default_branch
+       * * `ci_duration_regression` - ci_duration_regression */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -60252,6 +60373,14 @@ export namespace Schemas {
       limits: ScoutLimits;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
      * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
@@ -60602,6 +60731,9 @@ export namespace Schemas {
       interview_url: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface SharingConfiguration {
       readonly created_at: string;
       enabled?: boolean;
@@ -60610,6 +60742,11 @@ export namespace Schemas {
       settings?: unknown;
       password_required?: boolean;
       readonly share_passwords: readonly SharePassword[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface ShipVariant {
@@ -60857,15 +60994,20 @@ export namespace Schemas {
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
-      enabled?: boolean;
+      readonly enabled: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
-      emit?: boolean;
+      readonly emit: boolean;
       /**
          * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
          * @minimum 30
          * @maximum 43200
          */
-      run_interval_minutes?: number;
+      readonly run_interval_minutes: number;
+      /**
+         * Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.
+         * @nullable
+         */
+      readonly run_cron_schedule: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -60896,6 +61038,12 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
     }
 
     /**
@@ -68180,6 +68328,22 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    /**
+     * One page of trial-run results, proxied from the trial output store.
+     */
+    export interface TrialRecordsResponse {
+      /** Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be). */
+      records: unknown[];
+      /** Zero-based index of this page. */
+      page: number;
+      /** Number of result pages written so far. */
+      total_pages: number;
+      /** Number of source records processed so far. */
+      total_records: number;
+      /** Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range. */
+      summary: unknown;
     }
 
     export interface UpdateAppInput {
@@ -77374,6 +77538,13 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type ManagedMigrationsTrialRecordsRetrieveParams = {
+    /**
+     * Zero-based results page index (see total_pages in the response).
+     */
+    page?: number;
+    };
 
     export type MarketingAnalyticsDataSourcesRetrieveParams = {
     /**

@@ -4102,12 +4102,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 onSubmit: async () => {
                     const tileFilterOverrides = logic.values.overrides
+                    const wasIgnored = !!tile.filters_overrides?.ignoreDashboardFilters
+                    const isIgnored = !!tileFilterOverrides.ignoreDashboardFilters
 
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
                     })
 
                     tile.filters_overrides = tileFilterOverrides
+                    if (wasIgnored !== isIgnored) {
+                        eventUsageLogic.actions.reportDashboardTileIgnoreDashboardFiltersToggled(
+                            props.id,
+                            tile.insight?.id ?? null,
+                            isIgnored
+                        )
+                    }
                     actions.refreshDashboardItem({ tile })
                     lemonToast.success('Tile filters saved')
                 },
