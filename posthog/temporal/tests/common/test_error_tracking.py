@@ -2,20 +2,25 @@
 
 import uuid
 import datetime as dt
+import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
+
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.testing import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_transient_retryable_db_blip
 
 
 @dataclass
@@ -252,6 +257,98 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+def _activity_info(attempt: int, retry_policy: RetryPolicy | None) -> activity.Info:
+    return dataclasses.replace(ActivityEnvironment.default_info(), attempt=attempt, retry_policy=retry_policy)
+
+
+class TestTransientRetryableDbBlip:
+    @parameterized.expand(
+        [
+            # A transient DB error with retries still remaining is suppressed - it self-heals.
+            ("operational_error_non_final", OperationalError("boom"), 1, RetryPolicy(maximum_attempts=3), True),
+            ("interface_error_non_final", InterfaceError("boom"), 2, RetryPolicy(maximum_attempts=3), True),
+            # The final attempt still surfaces, so a genuinely stuck activity gets flagged.
+            ("operational_error_final", OperationalError("boom"), 3, RetryPolicy(maximum_attempts=3), False),
+            # Unlimited retries (maximum_attempts=0) have no final attempt to fall back on, so report.
+            ("operational_error_unlimited", OperationalError("boom"), 5, RetryPolicy(maximum_attempts=0), False),
+            # Without a retry policy we can't tell a retry is coming, so report.
+            ("operational_error_no_policy", OperationalError("boom"), 1, None, False),
+            # Non-DB errors are never suppressed by this gate.
+            ("value_error_non_final", ValueError("boom"), 1, RetryPolicy(maximum_attempts=3), False),
+            # A DB error type marked non-retryable won't be retried by Temporal, so report it.
+            (
+                "operational_error_non_retryable_type",
+                OperationalError("boom"),
+                1,
+                RetryPolicy(maximum_attempts=3, non_retryable_error_types=["OperationalError"]),
+                False,
+            ),
+        ]
+    )
+    def test_gate(
+        self, _name: str, exc: BaseException, attempt: int, retry_policy: RetryPolicy | None, expected: bool
+    ) -> None:
+        assert _is_transient_retryable_db_blip(exc, _activity_info(attempt, retry_policy)) is expected
+
+
+_db_blip_attempts = 0
+
+
+@activity.defn
+async def transient_db_blip_activity(inputs: OptionallyFailingInputs) -> None:
+    global _db_blip_attempts
+    _db_blip_attempts += 1
+    raise OperationalError("[Errno -2] Name or service not known")
+
+
+@workflow.defn
+class TransientDbBlipWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            transient_db_blip_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(milliseconds=1),
+                maximum_interval=dt.timedelta(milliseconds=1),
+                maximum_attempts=2,
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_transient_db_blip_reported_only_on_final_attempt(temporal_client: Client):
+    """A transient DB error that Temporal retries should be reported once (on the final attempt),
+    not on every intermediate attempt - so a single retried infra blip stops spawning noise."""
+    global _db_blip_attempts
+    _db_blip_attempts = 0
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[TransientDbBlipWorkflow],
+            activities=[transient_db_blip_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "TransientDbBlipWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        assert _db_blip_attempts == 2  # both attempts ran
+        assert mock_ph_capture.call_count == 1  # but only the final attempt was reported
 
 
 @pytest.mark.asyncio
