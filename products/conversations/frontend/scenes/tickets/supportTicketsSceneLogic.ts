@@ -187,6 +187,8 @@ export interface supportTicketsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
+        selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
             priorityFilter: TicketPriority[],
@@ -199,8 +201,6 @@ export interface supportTicketsSceneLogicMeta {
             dateFrom: string | null,
             dateTo: string | null
         ) => boolean
-        selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
-        assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         currentFilters: (
             statusFilter: TicketStatus[],
             priorityFilter: TicketPriority[],
