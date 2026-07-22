@@ -1195,6 +1195,8 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         entries = list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").order_by("created_at"))
         assert [entry.activity for entry in entries] == ["created", "updated", "deleted"]
+        # item_id is the prompt name: the prompt page History tab queries by it.
+        assert all(entry.item_id == "my-prompt" for entry in entries)
         move_detail = entries[1].detail
         assert move_detail is not None
         assert move_detail["name"] == "my-prompt: production"

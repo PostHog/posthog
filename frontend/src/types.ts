@@ -5982,6 +5982,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',

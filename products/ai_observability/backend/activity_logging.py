@@ -86,7 +86,9 @@ def handle_llm_prompt_label_change(
         team_id=instance.team_id,
         user=user,
         was_impersonated=was_impersonated,
-        item_id=instance.id,
+        # The prompt name, not the label row id: the History tab lists all label activity
+        # for one prompt, and label rows are recreated on delete + re-add.
+        item_id=instance.prompt_name,
         scope="LLMPromptLabel",
         activity=activity,
         detail=Detail(
