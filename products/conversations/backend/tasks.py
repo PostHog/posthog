@@ -55,7 +55,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
+from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES, load_outbound_attachments
 from products.conversations.backend.services.recipients import normalize_recipients
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
@@ -802,6 +802,12 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
+
+    # Files the agent attached to this reply, re-hosted from object storage as real MIME parts.
+    for file_name, file_content, file_content_type in load_outbound_attachments(
+        outbox.team_id, item_context.get("attachment_media_ids") or []
+    ):
+        email_message.attach(file_name, file_content, file_content_type)
 
     # Bcc stays out of the MIME headers (Django omits it) but must be in the SMTP envelope
     # so Mailgun actually delivers to it.

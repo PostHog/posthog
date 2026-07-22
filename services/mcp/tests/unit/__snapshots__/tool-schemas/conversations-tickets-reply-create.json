@@ -1,6 +1,24 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "bcc": {
+            "description": "Email addresses to blind-copy (Bcc) on the reply. Applies to this message only and is never revealed to the other recipients. Ignored for private notes.",
+            "items": {
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "cc": {
+            "description": "Email addresses to copy (Cc) on the reply. Cc'd addresses are remembered for the rest of the thread, so later replies keep copying them. Ignored for private notes.",
+            "items": {
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "type": "array"
+        },
         "id": {
             "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"

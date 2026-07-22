@@ -1,11 +1,21 @@
 import { JSONContent } from '@tiptap/core'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInputSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconLock, IconUpload } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonFileInput,
+    LemonInputSelect,
+    LemonSnack,
+    LemonSwitch,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { TicketStatus } from '../../types'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
@@ -15,6 +25,15 @@ export interface ExtraRecipients {
     bcc: string[]
 }
 
+interface Attachment {
+    id: string
+    name: string
+}
+
+// Stable identity so the controlled LemonFileInput resets to empty after each pick (uploaded files
+// are tracked in our own state), instead of accumulating and re-uploading on the next selection.
+const NO_FILES: File[] = []
+
 export interface MessageInputProps {
     onSendMessage: (
         content: string,
@@ -22,7 +41,8 @@ export interface MessageInputProps {
         isPrivate: boolean,
         onSuccess: () => void,
         statusAfterSend?: TicketStatus,
-        extraRecipients?: ExtraRecipients
+        extraRecipients?: ExtraRecipients,
+        attachmentMediaIds?: string[]
     ) => void
     messageSending: boolean
     placeholder?: string
@@ -54,6 +74,8 @@ export interface MessageInputProps {
     unsavedTicketChanges?: string[]
     /** Show Cc/Bcc recipient inputs (agent email replies only, not the customer widget) */
     showCcBcc?: boolean
+    /** Allow attaching arbitrary files to the reply (agent email replies only) */
+    showAttachments?: boolean
 }
 
 export function MessageInput({
@@ -75,6 +97,7 @@ export function MessageInput({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
     showCcBcc = false,
+    showAttachments = false,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -82,7 +105,24 @@ export function MessageInput({
     const [cc, setCc] = useState<string[]>([])
     const [bcc, setBcc] = useState<string[]>([])
     const [ccBccExpanded, setCcBccExpanded] = useState(false)
+    const [attachments, setAttachments] = useState<Attachment[]>([])
+    const [attachmentUploading, setAttachmentUploading] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
+
+    const handleAttachmentUpload = async (files: File[]): Promise<void> => {
+        if (files.length === 0) {
+            return
+        }
+        setAttachmentUploading(true)
+        try {
+            const uploaded = await Promise.all(files.map((file) => api.conversationsTickets.uploadAttachment(file)))
+            setAttachments((current) => [...current, ...uploaded.map((u) => ({ id: u.id, name: u.name }))])
+        } catch {
+            lemonToast.error('Failed to upload attachment')
+        } finally {
+            setAttachmentUploading(false)
+        }
+    }
 
     useEffect(() => {
         setIsEmpty(!draftContent)
@@ -99,14 +139,16 @@ export function MessageInput({
         if (replyDisabledReason && !isPrivate) {
             return
         }
-        if (messageSending || isUploading) {
+        if (messageSending || isUploading || attachmentUploading) {
             return
         }
         if (editorRef.current && !isEmpty) {
             const richContent = editorRef.current.getJSON()
             const content = serializeToMarkdown(richContent)
-            // Cc/Bcc only apply to customer-facing replies, never private notes.
+            // Cc/Bcc and attachments only apply to customer-facing replies, never private notes.
             const extraRecipients = showCcBcc && !isPrivate ? { cc, bcc } : undefined
+            const attachmentMediaIds =
+                showAttachments && !isPrivate && attachments.length > 0 ? attachments.map((a) => a.id) : undefined
             const doSend = (): void => {
                 onSendMessage(
                     content,
@@ -119,6 +161,7 @@ export function MessageInput({
                         setCc([])
                         setBcc([])
                         setCcBccExpanded(false)
+                        setAttachments([])
                         if (onPrivateChange) {
                             onPrivateChange(false)
                         } else {
@@ -126,7 +169,8 @@ export function MessageInput({
                         }
                     },
                     statusAfterSend,
-                    extraRecipients
+                    extraRecipients,
+                    attachmentMediaIds
                 )
             }
             // Sending with a status saves the whole ticket, so surface any other unsaved edits first.
@@ -179,7 +223,9 @@ export function MessageInput({
               ? 'No message'
               : isUploading
                 ? 'Uploading image...'
-                : undefined
+                : attachmentUploading
+                  ? 'Uploading attachment...'
+                  : undefined
 
     const showCcBccFields = showCcBcc && !isPrivate
     const ccBccVisible = ccBccExpanded || cc.length > 0 || bcc.length > 0
@@ -243,6 +289,36 @@ export function MessageInput({
                           : undefined
                 }
             />
+            {showAttachments && !isPrivate && (
+                <div className="flex flex-wrap items-center gap-1 mt-2">
+                    {attachments.map((attachment) => (
+                        <LemonSnack
+                            key={attachment.id}
+                            onClose={() => setAttachments((current) => current.filter((a) => a.id !== attachment.id))}
+                        >
+                            {attachment.name}
+                        </LemonSnack>
+                    ))}
+                    <LemonFileInput
+                        accept="*/*"
+                        multiple
+                        value={NO_FILES}
+                        showUploadedFiles={false}
+                        loading={attachmentUploading}
+                        onChange={(files) => void handleAttachmentUpload(files)}
+                        callToAction={
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={<IconUpload />}
+                                loading={attachmentUploading}
+                            >
+                                Attach file
+                            </LemonButton>
+                        }
+                    />
+                </div>
+            )}
             <div className="flex justify-between items-center mt-2">
                 {showPrivateOption ? (
                     <Tooltip title="Private notes are only visible to your team, not to the customer.">

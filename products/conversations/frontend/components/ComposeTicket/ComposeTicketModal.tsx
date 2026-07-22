@@ -1,12 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { IconUpload } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonFileInput,
+    LemonInput,
+    LemonInputSelect,
+    LemonModal,
+    LemonSelect,
+    LemonSnack,
+} from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 import { composeTicketLogic } from './composeTicketLogic'
+
+// Stable identity so the controlled LemonFileInput resets after each pick (see MessageInput).
+const NO_FILES: File[] = []
 
 export function ComposeTicketModal(): JSX.Element | null {
     const {
@@ -20,9 +32,20 @@ export function ComposeTicketModal(): JSX.Element | null {
         composingLoading,
         cc,
         bcc,
+        attachments,
+        attachmentUploading,
     } = useValues(composeTicketLogic)
-    const { closeComposeModal, setRecipientEmail, setEmailSubject, setEmailConfigId, submitCompose, setCc, setBcc } =
-        useActions(composeTicketLogic)
+    const {
+        closeComposeModal,
+        setRecipientEmail,
+        setEmailSubject,
+        setEmailConfigId,
+        submitCompose,
+        setCc,
+        setBcc,
+        uploadAttachment,
+        removeAttachment,
+    } = useActions(composeTicketLogic)
 
     const editorRef = useRef<RichContentEditorType | null>(null)
     const verifiedEmailConfigs = emailConfigs.filter((c) => c.domain_verified)
@@ -48,7 +71,12 @@ export function ComposeTicketModal(): JSX.Element | null {
                     <LemonButton type="secondary" onClick={closeComposeModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={handleSubmit} loading={composingLoading}>
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSubmit}
+                        loading={composingLoading}
+                        disabledReason={attachmentUploading ? 'Uploading attachment...' : undefined}
+                    >
                         Send
                     </LemonButton>
                 </>
@@ -124,6 +152,32 @@ export function ComposeTicketModal(): JSX.Element | null {
                         }}
                         onPressCmdEnter={handleSubmit}
                         minRows={5}
+                    />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1">
+                    {attachments.map((attachment) => (
+                        <LemonSnack key={attachment.id} onClose={() => removeAttachment(attachment.id)}>
+                            {attachment.name}
+                        </LemonSnack>
+                    ))}
+                    <LemonFileInput
+                        accept="*/*"
+                        multiple
+                        value={NO_FILES}
+                        showUploadedFiles={false}
+                        loading={attachmentUploading}
+                        onChange={(files) => uploadAttachment(files)}
+                        callToAction={
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={<IconUpload />}
+                                loading={attachmentUploading}
+                            >
+                                Attach file
+                            </LemonButton>
+                        }
                     />
                 </div>
             </div>

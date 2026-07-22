@@ -7107,6 +7107,7 @@ const api = {
             rich_content?: Record<string, unknown> | null
             cc?: string[]
             bcc?: string[]
+            attachment_media_ids?: string[]
         }): Promise<{ id: string; ticket_number: number }> {
             return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
         },
@@ -7123,6 +7124,15 @@ const api = {
             data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
         ): Promise<void> {
             await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
+
+        async uploadAttachment(file: File): Promise<{ id: string; name: string; content_type: string; size: number }> {
+            const formData = new FormData()
+            formData.append('file', file)
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('upload_attachment')
+                .create({ data: formData })
         },
     },
 
