@@ -108,6 +108,35 @@ function validateDashboardExportInsights(
     return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
 }
 
+function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): string | undefined {
+    if (
+        (subscription.frequency === 'daily' || subscription.frequency === 'weekly') &&
+        !subscription.byweekday?.length
+    ) {
+        return 'Select at least one delivery day'
+    }
+    if (
+        subscription.frequency !== 'daily' ||
+        !subscription.interval ||
+        subscription.interval % 7 !== 0 ||
+        !subscription.start_date ||
+        !subscription.byweekday?.length
+    ) {
+        return undefined
+    }
+    const startWeekday = dayjs.utc(subscription.start_date).format('dddd').toLowerCase()
+    return subscription.byweekday.includes(startWeekday as WeekdayType)
+        ? undefined
+        : 'Select the delivery day matching the start date for this interval'
+}
+
+function validateFrequency(subscription: Partial<SubscriptionType>): string | undefined {
+    if (!subscription.frequency) {
+        return 'You need to set a schedule frequency'
+    }
+    return validateWeekdaySchedule(subscription)
+}
+
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
         const msg = (error.detail || error.message || '').trim()
@@ -403,7 +432,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     if (!byweekday?.length && subscription.frequency === 'daily') {
                         byweekday = [...ALL_DAYS]
                     } else if (!byweekday?.length && subscription.frequency === 'weekly') {
-                        byweekday = [dayjs(subscription.start_date).format('dddd').toLowerCase() as WeekdayType]
+                        byweekday = [dayjs.utc(subscription.start_date).format('dddd').toLowerCase() as WeekdayType]
                     }
                     return {
                         ...subscription,
@@ -435,7 +464,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: (subscription) => ({
-                frequency: !subscription.frequency ? 'You need to set a schedule frequency' : undefined,
+                frequency: validateFrequency(subscription),
                 title: !subscription.title ? 'You need to give your subscription a name' : undefined,
                 interval: !subscription.interval ? 'You need to set an interval' : undefined,
                 start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,

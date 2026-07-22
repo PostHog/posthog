@@ -666,11 +666,7 @@ function EditSubscriptionForm({
                                                     mode="multiple"
                                                     options={weekdayInputOptions}
                                                     value={value ?? []}
-                                                    onChange={(selectedWeekdays) => {
-                                                        if (selectedWeekdays.length > 0) {
-                                                            onChange(selectedWeekdays)
-                                                        }
-                                                    }}
+                                                    onChange={onChange}
                                                 />
                                             )}
                                         </LemonField>

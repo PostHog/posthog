@@ -290,6 +290,16 @@ class Subscription(ModelActivityMixin, models.Model):
 
     @staticmethod
     def _compute_next_delivery_date(*, from_dt: Optional[datetime] = None, **rrule_fields: Any) -> Optional[datetime]:
+        interval = rrule_fields.get("interval") or 1
+        byweekday = rrule_fields.get("byweekday")
+        start_date = rrule_fields.get("start_date")
+        if (
+            rrule_fields.get("frequency") == Subscription.SubscriptionFrequency.DAILY
+            and interval % 7 == 0
+            and byweekday
+            and start_date.strftime("%A").lower() not in byweekday
+        ):
+            return None
         # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
         now = timezone.now() + timedelta(minutes=15)
         return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
@@ -459,7 +469,9 @@ class Subscription(ModelActivityMixin, models.Model):
                 else:
                     day_label = "day"
                 summary += f" on the {human_bysetpos} {day_label}"
-            elif self.byweekday and set(self.byweekday) != ALL_DAY_SET:
+            elif self.byweekday and (
+                self.frequency != self.SubscriptionFrequency.DAILY or set(self.byweekday) != ALL_DAY_SET
+            ):
                 if set(self.byweekday) == WEEKDAY_SET:
                     summary += " on weekdays"
                 else:

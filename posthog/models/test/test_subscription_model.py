@@ -67,6 +67,17 @@ class TestSubscriptionScheduling:
 
         assert next_delivery_date == expected_next_delivery
 
+    @freeze_time("2024-01-01 08:00:00")
+    def test_daily_interval_without_a_possible_weekday_returns_none(self) -> None:
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=7,
+            start_date=datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+            byweekday=["tuesday"],
+        )
+
+        assert next_delivery_date is None
+
 
 @patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
@@ -380,6 +391,23 @@ class TestSubscription(BaseTest):
                 "weekly_multiple_days",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["monday", "wednesday", "friday"]},
                 "sent every week on Monday, Wednesday and Friday",
+            ),
+            (
+                "weekly_all_days",
+                {
+                    "interval": 1,
+                    "frequency": "weekly",
+                    "byweekday": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ],
+                },
+                "sent every week on Monday, Tuesday, Wednesday, Thursday, Friday, Saturday and Sunday",
             ),
             (
                 "monthly_third_day",
