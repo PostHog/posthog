@@ -27,35 +27,58 @@ IDLE_PRONE_PRODUCTS = frozenset({"posthog_code", "slack_app"})
 _ONE_HOUR = "1h"
 
 
-def _upgrade_block(block: Any) -> None:
-    if not isinstance(block, dict):
-        return
-    cc = block.get("cache_control")
-    if isinstance(cc, dict) and cc.get("type") == "ephemeral" and "ttl" not in cc:
-        cc["ttl"] = _ONE_HOUR
+def _collect_cache_controls(body: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return every `cache_control` dict in `body`, in wire order."""
+    controls: list[dict[str, Any]] = []
 
-
-def _upgrade_blocks(value: Any) -> None:
-    if isinstance(value, list):
+    def _from_blocks(value: Any) -> None:
+        if not isinstance(value, list):
+            return
         for block in value:
-            _upgrade_block(block)
+            if not isinstance(block, dict):
+                continue
+            cc = block.get("cache_control")
+            if isinstance(cc, dict):
+                controls.append(cc)
+
+    _from_blocks(body.get("system"))
+    _from_blocks(body.get("tools"))
+
+    messages = body.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if isinstance(message, dict):
+                _from_blocks(message.get("content"))
+
+    return controls
 
 
 def upgrade_cache_ttl(body: dict[str, Any], *, product: str) -> dict[str, Any]:
     """Mutate `body` in place (and return it), upgrading ephemeral cache
     breakpoints on the stable prefix (system, tools) and on message content to a
     1-hour TTL. No-op for non-idle-prone products or bodies without breakpoints.
+
+    Anthropic requires 1-hour breakpoints to precede shorter ones, so if an
+    earlier breakpoint already has an explicit non-1h ttl, upgrading a later
+    implicit one would invert that order — skip the rewrite entirely rather
+    than send a request the API will reject.
     """
     if product not in IDLE_PRONE_PRODUCTS:
         return body
 
-    _upgrade_blocks(body.get("system"))
-    _upgrade_blocks(body.get("tools"))
+    controls = _collect_cache_controls(body)
 
-    messages = body.get("messages")
-    if isinstance(messages, list):
-        for message in messages:
-            if isinstance(message, dict):
-                _upgrade_blocks(message.get("content"))
+    seen_explicit_short_ttl = False
+    for cc in controls:
+        ttl = cc.get("ttl")
+        if ttl is not None:
+            if ttl != _ONE_HOUR:
+                seen_explicit_short_ttl = True
+        elif cc.get("type") == "ephemeral" and seen_explicit_short_ttl:
+            return body
+
+    for cc in controls:
+        if cc.get("type") == "ephemeral" and "ttl" not in cc:
+            cc["ttl"] = _ONE_HOUR
 
     return body

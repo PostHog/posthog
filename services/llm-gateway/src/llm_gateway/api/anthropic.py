@@ -741,7 +741,7 @@ async def anthropic_count_tokens_with_product(
     request: Request,
     breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any]:
-    validate_product(product)
+    product = validate_product(product)
     return await _handle_count_tokens(body, user, request, breaker, product=product)
 
 
@@ -764,6 +764,6 @@ async def anthropic_messages_with_product(
     request: Request,
     breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any] | StreamingResponse:
-    validate_product(product)
+    product = validate_product(product)
     apply_posthog_context_from_headers(request)
     return await _handle_anthropic_messages(body, user, request, breaker, product=product)

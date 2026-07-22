@@ -455,6 +455,38 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 200
 
     @pytest.mark.parametrize(
+        "alias,canonical",
+        [
+            pytest.param("array", "posthog_code", id="array_alias"),
+            pytest.param("twig", "posthog_code", id="twig_alias"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic._handle_anthropic_messages", new_callable=AsyncMock)
+    def test_product_alias_resolved_to_canonical_before_handling(
+        self,
+        mock_handle: AsyncMock,
+        alias: str,
+        canonical: str,
+    ) -> None:
+        """/array and /twig are aliases for posthog_code (see PRODUCT_ALIASES). The route must
+        pass the canonical name to `_handle_anthropic_messages` (and thus to product-gated
+        downstream logic like `upgrade_cache_ttl`), not the raw alias from the URL — validate_product's
+        return value must not be discarded."""
+        from llm_gateway.api.anthropic import anthropic_messages_with_product
+        from llm_gateway.models.anthropic import AnthropicMessagesRequest
+
+        mock_handle.return_value = {"id": "msg_123"}
+        body = AnthropicMessagesRequest(model="claude-sonnet-4-6", messages=[{"role": "user", "content": "hi"}])
+        user = MagicMock()
+        request = MagicMock()
+        request.headers.items.return_value = []
+
+        asyncio.run(anthropic_messages_with_product(body=body, user=user, product=alias, request=request, breaker=None))
+
+        mock_handle.assert_called_once()
+        assert mock_handle.call_args.kwargs["product"] == canonical
+
+    @pytest.mark.parametrize(
         "product",
         [
             pytest.param("invalid", id="invalid_product"),
