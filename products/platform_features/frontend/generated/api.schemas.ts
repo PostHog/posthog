@@ -723,6 +723,27 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
+export interface ChangeRequestApproveApi {
+    /** Optional note recorded with the approval vote explaining the decision. */
+    reason?: string
+}
+
+export interface ChangeRequestDecisionResponseApi {
+    /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+    status: string
+    /** Human-readable summary of what happened. */
+    message: string
+    /** The change request after the vote was recorded. */
+    change_request: ChangeRequestApi
+    /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+    result?: unknown
+}
+
+export interface ChangeRequestRejectApi {
+    /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+    reason: string
+}
+
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
