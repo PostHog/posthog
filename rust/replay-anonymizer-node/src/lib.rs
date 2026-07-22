@@ -11,7 +11,7 @@ use std::sync::RwLock;
 
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
-use posthog_replay_anonymizer::{snapshot, AllowLists, FailKind};
+use posthog_replay_anonymizer::{snapshot, AllowLists, FailKind, PhaseTimings};
 use serde::Deserialize;
 
 // The fail-closed contract depends on `catch_unwind` containing panics on untrusted input. Under
@@ -46,6 +46,10 @@ fn init_anonymizer(mut cx: FunctionContext) -> JsResult<JsNull> {
 /// unclassified error (panic, missing init) that the caller must treat as `anonymize_failed`.
 type TaskOutcome = Result<Result<(Vec<u8>, String, &'static str), (&'static str, String)>, String>;
 
+/// The outcome plus the JSON phase timings, which are reported on every arm — success, classified
+/// failure, and panic — so slow or crashing payloads can be debugged from the same telemetry.
+type TaskResult = (TaskOutcome, Option<String>);
+
 fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     // One copy on the event loop: the buffer's bytes move into the task (they can't be borrowed
     // across threads, and simd-json needs a mutable scratch anyway). Decompression happens inside
@@ -57,38 +61,60 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
     let promise = cx
-        .task(move || -> TaskOutcome {
+        .task(move || -> TaskResult {
+            // The sink lives outside the catch_unwind so whatever phases completed before a panic
+            // still reach the caller — errored messages carry timings too.
+            let timings = PhaseTimings::new();
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
             // rather than risking process abort.
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let guard = ALLOW
                     .read()
                     .map_err(|_| "allow lists lock poisoned".to_string())?;
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
+                timings.decompress_started();
                 let mut payload =
                     match snapshot::decompress_payload(raw, content_encoding.as_deref()) {
                         Ok(p) => p,
                         Err(f) => return Ok(Err((f.kind.reason(), f.detail))),
                     };
-                match snapshot::anonymize_kafka_payload_opts(
+                timings.decompress_finished();
+                timings.scrub_started();
+                let scrubbed = snapshot::anonymize_kafka_payload_timed(
                     allow,
                     &mut payload,
                     snapshot::AnonymizeOpts::default(),
-                ) {
+                    Some(&timings),
+                );
+                timings.scrub_finished();
+                match scrubbed {
                     Ok(out) => {
+                        timings.mark("serialize_meta");
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;
+                        timings.mark("done");
                         Ok(Ok((out.lines, meta, out.route.as_str())))
                     }
                     Err(f) => Ok(Err((f.kind.reason(), f.detail))),
                 }
             }))
-            .unwrap_or_else(|_| Err("panic while anonymizing".to_string()))
+            .unwrap_or_else(|_| Err("panic while anonymizing".to_string()));
+            (outcome, serde_json::to_string(&timings.snapshot()).ok())
         })
-        .promise(|mut cx, result: TaskOutcome| {
+        .promise(|mut cx, (result, timings_json): TaskResult| {
             let obj = cx.empty_object();
+            match timings_json {
+                Some(json) => {
+                    let timings = cx.string(json);
+                    obj.set(&mut cx, "timings", timings)?;
+                }
+                None => {
+                    let null = cx.null();
+                    obj.set(&mut cx, "timings", null)?;
+                }
+            }
             let set_failure = |cx: &mut TaskContext<'_>,
                                obj: &Handle<'_, JsObject>,
                                reason: &str,
