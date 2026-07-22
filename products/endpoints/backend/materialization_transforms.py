@@ -7,6 +7,7 @@ from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.functions.aggregations import COMBINATORS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -35,6 +36,13 @@ class MaterializationNotSupportedError(ValueError):
 
 class VariableInHavingClauseError(MaterializationNotSupportedError):
     """Raised when a variable is used in a HAVING clause, which is not supported for materialization."""
+
+
+class VariableComparedToPlaceholderError(MaterializationNotSupportedError):
+    """Raised when a variable is compared against a column side that still contains an
+    unresolved placeholder (e.g. one variable compared against another). Such a side can't be
+    reduced to a single materialization key, and printing it would run the HogQL printer over
+    an unresolved placeholder and raise QueryError."""
 
 
 def inject_series_index(query_ast: ast.SelectQuery | ast.SelectSetQuery) -> None:
@@ -305,9 +313,17 @@ def analyze_variables_for_materialization(
             all_usages = find_all_variable_usages(ast_node, placeholder)
         except VariableInHavingClauseError:
             return False, "Variable used in HAVING clause are not supported for materialization.", []
+        except VariableComparedToPlaceholderError:
+            return False, "Variable compared against another variable is not supported for materialization", []
         except ValueError as e:
             capture_exception(e)
             return False, "Invalid variable usage in WHERE clause.", []
+        except BaseHogQLError as e:
+            # Backstop: printing any still-unresolved subtree during analysis raises here.
+            # Treat as not materializable rather than letting it 500, but capture so we
+            # learn about any case the checks above don't already handle cleanly.
+            capture_exception(e)
+            return False, "Query could not be analyzed for materialization", []
 
         if not all_usages:
             return False, "Variable not used in WHERE clause", []
@@ -958,6 +974,26 @@ class VariablePlaceholderFinder(TraversingVisitor):
             self.variable_placeholders.append(node)
 
 
+def _contains_placeholder(node: ast.Expr) -> bool:
+    """True if the subtree still contains any placeholder.
+
+    Printing such a node (e.g. via ``str()``) runs the HogQL printer, which raises
+    ``QueryError`` on the first unresolved placeholder — so callers must avoid feeding it in.
+    """
+
+    class _Finder(TraversingVisitor):
+        def __init__(self) -> None:
+            super().__init__()
+            self.found = False
+
+        def visit_placeholder(self, node: ast.Placeholder) -> None:
+            self.found = True
+
+    finder = _Finder()
+    finder.visit(node)
+    return finder.found
+
+
 def find_variable_in_where(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
 ) -> Optional[VariableUsageInWhere]:
@@ -1067,6 +1103,11 @@ class VariableInWhereFinder(TraversingVisitor):
             )
         elif isinstance(field_side, ast.Call):
             column_chain = self._extract_column_chain_from_call(field_side)
+            if not column_chain and _contains_placeholder(field_side):
+                # e.g. one variable compared against another. There's no single column to
+                # materialize on, and str(field_side) below would run the printer over the
+                # unresolved placeholder and raise QueryError.
+                raise VariableComparedToPlaceholderError()
             self.all_results.append(
                 (
                     self._current_cte_name,

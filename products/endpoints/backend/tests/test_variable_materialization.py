@@ -301,6 +301,22 @@ class TestVariableAnalysis(APIBaseTest):
         assert can_materialize is False
         assert var_infos == []
 
+    def test_variable_compared_to_function_wrapped_variable_not_materializable(self):
+        # The column side is a function call wrapping another variable placeholder. It can't be
+        # reduced to a materialization key, and building its column_expression used to run the
+        # HogQL printer over the still-unresolved placeholder, raising an uncaught QueryError
+        # that took down the endpoints listing page. It must be rejected, not crash.
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE {variables.mode} = toDate({variables.other})",
+            "variables": {"v1": {"code_name": "mode", "value": "a"}, "v2": {"code_name": "other", "value": "b"}},
+        }
+
+        can_materialize, _reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert var_infos == []
+
     def test_variable_with_complex_and_conditions(self):
         query = {
             "kind": "HogQLQuery",
