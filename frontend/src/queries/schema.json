@@ -25514,10 +25514,6 @@
                     "description": "Object's name and folder",
                     "type": "string"
                 },
-                "pinnedByDefault": {
-                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
-                    "type": "boolean"
-                },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
                     "type": "string"
