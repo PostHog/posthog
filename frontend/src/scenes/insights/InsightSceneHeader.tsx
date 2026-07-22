@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { InsightShortId, InsightLogicProps, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
+import { InsightTypeSwitcherPrototype } from './InsightNav/prototype/InsightTypeSwitcherPrototype'
 import { InsightPageHeader } from './InsightPageHeader'
 
 export interface InsightSceneHeaderProps {
@@ -44,9 +44,8 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
             )}
 
             {insightMode === ItemMode.Edit && (
-                <div className="[&_.LemonTabs]:![--lemon-tabs-margin-bottom:0]">
-                    <InsightsNav />
-                </div>
+                /* PROTOTYPE(insight-type-switcher): swaps the tab strip for switchable variants; throwaway, see the prototype file */
+                <InsightTypeSwitcherPrototype insightLogicProps={insightLogicProps} />
             )}
 
             {showDebugPanel && insight?.id && (
