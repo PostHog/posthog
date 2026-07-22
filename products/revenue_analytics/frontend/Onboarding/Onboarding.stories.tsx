@@ -14,7 +14,10 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { Onboarding as RevenueAnalyticsOnboarding, type OnboardingProps } from './Onboarding'
 
-const MOCK_TEAM_WITHOUT_VIEWSET = { ...MOCK_DEFAULT_TEAM, managed_viewsets: { revenue_analytics: false } }
+const MOCK_TEAM_WITHOUT_VIEWSET = {
+    ...MOCK_DEFAULT_TEAM,
+    managed_viewsets: { revenue_analytics: false, engineering_analytics: false },
+}
 
 const meta: Meta<OnboardingProps> = {
     component: RevenueAnalyticsOnboarding,

@@ -822,6 +822,11 @@ class DataTableNodeViewPropsContextType(StrEnum):
     TEAM_COLUMNS = "team_columns"
 
 
+class DataWarehouseManagedViewsetKind(StrEnum):
+    REVENUE_ANALYTICS = "revenue_analytics"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
+
+
 class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"

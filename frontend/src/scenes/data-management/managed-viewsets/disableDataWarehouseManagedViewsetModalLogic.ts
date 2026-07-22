@@ -8,6 +8,7 @@ import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
 export const VIEWSET_TITLES: Record<DataWarehouseManagedViewsetKind, string> = {
     revenue_analytics: 'Revenue analytics',
+    engineering_analytics: 'Engineering analytics',
 }
 
 export interface DisableDataWarehouseManagedViewsetModalLogicProps {
@@ -30,7 +31,7 @@ export interface disableDataWarehouseManagedViewsetModalLogicActions {
         value: true
     }
     openModal: (kind: DataWarehouseManagedViewsetKind) => {
-        kind: 'revenue_analytics'
+        kind: DataWarehouseManagedViewsetKind
     }
     openModalFailure: (
         error: string,
@@ -42,12 +43,12 @@ export interface disableDataWarehouseManagedViewsetModalLogicActions {
     openModalSuccess: (
         views: DataWarehouseManagedViewsetSavedQuery[],
         payload?: {
-            kind: 'revenue_analytics'
+            kind: DataWarehouseManagedViewsetKind
         }
     ) => {
         views: DataWarehouseManagedViewsetSavedQuery[]
         payload?: {
-            kind: 'revenue_analytics'
+            kind: DataWarehouseManagedViewsetKind
         }
     }
     setConfirmationInput: (confirmationInput: string) => {
