@@ -8,13 +8,13 @@ on:
                 required: false
                 type: string
     schedule:
-        # Weekly (Mondays 04:00 UTC): regenerate common/storybook/storybook-timings.json from the
+        # Daily at 04:00 UTC: regenerate common/storybook/storybook-timings.json from the
         # JUnit artifacts of a recent successful master Storybook run and open/update a PR. The
         # manifest drives greedy bin-packing across the 16 visual-regression shards in
         # common/storybook/test-sequencer.js; balance decays as story files land without timings,
         # so a periodic refresh keeps the slowest shard close to the mean. Cheap (no story
         # execution — just an artifact download + XML parse).
-        - cron: '0 4 * * 1'
+        - cron: '0 4 * * *'
 
 permissions:
     contents: write
@@ -24,7 +24,7 @@ permissions:
 jobs:
     collect-and-refresh:
         name: Refresh storybook timing manifest from CI artifacts
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         steps:
             - name: Guard — only run on master
@@ -59,7 +59,37 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   INPUT_RUN_ID: ${{ inputs.storybook_run_id }}
               run: |
+                  validate_run() {
+                      local run_id="$1"
+                      local run_json artifact_names
+
+                      run_json=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id")
+                      if ! jq -e '
+                          .conclusion == "success" and
+                          .event == "push" and
+                          .head_branch == "master" and
+                          .path == ".github/workflows/ci-storybook.yml"
+                      ' <<< "$run_json" >/dev/null; then
+                          echo "Run $run_id is not a successful master push of ci-storybook.yml" >&2
+                          return 1
+                      fi
+
+                      artifact_names=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100" \
+                          --jq '[.artifacts[] | select(.expired == false) | .name]')
+                      if ! jq -e '
+                          ([.[] | select(test("^junit-results-storybook-chromium-(?:[1-9]|1[0-6])$"))] | unique | length) == 16 and
+                          ([.[] | select(test("^junit-results-storybook-webkit-[1-4]$"))] | unique | length) == 4
+                      ' <<< "$artifact_names" >/dev/null; then
+                          echo "Run $run_id does not have all 20 live Storybook JUnit shard artifacts" >&2
+                          return 1
+                      fi
+                  }
+
                   if [ -n "$INPUT_RUN_ID" ]; then
+                      if ! validate_run "$INPUT_RUN_ID"; then
+                          echo "::error::Provided run must be a successful full master Storybook push with all shard artifacts"
+                          exit 1
+                      fi
                       echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
                       echo "Using provided Storybook CI run: $INPUT_RUN_ID"
                       exit 0
@@ -75,10 +105,7 @@ jobs:
                   run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-storybook.yml/runs?status=success&branch=master&per_page=30" \
                       --jq '.workflow_runs[].id' | \
                       while read -r id; do
-                          count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
-                              --jq '[.artifacts[] | select(.name | startswith("junit-results-storybook-")) | select(.expired == false)] | length' 2>/dev/null)
-                          echo "Run $id has $count live Storybook JUnit artifacts" >&2
-                          if [ "${count:-0}" -ge "1" ]; then
+                          if validate_run "$id"; then
                               echo "$id"
                               break
                           fi
@@ -164,11 +191,35 @@ jobs:
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
                   else
-                    body="Automated refresh of the Storybook shard timing manifest.
+                    body=$(cat <<EOF
+                  ## Problem
 
-                  **Source:** Storybook CI run [${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID})
+                  Storybook shard timings become stale as story files are added and removed, which makes visual-regression CI less balanced.
 
-                  This keeps greedy bin-packing across the visual-regression shards balanced as story files are added and removed."
+                  ## Changes
+
+                  Refresh the timing manifest from [Storybook CI run ${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID}).
+
+                  ## How did you test this code?
+
+                  The scheduled workflow validated that the source was a successful full master run with all Chromium and WebKit shard artifacts, then regenerated the manifest.
+
+                  ## Automatic notifications
+
+                  - [ ] Publish to changelog?
+                  - [ ] Alert Sales and Marketing teams?
+
+                  ## Docs update
+
+                  No user-facing behavior or documented workflow changes.
+
+                  ## 🤖 Agent context
+
+                  **Autonomy:** Fully autonomous
+
+                  Created by the Storybook timing refresh workflow from validated CI artifacts.
+                  EOF
+                  )
 
                     gh pr create \
                       --title "chore(ci): update storybook shard timing manifest" \
