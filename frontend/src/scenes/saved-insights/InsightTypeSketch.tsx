@@ -1,5 +1,7 @@
 import { InsightType } from '~/types'
 
+import { WORLD_MAP_REGIONS } from './worldMapSketchData'
+
 // Hand-drawn-style previews for the new insight picker. Colors come from theme
 // CSS variables so the sketches adapt to light/dark mode automatically.
 const AXIS = 'var(--color-border-primary)'
@@ -231,124 +233,19 @@ export function AiSketch(): JSX.Element {
     )
 }
 
-// Rough land mask as a union of ellipses in normalized lon/lat space
-// (x: 0 = west .. 1 = east, y: 0 = north .. 1 = south), each
-// [cx, cy, rx, ry, continent].
-const WORLD_MAP_LAND: [number, number, number, number, number][] = [
-    [0.17, 0.25, 0.095, 0.13, 0], // North America
-    [0.2, 0.15, 0.12, 0.07, 0], // Canada
-    [0.235, 0.4, 0.028, 0.06, 0], // Central America
-    [0.295, 0.64, 0.042, 0.155, 1], // South America
-    [0.315, 0.52, 0.058, 0.055, 1], // South America (north)
-    [0.385, 0.11, 0.03, 0.045, 2], // Greenland
-    [0.5, 0.23, 0.05, 0.07, 3], // Europe
-    [0.53, 0.45, 0.085, 0.06, 4], // Africa (Sahara)
-    [0.55, 0.58, 0.06, 0.15, 4], // Africa (south)
-    [0.74, 0.24, 0.155, 0.12, 5], // Asia
-    [0.77, 0.15, 0.17, 0.06, 5], // Asia (Siberia)
-    [0.675, 0.43, 0.033, 0.072, 5], // India
-    [0.81, 0.45, 0.06, 0.045, 5], // Southeast Asia
-    [0.88, 0.7, 0.06, 0.07, 6], // Australia
-]
-
-// Per-continent "value" -> fill opacity, so the landmasses shade like a choropleth.
-const WORLD_MAP_VALUES = [0.8, 0.5, 0.4, 1, 0.62, 0.92, 0.45]
-
-// Trace each continent from the land mask into a smoothed, value-shaded outline so
-// the preview is a filled choropleth world map. Computed once at module load.
-function computeWorldMapPaths(): { d: string; opacity: number }[] {
-    const cols = 58
-    const rows = 27
-    const continentAt = (c: number, r: number): number => {
-        if (c < 0 || r < 0 || c >= cols || r >= rows) {
-            return -1
-        }
-        const nx = (c + 0.5) / cols
-        const ny = (r + 0.5) / rows
-        for (const [cx, cy, rx, ry, continent] of WORLD_MAP_LAND) {
-            if (((nx - cx) / rx) ** 2 + ((ny - cy) / ry) ** 2 <= 1) {
-                return continent
-            }
-        }
-        return -1
-    }
-    // Chaikin corner-cutting rounds the grid staircase into a smooth outline.
-    const smooth = (pts: [number, number][]): [number, number][] => {
-        let out = pts
-        for (let pass = 0; pass < 2; pass++) {
-            const next: [number, number][] = []
-            for (let i = 0; i < out.length; i++) {
-                const [px, py] = out[i]
-                const [qx, qy] = out[(i + 1) % out.length]
-                next.push([0.75 * px + 0.25 * qx, 0.75 * py + 0.25 * qy])
-                next.push([0.25 * px + 0.75 * qx, 0.25 * py + 0.75 * qy])
-            }
-            out = next
-        }
-        return out
-    }
-    const paths: { d: string; opacity: number }[] = []
-    for (let continent = 0; continent < WORLD_MAP_VALUES.length; continent++) {
-        // Directed boundary edges (clockwise) around this continent's cells.
-        const edges = new Map<string, [number, number]>()
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                if (continentAt(c, r) !== continent) {
-                    continue
-                }
-                const sides: [number, number, number, number, number, number][] = [
-                    [c, r - 1, c, r, c + 1, r],
-                    [c + 1, r, c + 1, r, c + 1, r + 1],
-                    [c, r + 1, c + 1, r + 1, c, r + 1],
-                    [c - 1, r, c, r + 1, c, r],
-                ]
-                for (const [nc, nr, sx, sy, ex, ey] of sides) {
-                    if (continentAt(nc, nr) !== continent) {
-                        edges.set(`${sx},${sy}`, [ex, ey])
-                    }
-                }
-            }
-        }
-        // Stitch edges into closed loops (a continent may be several landmasses).
-        const subpaths: string[] = []
-        while (edges.size > 0) {
-            const start = edges.keys().next().value as string
-            const first = start.split(',').map(Number)
-            const loop: [number, number][] = [[first[0], first[1]]]
-            let cur = edges.get(start) as [number, number]
-            edges.delete(start)
-            while (`${cur[0]},${cur[1]}` !== start && edges.has(`${cur[0]},${cur[1]}`)) {
-                loop.push(cur)
-                const curKey = `${cur[0]},${cur[1]}`
-                const nxt = edges.get(curKey) as [number, number]
-                edges.delete(curKey)
-                cur = nxt
-            }
-            if (loop.length < 4) {
-                continue
-            }
-            const coords: string[] = []
-            for (const [x, y] of smooth(loop)) {
-                const sx = (12 + (x / cols) * 136).toFixed(1)
-                const sy = (12 + (y / rows) * 64).toFixed(1)
-                coords.push(`${sx} ${sy}`)
-            }
-            subpaths.push('M' + coords.join(' L') + ' Z')
-        }
-        if (subpaths.length > 0) {
-            paths.push({ d: subpaths.join(' '), opacity: WORLD_MAP_VALUES[continent] })
-        }
-    }
-    return paths
-}
-
-const WORLD_MAP_PATHS = computeWorldMapPaths()
-
 export function WorldMapSketch(): JSX.Element {
     return (
         <SketchSvg>
-            {WORLD_MAP_PATHS.map(({ d, opacity }, index) => (
-                <path key={index} d={d} fill={INK} opacity={opacity} />
+            {WORLD_MAP_REGIONS.map(({ opacity, d }, index) => (
+                <path
+                    key={index}
+                    d={d}
+                    fill={INK}
+                    stroke={INK}
+                    strokeWidth="0.5"
+                    strokeLinejoin="round"
+                    opacity={opacity}
+                />
             ))}
         </SketchSvg>
     )
