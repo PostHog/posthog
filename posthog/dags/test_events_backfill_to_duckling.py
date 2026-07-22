@@ -693,7 +693,7 @@ class TestFullBackfillSensorEarliestDate:
         backfill = MagicMock()
         backfill.team_id = 1
         backfill.earliest_event_date = None  # unresolved → sensor resolves + caches it
-        mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
+        mock_backfill_cls.objects.filter.return_value.select_related.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
@@ -722,7 +722,7 @@ class TestFullBackfillSensorEarliestDate:
         backfill = MagicMock()
         backfill.team_id = 1
         backfill.earliest_event_date = None
-        mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
+        mock_backfill_cls.objects.filter.return_value.select_related.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
@@ -757,7 +757,7 @@ class TestFullBackfillSensorEarliestDate:
             patch("posthog.ducklake.common.get_earliest_event_date_for_team") as mock_ge,
         ):
             mock_tz.now.return_value = now
-            mock_cls.objects.filter.return_value.order_by.return_value = backfills
+            mock_cls.objects.filter.return_value.select_related.return_value.order_by.return_value = backfills
             mock_projection.objects.unscoped.return_value.filter.return_value.values_list.return_value = []
             if isinstance(get_earliest, list):
                 mock_ge.side_effect = get_earliest
@@ -874,7 +874,9 @@ class TestFullBackfillSensorEarliestDate:
             patch("posthog.ducklake.common.get_earliest_event_date_for_team"),
         ):
             mock_tz.now.return_value = datetime(2020, 2, 10, 12, 0, 0)
-            mock_cls.objects.filter.return_value.order_by.return_value = [self._bf(1, earliest=date(2020, 1, 1))]
+            mock_cls.objects.filter.return_value.select_related.return_value.order_by.return_value = [
+                self._bf(1, earliest=date(2020, 1, 1))
+            ]
             instance = DagsterInstance.ephemeral()
             context = build_sensor_context(instance=instance)
             with patch.object(instance, "get_runs", return_value=[]) as mock_get_runs:
@@ -913,6 +915,72 @@ class TestFullBackfillSensorEarliestDate:
         assert backfill.earliest_event_date == date(2020, 6, 15)
         backfill.save.assert_called_once_with(update_fields=["earliest_event_date"])
         assert len(result.run_requests) > 0
+
+
+class TestEarliestEventDateReconcile:
+    # The one-shot CP pushes are best-effort; this pass is what heals a transient failure.
+    @staticmethod
+    def _bf(team_id: int, org_id: str, earliest):
+        m = MagicMock()
+        m.team_id = team_id
+        m.server.organization_id = org_id
+        m.earliest_event_date = earliest
+        return m
+
+    @parameterized.expand(
+        [
+            # CP has no date for the team -> re-push
+            ("cp_missing_date", {"team_id": 1, "earliest_event_date": None}, True),
+            # CP has a stale date -> re-push
+            ("cp_stale_date", {"team_id": 1, "earliest_event_date": "2019-01-01"}, True),
+            # CP already converged -> nothing to do
+            ("cp_in_sync", {"team_id": 1, "earliest_event_date": "2020-06-15"}, False),
+            # CP doesn't know the team at all -> not this pass's job (lazy grandfather owns creation)
+            ("cp_missing_team", {"team_id": 999, "earliest_event_date": None}, False),
+        ]
+    )
+    def test_repushes_only_divergent_rows(self, _name, cp_row, expect_push):
+        from posthog.dags.events_backfill_to_duckling import _reconcile_earliest_event_dates_with_cp
+
+        bf = self._bf(1, "org-a", date(2020, 6, 15))
+        with (
+            patch("products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams") as mock_list,
+            patch(
+                "products.data_warehouse.backend.presentation.views.managed_warehouse._teams_from_response",
+                return_value=[cp_row],
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.push_team_earliest_event_date"
+            ) as mock_push,
+        ):
+            _reconcile_earliest_event_dates_with_cp([bf])
+
+        mock_list.assert_called_once_with("org-a", require_enabled=False)
+        if expect_push:
+            mock_push.assert_called_once_with("org-a", 1, date(2020, 6, 15))
+        else:
+            mock_push.assert_not_called()
+
+    def test_unresolved_rows_and_cp_failures_are_skipped_quietly(self):
+        from posthog.dags.events_backfill_to_duckling import _reconcile_earliest_event_dates_with_cp
+
+        unresolved = self._bf(1, "org-a", None)
+        resolved = self._bf(2, "org-b", date(2020, 6, 15))
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.list_teams",
+                side_effect=Exception("cp down"),
+            ) as mock_list,
+            patch(
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.push_team_earliest_event_date"
+            ) as mock_push,
+        ):
+            # Must not raise: a CP outage can never fail the sensor tick.
+            _reconcile_earliest_event_dates_with_cp([unresolved, resolved])
+
+        # Unresolved rows contribute no org lookup; the failing org is logged and skipped.
+        mock_list.assert_called_once_with("org-b", require_enabled=False)
+        mock_push.assert_not_called()
 
 
 class TestStaleRunOutcome:
