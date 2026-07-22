@@ -19,7 +19,7 @@ from math import ceil
 from typing import ParamSpec, TypeVar
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
@@ -32,6 +32,13 @@ logger = structlog.get_logger(__name__)
 PROVISIONAL_MODAL_CPU_USD_PER_CORE_SECOND_WITH_MARGIN = Decimal("0.00001572")
 PROVISIONAL_MODAL_MEMORY_USD_PER_GIB_SECOND_WITH_MARGIN = Decimal("0.000002664")
 CREDITS_PER_USD = Decimal(100)
+BILLABLE_DIRECT_ORIGINS = frozenset(
+    {
+        Task.OriginProduct.USER_CREATED,
+        Task.OriginProduct.IMAGE_BUILDER,
+        Task.OriginProduct.AUTOMATION,
+    }
+)
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -140,12 +147,13 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
     Open rows whose TTL expired before the period are excluded in the query itself,
     so missed close stamps can't grow the scan without bound. Resource-second
     metrics use configured limits. Compute credits use burstable request floors or
-    the fixed shape and only include user-created tasks.
+    the fixed shape and only include work initiated or configured in the Code app.
     """
     now = timezone.now()
     # Unscoped: the usage report aggregates across every team in the region.
     sessions = (
         SandboxSession.objects.unscoped()
+        .annotate(task_loop_internal=F("task_run__task__loop__internal"))
         .filter(
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
@@ -167,7 +175,10 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
         team_usage[0] += seconds
         team_usage[1] += seconds * session.cpu_cores
         team_usage[2] += seconds * session.memory_gb
-        if session.origin_product == Task.OriginProduct.USER_CREATED:
+        is_billable_loop = (
+            session.origin_product == Task.OriginProduct.LOOP and getattr(session, "task_loop_internal", None) is False
+        )
+        if session.origin_product in BILLABLE_DIRECT_ORIGINS or is_billable_loop:
             billable_seconds = Decimal(ceil(seconds))
             if session.burstable:
                 assert session.cpu_request_cores is not None
