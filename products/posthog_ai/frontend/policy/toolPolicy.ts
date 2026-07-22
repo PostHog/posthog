@@ -49,6 +49,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'inbox-reports-set-state',
     'llma-prompt-label-set',
     'organization-enforce-2fa',
+    'organization-enforce-2fa-execute',
     'scout-scratchpad-forget',
     'signals-scout-scratchpad-forget',
     'skill-archive',
