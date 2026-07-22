@@ -23,6 +23,7 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { SidebarTypeCardPrototype } from 'scenes/insights/InsightNav/prototype/SidebarTypeCardPrototype'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
 import { userLogic } from 'scenes/userLogic'
@@ -383,6 +384,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     return (
         <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
+            {/* PROTOTYPE(insight-type-switcher): inert unless the URL has ?variant=sidebar; throwaway */}
+            {!embedded && <SidebarTypeCardPrototype />}
             <div className="flex flex-col gap-3">
                 {allFilterGroups.map((editorFilterGroup) => (
                     <EditorFilterGroup

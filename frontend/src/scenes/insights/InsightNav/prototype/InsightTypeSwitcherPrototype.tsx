@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconCorrelationAnalysis, IconGraph } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -12,12 +12,12 @@ import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
-import { INSIGHT_TYPES_METADATA, QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightType } from '~/types'
 
 import { InsightsNav } from '../InsightsNav'
+import { CORE_TYPES, EXTRA_TYPES, ExtraTypeEntry } from './SidebarTypeCardPrototype'
 
 /**
  * THROWAWAY PROTOTYPE: do not ship, do not extend.
@@ -27,71 +27,20 @@ import { InsightsNav } from '../InsightsNav'
  * the editor (or to browse adjacent tabs), while a minority converts an already-configured
  * insight and relies on the config carry-over in insightNavLogic.
  *
- * Four variants of the type switcher on the real insight editor route (edit mode), switchable
+ * Five variants of the type switcher on the real insight editor route (edit mode), switchable
  * via `?variant=` or the floating bar at the bottom (arrow keys cycle too):
  *   tabs     : baseline: today's tab strip
  *   dropdown : one compact type select where the tabs sat
  *   hybrid   : Trends + Funnels stay as tabs, everything else behind a "More types" menu
  *   palette  : no persistent strip: a type chip that opens a searchable picker dialog
+ *   sidebar  : nothing in the header at all: a type + view card above the filters in the left
+ *              sidebar (see SidebarTypeCardPrototype.tsx, rendered from EditorFilters)
  *
  * The real six types switch for real (same setActiveView as the tab strip, carry-over intact).
  * Extra entries (calendar heatmap, SQL, examples) are display-only, there to show how each
  * variant copes with a longer type list. The winning variant gets rebuilt properly (quill
  * Select/Combobox, kea logic, analytics); everything in this folder gets deleted.
  */
-
-const CORE_TYPES: InsightType[] = [
-    InsightType.TRENDS,
-    InsightType.FUNNELS,
-    InsightType.RETENTION,
-    InsightType.PATHS,
-    InsightType.STICKINESS,
-    InsightType.LIFECYCLE,
-]
-
-interface ExtraTypeEntry {
-    key: string
-    name: string
-    description: string
-    icon: React.ComponentType<any>
-    tag: string
-    disabledReason: string
-}
-
-const EXTRA_TYPES: ExtraTypeEntry[] = [
-    {
-        key: 'CALENDAR_HEATMAP',
-        name: 'Calendar heatmap',
-        description: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery].description ?? '',
-        icon: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery].icon,
-        tag: 'Beta',
-        disabledReason: 'Real query type without a tab slot today. Display-only in this prototype',
-    },
-    {
-        key: 'SQL',
-        name: 'SQL',
-        description: INSIGHT_TYPES_METADATA[InsightType.SQL].description ?? '',
-        icon: INSIGHT_TYPES_METADATA[InsightType.SQL].icon,
-        tag: 'Editor',
-        disabledReason: 'Would open the SQL editor. Display-only in this prototype',
-    },
-    {
-        key: 'EXAMPLE_SANKEY',
-        name: 'Sankey flow',
-        description: 'Example future type, here to show how the list scales.',
-        icon: IconGraph,
-        tag: 'Example',
-        disabledReason: 'Example future type. Display-only in this prototype',
-    },
-    {
-        key: 'EXAMPLE_ANOMALY',
-        name: 'Anomaly detection',
-        description: 'Example future type, here to show how the list scales.',
-        icon: IconCorrelationAnalysis,
-        tag: 'Example',
-        disabledReason: 'Example future type. Display-only in this prototype',
-    },
-]
 
 interface VariantProps {
     insightLogicProps: InsightLogicProps
@@ -331,6 +280,7 @@ const VARIANTS = [
     { key: 'dropdown', name: 'Compact dropdown' },
     { key: 'hybrid', name: 'Hot-path tabs + More' },
     { key: 'palette', name: 'Chip + searchable picker' },
+    { key: 'sidebar', name: 'Sidebar type + view card' },
 ] as const
 
 export function InsightTypeSwitcherPrototype({ insightLogicProps }: VariantProps): JSX.Element {
