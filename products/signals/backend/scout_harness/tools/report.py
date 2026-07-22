@@ -771,6 +771,9 @@ async def emit_report(
             run_id=run.id,
             output_type="report",
             output_id=persisted.report_id,
+            # A report is emitted once, so its id is the natural idempotency key (mirrors
+            # findings using the emission id); edits keep per-delivery ids since each notifies.
+            delivery_id=persisted.report_id,
         )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
@@ -876,6 +879,7 @@ def emit_report_sync(
             run_id=run.id,
             output_type="report",
             output_id=persisted.report_id,
+            delivery_id=persisted.report_id,
         )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)

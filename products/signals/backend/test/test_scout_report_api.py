@@ -137,7 +137,9 @@ class TestScoutReportAPI(APIBaseTest):
             assert call.kwargs["run_id"] == str(run.id)
             assert call.kwargs["integration_id"] == 17
             assert call.kwargs["channel"] == "CSCOUTS|#scout-findings"
-        assert enqueue.call_args_list[0].kwargs["delivery_id"] != enqueue.call_args_list[1].kwargs["delivery_id"]
+        # Emit deliveries are keyed on the report id (idempotent); each edit gets its own id.
+        assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
+        assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
 
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
         run = _make_run(self.team)
