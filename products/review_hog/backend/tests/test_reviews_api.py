@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team, User
 
