@@ -1,0 +1,1 @@
+**Metrics & SQL trust**: for any metric/KPI question, and before writing SQL or joins, run `learn analytics` — the catalog defines governed metrics (`system.information_schema.metrics`), certified tables/views, and verified joins. Check it before insights or raw SQL.
