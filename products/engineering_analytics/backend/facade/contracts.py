@@ -481,7 +481,7 @@ class CIJobFailureLog:
 class CIFailureLogs:
     """Thinned CI failure logs for one pull request, grouped by failed job.
 
-    Attribution follows the locked rule (SPEC §7): the PR is resolved to its workflow runs via the
+    Attribution follows the locked rule (SPEC §6): the PR is resolved to its workflow runs via the
     ``pull_requests`` association (all pushes, never a head-SHA join that would drop earlier ones),
     then logs are joined by ``run_id``. ``runs_attributed`` is how many runs the PR resolved to;
     ``logs_available`` is False when no failure-log records were found for those runs — CI hasn't
@@ -633,7 +633,7 @@ class TeamMergeTrendPoint:
 class TeamMergeTrend:
     """A team's time-to-merge trend over the window. Attribution is PR author login →
     GitHub org team membership (the ``team_members`` snapshot); only team-level medians
-    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§7).
+    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§6).
     """
 
     owner_team: str
@@ -647,7 +647,7 @@ class TeamMergeTrend:
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
-    completes after newer runs land (SPEC §9) — treat ``pending`` as unsettled.
+    completes after newer runs land (SPEC §7) — treat ``pending`` as unsettled.
     """
 
     runs: int

@@ -1,5 +1,5 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -26,6 +26,14 @@ export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
     sessions: 'Sessions',
 }
 const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
+
+// A persisted (localStorage) or tool-provided orderBy can hold a value that's no longer a
+// valid sort field — e.g. an option that was renamed or removed. Passing it through to the
+// query fails the whole page, so anything unrecognized falls back to the default.
+export function isValidOrderBy(orderBy: unknown): orderBy is ErrorTrackingQueryOrderBy {
+    return typeof orderBy === 'string' && Object.hasOwn(ORDER_BY_OPTIONS, orderBy)
+}
+
 const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
@@ -87,7 +95,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             DEFAULT_ORDER_BY as ErrorTrackingQueryOrderBy,
             { persist: true },
             {
-                setOrderBy: (_, { orderBy }) => orderBy,
+                setOrderBy: (_, { orderBy }) => (isValidOrderBy(orderBy) ? orderBy : DEFAULT_ORDER_BY),
             },
         ],
         orderDirection: [
@@ -157,7 +165,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
-                if (params.orderBy in ORDER_BY_OPTIONS) {
+                if (isValidOrderBy(params.orderBy)) {
                     actions.setOrderBy(params.orderBy)
                 }
             }
@@ -173,6 +181,14 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         }
         return {
             '*': urlToAction,
+        }
+    }),
+
+    afterMount(({ actions, values }) => {
+        // The persisted orderBy is loaded straight into state (bypassing the reducer), so an
+        // invalid stored value would otherwise reach the query and break the page. Reset it.
+        if (!isValidOrderBy(values.orderBy)) {
+            actions.setOrderBy(DEFAULT_ORDER_BY)
         }
     }),
 ])

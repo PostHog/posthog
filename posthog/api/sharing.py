@@ -28,12 +28,14 @@ from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
+from posthog.api.sharing_publish_gate import blocked_access_for_publisher
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
+from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -485,6 +487,24 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             recording = cast(SessionRecording, context.get("recording"))
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
+
+        # Publishing is the access decision for shared links (queries on the public page execute
+        # without warehouse access control), so gate the enable transition: the publisher must have
+        # access to everything the artifact queries, or sharing becomes an escalation channel.
+        if (
+            request.data.get("enabled")
+            and not instance.enabled
+            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            # org admins have full access, so skip the gate for a faster enable
+            and not self.user_access_control.is_organization_admin
+        ):
+            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
+            if blocked_names:
+                blocked = ", ".join(f"`{name}`" for name in blocked_names)
+                raise ValidationError(
+                    f"Can't enable sharing: you don't have access to {blocked}, "
+                    "which the shared queries use. Ask an admin for access, or remove those queries first."
+                )
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -955,6 +975,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # serialize raw cached result bytes (orjson.Fragment)
             "require_parsed_results": True,
             "dashboard_access_method": dashboard_access_method(request, is_shared=True, is_embedded=embedded),
+            "compute_surface": ComputeSurface.SHARED,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -1191,18 +1212,30 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
+            from products.user_interviews.backend.facade.api import (
+                has_replied,
+                is_shared_interviewee_context,
+                parse_interviewee_identifier,
+            )
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
-            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
-            already_replied = has_replied(
-                team_id=topic.team_id,
-                topic_id=topic.id,
-                interviewee_identifier=ic.interviewee_identifier,
-            )
+            # A shared link's IntervieweeContext carries a sentinel identifier: every visitor is a new
+            # anonymous respondent, so there's no fixed name and no "already replied" gate — the
+            # viewer prompts for a name before starting.
+            shared = is_shared_interviewee_context(ic.interviewee_identifier)
+            if shared:
+                user_name = ""
+                already_replied = False
+            else:
+                user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+                already_replied = has_replied(
+                    team_id=topic.team_id,
+                    topic_id=topic.id,
+                    interviewee_identifier=ic.interviewee_identifier,
+                )
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1211,10 +1244,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "type": "interview",
                     "interview": {
                         "topic_id": str(topic.id),
-                        "interviewee_identifier": ic.interviewee_identifier,
+                        "interviewee_identifier": "" if shared else ic.interviewee_identifier,
                         "user_name": user_name,
                         "topic": topic.topic,
                         "already_replied": already_replied,
+                        "shared": shared,
                     },
                 }
             )

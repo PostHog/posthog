@@ -8,11 +8,11 @@
  */
 import {
     IconAI,
+    IconBrackets,
     IconCursor,
     IconDatabase,
     IconFlask,
     IconGraph,
-    IconHogQL,
     IconLogomark,
     IconMessage,
     IconPlug,
@@ -57,7 +57,7 @@ export const POSTHOG_PRODUCTS: Record<PostHogProductId, PostHogProductMeta> = {
     cdp: { label: 'Data pipelines', Icon: IconPlug },
     logs: { label: 'Logs', Icon: IconServer },
     apm: { label: 'APM', Icon: IconCursor },
-    sql: { label: 'SQL', Icon: IconHogQL },
+    sql: { label: 'SQL', Icon: IconBrackets },
     posthog: { label: 'PostHog', Icon: IconLogomark },
 }
 

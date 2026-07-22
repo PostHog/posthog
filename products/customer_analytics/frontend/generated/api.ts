@@ -28,10 +28,12 @@ import type {
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
+    CustomerAnalyticsExternalAccountsRetrieveParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
     CustomerProfileConfigsListParams,
+    ExternalAccountListPageApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
@@ -68,6 +70,38 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
+    params?: CustomerAnalyticsExternalAccountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/customer_analytics/external/accounts?${stringifiedParams}`
+        : `/api/customer_analytics/external/accounts`
+}
+
+/**
+ * List accounts with external IDs and their active relationship assignments. Requires a project secret API key with the `account:read` scope.
+ * @summary List external customer analytics accounts
+ */
+export const customerAnalyticsExternalAccountsRetrieve = async (
+    params?: CustomerAnalyticsExternalAccountsRetrieveParams,
+    options?: RequestInit
+): Promise<ExternalAccountListPageApi> => {
+    return apiMutator<ExternalAccountListPageApi>(getCustomerAnalyticsExternalAccountsRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getAccountNotesListUrl = (projectId: string, params?: AccountNotesListParams) => {
     const normalizedParams = new URLSearchParams()

@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finage.fin
     validate_source_config,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS, FINAGE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS = {

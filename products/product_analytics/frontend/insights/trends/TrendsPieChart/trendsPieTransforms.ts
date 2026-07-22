@@ -36,7 +36,7 @@ export function buildTrendsPieSeries<R extends IndexedTrendResult>(
             data: [r.aggregated_value ?? 0],
             color: opts.getColor(r, index),
             meta: {
-                action: r.action,
+                action: r.action ?? undefined,
                 breakdown_value: r.breakdown_value,
                 compare_label: r.compare_label,
                 days: r.days,

@@ -2,11 +2,10 @@ self-hosted-runner:
     labels:
         - depot-ubuntu-22.04
         - depot-ubuntu-22.04-4
+        - depot-ubuntu-24.04
         - depot-ubuntu-24.04-4
-        - depot-ubuntu-latest
-        - depot-ubuntu-latest-4
-        - depot-ubuntu-latest-8
-        - depot-macos-latest
+        - depot-ubuntu-24.04-8
+        - depot-macos-15
 
 # The vendored .github/actions/paths-filter emits one output per filter name at
 # runtime, but action.yml can only declare the static `changes` output, so

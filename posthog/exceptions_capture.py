@@ -1,3 +1,44 @@
+import contextvars
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+# Ambient properties merged into every capture_exception raised within the current execution
+# context. Lets a long-running subsystem (e.g. a data warehouse import) tag captured exceptions
+# with the job/source they belong to without threading context through every call site. This is
+# exception-only and never touches ClickHouse query tags.
+_ambient_exception_properties: contextvars.ContextVar[dict[str, object] | None] = contextvars.ContextVar(
+    "ambient_exception_properties", default=None
+)
+
+
+def ambient_exception_properties() -> dict[str, object]:
+    return _ambient_exception_properties.get() or {}
+
+
+def bind_exception_context(**properties: object) -> None:
+    """Merge properties into the ambient exception context for the current execution context.
+
+    Fire-and-forget: relies on per-task contextvar isolation (temporal activities and celery tasks
+    each run in a fresh context), matching how log/query tags are bound at activity entry. Use
+    `exception_context` instead when you need the properties scoped and reset (tests, nested spans).
+    """
+    _ambient_exception_properties.set({**ambient_exception_properties(), **properties})
+
+
+@contextmanager
+def exception_context(**properties: object) -> Iterator[None]:
+    """Scope ambient exception properties to a block, resetting them on exit.
+
+    Merges with any properties already in context, so nested contexts accumulate.
+    """
+    merged = {**ambient_exception_properties(), **properties}
+    token = _ambient_exception_properties.set(merged)
+    try:
+        yield
+    finally:
+        _ambient_exception_properties.reset(token)
+
+
 def celery_properties() -> dict:
     try:
         from celery import current_task
@@ -25,6 +66,9 @@ def capture_exception(error=None, additional_properties=None):
     from posthog.clickhouse.query_tagging import get_query_tags
 
     properties = get_query_tags().model_dump(exclude_none=True)
+
+    # Ambient context first, then explicit call-site properties so the latter win on collision.
+    properties.update(ambient_exception_properties())
 
     if additional_properties:
         properties.update(additional_properties)

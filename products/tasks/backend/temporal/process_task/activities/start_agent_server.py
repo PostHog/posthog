@@ -30,6 +30,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
 )
 
@@ -244,6 +245,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
+        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs

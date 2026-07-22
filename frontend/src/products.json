@@ -175,7 +175,7 @@
             "category": "AI engineering",
             "iconType": null,
             "type": "mcp_analytics",
-            "intents": ["llm_analytics"]
+            "intents": ["mcp_analytics"]
         },
         {
             "path": "Metrics",

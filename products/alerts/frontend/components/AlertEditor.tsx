@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,6 +33,38 @@ export function AlertEditorHeader({ title, description, onBack }: AlertEditorHea
     )
 }
 
+export function AlertEditorLoading({ title, onBack }: Pick<AlertEditorHeaderProps, 'title' | 'onBack'>): JSX.Element {
+    return (
+        <div className="flex min-h-[600px] flex-col" aria-busy="true" aria-label={`Loading ${title.toLowerCase()}`}>
+            <header className="border-b p-4">
+                <AlertEditorHeader title={title} onBack={onBack} />
+            </header>
+            <div className="flex-1 space-y-4 p-4">
+                <LemonSkeleton className="h-20 w-full" />
+                <LemonSkeleton className="h-10 w-full" />
+                <LemonSkeleton className="h-4 w-48" />
+                <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                        <LemonSkeleton className="h-10 w-full" />
+                        <LemonSkeleton className="h-5 w-4/5" />
+                    </div>
+                    <div className="space-y-3">
+                        <LemonSkeleton className="h-10 w-full" />
+                        <LemonSkeleton className="h-10 w-3/4" />
+                    </div>
+                </div>
+            </div>
+            <footer className="flex items-center justify-between border-t p-4">
+                <div className="flex gap-2">
+                    <LemonSkeleton className="h-10 w-28" />
+                    <LemonSkeleton className="h-10 w-32" />
+                </div>
+                <LemonSkeleton className="h-10 w-20" />
+            </footer>
+        </div>
+    )
+}
+
 export interface AlertEditorActionsProps {
     isEditing: boolean
     isSubmitting: boolean
@@ -40,6 +72,7 @@ export interface AlertEditorActionsProps {
     hasPendingChanges?: boolean
     leadingActions?: ReactNode
     onSubmitAttempted?: () => void
+    showNoChangesLabel?: boolean
 }
 
 export function AlertEditorActions({
@@ -49,8 +82,14 @@ export function AlertEditorActions({
     hasPendingChanges = false,
     leadingActions,
     onSubmitAttempted,
+    showNoChangesLabel = false,
 }: AlertEditorActionsProps): JSX.Element {
-    const disabledReason = isEditing && !hasChanges && !hasPendingChanges ? 'No changes to save' : undefined
+    const hasUnsavedChanges = hasChanges || hasPendingChanges
+    const disabledReason = isEditing && !hasUnsavedChanges ? 'No changes to save' : undefined
+    let buttonLabel = 'Create alert'
+    if (isEditing) {
+        buttonLabel = showNoChangesLabel && !hasUnsavedChanges ? 'No changes' : 'Save'
+    }
 
     return (
         <>
@@ -62,7 +101,7 @@ export function AlertEditorActions({
                 disabledReason={disabledReason}
                 onClick={onSubmitAttempted}
             >
-                {isEditing ? 'Save' : 'Create alert'}
+                {buttonLabel}
             </LemonButton>
         </>
     )
@@ -103,15 +142,17 @@ interface AlertEditorFormDetailsProps {
     }
     activity?: ReactNode
     nameDataAttr?: string
+    nameError?: string
 }
 
 export function AlertEditorFormDetails({
     enabled,
     activity,
     nameDataAttr = 'alertForm-name',
+    nameError,
 }: AlertEditorFormDetailsProps): JSX.Element {
     return (
-        <div className="space-y-4">
+        <div className="space-y-2">
             <div className="flex gap-4 items-center">
                 <LemonField className="flex-auto" name="name">
                     <LemonInput placeholder="Alert name" data-attr={nameDataAttr} />
@@ -127,6 +168,7 @@ export function AlertEditorFormDetails({
                     </LemonField>
                 ) : null}
             </div>
+            {nameError ? <LemonField.Error error={nameError} /> : null}
             {activity}
         </div>
     )
@@ -134,15 +176,19 @@ export function AlertEditorFormDetails({
 
 interface AlertEditorSectionProps {
     title: string
+    icon?: ReactNode
     description?: ReactNode
     children: ReactNode
 }
 
-export function AlertEditorSection({ title, description, children }: AlertEditorSectionProps): JSX.Element {
+export function AlertEditorSection({ title, icon, description, children }: AlertEditorSectionProps): JSX.Element {
     return (
-        <section className="space-y-5">
-            <div className="space-y-1">
-                <h3 className="text-base font-semibold m-0">{title}</h3>
+        <section className="space-y-2.5">
+            <div className="space-y-0.5">
+                <h3 className="text-sm font-semibold m-0 flex items-center gap-1.5">
+                    {icon ? <span className="text-muted">{icon}</span> : null}
+                    {title}
+                </h3>
                 {description ? <p className="text-xs text-secondary m-0">{description}</p> : null}
             </div>
             {children}

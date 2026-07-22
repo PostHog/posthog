@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlanhatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planhat import (
+    PlanhatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.planhat import PlanhatResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.source import PlanhatSource
