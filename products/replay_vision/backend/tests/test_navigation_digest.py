@@ -13,8 +13,8 @@ def _row(uuid: str, seconds: int, url: Any, window: Any) -> list[Any]:
 
 
 def _navigation(rows: list[list[Any]]) -> tuple[list[NavigationEntry], int]:
-    *_, navigation, dropped = _process_events(_COLUMNS, rows, session_start=_SESSION_START)
-    return navigation, dropped
+    processed = _process_events(_COLUMNS, rows, session_start=_SESSION_START)
+    return processed.navigation, processed.navigation_dropped
 
 
 class TestNavigationDigest:

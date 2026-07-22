@@ -1,6 +1,7 @@
 import hashlib
 import datetime as dt
 import itertools
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -156,21 +157,19 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     if columns is None or not all_rows:
         return None
 
-    processed_columns, processed_rows, url_mapping, window_mapping, event_timestamps, navigation, navigation_dropped = (
-        _process_events(columns, all_rows, session_start=metadata["start_time"])
-    )
+    processed = _process_events(columns, all_rows, session_start=metadata["start_time"])
     # Derive from duration; clamp because CH can yield active > duration (tab visibility, clock skew).
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
 
     return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
-        events=EventTable(columns=processed_columns, rows=processed_rows),
-        url_mapping=url_mapping,
-        window_mapping=window_mapping,
-        event_timestamps=event_timestamps,
-        navigation=navigation,
-        navigation_dropped=navigation_dropped,
+        events=EventTable(columns=processed.columns, rows=processed.rows),
+        url_mapping=processed.url_mapping,
+        window_mapping=processed.window_mapping,
+        event_timestamps=processed.event_timestamps,
+        navigation=processed.navigation,
+        navigation_dropped=processed.navigation_dropped,
         distinct_id=metadata.get("distinct_id"),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
@@ -187,9 +186,22 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     )
 
 
+@dataclass(frozen=True)
+class ProcessedEvents:
+    """LLM-ready view of a session's raw event rows, produced by `_process_events`."""
+
+    columns: list[str]
+    rows: list[list[Any]]
+    url_mapping: dict[str, str]  # token -> actual URL
+    window_mapping: dict[str, str]  # token -> actual window UUID
+    event_timestamps: dict[str, int]  # event uuid -> ms since session start
+    navigation: list[NavigationEntry]
+    navigation_dropped: int
+
+
 def _process_events(
     raw_columns: list[str], raw_rows: list[list[Any]], *, session_start: dt.datetime
-) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str], dict[str, int], list[NavigationEntry], int]:
+) -> ProcessedEvents:
     """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, build the uuid → relative-ms
     lookup, and derive the per-window URL-change timeline the preamble renders."""
     uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
@@ -233,11 +245,16 @@ def _process_events(
             navigation_points.append((relative_ms, window_token if isinstance(window_token, str) else None, raw_url))
         processed.append([uuid_str, *(_truncate(v) for v in visible)])
 
-    output_columns = ["event_uuid", *visible_columns]
-    url_mapping = {token: actual for actual, token in url_tokens.items()}
-    window_mapping = {token: actual for actual, token in window_tokens.items()}
     navigation, navigation_dropped = _build_navigation(navigation_points)
-    return output_columns, processed, url_mapping, window_mapping, event_timestamps, navigation, navigation_dropped
+    return ProcessedEvents(
+        columns=["event_uuid", *visible_columns],
+        rows=processed,
+        url_mapping={token: actual for actual, token in url_tokens.items()},
+        window_mapping={token: actual for actual, token in window_tokens.items()},
+        event_timestamps=event_timestamps,
+        navigation=navigation,
+        navigation_dropped=navigation_dropped,
+    )
 
 
 def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[NavigationEntry], int]:
