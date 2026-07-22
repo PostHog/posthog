@@ -11,6 +11,7 @@ import pytest
 from unittest import TestCase
 
 import numpy as np
+from parameterized import parameterized
 
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod, PriorType
 from products.experiments.stats.bayesian.priors import GaussianPrior
@@ -483,3 +484,61 @@ class TestNumericalStability:
         # Should handle this gracefully
         assert np.isfinite(result.effect_size)
         assert result.posterior_variance > 0
+
+
+class TestIsDecisive(TestCase):
+    """Tests for the is_decisive / credible-interval coherence invariant."""
+
+    @staticmethod
+    def _result_at_z(z: float, ci_level: float) -> BayesianResult:
+        # Fix posterior_std=1 so posterior_mean == z, then derive chance_to_win and the
+        # credible interval from the production utilities at that exact z-score.
+        posterior_mean, posterior_std = float(z), 1.0
+        ci_lower, ci_upper = credible_interval(posterior_mean, posterior_std, alpha=1 - ci_level)
+        return BayesianResult(
+            effect_size=posterior_mean,
+            credible_interval=(ci_lower, ci_upper),
+            chance_to_win=chance_to_win(posterior_mean, posterior_std),
+            risk_control=0.0,
+            risk_treatment=0.0,
+            posterior_variance=posterior_std**2,
+            ci_level=ci_level,
+            difference_type="absolute",
+            inverse=False,
+            prior_mean=0.0,
+            prior_variance=0.0,
+            proper_prior=False,
+        )
+
+    @parameterized.expand(
+        [
+            # (z-score, ci_level) — the 1.645–1.960 band (95% level) is where the old
+            # threshold flagged significance while the interval still spanned zero.
+            (0.5, 0.95),
+            (1.645, 0.95),
+            (1.7, 0.95),
+            (1.8, 0.95),
+            (1.9, 0.95),
+            (2.0, 0.95),
+            (2.5, 0.95),
+            (-1.8, 0.95),
+            (-2.5, 0.95),
+            (1.8, 0.99),
+            (2.9, 0.99),
+        ]
+    )
+    def test_is_decisive_matches_credible_interval(self, z: float, ci_level: float):
+        result = self._result_at_z(z, ci_level)
+        excludes_zero = result.credible_interval[0] > 0 or result.credible_interval[1] < 0
+        assert result.is_decisive == excludes_zero, (
+            f"is_decisive={result.is_decisive} but credible_interval={result.credible_interval} "
+            f"(chance_to_win={result.chance_to_win:.4f}, z={z}, ci_level={ci_level})"
+        )
+
+    def test_gap_band_not_significant(self):
+        # z=1.8 sits in the 1.645–1.960 band: chance_to_win clears the old 0.95 threshold
+        # but the 95% interval still contains zero, so it must not be significant.
+        result = self._result_at_z(1.8, ci_level=0.95)
+        assert 0.95 < result.chance_to_win < 0.975
+        assert result.credible_interval[0] < 0 < result.credible_interval[1]
+        assert result.is_decisive is False
