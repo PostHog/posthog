@@ -357,7 +357,7 @@
         "feature": "llm_analytics",
         "summary": "Compiles, validates, and saves a custom parser recipe for an LLM analytics trace event.",
         "title": "Create parser recipe",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["llm_analytics:write", "query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { getPostHogClient } from '@/lib/posthog'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { validateRecipeAgainstSample } from 'products/ai_observability/frontend/customParser/validateRecipe'
@@ -99,6 +100,15 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
 
     const properties = event.properties ?? {}
     const { input, output, outputRecognizedByDefault } = extractSample(event.event, properties)
+    if (input === undefined && output === undefined) {
+        // TraceQuery falls back to the shared events table where the heavy AI columns are
+        // stripped, and `ai_events` has a retention TTL — a payload-less event can't prove
+        // anything about a recipe, and normalizeMessages(undefined) would count as recognized.
+        return {
+            valid: false,
+            error: 'the event payload is not available server-side (it likely aged out of retention) — the recipe cannot be validated against it',
+        }
+    }
     const tools = properties.$ai_tools
 
     const listResponse = await context.api.request<{ results?: Array<{ id: string; source: string }> }>({
@@ -136,14 +146,27 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         return { valid: true, recipe_id: existing.id, ...(alreadyRecognized ? { already_recognized: true } : {}) }
     }
 
+    // With both sides pre-recognized, validation was vacuous — the candidate proved
+    // nothing, so persisting it team-wide would save an unproven recipe.
+    if (alreadyRecognized) {
+        return { valid: true, already_recognized: true }
+    }
+
     try {
         const created = await context.api.request<{ id: string }>({
             method: 'POST',
             path: `/api/projects/${projectId}/llm_analytics/parser_recipes/`,
             body: { name: params.name, source: params.yaml_source },
         })
-        return { valid: true, recipe_id: created.id, ...(alreadyRecognized ? { already_recognized: true } : {}) }
+        return { valid: true, recipe_id: created.id }
     } catch (error) {
+        // Capture before the soft return: the graceful result bypasses `handleToolError`,
+        // the path that normally surfaces 5xx-class failures to observability.
+        try {
+            getPostHogClient().captureException(error, undefined, { tag: 'mcp', tool: 'llma-parser-recipe-create' })
+        } catch {
+            // Observability must never break the request.
+        }
         // Only persistence failed — never make the agent rewrite a correct recipe.
         return { valid: true, saved: false, error: error instanceof Error ? error.message : String(error) }
     }

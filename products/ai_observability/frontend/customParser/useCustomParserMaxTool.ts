@@ -147,8 +147,13 @@ export function useCustomParserMaxTool({
         tools: ['llma-parser-recipe-create'],
         targetKey: 'ai-trace-parser',
         active,
-        onApply: (event) => {
+        onApply: (event, { innerInput }) => {
             loadRecipes()
+            // A create for a different event must not claim this one was fixed; when the
+            // args are unparseable we keep the toast, matching the pre-innerInput behavior.
+            if (innerInput && typeof innerInput.event_uuid === 'string' && innerInput.event_uuid !== eventId) {
+                return
+            }
             try {
                 const output = event.invocation.output
                 const serialized = typeof output === 'string' ? output : JSON.stringify(output)

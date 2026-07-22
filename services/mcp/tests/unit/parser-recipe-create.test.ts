@@ -128,6 +128,32 @@ describe('llma-parser-recipe-create handler', () => {
         expect(request).toHaveBeenCalledTimes(1)
     })
 
+    it('does not persist an unproven recipe when both sides are already recognized', async () => {
+        // MATCHING_RECIPE is already installed, so validation of the candidate is vacuous —
+        // a non-matching candidate must be flagged, not saved team-wide.
+        const request = vi.fn().mockResolvedValueOnce({ results: [{ id: 'recipe-0', source: MATCHING_RECIPE }] })
+        const { context } = createContext({ events: [generationEvent()], request })
+
+        const result = await parserRecipeCreate().handler(context, { ...baseParams, yaml_source: NON_MATCHING_RECIPE })
+
+        expect(result).toEqual({ valid: true, already_recognized: true })
+        // Only the recipe list GET ran — nothing was POSTed.
+        expect(request).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects an event whose payload is unavailable server-side instead of saving blind', async () => {
+        // Retention TTL / events-table fallback strips the heavy AI columns; with both sides
+        // undefined the normalizer reports recognized and any compiling YAML would save.
+        const strippedEvent = generationEvent({ properties: {} })
+        const { context, request } = createContext({ events: [strippedEvent] })
+
+        const result = await parserRecipeCreate().handler(context, baseParams)
+
+        expect(result.valid).toBe(false)
+        expect(result.error).toContain('not available')
+        expect(request).not.toHaveBeenCalled()
+    })
+
     it('returns a not-found error when the event is absent from the trace', async () => {
         const { context, request } = createContext({ events: [generationEvent({ id: 'someone-else' })] })
 
