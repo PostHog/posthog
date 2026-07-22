@@ -1,19 +1,7 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Shared raw-text loader so *.md and *.yaml imports resolve as string exports in
-// the Node-pool project. The workers-pool project has its own transform stack.
-const rawTextLoader = {
-    name: 'raw-text-loader',
-    transform(code: string, id: string) {
-        if (id.endsWith('.md') || id.endsWith('.yaml')) {
-            return {
-                code: `export default ${JSON.stringify(code)}`,
-                map: null,
-            }
-        }
-    },
-}
+import { textLoader } from './tests/vitest-text-loader'
 
 // Two projects run under a single `pnpm test` invocation:
 //   - `unit`    → fast Node-pool suite (default pool, ~2s)
@@ -29,7 +17,7 @@ export default defineConfig({
         globalSetup: ['tests/global-setup.ts'],
         projects: [
             {
-                plugins: [tsconfigPaths({ root: '.' }), rawTextLoader],
+                plugins: [tsconfigPaths({ root: '.' }), textLoader],
                 test: {
                     name: 'unit',
                     globals: true,
