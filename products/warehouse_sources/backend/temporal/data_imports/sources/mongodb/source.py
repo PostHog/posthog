@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     _parse_connection_string,

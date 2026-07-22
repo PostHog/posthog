@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TrelloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trello import TrelloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

@@ -651,12 +651,16 @@ describe('exec tool', () => {
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
-        function makeFormatterTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+        function makeFormatterTool(
+            received: Record<string, unknown>[],
+            { wrapInPreprocess = false }: { wrapInPreprocess?: boolean } = {}
+        ): Tool<ZodObjectAny> {
+            const objectSchema = z.object({
+                series: z.string().optional().describe('Query series'),
+                output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
+            })
             return makeMockTool({
-                schema: z.object({
-                    series: z.string().optional().describe('Query series'),
-                    output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
-                }),
+                schema: wrapInPreprocess ? z.preprocess((value) => value, objectSchema) : objectSchema,
                 handler: async (_ctx, params) => {
                     received.push(params as Record<string, unknown>)
                     const optimized = (params as { output_format?: string }).output_format !== 'json'
@@ -691,6 +695,14 @@ describe('exec tool', () => {
         it('folds --json into the dispatched output_format so the handler skips the formatter', async () => {
             const received: Record<string, unknown>[] = []
             const exec = createExec([makeFormatterTool(received)])
+            const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
+            expect(received[0]!.output_format).toBe('json')
+            expect(JSON.parse(result).results).toEqual([{ count: 6 }])
+        })
+
+        it('folds --json through a z.preprocess-wrapped schema (id-alias normalization, e.g. insight-query)', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received, { wrapInPreprocess: true })])
             const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
             expect(received[0]!.output_format).toBe('json')
             expect(JSON.parse(result).results).toEqual([{ count: 6 }])
@@ -1152,6 +1164,34 @@ describe('exec tool', () => {
             const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
             const exec = createExec([queryTrends])
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
+    })
+
+    describe('unavailable tool recovery', () => {
+        it.each(['info endpoint-create', 'schema endpoint-create', 'call endpoint-create {}'])(
+            'explains how to recover when %s is scope-gated',
+            async (command) => {
+                const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                    {
+                        name: 'endpoint-create',
+                        title: 'Create endpoint',
+                        description: 'Create a new endpoint',
+                        missingScopes: ['endpoint:write'],
+                    },
+                ])
+
+                await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                    /exists[\s\S]*endpoint:write[\s\S]*reauthorize[\s\S]*browser does not update MCP permissions/i
+                )
+            }
+        )
+
+        it('directs unknown tool names back to catalog search', async () => {
+            const exec = createExec()
+
+            await expect(exec.handler(mockContext, { command: 'call endpoint-make {}' })).rejects.toThrow(
+                /search endpoint-make[\s\S]*before claiming the capability is unavailable/i
+            )
         })
     })
 

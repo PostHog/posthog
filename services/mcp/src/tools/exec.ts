@@ -237,9 +237,15 @@ export function describeValidationError(
     return { fields, inputKeys }
 }
 
-/** Whether the tool's input schema declares an `output_format` field. */
+/** Whether the tool's input schema declares an `output_format` field. Unwraps
+ *  `z.preprocess(...)` pipes (e.g. the id-alias normalization on insight-query)
+ *  to reach the underlying object schema. */
 function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
-    return schema instanceof z.ZodObject && 'output_format' in schema.shape
+    let current: z.ZodType = schema
+    while (current instanceof z.ZodPipe) {
+        current = current.out as z.ZodType
+    }
+    return current instanceof z.ZodObject && 'output_format' in current.shape
 }
 
 /**
@@ -259,15 +265,22 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
-function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
+function findTool(tools: Tool<ZodObjectAny>[], scopeGatedTools: ScopeGatedTool[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
         const redirect = DEPRECATED_TOOL_REDIRECTS[name]
         if (redirect) {
             throw new Error(redirect(tools))
         }
-        const available = tools.map((t) => t.name).join(', ')
-        throw new Error(`Unknown tool: "${name}". Available tools: ${available}`)
+        const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
+        if (scopeGatedTool) {
+            throw new Error(
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`
+            )
+        }
+        throw new Error(
+            `Unknown tool: "${name}". Run "search ${name}" to find the current tool name before claiming the capability is unavailable.`
+        )
     }
     return tool
 }
@@ -409,7 +422,7 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, infoArgs)
+                    const tool = findTool(allTools, scopeGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -452,7 +465,7 @@ export function createExecTool(
                         throw new Error('Usage: schema <tool_name> [field_path]')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(allTools, schemaToolName)
+                    const schemaTool = findTool(allTools, scopeGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema = stripOutputFormatProperty(
@@ -502,7 +515,7 @@ export function createExecTool(
                         throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(allTools, toolName)
+                    const tool = findTool(allTools, scopeGatedTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new Error(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`

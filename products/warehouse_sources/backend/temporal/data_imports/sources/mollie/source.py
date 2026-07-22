@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MollieSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mollie import MollieSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.mollie import (
     MollieResumeConfig,
     mollie_source,
