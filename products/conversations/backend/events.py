@@ -324,6 +324,14 @@ def _groups_from_org_id(team: Team, organization_id: str) -> dict:
     return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
 
 
+def _get_ticket_tags(ticket: Ticket) -> list[str]:
+    """Tag names on the ticket, sorted for deterministic event payloads.
+
+    One query per event; capture is per-ticket (never bulk), so no N+1 concern.
+    """
+    return sorted(ticket.tagged_items.values_list("tag__name", flat=True))
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -332,6 +340,7 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "channel_detail": ticket.channel_detail,
         "status": ticket.status,
         "priority": ticket.priority,
+        "tags": _get_ticket_tags(ticket),
     }
 
 

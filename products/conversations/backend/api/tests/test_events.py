@@ -294,6 +294,34 @@ class TestConversationEvents(BaseTest):
         assert props["channel_source"] == self.ticket.channel_source
         assert props["status"] == self.ticket.status
         assert props["priority"] == self.ticket.priority
+        # Untagged ticket → an empty list, never None or a missing key.
+        assert props["tags"] == []
+
+    @parameterized.expand(
+        [
+            ("capture_ticket_created", capture_ticket_created, []),
+            ("capture_ticket_status_changed", capture_ticket_status_changed, ["old", "new"]),
+            ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
+            ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
+            ("capture_message_sent", capture_message_sent, ["msg-id", "content"]),
+            ("capture_message_received", capture_message_received, ["msg-id", "content"]),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_all_events_include_sorted_ticket_tags(self, _name, capture_fn, extra_args, mock_capture):
+        from posthog.models import Tag
+
+        for name in ("urgent", "billing"):
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
+            self.ticket.tagged_items.create(tag=tag)
+
+        if capture_fn is capture_message_sent:
+            capture_message_sent(self.ticket, "msg-id", "content", author=self.user)
+        else:
+            capture_fn(self.ticket, *extra_args)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["tags"] == ["billing", "urgent"]
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_message_content_truncated_to_1000_chars(self, mock_capture):
