@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Any, Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
@@ -83,6 +84,7 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_asset_html,
     fetch_message_assets,
 )
+from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.email_reputation import EmailReputationSnapshot
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
@@ -1386,16 +1388,76 @@ class HogFlowPublishRequestSerializer(serializers.Serializer):
     confirm = serializers.BooleanField(
         default=False,
         help_text=(
-            "False (default) previews the publish: returns how many runs are in flight without changing "
+            "False (default) previews the publish: returns the impact on people in-flight without changing "
             "anything. True applies the staged draft to the live workflow."
         ),
     )
-    draft_updated_at = serializers.DateTimeField(
+    confirm_token = serializers.CharField(
         required=False,
         help_text=(
-            "The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you "
-            "never publish a draft someone else has changed since you read it."
+            "From the preview response — required when confirm=true. Expires after 15 minutes, and any "
+            "draft edit invalidates it (409), so you always publish the exact draft you previewed."
         ),
+    )
+
+
+class HogFlowPublishImpactMoveTargetSerializer(serializers.Serializer):
+    action_id = serializers.CharField(help_text="Id of the surviving step runs will continue at.")
+    name = serializers.CharField(help_text="Name of the surviving step.")
+
+
+class HogFlowPublishImpactDeletedStepSerializer(serializers.Serializer):
+    action_id = serializers.CharField(help_text="Id of the step this publish deletes.")
+    name = serializers.CharField(help_text="Name of the deleted step.")
+    runs = serializers.IntegerField(
+        allow_null=True,
+        help_text="About how many in-flight runs are parked on this step. Null when the count is unavailable.",
+    )
+    moves_to = HogFlowPublishImpactMoveTargetSerializer(
+        allow_null=True,
+        help_text="Where those runs continue (skip-forward). Null when nothing downstream survives.",
+    )
+    exits = serializers.BooleanField(
+        help_text="True when runs parked here exit the workflow instead of moving forward."
+    )
+
+
+class HogFlowPublishImpactEmptyVariableSerializer(serializers.Serializer):
+    variable = serializers.CharField(help_text="Variable that renders empty for runs already past its producer.")
+    set_by = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the new action that sets it; null when the draft newly declares it as a workflow variable.",
+    )
+    referenced_by = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Ids of steps whose content references the variable.",
+    )
+
+
+class HogFlowPublishImpactScheduleConflictSerializer(serializers.Serializer):
+    schedule_id = serializers.CharField(help_text="Schedule whose variable overrides reference removed variables.")
+    variables = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Override keys the draft no longer declares as workflow variables.",
+    )
+
+
+class HogFlowPublishImpactSerializer(serializers.Serializer):
+    deleted_steps = HogFlowPublishImpactDeletedStepSerializer(
+        many=True,
+        help_text="Per deleted step: how many runs are parked there and where they go. Empty for content-only edits.",
+    )
+    position_unknown = serializers.IntegerField(
+        allow_null=True,
+        help_text="In-flight runs whose current step is unknown. Null when the count is unavailable.",
+    )
+    empty_variables = HogFlowPublishImpactEmptyVariableSerializer(
+        many=True,
+        help_text="Variables that render empty for runs predating their producer.",
+    )
+    schedule_conflicts = HogFlowPublishImpactScheduleConflictSerializer(
+        many=True,
+        help_text="Schedules overriding variables the draft removes.",
     )
 
 
@@ -1410,7 +1472,15 @@ class HogFlowPublishResponseSerializer(serializers.Serializer):
     )
     draft_updated_at = serializers.DateTimeField(
         allow_null=True,
-        help_text="Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.",
+        help_text="The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.",
+    )
+    confirm_token = serializers.CharField(
+        allow_null=True,
+        help_text="Echo this back with confirm=true to publish the previewed draft. Only set on previews.",
+    )
+    impact = HogFlowPublishImpactSerializer(
+        allow_null=True,
+        help_text="What publishing does to people in-flight. Only set on previews; counts are approximate.",
     )
     workflow = HogFlowSerializer(
         required=False,
@@ -1442,6 +1512,22 @@ class StaleWorkflowUpdateError(exceptions.APIException):
         "This workflow was updated elsewhere since you loaded it. Reload to get the latest version before saving."
     )
     default_code = "stale_update"
+
+
+# The confirm token makes the publish preview structurally unskippable: only the preview mints it,
+# and it signs the exact draft it previewed — so a valid token proves the caller saw the impact
+# summary for the draft being published. Short max-age keeps the previewed counts fresh.
+PUBLISH_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
+_PUBLISH_CONFIRM_SALT = "hogflow-publish"
+
+
+def _publish_confirm_value(hog_flow: HogFlow) -> str:
+    draft_updated_at = hog_flow.draft_updated_at.isoformat() if hog_flow.draft_updated_at else ""
+    return f"{hog_flow.id}:{draft_updated_at}"
+
+
+def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
+    return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(_publish_confirm_value(hog_flow))
 
 
 @extend_schema(extensions={"x-product": "workflows"})
@@ -1878,13 +1964,19 @@ class HogFlowViewSet(
             lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
         )
 
-    def _get_in_flight_run_count(self, hog_flow: HogFlow) -> Optional[int]:
-        # Best-effort: publish must not fail because the counting service is unreachable — the count
-        # is advisory ("N runs in flight will follow the new config"), not a gate.
+    def _get_in_flight_counts(self, hog_flow: HogFlow) -> Optional[dict]:
+        # Best-effort: publish must not fail because the counting service is unreachable — the counts
+        # are advisory ("N runs in flight will follow the new config"), not a gate. by_action and
+        # position_unknown are None when the plugin server predates the per-action breakdown.
         try:
             res = get_hog_flow_in_flight_count(team_id=self.team_id, hog_flow_id=str(hog_flow.id))
             if res.status_code == 200:
-                return res.json().get("count")
+                body = res.json()
+                return {
+                    "count": body.get("count"),
+                    "by_action": body.get("by_action"),
+                    "position_unknown": body.get("position_unknown"),
+                }
             logger.warning(
                 "Failed to fetch in-flight run count for workflow",
                 hog_flow_id=str(hog_flow.id),
@@ -1895,6 +1987,26 @@ class HogFlowViewSet(
                 "Failed to fetch in-flight run count for workflow", hog_flow_id=str(hog_flow.id), exc_info=True
             )
         return None
+
+    def _build_publish_impact(self, hog_flow: HogFlow, counts: Optional[dict]) -> dict:
+        draft = hog_flow.draft or {}
+        schedule_overrides = {
+            str(schedule_id): variables or {}
+            for schedule_id, variables in hog_flow.schedules.exclude(
+                status=HogFlowSchedule.Status.COMPLETED
+            ).values_list("id", "variables")
+        }
+        return build_publish_impact(
+            live_actions=hog_flow.actions or [],
+            live_edges=hog_flow.edges or [],
+            live_variables=hog_flow.variables or [],
+            draft_actions=draft.get("actions") or [],
+            draft_variables=draft.get("variables") or [],
+            existing_redirects=hog_flow.action_redirects,
+            by_action_counts=counts.get("by_action") if counts else None,
+            position_unknown=counts.get("position_unknown") if counts else None,
+            schedule_overrides=schedule_overrides,
+        )
 
     @extend_schema(request=HogFlowPublishRequestSerializer, responses={200: HogFlowPublishResponseSerializer})
     @action(detail=True, methods=["POST"])
@@ -1913,18 +2025,42 @@ class HogFlowViewSet(
             raise exceptions.ValidationError("This workflow has no staged draft to publish.")
 
         if not confirm:
+            counts = self._get_in_flight_counts(instance)
             return Response(
                 {
                     "published": False,
-                    "in_flight_runs": self._get_in_flight_run_count(instance),
+                    "in_flight_runs": counts.get("count") if counts else None,
                     "draft_updated_at": instance.draft_updated_at,
+                    "confirm_token": mint_publish_confirm_token(instance),
+                    "impact": self._build_publish_impact(instance, counts),
                 }
             )
 
-        expected_draft_updated_at = param_serializer.validated_data.get("draft_updated_at")
-        if not expected_draft_updated_at:
+        confirm_token = param_serializer.validated_data.get("confirm_token")
+        if not confirm_token:
             raise exceptions.ValidationError(
-                {"draft_updated_at": "Required when confirming a publish — pass the draft_updated_at you loaded."}
+                {
+                    "confirm_token": (
+                        "Required when confirming a publish — call publish without confirm first to preview "
+                        "the impact and get a token."
+                    )
+                }
+            )
+        try:
+            previewed_value = TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).unsign(
+                confirm_token, max_age=PUBLISH_CONFIRM_TOKEN_MAX_AGE
+            )
+        except SignatureExpired:
+            raise exceptions.ValidationError(
+                {"confirm_token": "Expired — preview the publish again to get a fresh token."}
+            )
+        except BadSignature:
+            raise exceptions.ValidationError(
+                {
+                    "confirm_token": (
+                        "Invalid — call publish without confirm first to preview the impact and get a token."
+                    )
+                }
             )
 
         with transaction.atomic():
@@ -1932,7 +2068,7 @@ class HogFlowViewSet(
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
             if not locked.draft:
                 raise exceptions.ValidationError("This workflow has no staged draft to publish.")
-            if locked.draft_updated_at != expected_draft_updated_at:
+            if previewed_value != _publish_confirm_value(locked):
                 raise StaleWorkflowUpdateError()
 
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
@@ -1956,6 +2092,8 @@ class HogFlowViewSet(
                 "published": True,
                 "in_flight_runs": None,
                 "draft_updated_at": None,
+                "confirm_token": None,
+                "impact": None,
                 "workflow": self.get_serializer(locked).data,
             }
         )
