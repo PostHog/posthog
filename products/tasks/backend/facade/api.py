@@ -57,6 +57,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
+    TaskArtifact,
     TaskAutomation,
     TaskRun,
     TaskThreadMessage,
@@ -4953,13 +4954,22 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
     )
 
 
+def _live_channel(channel_id: str | UUID, team_id: int) -> Channel | None:
+    """The channel row if it exists on the team and isn't deleted, regardless of requester."""
+    return Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+
+
+def _channel_visible_to(channel: Channel, user_id: int | None) -> bool:
+    """Whether the requester may read a live channel: public channels are team-visible,
+    personal ones owner-only."""
+    return channel.channel_type != Channel.ChannelType.PERSONAL or channel.created_by_id == user_id
+
+
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
     own personal channel. ``None`` when it's missing or someone else's personal channel."""
-    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
-    if channel is None:
-        return None
-    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
+    channel = _live_channel(channel_id, team_id)
+    if channel is None or not _channel_visible_to(channel, user_id):
         return None
     return channel
 
@@ -5017,6 +5027,55 @@ def create_channel_feed_message(
     message = ChannelFeedMessage.objects.create(**fields)
     # Fresh row: author lazy-loads once for the DTO.
     return _channel_feed_message_to_dto(message)
+
+
+def list_channel_artifacts(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, limit: int = 100
+) -> list[dict] | None:
+    """A channel's artifacts — task-created and channel-owned alike — most recently
+    updated first. ``None`` when the channel isn't visible. Active artifacts only."""
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        serialize_task_artifact,
+    )
+
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    artifacts = (
+        TaskArtifact.objects.for_team(team_id)
+        .filter(channel_id=channel_id, status=TaskArtifact.Status.ACTIVE)
+        .order_by("-updated_at")[:limit]
+    )
+    return [serialize_task_artifact(artifact) for artifact in artifacts]
+
+
+def get_task_artifact(team_id: int, user_id: int | None, *, artifact_id: str | UUID) -> dict | None:
+    """An artifact by id, with its current content when the adapter can read it.
+    The artifact's live channel is its home and its access control (public → team,
+    personal → owner only); the task is provenance, governing only when there is no live
+    channel — so moving an artifact into a private channel actually hides it, even from
+    people who can still see the task it came from. ``None`` when missing or not visible."""
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        open_task_artifact,
+        serialize_task_artifact,
+    )
+
+    artifact = TaskArtifact.objects.for_team(team_id).filter(id=artifact_id).first()
+    if artifact is None:
+        return None
+    channel = _live_channel(artifact.channel_id, team_id) if artifact.channel_id is not None else None
+    if channel is not None:
+        visible = _channel_visible_to(channel, user_id)
+    else:
+        visible = artifact.task_id is not None and _visible_task(artifact.task_id, team_id, user_id) is not None
+    if not visible:
+        return None
+    serialized = serialize_task_artifact(artifact)
+    try:
+        serialized["content"] = open_task_artifact(artifact)
+    except ValueError:
+        # Reference-only adapters (github_pr) have no read path; location is the artifact.
+        serialized["content"] = None
+    return serialized
 
 
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:

@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskArtifact, TaskRun, TaskThreadMessage
 
 
 class ChannelsAPITestCase(TestCase):
@@ -498,3 +498,167 @@ class ChannelFeedMessageAPITestCase(TestCase):
         # Same org, wrong team in the URL — the channel must not resolve.
         response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ChannelArtifactsAPITestCase(ChannelTaskAPITestCase):
+    def _artifacts_url(self, channel_id) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/{channel_id}/artifacts/"
+
+    def _artifact(self, **overrides) -> TaskArtifact:
+        fields: dict = {
+            "team": self.team,
+            "task": self.task,
+            "channel": self.channel,
+            "created_by": self.author,
+            "name": "Findings",
+            "artifact_type": TaskArtifact.ArtifactType.DOCUMENT,
+            "adapter": TaskArtifact.Adapter.SLACK_MESSAGE,
+            "versions": [{"version": 1, "content": "v1 body"}],
+        }
+        fields.update(overrides)
+        # Direct instantiation sidesteps the fail-closed TeamScopedManager (see setUp).
+        artifact = TaskArtifact(**fields)
+        artifact.save()
+        return artifact
+
+    def test_list_returns_channel_artifacts_newest_first(self):
+        task_owned = self._artifact(name="Task doc")
+        channel_owned = self._artifact(name="Channel note", task=None)
+
+        response = self.author_client.get(self._artifacts_url(self.channel.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        artifacts = response.json()["artifacts"]
+        self.assertEqual([a["id"] for a in artifacts], [str(channel_owned.id), str(task_owned.id)])
+        self.assertEqual([a["channel_id"] for a in artifacts], [str(self.channel.id)] * 2)
+        self.assertIsNone(artifacts[0]["task_id"])
+        self.assertEqual(artifacts[1]["task_id"], str(self.task.id))
+
+    def test_list_is_visible_to_the_team(self):
+        self._artifact()
+        response = self.peer_client.get(self._artifacts_url(self.channel.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["artifacts"]), 1)
+
+    def test_list_is_scoped_to_the_channel(self):
+        mine = self._artifact()
+        other_channel = Channel(team=self.team, name="mobile", created_by=self.author)
+        other_channel.save()
+        self._artifact(channel=other_channel, task=None)
+
+        artifacts = self.author_client.get(self._artifacts_url(self.channel.id)).json()["artifacts"]
+        self.assertEqual([a["id"] for a in artifacts], [str(mine.id)])
+
+    def test_list_excludes_failed_artifacts(self):
+        active = self._artifact()
+        self._artifact(status=TaskArtifact.Status.FAILED)
+
+        artifacts = self.author_client.get(self._artifacts_url(self.channel.id)).json()["artifacts"]
+        self.assertEqual([a["id"] for a in artifacts], [str(active.id)])
+
+    def test_list_respects_limit(self):
+        self._artifact(name="oldest")
+        middle = self._artifact(name="middle")
+        newest = self._artifact(name="newest")
+
+        response = self.author_client.get(self._artifacts_url(self.channel.id), {"limit": 2})
+        self.assertEqual([a["id"] for a in response.json()["artifacts"]], [str(newest.id), str(middle.id)])
+
+        invalid = self.author_client.get(self._artifacts_url(self.channel.id), {"limit": 0})
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unknown_channel_is_404(self):
+        for channel_ref in ("00000000-0000-0000-0000-000000000000", "not-a-uuid"):
+            response = self.author_client.get(self._artifacts_url(channel_ref))
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_personal_channel_artifacts_are_owner_only(self):
+        # Listing channels provisions the requester's personal channel.
+        self.author_client.get(f"/api/projects/{self.team.id}/task_channels/")
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        self._artifact(channel=personal, task=None)
+
+        mine = self.author_client.get(self._artifacts_url(personal.id))
+        self.assertEqual(mine.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mine.json()["artifacts"]), 1)
+
+        peer = self.peer_client.get(self._artifacts_url(personal.id))
+        self.assertEqual(peer.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_artifacts_are_team_scoped(self):
+        self._artifact()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        # Same org, wrong team in the URL — the channel must not resolve.
+        response = self.author_client.get(f"/api/projects/{other_team.id}/task_channels/{self.channel.id}/artifacts/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def _task_artifact_url(self, artifact_ref) -> str:
+        return f"/api/projects/{self.team.id}/task_artifacts/{artifact_ref}/"
+
+    def test_retrieve_returns_current_content(self):
+        artifact = self._artifact(
+            versions=[{"version": 1, "content": "v1 body"}, {"version": 2, "content": "v2 body"}],
+            current_version=2,
+        )
+
+        response = self.author_client.get(self._task_artifact_url(artifact.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertEqual(body["id"], str(artifact.id))
+        self.assertEqual(body["content"], "v2 body")
+        self.assertEqual(body["current_version"], 2)
+        self.assertEqual(body["channel_id"], str(self.channel.id))
+
+    def test_retrieve_public_channel_artifact_is_team_visible(self):
+        artifact = self._artifact()
+        response = self.peer_client.get(self._task_artifact_url(artifact.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_channel_is_the_access_control(self):
+        # An artifact moved into a personal channel goes dark for everyone but the
+        # channel owner — even for people who can still see the task it came from.
+        self.author_client.get(f"/api/projects/{self.team.id}/task_channels/")
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        artifact = self._artifact(channel=personal)
+
+        self.assertEqual(self.author_client.get(self._task_artifact_url(artifact.id)).status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.peer_client.get(self._task_artifact_url(artifact.id)).status_code, status.HTTP_404_NOT_FOUND
+        )
+
+    def test_retrieve_falls_back_to_task_visibility_without_a_live_channel(self):
+        unstamped = self._artifact(channel=None)
+        response = self.peer_client.get(self._task_artifact_url(unstamped.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        stamped = self._artifact()
+        self.channel.deleted = True
+        self.channel.save()
+        response = self.author_client.get(self._task_artifact_url(stamped.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_reference_artifact_has_no_content(self):
+        # github_pr rows are pure references: no readable content, location is the artifact.
+        artifact = self._artifact(
+            name="Fix login redirect",
+            artifact_type=TaskArtifact.ArtifactType.GITHUB_PR,
+            adapter=TaskArtifact.Adapter.GITHUB_PR,
+            versions=[],
+            location={"url": "https://github.com/posthog/posthog/pull/1"},
+        )
+
+        response = self.author_client.get(self._task_artifact_url(artifact.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertIsNone(body["content"])
+        self.assertEqual(body["location"], {"url": "https://github.com/posthog/posthog/pull/1"})
+
+    def test_retrieve_missing_artifact_is_404(self):
+        artifact = self._artifact()
+
+        for artifact_ref in ("00000000-0000-0000-0000-000000000000", "not-a-uuid"):
+            response = self.author_client.get(self._task_artifact_url(artifact_ref))
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, artifact_ref)
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        cross_team = self.author_client.get(f"/api/projects/{other_team.id}/task_artifacts/{artifact.id}/")
+        self.assertEqual(cross_team.status_code, status.HTTP_404_NOT_FOUND)

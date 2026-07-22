@@ -2249,6 +2249,46 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         return Response(serializer.data)
 
 
+class TaskArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Flat read API for task artifacts: an artifact is reachable by bare id, with
+    visibility derived from its owners (channel or task), so a client holding an id
+    doesn't need the owning run to open it.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "head", "options"]
+    serializer_class = TaskRunLivingArtifactResponseSerializer
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactOpenResponseSerializer,
+                description="Living artifact with current readable content",
+            ),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Open a living artifact",
+        description="A stable artifact handle plus the current content when the adapter supports reads.",
+        operation_id="tasks_artifacts_retrieve",
+    )
+    def retrieve(self, request, pk=None, **kwargs):
+        try:
+            UUID(str(pk))
+        except (ValueError, TypeError):
+            raise NotFound("Artifact not found")
+        artifact = tasks_facade.get_task_artifact(self.team_id, getattr(request.user, "id", None), artifact_id=pk)
+        if artifact is None:
+            raise NotFound("Artifact not found")
+        return Response(TaskRunLivingArtifactOpenResponseSerializer(artifact).data)
+
+
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
     """API for redeeming PostHog Code invite codes."""

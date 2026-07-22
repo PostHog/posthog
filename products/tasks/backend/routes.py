@@ -29,6 +29,13 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_task_channel_feed",
         ["team_id", "channel_id"],
     )
+    project_task_channels_router.register(
+        r"artifacts",
+        channels.ChannelArtifactViewSet,
+        "project_task_channel_artifacts",
+        ["team_id", "channel_id"],
+    )
+    routers.projects.register(r"task_artifacts", tasks.TaskArtifactViewSet, "project_task_artifacts", ["team_id"])
     routers.projects.register(r"task_mentions", channels.TaskMentionViewSet, "project_task_mentions", ["team_id"])
     routers.projects.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
     routers.projects.register(r"loops", loops.LoopViewSet, "project_loops", ["team_id"])
