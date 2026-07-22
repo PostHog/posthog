@@ -87,12 +87,19 @@ export const getRobloxSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="lua"
                         code={dedent`
-                            local ok, err = pcall(function()
-                                saveGame(player)
-                            end)
+                            local capturedMessage
+                            local ok, capturedTraceback = xpcall(
+                                function()
+                                    saveGame(player)
+                                end,
+                                function(errorMessage)
+                                    capturedMessage = tostring(errorMessage)
+                                    return debug.traceback(capturedMessage, 2)
+                                end
+                            )
 
                             if not ok then
-                                PostHog:CaptureException(player, tostring(err), debug.traceback(), {
+                                PostHog:CaptureException(player, capturedMessage, capturedTraceback, {
                                     flow = "save_game",
                                 })
                             end
