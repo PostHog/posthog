@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     SEVERITY_LEVEL_TO_NAME,
+    SUPPORT_MESSAGE_MAX_LENGTH,
     SUPPORT_TICKET_TEMPLATES,
     SupportTicketKind,
     TARGET_AREA_OPTIONS,
@@ -179,26 +180,48 @@ export function SupportForm(): JSX.Element | null {
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
-                {(props) => (
-                    <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
-                        <LemonTextArea
-                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
-                            data-attr="support-form-content-input"
-                            minRows={5}
-                            {...props}
-                        />
-                        {objectStorageAvailable && !!user && (
-                            <LemonFileInput
-                                accept="image/*"
-                                multiple={false}
-                                alternativeDropTargetRef={dropRef}
-                                onChange={setFilesToUpload}
-                                loading={uploading}
-                                value={filesToUpload}
+                {(props) => {
+                    const messageLength = sendSupportRequest.message?.length ?? 0
+                    // Warn as the message nears the limit rather than only after it's exceeded, so a
+                    // long paste (e.g. a recording URL) is visible before the user hits submit.
+                    const showCounter = conversationsFlagEnabled && messageLength > SUPPORT_MESSAGE_MAX_LENGTH * 0.9
+                    return (
+                        <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
+                            <LemonTextArea
+                                placeholder={
+                                    SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'
+                                }
+                                data-attr="support-form-content-input"
+                                minRows={5}
+                                rightFooter={
+                                    showCounter ? (
+                                        <span
+                                            className={
+                                                messageLength > SUPPORT_MESSAGE_MAX_LENGTH
+                                                    ? 'text-danger'
+                                                    : 'text-secondary'
+                                            }
+                                        >
+                                            {messageLength.toLocaleString()} /{' '}
+                                            {SUPPORT_MESSAGE_MAX_LENGTH.toLocaleString()}
+                                        </span>
+                                    ) : undefined
+                                }
+                                {...props}
                             />
-                        )}
-                    </div>
-                )}
+                            {objectStorageAvailable && !!user && (
+                                <LemonFileInput
+                                    accept="image/*"
+                                    multiple={false}
+                                    alternativeDropTargetRef={dropRef}
+                                    onChange={setFilesToUpload}
+                                    loading={uploading}
+                                    value={filesToUpload}
+                                />
+                            )}
+                        </div>
+                    )
+                }}
             </LemonField>
             {!conversationsFlagEnabled && (
                 <div className="flex gap-2 flex-col">
