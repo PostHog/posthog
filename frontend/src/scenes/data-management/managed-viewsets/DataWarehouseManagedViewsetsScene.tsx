@@ -36,7 +36,7 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element {
 
     const { loadCurrentTeam } = useActions(teamLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
+    if (!featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]) {
         return (
             <SceneContent>
                 <SceneTitleSection
@@ -51,7 +51,11 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element {
         )
     }
 
-    const managedViewsets = currentTeam!.managed_viewsets!
+    const managedViewsets = currentTeam?.managed_viewsets ?? {}
+
+    if (!managedViewsets || Object.keys(managedViewsets).length === 0) {
+        return null
+    }
 
     const onConfirmDisable = async (): Promise<boolean> => {
         if (!kind) {
