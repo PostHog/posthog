@@ -34,13 +34,13 @@ export interface ChatViewProps {
     draftContent?: JSONContent | null
     /** Called when the public reply draft changes */
     onDraftChange?: (content: JSONContent | null) => void
-    /** Separate draft body for the internal note tab */
+    /** Separate draft body for the private note tab */
     privateDraftContent?: JSONContent | null
-    /** Called when the internal note draft changes */
+    /** Called when the private note draft changes */
     onPrivateDraftChange?: (content: JSONContent | null) => void
-    /** Whether the internal-note tab is the active one */
+    /** Whether the private-note tab is the active one */
     isPrivate?: boolean
-    /** Called when private checkbox changes */
+    /** Called when the active tab changes */
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode

@@ -53,8 +53,8 @@ describe('MessageInput send-and-set-status dropdown', () => {
         cleanup()
     })
 
-    // Guards the private-note flag through the dropdown path: dropping it would deliver an
-    // internal note to the customer as a real reply.
+    // Guards the private-note flag through the dropdown path: dropping it would deliver a
+    // private note to the customer as a real reply.
     test.each<[string, boolean, string]>([
         ['regular mode', false, 'Send'],
         ['private note mode', true, 'Attach'],
@@ -92,7 +92,7 @@ describe('MessageInput send-and-set-status dropdown', () => {
     })
 })
 
-describe('MessageInput reply/internal-note tabs', () => {
+describe('MessageInput reply/private-note tabs', () => {
     beforeEach(() => {
         initKeaTests()
     })
@@ -123,7 +123,7 @@ describe('MessageInput reply/internal-note tabs', () => {
             </Provider>
         )
 
-        await userEvent.click(screen.getByText('Internal note'))
+        await userEvent.click(screen.getByText('Private note'))
 
         // The reply body in the editor is stashed to the public buffer, and the active tab flips.
         expect(onDraftChange).toHaveBeenCalledWith(mockEditorHolder.current.getJSON())
@@ -154,7 +154,7 @@ describe('MessageInput reply/internal-note tabs', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'Send' }))
 
-        // The reply buffer is cleared; the internal-note buffer is never touched.
+        // The reply buffer is cleared; the private-note buffer is never touched.
         expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, false, expect.any(Function), undefined)
         expect(onDraftChange).toHaveBeenLastCalledWith(null)
         expect(onPrivateDraftChange).not.toHaveBeenCalled()

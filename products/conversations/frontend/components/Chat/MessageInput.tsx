@@ -23,18 +23,18 @@ export interface MessageInputProps {
     placeholder?: string
     buttonText?: string
     minRows?: number
-    /** Whether to show the reply / internal-note tab switch */
+    /** Whether to show the reply / private-note tab switch */
     showPrivateOption?: boolean
     /** Public reply draft content to restore (from parent logic for tab persistence) */
     draftContent?: JSONContent | null
     /** Called when the public reply draft changes */
     onDraftChange?: (content: JSONContent | null) => void
-    /** Internal-note draft content, kept separate from the public reply so the two
+    /** Private-note draft content, kept separate from the public reply so the two
      *  tabs never overwrite each other. Only used when showPrivateOption is set. */
     privateDraftContent?: JSONContent | null
-    /** Called when the internal-note draft changes */
+    /** Called when the private-note draft changes */
     onPrivateDraftChange?: (content: JSONContent | null) => void
-    /** Whether the internal-note tab is the active one (from parent logic for tab persistence) */
+    /** Whether the private-note tab is the active one (from parent logic for tab persistence) */
     isPrivate?: boolean
     /** Called when the active tab changes */
     onPrivateChange?: (isPrivate: boolean) => void
@@ -85,7 +85,7 @@ export function MessageInput({
 
     // The editor only ever holds the active tab's body; the other tab's body lives
     // in the parent (draftContent / privateDraftContent) and is swapped into the
-    // editor on a tab change so the reply and the internal note never overwrite
+    // editor on a tab change so the reply and the private note never overwrite
     // each other.
     const activeDraftContent = isPrivate ? privateDraftContent : draftContent
 
@@ -143,7 +143,7 @@ export function MessageInput({
                     () => {
                         // Clear only the tab that was just sent; the other tab's draft
                         // is deliberately preserved so sending a reply never discards an
-                        // in-progress internal note (or vice versa), and the active tab
+                        // in-progress private note (or vice versa), and the active tab
                         // stays put.
                         editorRef.current?.clear()
                         setIsEmpty(true)
@@ -236,7 +236,7 @@ export function MessageInput({
             label: (
                 <span className="inline-flex items-center gap-1.5">
                     <IconLock className="text-sm" />
-                    Internal note
+                    Private note
                     {!isPrivate && privateHasDraft ? draftDot : null}
                 </span>
             ),
