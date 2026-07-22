@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{
+    cache::{GroupCache, IdentifyCache, MemoryGroupCache, MemoryIdentifyCache},
     context::AppContext,
     error::UserError,
     job::model::JobModel,
@@ -29,12 +30,23 @@ pub async fn build_trial_parser(
     model: &JobModel,
     context: Arc<AppContext>,
 ) -> Result<ParserFnFor<TrialRecord>, Error> {
+    // Fresh caches, never the process-wide ones: a trial marking user/device
+    // pairs or groups as seen would make a later real import over the same
+    // data skip its $identify / group identify events.
+    let identify_cache: Arc<dyn IdentifyCache> = Arc::new(MemoryIdentifyCache::new(
+        context.config.identify_memory_cache_capacity,
+        std::time::Duration::from_secs(context.config.identify_memory_cache_ttl_seconds),
+    ));
+    let group_cache: Arc<dyn GroupCache> = Arc::new(MemoryGroupCache::new(
+        context.config.group_memory_cache_capacity,
+        std::time::Duration::from_secs(context.config.group_memory_cache_ttl_seconds),
+    ));
     let transform_context = TransformContext {
         team_id: model.team_id,
         token: context.get_token_for_team_id(model.team_id).await?,
         job_id: model.id,
-        identify_cache: context.identify_cache.clone(),
-        group_cache: context.group_cache.clone(),
+        identify_cache,
+        group_cache,
         import_events: model.import_config.import_events,
         generate_identify_events: model.import_config.generate_identify_events,
         generate_group_identify_events: model.import_config.generate_group_identify_events,
