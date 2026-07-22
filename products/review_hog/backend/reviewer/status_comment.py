@@ -80,7 +80,7 @@ _NO_ISSUES_MEDIA = (
     ),
     (
         "https://raw.githubusercontent.com/PostHog/pr-assets/"
-        "7a8c2d963d82c14b12230b567b1825f0a5d7300e/2026/07/fa5b4036-b8cc-42d8-88fc-6a47af0b2285.png",
+        "e58e5703b12db9127e450347a5dc7882eec1a8dd/2026/07/fb797d93-c7f5-4f67-869b-68f630e0e1a2.png",
         "A happy dog on a sunny path",
     ),
 )
