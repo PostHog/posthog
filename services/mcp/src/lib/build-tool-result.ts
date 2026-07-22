@@ -2,6 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
+import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -178,6 +179,17 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY.
         if (suppressStructuredContent && hasUiResource) {
             payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
+        }
+    }
+    // `structuredContent` is only attached to UI-resource tools, so a UI app
+    // driving a confirmed action (e.g. the loops-review card's Create button)
+    // can't read the confirmation hash from the `-prepare` result — it only
+    // rides in the TOON text toward the model. Carry it on `_meta` too, the
+    // host/app-only channel apps already hydrate from.
+    if (isPrepareConfirmedActionResult(handlerResult)) {
+        payload._meta = {
+            ...payload._meta,
+            [APP_DATA_META_KEY]: rawResult as Record<string, unknown>,
         }
     }
     return payload

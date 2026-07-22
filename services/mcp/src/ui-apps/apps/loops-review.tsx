@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client'
 import { LoopReviewView, type LoopReviewData, type LoopReviewState } from 'products/tasks/mcp/apps'
 
 import { AppWrapper } from '../components/AppWrapper'
+import { APP_DATA_META_KEY } from '../types'
 
 function LoopReviewApp(): JSX.Element {
     return (
@@ -45,10 +46,17 @@ function LoopReviewContent({ data, app }: { data: LoopReviewData; app: App | nul
                 setState({ loading: false, error: message, createdName: null })
                 return
             }
-            const confirmationHash = (prepared.structuredContent as { confirmation_hash?: string } | undefined)
-                ?.confirmation_hash
+            // The hash rides on `_meta` (app-only channel) — `structuredContent` is
+            // only attached to UI-resource tools, which `-prepare` tools are not.
+            const preparedData = ((prepared._meta as Record<string, unknown> | undefined)?.[APP_DATA_META_KEY] ??
+                prepared.structuredContent) as { confirmation_hash?: string } | undefined
+            const confirmationHash = preparedData?.confirmation_hash
             if (!confirmationHash) {
-                setState({ loading: false, error: 'Failed to create the loop.', createdName: null })
+                setState({
+                    loading: false,
+                    error: 'Failed to create the loop: the server did not return a confirmation hash.',
+                    createdName: null,
+                })
                 return
             }
             const result = await app.callServerTool({
