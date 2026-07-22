@@ -1528,9 +1528,8 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         )
 
     request = context.get("request")
-    view = context.get("view")
-    if request is None or view is None:
-        raise RuntimeError("Scout config output destination validation requires request and view in its context")
+    if request is None:
+        raise RuntimeError("Scout config output destination validation requires request in its context")
 
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if (
@@ -1539,9 +1538,6 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         and not any(scope in key_scopes for scope in ("integration:read", "integration:write"))
     ):
         raise PermissionDenied("API key missing required scope 'integration:read'")
-
-    if not view.user_access_control.check_access_level_for_object(integration, "viewer"):
-        raise PermissionDenied("Viewer access to this Slack integration is required.")
 
     return {"slack": slack}
 

@@ -6,6 +6,8 @@ from functools import partial
 
 from django.db import transaction
 
+from posthog.exceptions_capture import capture_exception
+
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import ScoutSlackOutputType, get_scout_slack_destination
 from products.signals.backend.tasks import enqueue_scout_slack_delivery
@@ -46,7 +48,15 @@ def queue_configured_scout_slack_delivery(
             ),
             robust=True,
         )
-    except Exception:
+    except Exception as exc:
+        capture_exception(
+            exc,
+            {
+                "run_id": str(run_id),
+                "output_type": output_type,
+                "output_id": output_id,
+            },
+        )
         logger.exception(
             "signals_scout.slack_delivery_queue_failed",
             extra={"run_id": str(run_id), "output_type": output_type, "output_id": output_id},

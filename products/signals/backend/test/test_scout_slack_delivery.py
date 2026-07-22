@@ -16,6 +16,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
     post_scout_emission_to_slack,
 )
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
 
 
@@ -123,6 +124,31 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
+
+    def test_task_skips_report_suppressed_before_delivery(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.SUPPRESSED,
+            title="Unsafe report",
+            summary="This report must not leave PostHog.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        fake_client.chat_postMessage.assert_not_called()
 
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()
@@ -242,5 +268,28 @@ class TestScoutSlackDelivery(BaseTest):
                 "output_id": "ddab8ee5-2bb8-4226-b145-6732d31dc344",
                 "run_id": "e3865391-bc89-44e6-86f7-2d4405627daf",
                 "integration_id": 9,
+            },
+        )
+
+    def test_queue_captures_failure_before_enqueue(self) -> None:
+        error = ConnectionError("database unavailable")
+        run_id = "e3865391-bc89-44e6-86f7-2d4405627daf"
+
+        with (
+            patch.object(SignalScoutRun.all_teams, "select_related", side_effect=error),
+            patch("products.signals.backend.scout_harness.slack_delivery_queue.capture_exception") as capture,
+        ):
+            queue_configured_scout_slack_delivery(
+                run_id=run_id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+            )
+
+        capture.assert_called_once_with(
+            error,
+            {
+                "run_id": run_id,
+                "output_type": "report",
+                "output_id": "ddab8ee5-2bb8-4226-b145-6732d31dc344",
             },
         )

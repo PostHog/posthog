@@ -2,6 +2,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -38,12 +40,14 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     created_at: '2026-07-22T00:00:00Z',
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: Error) => void } {
     let resolvePromise!: (value: T) => void
-    const promise = new Promise<T>((resolve) => {
+    let rejectPromise!: (error: Error) => void
+    const promise = new Promise<T>((resolve, reject) => {
         resolvePromise = resolve
+        rejectPromise = reject
     })
-    return { promise, resolve: resolvePromise }
+    return { promise, resolve: resolvePromise, reject: rejectPromise }
 }
 
 describe('scoutFleetLogic', () => {
@@ -108,6 +112,56 @@ describe('scoutFleetLogic', () => {
             BASE_CONFIG.id,
             queuedUpdates
         )
+        expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
+        expect(logic.values.updatingScoutConfigIds).toEqual([])
+    })
+
+    it('keeps configs unresolved until the current team is available', async () => {
+        logic.unmount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        mockSignalsScoutConfigList.mockClear()
+        logic = scoutFleetLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSignalsScoutConfigList).not.toHaveBeenCalled()
+        expect(logic.values.scoutConfigs).toBeNull()
+    })
+
+    it('sends newer queued updates after an earlier request fails', async () => {
+        const firstRequest = deferred<SignalScoutConfigApi>()
+        const failingRequest = deferred<SignalScoutConfigApi>()
+        const outputDestinations = {
+            slack: { integration_id: 42, channel: 'CSCOUTS|#scout-findings' },
+        }
+        const finalConfig: SignalScoutConfigApi = {
+            ...BASE_CONFIG,
+            enabled: false,
+            output_destinations: outputDestinations,
+        }
+        mockSignalsScoutConfigUpdate
+            .mockReturnValueOnce(firstRequest.promise)
+            .mockReturnValueOnce(failingRequest.promise)
+            .mockResolvedValueOnce(finalConfig)
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { enabled: false })
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { run_interval_minutes: 60 })
+
+        firstRequest.resolve({ ...BASE_CONFIG, enabled: false })
+        await expectLogic(logic).toDispatchActions(['patchScoutConfigLocally'])
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenCalledTimes(2)
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { output_destinations: outputDestinations })
+        failingRequest.reject(new Error('request failed'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(2, String(MOCK_TEAM_ID), BASE_CONFIG.id, {
+            run_interval_minutes: 60,
+        })
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(3, String(MOCK_TEAM_ID), BASE_CONFIG.id, {
+            output_destinations: outputDestinations,
+        })
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
         expect(logic.values.updatingScoutConfigIds).toEqual([])
     })

@@ -137,10 +137,10 @@ export interface scoutFleetLogicActions {
         errorObject?: any
     }
     loadScoutConfigsSuccess: (
-        scoutConfigs: SignalScoutConfigApi[],
+        scoutConfigs: SignalScoutConfigApi[] | null,
         payload?: any
     ) => {
-        scoutConfigs: SignalScoutConfigApi[]
+        scoutConfigs: SignalScoutConfigApi[] | null
         payload?: any
     }
     loadScoutMetadata: () => any
@@ -277,7 +277,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : []
+                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
                 },
             },
         ],
@@ -540,6 +540,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
             let confirmedConfig = values.scoutConfigs?.find((config) => config.id === configId)
             let updatesToSend: SignalScoutConfigUpdate | undefined = updates
+            let queuedUpdatesAfterFailure: SignalScoutConfigUpdate | undefined
             inFlight.add(configId)
             actions.patchScoutConfigLocally(configId, updates)
 
@@ -561,7 +562,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     updatesToSend = queuedUpdates
                 }
             } catch (error: any) {
-                pendingUpdates.delete(configId)
+                queuedUpdatesAfterFailure = pendingUpdates.get(configId)
                 if (confirmedConfig) {
                     actions.patchScoutConfigLocally(configId, confirmedConfig)
                 }
@@ -570,6 +571,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 inFlight.delete(configId)
                 pendingUpdates.delete(configId)
                 actions.updateScoutConfigFinished(configId)
+                if (queuedUpdatesAfterFailure) {
+                    actions.updateScoutConfig(configId, queuedUpdatesAfterFailure)
+                }
             }
         },
         deleteScout: async ({ configId }) => {
