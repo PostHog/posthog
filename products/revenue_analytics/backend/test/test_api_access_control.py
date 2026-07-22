@@ -8,10 +8,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+AccessControl = pytest.importorskip("ee.models.rbac.access_control").AccessControl
 
 pytestmark = [pytest.mark.django_db]
 
