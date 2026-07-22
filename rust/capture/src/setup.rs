@@ -234,7 +234,7 @@ pub async fn build_components(
         if config.export_prometheus {
             let partition = partition.clone();
             tokio::spawn(async move {
-                partition.report_metrics().await;
+                partition.report_metrics("analytics").await;
             });
         }
 
@@ -372,6 +372,79 @@ pub async fn build_components(
         None
     };
 
+    // Deployment-level policy for diverting `$ai_*` events to a dedicated
+    // topic, shared by the v0 and v1 analytics pipelines. Distinct from the AI
+    // secondary CLUSTER routing above: this stays on the same sink and only
+    // changes the destination topic.
+    let ai_routing = match config.capture_analytics_ai_events_mode {
+        AiSinkMode::Primary => AiRouting::Primary,
+        AiSinkMode::Secondary => AiRouting::Secondary,
+        AiSinkMode::SecondaryAllowlist => AiRouting::SecondaryAllowlist(
+            config
+                .capture_analytics_ai_events_allowlist_tokens
+                .as_deref()
+                .map(parse_token_allowlist)
+                .unwrap_or_default(),
+        ),
+    };
+    assert!(
+        config.capture_analytics_ai_events_mode == AiSinkMode::Primary
+            || config
+                .kafka
+                .capture_analytics_ai_events_topic
+                .as_deref()
+                .is_some_and(|t| !t.is_empty()),
+        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must be set when CAPTURE_ANALYTICS_AI_EVENTS_MODE is not primary (got {:?})",
+        config.capture_analytics_ai_events_mode,
+    );
+    // The AI overflow valve: settable in advance of the routing mode (or
+    // absent), so it is deliberately not validated against it.
+    let ai_events_overflow_enabled = config
+        .kafka
+        .capture_analytics_ai_events_overflow_topic
+        .as_deref()
+        .is_some_and(|t| !t.is_empty());
+    info!(
+        ai_routing = ?ai_routing,
+        capture_analytics_ai_events_topic = ?config.kafka.capture_analytics_ai_events_topic,
+        capture_analytics_ai_events_overflow_topic = ?config.kafka.capture_analytics_ai_events_overflow_topic,
+        ai_events_overflow_enabled,
+        "AI events topic routing policy"
+    );
+
+    // The AI lane gets its own limiter instance with the same knobs: the
+    // governor state (per-`token:distinct_id` budgets) is what must stay
+    // isolated, so analytics volume can never push a key's AI events into
+    // AI overflow and AI volume never burns the analytics budget.
+    let ai_events_overflow_limiter: Option<Arc<OverflowLimiter>> =
+        if config.overflow_enabled && ai_events_overflow_enabled {
+            let limiter = OverflowLimiter::new(
+                config.overflow_per_second_limit,
+                config.overflow_burst_limit,
+                config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                config.overflow_preserve_partition_locality,
+            );
+
+            if config.export_prometheus {
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.report_metrics("ai").await;
+                });
+            }
+
+            {
+                // Keep the governor's per-key state from growing unbounded.
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.clean_state().await;
+                });
+            }
+
+            Some(Arc::new(limiter))
+        } else {
+            None
+        };
+
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
@@ -410,10 +483,13 @@ pub async fn build_components(
         config.capture_v1_max_compressed_body_bytes,
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
+        ai_events_overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
+        ai_routing,
+        ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );
 
@@ -465,16 +541,29 @@ fn parse_token_allowlist(csv: &str) -> HashSet<String> {
         .collect()
 }
 
+/// Builds the v1 sink router. The dedicated `$ai_*` topics are
+/// deployment-level config (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` and `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`),
+/// so they are injected into every sink config here; the overwrite is
+/// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
+/// cannot diverge from the shared policy.
 fn create_v1_sink_router(
     config: &Config,
     sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
-    let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
+    let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
     sinks_cfg
         .validate()
         .context("v1 sink config validation failed")?;
+
+    for cfg in sinks_cfg.configs.values_mut() {
+        cfg.kafka.topic_ai = config.kafka.capture_analytics_ai_events_topic.clone();
+        cfg.kafka.topic_ai_overflow = config
+            .kafka
+            .capture_analytics_ai_events_overflow_topic
+            .clone();
+    }
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();
