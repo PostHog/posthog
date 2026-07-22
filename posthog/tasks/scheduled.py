@@ -94,7 +94,6 @@ from products.feature_flags.backend.tasks import (
     sync_cross_region_flags_task,
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
-from products.notebooks.backend.tasks import mark_stale_notebook_node_runs_failed
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import sync_pending_signals_refund_credits
@@ -627,15 +626,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/15"),
         mark_stale_pulse_briefs_failed.s(),
         name="mark stale pulse briefs failed",
-    )
-
-    # Fail notebook node runs stranded RUNNING by a lost sandbox callback, so runs always
-    # reach a terminal state and the node-run metrics see timeouts instead of missing them.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        mark_stale_notebook_node_runs_failed.s(),
-        name="mark stale notebook node runs failed",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):

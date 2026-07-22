@@ -17,7 +17,6 @@ from unittest.mock import patch
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -2254,56 +2253,3 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(
             NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id).status, NotebookNodeRun.Status.DONE
         )
-
-
-class TestSQLV2RunReaper(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.notebook = Notebook.objects.create(team=self.team, short_id="nbreap1")
-
-    def _create_run(self, age: datetime.timedelta, status=NotebookNodeRun.Status.RUNNING) -> NotebookNodeRun:
-        with team_scope(self.team.id):
-            run = NotebookNodeRun.objects.create(
-                team=self.team,
-                notebook=self.notebook,
-                user=self.user,
-                node_id="node-1",
-                node_type=NotebookNodeRun.NodeType.PYTHON,
-                status=status,
-            )
-        # created_at is auto_now_add; age the row directly.
-        NotebookNodeRun.objects.unscoped().filter(id=run.id).update(created_at=timezone.now() - age)
-        run.refresh_from_db()
-        return run
-
-    def test_reaper_fails_only_stale_running_runs(self):
-        from products.notebooks.backend.sql_v2_reaper import (
-            STALE_RUN_DEADLINE,
-            STALE_RUN_ERROR,
-            mark_stale_node_runs_failed,
-        )
-
-        stale = self._create_run(STALE_RUN_DEADLINE + datetime.timedelta(minutes=1))
-        fresh = self._create_run(datetime.timedelta(minutes=5))
-        old_done = self._create_run(
-            STALE_RUN_DEADLINE + datetime.timedelta(minutes=1), status=NotebookNodeRun.Status.DONE
-        )
-
-        with patch("products.notebooks.backend.sql_v2_reaper.ph_scoped_capture") as mock_scoped:
-            capture = mock_scoped.return_value.__enter__.return_value
-            reaped = mark_stale_node_runs_failed()
-
-        self.assertEqual(reaped, 1)
-        stale.refresh_from_db()
-        fresh.refresh_from_db()
-        old_done.refresh_from_db()
-        self.assertEqual(stale.status, NotebookNodeRun.Status.FAILED)
-        self.assertEqual(stale.error, STALE_RUN_ERROR)
-        self.assertEqual(fresh.status, NotebookNodeRun.Status.RUNNING)
-        self.assertEqual(old_done.status, NotebookNodeRun.Status.DONE)
-
-        capture.assert_called_once()
-        kwargs = capture.call_args.kwargs
-        self.assertEqual(kwargs["event"], "notebook node run completed")
-        self.assertEqual(kwargs["properties"]["outcome"], "timed_out")
-        self.assertEqual(kwargs["properties"]["node_type"], "python")
