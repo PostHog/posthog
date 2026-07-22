@@ -547,6 +547,23 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
 )
 
+# The data_modeling_ops internal API authenticates with OIDC ID tokens forwarded by the
+# modeling-ops admin app — no shared signing secret; verification runs against the issuer's
+# JWKS (see products/data_modeling/backend/presentation/internal_auth.py). Fail-closed: with
+# no audience configured, every request is rejected. In DEBUG/TEST the audience defaults to
+# the gcloud CLI's public OAuth client ID so `gcloud auth print-identity-token` works locally.
+LOCAL_DEV_DATA_MODELING_OPS_OIDC_AUDIENCE = "32555940559.apps.googleusercontent.com"
+DATA_MODELING_OPS_OIDC_ISSUER = get_from_env("DATA_MODELING_OPS_OIDC_ISSUER", "https://accounts.google.com")
+DATA_MODELING_OPS_OIDC_JWKS_URL = get_from_env(
+    "DATA_MODELING_OPS_OIDC_JWKS_URL", "https://www.googleapis.com/oauth2/v3/certs"
+)
+DATA_MODELING_OPS_OIDC_AUDIENCES = get_list(
+    os.getenv("DATA_MODELING_OPS_OIDC_AUDIENCES", LOCAL_DEV_DATA_MODELING_OPS_OIDC_AUDIENCE if DEBUG or TEST else "")
+)
+DATA_MODELING_OPS_OIDC_ALLOWED_DOMAINS = get_list(os.getenv("DATA_MODELING_OPS_OIDC_ALLOWED_DOMAINS", "posthog.com"))
+# Service (no-human) callers verified by the same issuer but exempt from the domain check.
+DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS = get_list(os.getenv("DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS", ""))
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
