@@ -8,9 +8,12 @@ import { LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { useStorybookMocks } from '~/mocks/browser'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { IntegrationType } from '~/types'
 
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
+import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
 import { AlertAdvancedOptions } from './AlertAdvancedOptions'
 import { AlertDefinitionRow, AlertNextEvaluationStatus, AlertTimezoneNotice } from './AlertDefinition'
@@ -225,6 +228,60 @@ function NotificationsStory(): JSX.Element {
     )
 }
 
+const STORY_SLACK_WORKSPACES: IntegrationType[] = [
+    {
+        id: 1,
+        kind: 'slack',
+        display_name: 'PostHog',
+        icon_url: '/static/services/slack.png',
+        config: { team: { id: 'T11111', name: 'PostHog' } },
+        created_at: '2026-01-01T00:00:00Z',
+    },
+    {
+        id: 2,
+        kind: 'slack',
+        display_name: 'Acme Workspace',
+        icon_url: '/static/services/slack.png',
+        config: { team: { id: 'T99999', name: 'Acme Workspace' } },
+        created_at: '2026-01-01T00:00:00Z',
+    },
+]
+
+const STORY_SLACK_CHANNELS: Record<string, { id: string; name: string }[]> = {
+    '1': [
+        { id: 'C100', name: 'alerts' },
+        { id: 'C101', name: 'general' },
+    ],
+    '2': [
+        { id: 'C200', name: 'acme-alerts' },
+        { id: 'C201', name: 'acme-eng' },
+    ],
+}
+
+function MultipleSlackWorkspacesStory(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/integrations': { results: STORY_SLACK_WORKSPACES, count: 2 },
+            '/api/environments/:team_id/integrations/:id/channels': (req, res, ctx) => {
+                const channels = (STORY_SLACK_CHANNELS[String(req.params.id)] ?? []).map((channel) => ({
+                    ...channel,
+                    is_private: false,
+                    is_ext_shared: false,
+                    is_member: true,
+                }))
+                return res(ctx.json({ channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }))
+            },
+            '/api/environments/:team_id/hog_functions': { results: [], count: 0 },
+        },
+    })
+
+    return (
+        <div className="max-w-2xl border rounded bg-surface-primary p-4">
+            <InlineAlertNotifications />
+        </div>
+    )
+}
+
 function QuietHoursStory(): JSX.Element {
     const [scheduleRestriction, setScheduleRestriction] = useState<ScheduleRestriction | null>({
         blocked_windows: [{ start: '22:00', end: '07:00' }],
@@ -296,5 +353,6 @@ export const EditorLoading: Story = {
 export const Definition: Story = { render: () => <DefinitionStory /> }
 export const AdvancedOptions: Story = { render: () => <AdvancedOptionsStory /> }
 export const Notifications: Story = { render: () => <NotificationsStory /> }
+export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
