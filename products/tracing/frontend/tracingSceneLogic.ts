@@ -1,6 +1,7 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -401,6 +402,22 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             } else {
                 actions.syncUrl()
             }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        // Feature flags can resolve AFTER the initial URL parse, and urlToAction only re-runs on
+        // URL changes. Without this, a late-arriving flag leaves the tab and the URL disagreeing:
+        // enabling it on a ?view=operations page keeps the tab stuck on traces, and disabling it
+        // mid-session strands the tab on operations. Re-reconcile the tab against the current URL
+        // whenever the flag flips, then write the URL back through the flag-aware displayMode.
+        operationsViewEnabled: (enabled) => {
+            const shouldBeOperations = enabled && router.values.searchParams.view === 'operations'
+            if (shouldBeOperations === (values.activeTracingTab === 'operations')) {
+                return
+            }
+            actions.setActiveTracingTab(shouldBeOperations ? 'operations' : 'traces')
+            actions.syncUrl()
         },
     })),
 

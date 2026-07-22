@@ -95,6 +95,29 @@ describe('tracingSceneLogic', () => {
         expect(filtersLogic.values.viewMode).toBe('traces')
     })
 
+    it('reconciles the operations tab when the flag resolves after a ?view=operations deep link', () => {
+        // Flag not yet loaded: the deep link reads as the default traces view.
+        mountAt({ view: 'operations' })
+        expect(logic.values.activeTracingTab).toBe('traces')
+
+        // Flag resolves late — the tab and URL reconcile without a navigation.
+        enableOperationsView()
+        expect(logic.values.activeTracingTab).toBe('operations')
+        expect(logic.values.displayMode).toBe('operations')
+        expect(router.values.searchParams.view).toBe('operations')
+    })
+
+    it('resets the operations tab to traces when the flag is disabled mid-session', () => {
+        enableOperationsView()
+        mountAt({ view: 'operations' })
+        expect(logic.values.activeTracingTab).toBe('operations')
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.activeTracingTab).toBe('traces')
+        expect(logic.values.displayMode).toBe('traces')
+        expect(router.values.searchParams).not.toHaveProperty('view')
+    })
+
     it('writes the operations mode to the URL without clobbering the spans granularity', () => {
         enableOperationsView()
         const filtersLogic = mountAt({ view: 'spans' })
