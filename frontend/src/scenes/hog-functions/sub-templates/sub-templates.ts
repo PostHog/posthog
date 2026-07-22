@@ -984,6 +984,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                     text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
                                 },
+                                {
+                                    action_id: 'insight_alert_snooze',
+                                    value: '{event.properties.alert_id}|1d',
+                                    text: { text: 'Snooze for 1 day', type: 'plain_text' },
+                                    type: 'button',
+                                },
                             ],
                         },
                     ],
