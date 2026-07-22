@@ -254,10 +254,13 @@ def _handle_project_set(
     user_id: int,
     target_team_id: int,
     workspace_candidates: list[Integration] | None = None,
+    *,
+    command_prefix: str = "@PostHog",
 ) -> None:
     from posthog.models.user import User
 
     from products.slack_app.backend.models import SlackSettings
+    from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 
     user = User.objects.get(id=user_id)
     if not user.teams.filter(id=target_team_id).exists():
@@ -288,6 +291,37 @@ def _handle_project_set(
             thread_ts=thread_ts,
             text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
         )
+        return
+
+    # Mirrors ``project`` (show) semantics: personal default > workspace default >
+    # sole candidate. When the request is a no-op, confirm with a visible thread
+    # reply — the ephemeral success message anchors to the mention's own ts, a
+    # thread the user isn't viewing, so a silent no-op reads as the bot ignoring them.
+    # Deliberately no personal pin when a workspace default or sole candidate already
+    # matches: routing is unchanged, and re-running the command after an admin moves
+    # the workspace default will pin then (current != target at that point).
+    if workspace_candidates is not None:
+        current = resolve_from_candidates(
+            workspace_candidates,
+            slack_team_id=slack_workspace_id,
+            slack_user_id=slack_user_id,
+            user=user,
+        )
+    else:
+        current = load_integrations(
+            slack_team_id=slack_workspace_id,
+            kinds=["slack"],
+            slack_user_id=slack_user_id,
+            user=user,
+        )
+    if current.integration is not None and current.integration.team_id == target_team_id:
+        text = (
+            f"You're already connected to *{target.team.organization.name} · {target.team.name}* "
+            f"(id `{target.team_id}`) in this workspace."
+        )
+        if command_prefix == "@PostHog":
+            text += " What would you like to work on? Mention me with a task and I'll get started."
+        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
         return
 
     SlackSettings.objects.update_or_create(
@@ -505,6 +539,7 @@ def dispatch_rules_command(
             user_id,
             command.project_team_id,
             workspace_candidates=workspace_candidates,
+            command_prefix=command_prefix,
         )
     elif command.action == "project_set_workspace":
         if command.project_team_id is None:
