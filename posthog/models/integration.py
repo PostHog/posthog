@@ -3604,8 +3604,10 @@ class AzureDevOpsIntegration:
         )
 
         if response.status_code in (200, 201):
-            result = response.json().get("value", [{}])[0]
-            if result.get("success", True):
+            # Azure returns the updated refs in ``value``; an empty list means nothing was created.
+            results = response.json().get("value") or []
+            result = results[0] if results else {}
+            if results and result.get("success", True):
                 return {"success": True, "branch_name": branch_name, "sha": base_sha}
             return {"success": False, "error": result.get("customMessage") or "Failed to create branch"}
         return {

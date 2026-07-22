@@ -2819,6 +2819,7 @@ class IntegrationKind(StrEnum):
     BING_ADS = "bing-ads"
     VERCEL = "vercel"
     AZURE_BLOB = "azure-blob"
+    AZURE_DEVOPS = "azure-devops"
     FIREBASE = "firebase"
     JIRA = "jira"
     PINTEREST_ADS = "pinterest-ads"
