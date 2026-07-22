@@ -489,6 +489,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/java',
     },
     {
+        name: 'Kotlin Multiplatform',
+        key: SDKKey.KMP,
+        tags: [SDKTag.MOBILE, SDKTag.WEB],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/posthog.com/contents/images/docs/integrate/kmp.svg',
+        docsLink: 'https://posthog.com/docs/libraries/kmp',
+    },
+    {
         name: 'Langfuse',
         key: SDKKey.LANGFUSE,
         tags: [SDKTag.LLM],
@@ -569,11 +576,18 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/rails',
     },
     {
+        name: 'Roblox',
+        key: SDKKey.ROBLOX,
+        tags: [SDKTag.OTHER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/Roblox_Corporation_2025_logo_svg_301751b47c.png',
+        docsLink: 'https://posthog.com/docs/error-tracking/installation/roblox',
+    },
+    {
         name: 'Rust',
         key: SDKKey.RUST,
         tags: [SDKTag.SERVER],
         image: rustImage,
-        docsLink: 'https://posthog.com/docs/libraries/rust',
+        docsLink: 'https://posthog.com/docs/error-tracking/installation/rust',
     },
     {
         name: 'Svelte',
@@ -588,6 +602,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.WEB],
         image: tanStackImage,
         docsLink: 'https://posthog.com/docs/libraries/react',
+    },
+    {
+        name: 'Unity',
+        key: SDKKey.UNITY,
+        tags: [SDKTag.OTHER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/unity_9f9c332941.svg',
+        docsLink: 'https://posthog.com/docs/error-tracking/installation/unity',
     },
     {
         name: 'Traceloop',
