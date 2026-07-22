@@ -360,7 +360,7 @@ pub async fn start_leader_pod(
         Arc::clone(&dirty_index),
         recovery,
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -431,7 +431,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&dirty_index),
         recovery,
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -515,7 +515,7 @@ pub async fn start_leader_with_pg_fallback(
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "client_iwarnings_ingestion".to_string()),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

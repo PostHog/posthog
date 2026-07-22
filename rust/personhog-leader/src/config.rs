@@ -143,7 +143,7 @@ pub struct Config {
 
     /// Topic for in-product ingestion warnings emitted when admission
     /// trims or rejects an update.
-    #[envconfig(default = "client_iwarnings_ingestion")]
+    #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
 
     // ── Dirty index / changelog recovery ─────────────────────────

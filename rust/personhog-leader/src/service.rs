@@ -761,7 +761,7 @@ mod tests {
                 .expect("build recovery pool"),
             ),
             PropertySizeLimits::new(655360, 524288),
-            WarningsProducer::new(producer, "client_iwarnings_ingestion".to_string()),
+            WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
         )
     }
 
