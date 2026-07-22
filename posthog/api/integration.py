@@ -55,6 +55,8 @@ from posthog.models.integration import (
     AwsS3RoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
+    AzureDevOpsIntegration,
+    AzureDevOpsIntegrationError,
     ClickUpIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
@@ -501,6 +503,28 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 hostname, project_id, project_access_token, team_id, request.user
             )
             return instance
+
+        elif validated_data["kind"] == "azure_devops":
+            config = validated_data.get("config", {})
+            organization = config.get("organization")
+            project = config.get("project")
+            personal_access_token = config.get("personal_access_token")
+
+            if not all(isinstance(v, str) and v.strip() for v in (organization, project, personal_access_token)):
+                raise ValidationError(
+                    "Azure DevOps requires 'organization', 'project', and 'personal_access_token'"
+                )
+
+            try:
+                return AzureDevOpsIntegration.create_integration(
+                    organization.strip(),
+                    project.strip(),
+                    personal_access_token.strip(),
+                    team_id,
+                    request.user,
+                )
+            except AzureDevOpsIntegrationError as e:
+                raise ValidationError(str(e))
 
         elif validated_data["kind"] == "anthropic":
             config = validated_data.get("config", {})
