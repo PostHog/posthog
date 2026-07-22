@@ -404,11 +404,6 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
     )
-    origin_product = serializers.ChoiceField(
-        choices=tasks_facade.TaskOriginProduct.choices,
-        required=False,
-        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
-    )
     repository = serializers.CharField(
         max_length=255,
         required=False,
@@ -591,17 +586,6 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("User integration must belong to the authenticated user")
         return value
 
-    def validate_origin_product(self, value):
-        """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
-            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
-        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
-            # Experiments tasks are team-readable, so letting API callers pick this origin
-            # would let them expose an arbitrary task to the whole team. The experiments
-            # flow creates its tasks server-side through the facade, never through here.
-            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
-        return value
-
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
@@ -630,6 +614,10 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
+        if "origin_product" in self.initial_data and "origin_product" not in self.fields:
+            raise serializers.ValidationError(
+                {"origin_product": "origin_product cannot be changed after task creation."}
+            )
 
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
@@ -651,7 +639,32 @@ class TaskWriteSerializer(serializers.Serializer):
         return attrs
 
 
+# Origins that traced API clients actually send (the Code desktop/mobile app, web
+# surfaces, support-desk clients). Every other origin is stamped by server-side flows
+# that create tasks through the facade/ORM, never through this serializer.
+API_CREATABLE_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        tasks_facade.TaskOriginProduct.USER_CREATED,
+        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        tasks_facade.TaskOriginProduct.ERROR_TRACKING,
+        tasks_facade.TaskOriginProduct.SESSION_SUMMARIES,
+        tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        tasks_facade.TaskOriginProduct.HOGDESK,
+        tasks_facade.TaskOriginProduct.SUPPORT_QUEUE,
+    }
+)
+
+
 class TaskCreateSerializer(TaskWriteSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=tasks_facade.TaskOriginProduct.choices,
+        required=False,
+        help_text=(
+            "PostHog product or surface that created this task (e.g. error_tracking, hogdesk, user_created). "
+            "Defaults to user_created. Origins reserved for server-side flows are rejected, and the value "
+            "cannot be changed after creation."
+        ),
+    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -671,6 +684,19 @@ class TaskCreateSerializer(TaskWriteSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+
+    def validate_origin_product(self, value: str) -> str:
+        """Allow only origins that traced API clients send; everything else is reserved for server-side flows."""
+        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
+            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
+            # Experiments tasks are team-readable, so letting API callers pick this origin
+            # would let them expose an arbitrary task to the whole team. The experiments
+            # flow creates its tasks server-side through the facade, never through here.
+            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
+        if value not in API_CREATABLE_ORIGIN_PRODUCTS:
+            raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-side flows")
+        return value
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

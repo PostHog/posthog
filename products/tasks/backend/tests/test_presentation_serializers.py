@@ -6,10 +6,44 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.tasks.backend.models import Task
 from products.tasks.backend.presentation.serializers import (
+    API_CREATABLE_ORIGIN_PRODUCTS,
+    TaskCreateSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
+    TaskWriteSerializer,
 )
+
+_RESERVED_ORIGIN_MESSAGES = {
+    "image_builder": "origin_product 'image_builder' is reserved for image-builder sessions",
+    "experiments": "origin_product 'experiments' is reserved for the experiments flow",
+}
+
+
+class TestTaskOriginProductValidation(SimpleTestCase):
+    @parameterized.expand(
+        [(value,) for value in sorted(set(Task.OriginProduct.values) - API_CREATABLE_ORIGIN_PRODUCTS)]
+    )
+    def test_create_rejects_reserved_origin(self, origin: str) -> None:
+        serializer = TaskCreateSerializer(data={"origin_product": origin})
+
+        assert not serializer.is_valid()
+        expected = _RESERVED_ORIGIN_MESSAGES.get(origin, f"origin_product '{origin}' is reserved for server-side flows")
+        assert str(serializer.errors["origin_product"][0]) == expected
+
+    @parameterized.expand([(value,) for value in sorted(API_CREATABLE_ORIGIN_PRODUCTS)])
+    def test_create_accepts_client_origin(self, origin: str) -> None:
+        serializer = TaskCreateSerializer(data={"origin_product": origin})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["origin_product"] == origin
+
+    def test_update_rejects_origin_product(self) -> None:
+        serializer = TaskWriteSerializer(data={"origin_product": Task.OriginProduct.USER_CREATED}, partial=True)
+
+        assert not serializer.is_valid()
+        assert str(serializer.errors["origin_product"][0]) == "origin_product cannot be changed after task creation."
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

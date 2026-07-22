@@ -1454,7 +1454,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {"origin_product": "signal_report"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         task.refresh_from_db()
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 

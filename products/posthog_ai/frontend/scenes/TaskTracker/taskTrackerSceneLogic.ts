@@ -13,7 +13,7 @@ import {
     ClaudeRuntimeAdapterEnumApi,
     OriginProductEnumApi,
     ReasoningEffortEnumApi,
-    type TaskWriteApi,
+    type TaskCreateApi,
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -490,7 +490,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             stream.actions.startOptimisticRun(description)
 
             try {
-                const taskData: TaskWriteApi = {
+                const taskData: TaskCreateApi = {
                     title: '',
                     description,
                     origin_product: OriginProductEnumApi.PosthogAi,
