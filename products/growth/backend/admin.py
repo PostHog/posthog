@@ -369,7 +369,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
         # A new version is almost always a tweak of the newest one: prefill everything
         # except the version string, which the owner must choose.
-        initial = super().get_changeform_initial_data(request)
+        initial: dict[str, Any] = dict(super().get_changeform_initial_data(request))
         latest = EnrichmentPromptConfig.objects.order_by("-created_at").first()
         if latest is not None and "name" not in initial:
             initial.update(
