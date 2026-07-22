@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
-import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, IntegrationType, SlackChannelType } from '~/types'
+import { HogFunctionType, IntegrationType } from '~/types'
 
 import {
     AlertNotificationDestinationEditor,
@@ -23,31 +23,24 @@ import {
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
 
-function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
-    const channelId = channelValue.split('|')[0]
-    return slackChannels.find((channel) => channel.id === channelId)?.name ?? null
-}
+// Fetched directly rather than through slackIntegrationLogic's loader: that loader keeps a
+// single last-result slot per workspace, so multiple destination rows in the same workspace
+// looking up different channels concurrently would cancel each other's requests.
+function SlackDestinationChannel({ workspaceId, channelId }: { workspaceId: number; channelId: string }): JSX.Element {
+    const [channelName, setChannelName] = useState<string | null>(null)
 
-// Each destination can belong to a different workspace than the one selected in the picker.
-function SlackDestinationChannel({
-    workspaceId,
-    channelValue,
-}: {
-    workspaceId: number
-    channelValue: string
-}): JSX.Element {
-    const logic = slackIntegrationLogic({ id: workspaceId })
-    const { slackChannels } = useValues(logic)
-    const { loadSlackChannelById } = useActions(logic)
-    const channelId = channelValue.split('|')[0]
-
-    // Load just this one channel rather than the full (paginated) list — the picker's own
-    // bulk load may not include it, and we already know exactly which channel we need.
     useEffect(() => {
-        loadSlackChannelById(channelId)
-    }, [loadSlackChannelById, channelId])
+        let cancelled = false
+        api.integrations.slackChannelsById(workspaceId, channelId).then((res) => {
+            if (!cancelled) {
+                setChannelName(res.channels[0]?.name ?? null)
+            }
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [workspaceId, channelId])
 
-    const channelName = resolveSlackChannelName(channelValue, slackChannels)
     return <>{channelName ? `#${channelName}` : 'channel'}</>
 }
 
@@ -61,11 +54,13 @@ function getHogFunctionDestination(
     slackIntegrations: IntegrationType[] | undefined
 ): { type: string; detail: ReactNode } {
     const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
-    const channelValue = inputs?.channel?.value
-    if (channelValue) {
-        // Destinations from before `slack_workspace` existed belonged to the single workspace
-        // that was the only option at the time, so fall back to it for those legacy rows.
-        const workspaceId = inputs?.slack_workspace?.value ?? slackIntegrations?.[0]?.id
+    const channelId = inputs?.channel?.value
+    if (channelId) {
+        // Destinations from before `slack_workspace` existed can only be safely attributed to a
+        // workspace when exactly one is connected — with 2+, there's no way to know which one it
+        // was created against, so guessing would risk showing the wrong workspace/channel.
+        const workspaceId =
+            inputs?.slack_workspace?.value ?? (slackIntegrations?.length === 1 ? slackIntegrations[0].id : undefined)
         if (workspaceId === undefined) {
             return { type: 'Slack', detail: null }
         }
@@ -75,7 +70,7 @@ function getHogFunctionDestination(
             detail: (
                 <>
                     {workspaceName ?? 'Unknown workspace'} ·{' '}
-                    <SlackDestinationChannel workspaceId={workspaceId} channelValue={channelValue} />
+                    <SlackDestinationChannel workspaceId={workspaceId} channelId={channelId} />
                 </>
             ),
         }

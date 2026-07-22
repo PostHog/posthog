@@ -336,6 +336,18 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             if (availableSlackIntegrations.length === 0) {
                 actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
             }
+
+            // Drop any staged Slack notifications pointing at a workspace that's no longer
+            // connected — saving them would create a destination referencing a dead integration.
+            const availableIds = new Set(availableSlackIntegrations.map((integration) => integration.id))
+            const stillValidPending = values.pendingNotifications.filter(
+                (notification) =>
+                    notification.type !== ALERT_NOTIFICATION_TYPE_SLACK ||
+                    availableIds.has(notification.slackWorkspaceId)
+            )
+            if (stillValidPending.length !== values.pendingNotifications.length) {
+                actions.setPendingNotifications(stillValidPending)
+            }
         },
         deleteExistingHogFunction: async ({ hogFunction }) => {
             // Resolve the type from the closure up front — after the delete the HogFunction is

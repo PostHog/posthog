@@ -273,7 +273,7 @@ const STORY_EXISTING_HOG_FUNCTIONS = [
         template_id: 'template-slack',
         inputs: {
             slack_workspace: { value: 1 },
-            channel: { value: 'C100|#alerts' },
+            channel: { value: 'C100' },
         },
     },
     {
@@ -289,7 +289,7 @@ const STORY_EXISTING_HOG_FUNCTIONS = [
         template_id: 'template-slack',
         inputs: {
             slack_workspace: { value: 2 },
-            channel: { value: 'C200|#acme-alerts' },
+            channel: { value: 'C200' },
         },
     },
 ]
@@ -298,13 +298,15 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/environments/:team_id/integrations': { results: STORY_SLACK_WORKSPACES, count: 2 },
-            '/api/environments/:team_id/integrations/:id/channels': ({ params }) => {
-                const channels = (STORY_SLACK_CHANNELS[String(params.id)] ?? []).map((channel) => ({
+            '/api/environments/:team_id/integrations/:id/channels': ({ params, request }) => {
+                const channelId = new URL(request.url).searchParams.get('channel_id')
+                const allChannels = (STORY_SLACK_CHANNELS[String(params.id)] ?? []).map((channel) => ({
                     ...channel,
                     is_private: false,
                     is_ext_shared: false,
                     is_member: true,
                 }))
+                const channels = channelId ? allChannels.filter((channel) => channel.id === channelId) : allChannels
                 return [200, { channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }]
             },
             '/api/environments/:team_id/hog_functions': {

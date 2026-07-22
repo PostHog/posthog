@@ -8,6 +8,7 @@ import { HogFunctionType, IntegrationType } from '~/types'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
@@ -79,6 +80,36 @@ describe('alertNotificationLogic', () => {
             selectedSlackIntegrationId: 1,
             selectedSlackIntegration: firstWorkspace,
             slackChannelValue: null,
+        })
+    })
+
+    it('drops staged Slack notifications for a workspace removed by an integrations refresh', async () => {
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        const firstWorkspace = makeSlackIntegration(1)
+        const secondWorkspace = makeSlackIntegration(2)
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_SLACK,
+            slackWorkspaceId: 2,
+            slackChannelId: 'C1',
+            slackChannelName: 'general',
+        })
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_WEBHOOK,
+            webhookUrl: 'https://example.com',
+        })
+        await expectLogic(logic).toMatchValues({ pendingNotifications: [expect.anything(), expect.anything()] })
+
+        logic.actions.loadIntegrationsSuccess([firstWorkspace])
+
+        // The staged Slack destination pointed at the now-removed workspace 2 is dropped;
+        // saving it would create a HogFunction referencing a dead integration. The webhook
+        // notification doesn't reference a workspace, so it's untouched.
+        await expectLogic(logic).toMatchValues({
+            pendingNotifications: [{ type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl: 'https://example.com' }],
         })
     })
 
