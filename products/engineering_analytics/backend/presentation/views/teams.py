@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import FLAKY_TEST_SIGNAL_CAVEAT
-from products.engineering_analytics.backend.presentation.serializers import (
+from products.engineering_analytics.backend.presentation.serializers.teams import (
     TeamCIActivitySerializer,
     TeamCIHealthListSerializer,
     TeamMergeTrendSerializer,
