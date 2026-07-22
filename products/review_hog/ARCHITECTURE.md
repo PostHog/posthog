@@ -210,7 +210,15 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     finding — if all are off-diff (no inline comments resolve) the body still posts, carrying them in the
     Other-findings section, so a review is never dropped wholesale. Falls back to a body-only review when
     posting with inline comments fails. Authenticates with the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage
-    when publishing is on); the eval CLI defaults it off, the label trigger sets it on.
+    when publishing is on); the eval CLI defaults it off, the label trigger sets it on. Both publish-idempotency
+    marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
+    only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
+    suppress the publish or clobber a stranger's comment. On the publish path a live **status comment**
+    (`reviewer/status_comment.py`) is posted at kickoff, edited with stage progress, and rewritten with the
+    outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
+    whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
+    "View them in PostHog" deep link to the exact report (`/project/<team>/code_review?review=<report id>`,
+    a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
 
 ---
 
@@ -410,7 +418,11 @@ IDOR rule) via `class X(UUIDModel, TeamScopedRootMixin)`:
   key, so re-runs append turns rather than create a new report; branch-only targets key on
   `(team, repository, head_branch) WHERE pr_number IS NULL`). Carries `status` (`active`/`idle`/`closed`),
   `run_count`, `last_run_at`, the `head_sha` + `last_seen_comment_id` watermark, `published_head_sha`, the
-  rendered `report_markdown`, `acting_user`, and the `signal_report_id` / `trigger_source` provenance.
+  rendered `report_markdown`, `acting_user`, `author_login` (the PR author's GitHub login, refreshed from the
+  fetched metadata every turn — powers the "For you" scope's authored-PRs match), `run_urgency_threshold` (the
+  gate the last **completed** turn's body/publish ran under, stamped at finalize alongside `run_count` — what
+  the drawer buckets findings by; null for pre-column turns), and the `signal_report_id` / `trigger_source`
+  provenance.
 - **`ReviewReportArtefact`** — the append-only work log mirroring `SignalReportArtefact`, with a funnel that
   derives `type` from the content-model class and maps `ArtefactAttribution` → `created_by_id` / `task_id`.
   `ArtefactType`: `issue_finding`, `validation_verdict`, `task_run`, `commit`, `code_reference`, `note`, plus
@@ -460,6 +472,17 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 "Review this PR" field in the Code review scene (session-authed, any installation-accessible PR), and an **inbox**
 trigger (a `TaskRun` receiver auto-reviews self-driving Signals implementations). See [DECISIONS.md](./DECISIONS.md)
 for each trigger's auth / scope / identity rules.
+
+**Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the
+viewer is the **acting user OR the PR's author** — `author_login` compared case-insensitively against the
+viewer's linked GitHub login (`User.get_github_login()`, the reverse of the author→user mapping the reviewer
+runs under; no linked login → acting-user match only). `scope=everyone` is the whole project; `retrieve` is
+project-wide so any listed review opens. A specific report is linkable at `/code_review?review=<report id>`
+(mirrored to/from the drawer by `reviewHogSettingsLogic`'s URL sync; the status comment's held-back link
+targets it, so the param is a permanent contract). The drawer buckets a review's findings into published vs
+below-threshold by the detail's stored `run_urgency_threshold` — the viewer's current setting is only the
+fallback for pre-column rows — and its first tab reads "Published" only when the review actually posted
+(`published_head_sha` set), "Kept" otherwise.
 
 ---
 

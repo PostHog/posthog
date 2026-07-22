@@ -608,6 +608,7 @@ class ReviewPRWorkflow:
                         run_index=meta.run_index,
                         urgency_threshold=acting.urgency_threshold,
                         review_url=publish_result.review_url if publish_result is not None else None,
+                        resolved_from=acting.resolved_from,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

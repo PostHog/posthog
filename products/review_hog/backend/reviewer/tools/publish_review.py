@@ -329,11 +329,13 @@ def _review_already_posted(
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
     Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path.
+    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    app-bot reviews count (like the status comment's marker scan): on a public repo anyone can paste
+    the marker, and a spoofed match would silently suppress the publish.
     """
     try:
         return any(
-            marker in (review.get("body") or "")
+            (review.get("user") or {}).get("type") == "Bot" and marker in (review.get("body") or "")
             for review in github_api_get_paginated(
                 f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 token=token,
