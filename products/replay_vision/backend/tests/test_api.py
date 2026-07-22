@@ -680,6 +680,58 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertIn("cohort", resp.json()["detail"])
 
 
+class TestScannerLifecycleTelemetry(_VisionAPITestCase):
+    def test_create_reports_config_choices(self) -> None:
+        # Launch dashboards read these to see whether the 100%/comprehensive defaults get changed;
+        # dropped properties or a silent non-fire makes that read a lie.
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "telemetry-create",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_6_FLASH,
+                    "sampling_rate": 0.25,
+                    "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        report.assert_called_once()
+        event, properties = report.call_args.args[1], report.call_args.args[2]
+        self.assertEqual(event, "replay vision scanner created")
+        self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
+        self.assertEqual(properties["sampling_rate"], 0.25)
+        self.assertTrue(properties["has_filters"])
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+
+    @parameterized.expand(
+        [
+            ("disable", True, False, "replay vision scanner disabled"),
+            ("enable", False, True, "replay vision scanner enabled"),
+        ]
+    )
+    def test_enabled_transition_reports_once(self, _name: str, before: bool, after: bool, event: str) -> None:
+        scanner = self._create_scanner(enabled=before)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], event)
+
+    def test_update_without_enabled_transition_reports_nothing(self) -> None:
+        # A rename must not show up as an enable/disable in the lifecycle funnel.
+        scanner = self._create_scanner(enabled=True)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        report.assert_not_called()
+
+
 class TestScannerDigestProvisioning(_VisionAPITestCase):
     _CREATE_BODY = {
         "name": "checkout-monitor",
