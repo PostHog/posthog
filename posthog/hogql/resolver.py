@@ -176,7 +176,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
         return ast.DateType(nullable=False)
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
         return ast.UUIDType(nullable=False)
-    raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
+    raise QueryError(f"Unsupported constant type: {type(constant).__name__}")
 
 
 def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:

@@ -3,9 +3,11 @@ from typing import cast
 from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.resolver import resolve_constant_data_type
 from posthog.hogql.visitor import clear_locations
 
 from common.hogvm.python.utils import HogVMException
@@ -202,3 +204,19 @@ class TestBytecodePlaceholders(BaseTest):
         finder = find_placeholders(expr)
         self.assertTrue(len(finder.placeholder_expressions) > 0)
         self.assertEqual(finder.placeholder_fields, [])
+
+    def test_dict_placeholder_becomes_dict_ast_and_resolves(self):
+        # A placeholder resolving to a dict used to become an untypeable ast.Constant and crash the
+        # resolver with an internal ImpossibleASTError. It should now behave like an inline `{...}` literal.
+        replaced = replace_placeholders(parse_expr("{ (() -> {'a': 1, 'b': [2, 3]}) () }"), {})
+        self.assertIsInstance(replaced, ast.Dict)
+        self.assertEqual(
+            to_printed_hogql(replaced, team=self.team),
+            to_printed_hogql(parse_expr("{'a': 1, 'b': [2, 3]}"), team=self.team),
+        )
+
+    def test_dict_constant_raises_query_error_not_internal(self):
+        # Defense in depth: any dict that still reaches the resolver as a constant surfaces a
+        # user-facing QueryError rather than the internal (500-class) ImpossibleASTError.
+        with self.assertRaises(QueryError):
+            resolve_constant_data_type({"a": 1})
