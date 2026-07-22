@@ -385,3 +385,25 @@ async def test_duplicate_rows_are_deduped_and_alerted(activity_environment) -> N
     assert result.rows_written == 1  # deduped, not two rows
     mock_capture.assert_called_once()  # DuckgresDuplicateRows
     assert result.ack_watermark == DAY_6_END.isoformat()  # still acks
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_conflicting_rows_withhold_the_ack_and_alert(activity_environment) -> None:
+    # Same key, DIFFERENT measures — we can't trust either value, so keep the larger,
+    # alert, and WITHHOLD the ack (like hole/parse/out-of-window) so duckgres keeps the
+    # source for reconciliation instead of deleting it.
+    conflict_response = UsageResponse(
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+        rows=[_row(dt.date(2026, 7, 6), cpu_seconds=100), _row(dt.date(2026, 7, 6), cpu_seconds=250)],
+    )
+    is_conf, fetch, cap, log = _patched(conflict_response)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.rows_written == 1  # kept the larger, not both
+    assert result.ack_watermark is None  # WITHHELD despite a closed day
+    assert not await cursor_exists()  # nothing acked, nothing recorded
+    captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
+    assert "DuckgresConflictingRows" in captured

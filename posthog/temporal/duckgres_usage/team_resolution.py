@@ -46,9 +46,12 @@ class ResolvedTeams:
     # a deleted/unbillable default — mapped to the elected billable team. The caller
     # repoints duckgres at the source; an org with any billable row is left alone.
     default_team_repoints: dict[str, int] = dataclasses.field(default_factory=dict)
-    # Rows duckgres emitted more than once for the same billing key (a contract
-    # violation). We keep one — summing would double-bill — and the caller alerts.
+    # Rows duckgres emitted twice with an IDENTICAL billing row (harmless repeat).
+    # We keep one, the caller alerts, and the ack still proceeds.
     duplicate_row_count: int = 0
+    # Rows with the same billing key but DIFFERENT measures — we can't trust either,
+    # so keep the larger and the caller WITHHOLDS the ack for reconciliation.
+    conflicting_row_count: int = 0
 
 
 def _compute_key(row: UsageRow) -> _ComputeKey:
@@ -59,22 +62,43 @@ def _storage_key(row: StorageRow) -> _StorageKey:
     return (row.date, row.team_id)
 
 
-def _dedup_raw(rows: list[_Row], key: Callable[[_Row], tuple]) -> tuple[list[_Row], int]:
-    """Drop rows duckgres emitted more than once for the same billing key — a
-    contract violation (its API serves one row per key per day). Left in, they would
-    either crash the mirror's unique insert or, once re-attributed, double-bill in
-    the fold. Keep the first; return the drop count so the caller can alert."""
-    seen: set[tuple] = set()
-    out: list[_Row] = []
-    dropped = 0
+def _compute_usage(row: UsageRow) -> tuple:
+    return (row.cpu_seconds, row.memory_seconds)
+
+
+def _storage_usage(row: StorageRow) -> tuple:
+    return (row.gib_seconds,)
+
+
+def _dedup_raw(
+    rows: list[_Row], key: Callable[[_Row], tuple], usage: Callable[[_Row], tuple]
+) -> tuple[list[_Row], int, int]:
+    """Collapse rows duckgres emitted more than once for the same billing key — a
+    contract violation (its API serves one row per key per day). Two flavours:
+
+    - **exact duplicate** (same key AND identical row): a harmless repeat — keep one.
+    - **value conflict** (same key, different measures — e.g. a partial then a
+      corrected total): we can't tell which is right, so keep the larger (by `usage`,
+      erring high) and flag it. The caller withholds the ack so duckgres keeps the
+      source for reconciliation instead of deleting it.
+
+    Left in, either flavour would crash the mirror's unique insert or double-bill in
+    the fold. Returns (deduped rows, exact-duplicate count, conflict count)."""
+    by_key: dict[tuple, _Row] = {}
+    exact = 0
+    conflicts = 0
     for row in rows:
         k = key(row)
-        if k in seen:
-            dropped += 1
-            continue
-        seen.add(k)
-        out.append(row)
-    return out, dropped
+        kept = by_key.get(k)
+        if kept is None:
+            by_key[k] = row
+        elif row == kept:
+            exact += 1  # identical repeat — drop
+        else:
+            conflicts += 1
+            if usage(row) > usage(kept):
+                by_key[k] = row  # keep the larger; provisional until reconciled
+    return list(by_key.values()), exact, conflicts
 
 
 def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[StorageRow]) -> ResolvedTeams:
@@ -89,21 +113,34 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     # repointed — permanent under-billing).
     from posthog.tasks.usage_report import billable_teams_queryset
 
-    # Drop raw duplicates first (a duckgres contract violation), so the fold below only
-    # ever sums *re-attribution* collisions — never double-bills a duplicate.
-    compute_rows, compute_dupes = _dedup_raw(compute_rows, _compute_key)
-    storage_rows, storage_dupes = _dedup_raw(storage_rows, _storage_key)
+    # Collapse raw duplicates first (a duckgres contract violation), so the fold below
+    # only ever sums *re-attribution* collisions — never double-bills a duplicate.
+    compute_rows, compute_dupes, compute_conflicts = _dedup_raw(compute_rows, _compute_key, _compute_usage)
+    storage_rows, storage_dupes, storage_conflicts = _dedup_raw(storage_rows, _storage_key, _storage_usage)
     duplicate_row_count = compute_dupes + storage_dupes
+    conflicting_row_count = compute_conflicts + storage_conflicts
 
     team_ids = {row.team_id for row in compute_rows} | {row.team_id for row in storage_rows}
     if not team_ids:
-        return ResolvedTeams(compute_rows, storage_rows, set(), duplicate_row_count=duplicate_row_count)
+        return ResolvedTeams(
+            compute_rows,
+            storage_rows,
+            set(),
+            duplicate_row_count=duplicate_row_count,
+            conflicting_row_count=conflicting_row_count,
+        )
 
     billable = billable_teams_queryset()
     billable_team_ids = set(billable.filter(id__in=team_ids).values_list("id", flat=True))
     dead_team_ids = team_ids - billable_team_ids
     if not dead_team_ids:
-        return ResolvedTeams(compute_rows, storage_rows, set(), duplicate_row_count=duplicate_row_count)
+        return ResolvedTeams(
+            compute_rows,
+            storage_rows,
+            set(),
+            duplicate_row_count=duplicate_row_count,
+            conflicting_row_count=conflicting_row_count,
+        )
 
     orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in dead_team_ids} | {
         row.org_id for row in storage_rows if row.team_id in dead_team_ids
@@ -120,6 +157,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     # non-billable teams (duckgres is stamping a deleted/unbillable default). If a
     # billable team already appears for the org, duckgres has — or is mid-switch to — a
     # billable default, so leave it; the mirror remap below still fixes the residual.
+    # (This can't see a switch to a new default that hasn't produced usage in the
+    # window yet, so we may briefly override it — billing-neutral, self-corrects.)
     orgs_with_billable_row = {row.org_id for row in compute_rows if row.team_id in billable_team_ids} | {
         row.org_id for row in storage_rows if row.team_id in billable_team_ids
     }
@@ -147,6 +186,7 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         orphaned_org_ids,
         default_team_repoints,
         duplicate_row_count,
+        conflicting_row_count,
     )
 
 

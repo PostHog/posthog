@@ -267,3 +267,41 @@ def test_reattribution_collision_still_sums_not_deduped() -> None:
     assert len(result.compute_rows) == 1
     assert result.compute_rows[0].cpu_seconds == 150  # summed
     assert result.duplicate_row_count == 0  # not a raw duplicate
+
+
+def test_same_key_conflicting_values_keep_max_and_flag() -> None:
+    # Same key, DIFFERENT measures (a partial then a corrected total) — we can't tell
+    # which is right, so keep the larger (err high) and flag it as a *conflict*,
+    # distinct from a harmless exact duplicate.
+    org, (t0, _) = _org_with_teams()
+    smaller = _compute(t0.id, str(org.id), cpu_seconds=100)
+    larger = _compute(t0.id, str(org.id), cpu_seconds=250)
+
+    result = resolve_billing_teams([smaller, larger], [])
+
+    assert len(result.compute_rows) == 1
+    assert result.compute_rows[0].cpu_seconds == 250  # kept the max, not the first
+    assert result.conflicting_row_count == 1
+    assert result.duplicate_row_count == 0
+
+
+def test_storage_exact_duplicate_is_deduped() -> None:
+    org, (t0, _) = _org_with_teams()
+    row = _storage(t0.id, str(org.id), gib="360000")
+
+    result = resolve_billing_teams([], [row, row])
+
+    assert len(result.storage_rows) == 1
+    assert result.duplicate_row_count == 1
+    assert result.conflicting_row_count == 0
+
+
+def test_storage_conflicting_values_keep_max_and_flag() -> None:
+    org, (t0, _) = _org_with_teams()
+    result = resolve_billing_teams(
+        [], [_storage(t0.id, str(org.id), gib="100"), _storage(t0.id, str(org.id), gib="250")]
+    )
+
+    assert len(result.storage_rows) == 1
+    assert result.storage_rows[0].gib_seconds == Decimal("250")  # kept the max
+    assert result.conflicting_row_count == 1

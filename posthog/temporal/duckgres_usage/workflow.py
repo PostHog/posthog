@@ -50,20 +50,15 @@ class PollDuckgresUsageWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
             heartbeat_timeout=timedelta(minutes=2),
         )
-        # The poll committed the watermark (record-before-ack); acking is a small
-        # POST in its own activity so a transient failure doesn't re-run the pull.
-        if result.ack_watermark is not None:
-            await workflow.execute_activity(
-                ack_duckgres_usage,
-                result.ack_watermark,
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
-            )
-        # A dead default team surfaced by the poll: duckgres is stamping a team
-        # that no longer exists for this org. Repoint it at the source, fire-and-
-        # forget (ABANDON — it outlives this poll). Stable id + ALLOW_DUPLICATE so
-        # repeated detections across polls don't stack: an in-flight repoint is
-        # skipped, and a completed one may re-run (idempotent server-side).
+        # A dead default team surfaced by the poll: duckgres is stamping a team that
+        # no longer exists for this org. Repoint it at the source *before* the ack, so
+        # a failing ack (which fails the whole run) can't strand the source fix and
+        # leave the next poll re-detecting the same dead team. Fire-and-forget (ABANDON
+        # — it outlives this poll). Stable id + ALLOW_DUPLICATE so repeated detections
+        # across polls don't stack: an in-flight repoint is skipped, a completed one may
+        # re-run (idempotent server-side). No workflow-level retry here — the child's
+        # activity already retries, so retrying the child too would multiply both the
+        # PUTs and the failure alerts.
         for org_id, team_id in result.default_team_repoints.items():
             try:
                 await workflow.start_child_workflow(
@@ -73,10 +68,18 @@ class PollDuckgresUsageWorkflow(PostHogWorkflow):
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     task_queue=workflow.info().task_queue,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
                 )
             except WorkflowAlreadyStartedError:
                 pass  # a repoint for this org is already running (a previous poll started it)
+        # The poll committed the watermark (record-before-ack); acking is a small
+        # POST in its own activity so a transient failure doesn't re-run the pull.
+        if result.ack_watermark is not None:
+            await workflow.execute_activity(
+                ack_duckgres_usage,
+                result.ack_watermark,
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
+            )
         return result
 
 
@@ -105,7 +108,14 @@ class UpdateDuckgresDefaultTeamWorkflow(PostHogWorkflow):
                 set_duckgres_default_team,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
+                # ValueError is input validation (bad team_id/org_id) — it won't heal on
+                # retry, so fail straight to the capture path. A server 4xx/5xx surfaces
+                # as DuckgresBillingAPIError, which stays retryable (may be transient).
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=10),
+                    non_retryable_error_types=["ValueError"],
+                ),
             )
         except ActivityError:
             # Retries exhausted. Surface it (capture is I/O, so its own activity — not
