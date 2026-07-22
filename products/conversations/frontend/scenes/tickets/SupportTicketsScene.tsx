@@ -17,7 +17,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Link } from 'lib/lemon-ui/Link'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -172,9 +171,12 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 
     const emptyState =
         searchQuery && hasActiveFilters ? (
-            <Link onClick={() => clearFiltersKeepingSearch()}>
-                You currently have filters applied. Try your search again without filters
-            </Link>
+            <div className="flex flex-col items-center gap-2 py-2">
+                <span>No tickets match your search with the current filters applied.</span>
+                <LemonButton type="secondary" size="small" onClick={() => clearFiltersKeepingSearch()}>
+                    Search again without filters
+                </LemonButton>
+            </div>
         ) : (
             'No tickets'
         )
