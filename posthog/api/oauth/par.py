@@ -36,6 +36,7 @@ from posthog.rate_limit import IPThrottle
 from .cimd import (
     CIMDFetchError,
     CIMDValidationError,
+    enforce_cimd_creation_throttle,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
@@ -190,6 +191,15 @@ class OAuthPushedAuthorizationRequestView(APIView):
             )
 
         client_id = data["client_id"]
+
+        # First-use CIMD provisioning triggers a synchronous outbound metadata
+        # fetch, so gate it on the same per-IP throttles /oauth/authorize/ uses
+        # before that work runs — otherwise this public endpoint could amplify
+        # cheap pushes into unbounded provisioning at the looser PAR IP limit.
+        if throttled := enforce_cimd_creation_throttle(request, self, client_id):
+            logger.warning("oauth_par_cimd_throttled", client_id=client_id)
+            return throttled
+
         application = _resolve_application(client_id)
         if application is None:
             logger.warning("oauth_par_invalid_client", client_id=client_id)

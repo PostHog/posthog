@@ -874,7 +874,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         mock_throttle.wait.return_value = 30
         mock_throttle.scope = "cimd_burst"
         mock_throttle_cls = MagicMock(return_value=mock_throttle)
-        with patch("posthog.api.oauth.views.CIMD_THROTTLE_CLASSES", new=[mock_throttle_cls]):
+        with patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[mock_throttle_cls]):
             url = self._authorize_url("https://new-client.example.com/.well-known/oauth-client-metadata.json")
             response = self.client.get(url)
 

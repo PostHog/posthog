@@ -40,9 +40,9 @@ from rest_framework.views import APIView
 
 from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
-    CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
+    enforce_cimd_creation_throttle,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
@@ -921,18 +921,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Must happen here (not in the OAuthValidator) because the validator
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
-            for throttle_cls in CIMD_THROTTLE_CLASSES:
-                throttle = throttle_cls()
-                if not throttle.allow_request(request, view=self):
-                    logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
-                    return Response(
-                        {
-                            "error": "invalid_client",
-                            "error_description": "Too many new client registrations. Try again later.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        if throttled := enforce_cimd_creation_throttle(request, self, client_id):
+            return throttled
 
         try:
             scopes, credentials = self.validate_authorization_request(request)
