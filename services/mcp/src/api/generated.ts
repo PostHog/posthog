@@ -9223,6 +9223,14 @@ export namespace Schemas {
       HistogramQuantile: 'histogram_quantile',
     } as const;
 
+    export interface AhaFeedbackSignalExtra {
+      workflow_status: string | null;
+      score: string | null;
+      votes: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `good` - good
      * * `bad` - bad
@@ -10144,6 +10152,25 @@ export namespace Schemas {
       totals: AppMetricsTotalsResponseTotals;
     }
 
+    export interface AppfiguresReviewSignalExtra {
+      stars: string | null;
+      version: string | null;
+      product: string | null;
+      date: string | null;
+    }
+
+    export interface AppfollowReviewSignalExtra {
+      rating: string | null;
+      store: string | null;
+      app_version: string | null;
+      date: string | null;
+    }
+
+    export interface ApplyPromptSuggestionRequest {
+      /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
+      config?: unknown;
+    }
+
     export interface ApprovalPolicy {
       readonly id: string;
       /** @maxLength 128 */
@@ -10211,6 +10238,14 @@ export namespace Schemas {
       File: 'file',
       GithubPr: 'github_pr',
     } as const;
+
+    export interface AsknicelyFeedbackSignalExtra {
+      score: string | null;
+      status: string | null;
+      question_type: string | null;
+      segment: string | null;
+      created: string | null;
+    }
 
     /**
      * * `user` - user
@@ -13101,6 +13136,14 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BugsnagErrorSignalExtra {
+      severity: string | null;
+      status: string | null;
+      context: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
+
     /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
@@ -13286,6 +13329,62 @@ export namespace Schemas {
          * @maxItems 500
          */
       notification_ids: string[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/{id}/bulk_observe/.
+     */
+    export interface BulkObserveRequest {
+      /**
+         * Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.
+         * @maxItems 200
+         * @items.maxLength 128
+         */
+      session_ids: string[];
+    }
+
+    /**
+     * * `started` - Started
+     * * `already_running` - Already running
+     * * `skipped_limit` - Skipped — in-flight limit reached
+     * * `skipped_quota` - Skipped — monthly credit quota reached
+     * * `failed` - Failed to start
+     */
+    export type ScanOutcomeEnum = typeof ScanOutcomeEnum[keyof typeof ScanOutcomeEnum];
+
+
+    export const ScanOutcomeEnum = {
+      Started: 'started',
+      AlreadyRunning: 'already_running',
+      SkippedLimit: 'skipped_limit',
+      SkippedQuota: 'skipped_quota',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Per-session outcome of a bulk scan trigger.
+     */
+    export interface BulkObserveResult {
+      /** The session recording this outcome is for. */
+      session_id: string;
+      /** 'started' — a scan workflow was kicked off; 'already_running' — a scan for this session is already in flight (no-op, not recharged); 'skipped_limit' — the in-flight cap was reached before this session; 'skipped_quota' — the monthly credit quota would be exceeded; 'failed' — the workflow failed to start.
+       *
+       * * `started` - Started
+       * * `already_running` - Already running
+       * * `skipped_limit` - Skipped — in-flight limit reached
+       * * `skipped_quota` - Skipped — monthly credit quota reached
+       * * `failed` - Failed to start */
+      scan_outcome: ScanOutcomeEnum;
+    }
+
+    /**
+     * Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design.
+     */
+    export interface BulkObserveResponse {
+      /** How many new scans were started. */
+      started: number;
+      /** Per-session outcomes, in request order (deduplicated). */
+      results: BulkObserveResult[];
     }
 
     /**
@@ -13710,6 +13809,15 @@ export namespace Schemas {
       suggestion_score: number;
       /** Human-readable rationale for the suggestion */
       suggestion_reason: string;
+    }
+
+    export interface CannyFeedbackSignalExtra {
+      status: string | null;
+      tags: unknown[];
+      score: string | null;
+      voteCount: string | null;
+      url: string | null;
+      created: string | null;
     }
 
     /**
@@ -14959,10 +15067,10 @@ export namespace Schemas {
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
-    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
+    export type ColumnConfigurationVisibilityEnum = typeof ColumnConfigurationVisibilityEnum[keyof typeof ColumnConfigurationVisibilityEnum];
 
 
-    export const VisibilityEnum = {
+    export const ColumnConfigurationVisibilityEnum = {
       Private: 'private',
       Shared: 'shared',
     } as const;
@@ -14983,7 +15091,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: VisibilityEnum;
+      visibility?: ColumnConfigurationVisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -15875,6 +15983,14 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    /**
+     * The PostHog Task created from an observation.
+     */
+    export interface CreateTaskFromObservationResponse {
+      /** ID of the PostHog Task holding this observation's finding, created now (201) or by an earlier call (200). */
+      task_id: string;
+    }
+
     export interface CreateTextSource {
       /**
          * Short human label for the source. Shown in the settings list and in agent citations.
@@ -16017,7 +16133,7 @@ export namespace Schemas {
          * @nullable
          */
       after: string | null;
-      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), or error. */
+      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
       outcome: string;
       /**
          * Why this session's re-run failed, when it did.
@@ -16073,6 +16189,12 @@ export namespace Schemas {
       readonly suggested_prompt: string;
       /** The scanner prompt this suggestion was generated against, for diffing. */
       readonly base_prompt: string;
+      /** The scanner config this suggestion was generated against. */
+      readonly base_config: unknown;
+      /** The full proposed scanner config, ready to apply. */
+      readonly suggested_config: unknown;
+      /** Typed per-field diff entries driving the change cards. */
+      readonly changes: unknown;
       /** What the rewrite changed and why, grounded in the ratings. */
       readonly rationale: string;
       /** Thumbs-up ratings the suggestion was based on. */
@@ -17296,7 +17418,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -17958,7 +18080,6 @@ export namespace Schemas {
      * * `Dixa` - Dixa
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
-     * * `Delighted` - Delighted
      * * `AzureDevOps` - AzureDevOps
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
@@ -18636,6 +18757,388 @@ export namespace Schemas {
      * * `Plivo` - Plivo
      * * `DataForSEO` - DataForSEO
      * * `Sleekplan` - Sleekplan
+     * * `AbTasty` - AbTasty
+     * * `Ably` - Ably
+     * * `AbnormalSecurity` - AbnormalSecurity
+     * * `Acast` - Acast
+     * * `Acculynx` - Acculynx
+     * * `Actionstep` - Actionstep
+     * * `Aftership` - Aftership
+     * * `AhaIdeas` - AhaIdeas
+     * * `AkamaiReporting` - AkamaiReporting
+     * * `Alation` - Alation
+     * * `Alegra` - Alegra
+     * * `Allegro` - Allegro
+     * * `AnodotCost` - AnodotCost
+     * * `Anomalo` - Anomalo
+     * * `Apaleo` - Apaleo
+     * * `Apitally` - Apitally
+     * * `AppStoreConnect` - AppStoreConnect
+     * * `Appdirect` - Appdirect
+     * * `Appfolio` - Appfolio
+     * * `Arxiv` - Arxiv
+     * * `Asaas` - Asaas
+     * * `Astronomer` - Astronomer
+     * * `Athenahealth` - Athenahealth
+     * * `Atlan` - Atlan
+     * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+     * * `Avalara` - Avalara
+     * * `AwsAthena` - AwsAthena
+     * * `AwsBatch` - AwsBatch
+     * * `AwsBudgets` - AwsBudgets
+     * * `AwsCloudformation` - AwsCloudformation
+     * * `AwsComputeOptimizer` - AwsComputeOptimizer
+     * * `AwsConfig` - AwsConfig
+     * * `AwsConnect` - AwsConnect
+     * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+     * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+     * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+     * * `AwsGuardduty` - AwsGuardduty
+     * * `AwsHealth` - AwsHealth
+     * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+     * * `AwsInspector` - AwsInspector
+     * * `AwsMacie` - AwsMacie
+     * * `AwsOrganizations` - AwsOrganizations
+     * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+     * * `AwsSagemaker` - AwsSagemaker
+     * * `AwsSavingsPlans` - AwsSavingsPlans
+     * * `AwsSecurityHub` - AwsSecurityHub
+     * * `AwsSes` - AwsSes
+     * * `AwsStepFunctions` - AwsStepFunctions
+     * * `AwsSupport` - AwsSupport
+     * * `AwsSystemsManager` - AwsSystemsManager
+     * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+     * * `AwsWaf` - AwsWaf
+     * * `AwsXray` - AwsXray
+     * * `AzureActivityLog` - AzureActivityLog
+     * * `AzureAdvisor` - AzureAdvisor
+     * * `AzureApiManagement` - AzureApiManagement
+     * * `AzureApplicationInsights` - AzureApplicationInsights
+     * * `AzureCostManagement` - AzureCostManagement
+     * * `AzureDataExplorer` - AzureDataExplorer
+     * * `AzureDataFactory` - AzureDataFactory
+     * * `AzureLogAnalytics` - AzureLogAnalytics
+     * * `AzureMonitorAlerts` - AzureMonitorAlerts
+     * * `AzureMonitorMetrics` - AzureMonitorMetrics
+     * * `AzureOpenaiUsage` - AzureOpenaiUsage
+     * * `AzurePolicyInsights` - AzurePolicyInsights
+     * * `AzureReservations` - AzureReservations
+     * * `AzureResourceGraph` - AzureResourceGraph
+     * * `AzureResourceHealth` - AzureResourceHealth
+     * * `AzureServiceHealth` - AzureServiceHealth
+     * * `AzureSynapse` - AzureSynapse
+     * * `BackMarket` - BackMarket
+     * * `Beehiiv` - Beehiiv
+     * * `Bigeye` - Bigeye
+     * * `BillCom` - BillCom
+     * * `Billomat` - Billomat
+     * * `BingWebmasterTools` - BingWebmasterTools
+     * * `Bitwarden` - Bitwarden
+     * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+     * * `BlackboardLearn` - BlackboardLearn
+     * * `Bling` - Bling
+     * * `Bloomerang` - Bloomerang
+     * * `Bluesky` - Bluesky
+     * * `BolRetailer` - BolRetailer
+     * * `Boulevard` - Boulevard
+     * * `Buffer` - Buffer
+     * * `Bugherd` - Bugherd
+     * * `Buildium` - Buildium
+     * * `Buttondown` - Buttondown
+     * * `BuyMeACoffee` - BuyMeACoffee
+     * * `Calendarific` - Calendarific
+     * * `Calibre` - Calibre
+     * * `CanvasLms` - CanvasLms
+     * * `Captivate` - Captivate
+     * * `Cashfree` - Cashfree
+     * * `CastAi` - CastAi
+     * * `Catchpoint` - Catchpoint
+     * * `CdcOpenData` - CdcOpenData
+     * * `Census` - Census
+     * * `Checkly` - Checkly
+     * * `CircleSo` - CircleSo
+     * * `Classy` - Classy
+     * * `Cleartax` - Cleartax
+     * * `Clever` - Clever
+     * * `Clevertap` - Clevertap
+     * * `Cliniko` - Cliniko
+     * * `Clio` - Clio
+     * * `Clip` - Clip
+     * * `Cloudability` - Cloudability
+     * * `Cloudsmith` - Cloudsmith
+     * * `Cloudzero` - Cloudzero
+     * * `Clover` - Clover
+     * * `Codemagic` - Codemagic
+     * * `Codescene` - Codescene
+     * * `Collibra` - Collibra
+     * * `Companycam` - Companycam
+     * * `Conekta` - Conekta
+     * * `ContaAzul` - ContaAzul
+     * * `Contentsquare` - Contentsquare
+     * * `Cortex` - Cortex
+     * * `Courier` - Courier
+     * * `Crossref` - Crossref
+     * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+     * * `CubeCloud` - CubeCloud
+     * * `D2lBrightspace` - D2lBrightspace
+     * * `Dayforce` - Dayforce
+     * * `Debugbear` - Debugbear
+     * * `Descope` - Descope
+     * * `Develocity` - Develocity
+     * * `Dialpad` - Dialpad
+     * * `Discord` - Discord
+     * * `Discourse` - Discourse
+     * * `Donorbox` - Donorbox
+     * * `Doorloop` - Doorloop
+     * * `Dovetail` - Dovetail
+     * * `Drchrono` - Drchrono
+     * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+     * * `EcbDataPortal` - EcbDataPortal
+     * * `Emarsys` - Emarsys
+     * * `Embrace` - Embrace
+     * * `Entsoe` - Entsoe
+     * * `Eppo` - Eppo
+     * * `Etsy` - Etsy
+     * * `Eurostat` - Eurostat
+     * * `Faire` - Faire
+     * * `FarosAi` - FarosAi
+     * * `Fieldpulse` - Fieldpulse
+     * * `Fieldwire` - Fieldwire
+     * * `Filevine` - Filevine
+     * * `Finout` - Finout
+     * * `Five9` - Five9
+     * * `FlexeraCloudCost` - FlexeraCloudCost
+     * * `Flutterwave` - Flutterwave
+     * * `Fortnox` - Fortnox
+     * * `Fourthwall` - Fourthwall
+     * * `Fred` - Fred
+     * * `Frontegg` - Frontegg
+     * * `FusionAuth` - FusionAuth
+     * * `G2` - G2
+     * * `Gcore` - Gcore
+     * * `GcpApigee` - GcpApigee
+     * * `GcpArtifactRegistry` - GcpArtifactRegistry
+     * * `GcpBigtable` - GcpBigtable
+     * * `GcpChronicle` - GcpChronicle
+     * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+     * * `GcpCloudBilling` - GcpCloudBilling
+     * * `GcpCloudBuild` - GcpCloudBuild
+     * * `GcpCloudDeploy` - GcpCloudDeploy
+     * * `GcpCloudDns` - GcpCloudDns
+     * * `GcpCloudFunctions` - GcpCloudFunctions
+     * * `GcpCloudLogging` - GcpCloudLogging
+     * * `GcpCloudMonitoring` - GcpCloudMonitoring
+     * * `GcpCloudRun` - GcpCloudRun
+     * * `GcpCloudSpanner` - GcpCloudSpanner
+     * * `GcpCloudSql` - GcpCloudSql
+     * * `GcpCloudTrace` - GcpCloudTrace
+     * * `GcpCloudWorkflows` - GcpCloudWorkflows
+     * * `GcpComputeEngine` - GcpComputeEngine
+     * * `GcpContainerAnalysis` - GcpContainerAnalysis
+     * * `GcpDataflow` - GcpDataflow
+     * * `GcpDataplex` - GcpDataplex
+     * * `GcpDataproc` - GcpDataproc
+     * * `GcpErrorReporting` - GcpErrorReporting
+     * * `GcpGke` - GcpGke
+     * * `GcpPubsub` - GcpPubsub
+     * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+     * * `GcpRecommender` - GcpRecommender
+     * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+     * * `Gdelt` - Gdelt
+     * * `GenesysCloud` - GenesysCloud
+     * * `Getdx` - Getdx
+     * * `Ghost` - Ghost
+     * * `Givebutter` - Givebutter
+     * * `Gleif` - Gleif
+     * * `GooglePlayConsole` - GooglePlayConsole
+     * * `Guesty` - Guesty
+     * * `Gumroad` - Gumroad
+     * * `HarnessCcm` - HarnessCcm
+     * * `HarnessSei` - HarnessSei
+     * * `Harvest` - Harvest
+     * * `Healthie` - Healthie
+     * * `Hitpay` - Hitpay
+     * * `Hivebrite` - Hivebrite
+     * * `Holded` - Holded
+     * * `Hostaway` - Hostaway
+     * * `HousecallPro` - HousecallPro
+     * * `Humanitec` - Humanitec
+     * * `ImfData` - ImfData
+     * * `Imperva` - Imperva
+     * * `InfluxdbCloud` - InfluxdbCloud
+     * * `Iyzico` - Iyzico
+     * * `Jobtread` - Jobtread
+     * * `Kameleoon` - Kameleoon
+     * * `KauflandMarketplace` - KauflandMarketplace
+     * * `Kestra` - Kestra
+     * * `Kick` - Kick
+     * * `Kinde` - Kinde
+     * * `Kion` - Kion
+     * * `Knowbe4` - Knowbe4
+     * * `Komodor` - Komodor
+     * * `Labelbox` - Labelbox
+     * * `Lawmatics` - Lawmatics
+     * * `Learnworlds` - Learnworlds
+     * * `LexwareOffice` - LexwareOffice
+     * * `Lightdash` - Lightdash
+     * * `Lodgify` - Lodgify
+     * * `Logicmonitor` - Logicmonitor
+     * * `Logrocket` - Logrocket
+     * * `LoopReturns` - LoopReturns
+     * * `Mastodon` - Mastodon
+     * * `Meetup` - Meetup
+     * * `Memberful` - Memberful
+     * * `MercadoPago` - MercadoPago
+     * * `Meteostat` - Meteostat
+     * * `Mews` - Mews
+     * * `Mezmo` - Mezmo
+     * * `Microsoft365UsageReports` - Microsoft365UsageReports
+     * * `MicrosoftAdvertising` - MicrosoftAdvertising
+     * * `MicrosoftClarity` - MicrosoftClarity
+     * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+     * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+     * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+     * * `MicrosoftIntune` - MicrosoftIntune
+     * * `MicrosoftPurview` - MicrosoftPurview
+     * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+     * * `MicrosoftSentinel` - MicrosoftSentinel
+     * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+     * * `Midtrans` - Midtrans
+     * * `MightyNetworks` - MightyNetworks
+     * * `Mindbody` - Mindbody
+     * * `Mirakl` - Mirakl
+     * * `Moesif` - Moesif
+     * * `Moneybird` - Moneybird
+     * * `Moodle` - Moodle
+     * * `Motherduck` - Motherduck
+     * * `Mycase` - Mycase
+     * * `NagerDate` - NagerDate
+     * * `NeonCrm` - NeonCrm
+     * * `Nexhealth` - Nexhealth
+     * * `NoaaCdo` - NoaaCdo
+     * * `Nobl9` - Nobl9
+     * * `Nolt` - Nolt
+     * * `Nops` - Nops
+     * * `NpmRegistry` - NpmRegistry
+     * * `Oecd` - Oecd
+     * * `Okendo` - Okendo
+     * * `Omni` - Omni
+     * * `Onelogin` - Onelogin
+     * * `OpenDental` - OpenDental
+     * * `OpenMeteo` - OpenMeteo
+     * * `Openalex` - Openalex
+     * * `Opencorporates` - Opencorporates
+     * * `Openfec` - Openfec
+     * * `OpnPayments` - OpnPayments
+     * * `Opslevel` - Opslevel
+     * * `OttoMarket` - OttoMarket
+     * * `Ownerrez` - Ownerrez
+     * * `Pagbank` - Pagbank
+     * * `Patreon` - Patreon
+     * * `Pax8` - Pax8
+     * * `Paychex` - Paychex
+     * * `Paymob` - Paymob
+     * * `Paymongo` - Paymongo
+     * * `Phonepe` - Phonepe
+     * * `Pike13` - Pike13
+     * * `Pingone` - Pingone
+     * * `PinterestOrganic` - PinterestOrganic
+     * * `PlanningCenter` - PlanningCenter
+     * * `PluralsightFlow` - PluralsightFlow
+     * * `Podbean` - Podbean
+     * * `Postscript` - Postscript
+     * * `PowerBiAdmin` - PowerBiAdmin
+     * * `Practicepanther` - Practicepanther
+     * * `Preset` - Preset
+     * * `Procore` - Procore
+     * * `Productiv` - Productiv
+     * * `ProofpointTap` - ProofpointTap
+     * * `Propertyware` - Propertyware
+     * * `Pubnub` - Pubnub
+     * * `Quay` - Quay
+     * * `Raken` - Raken
+     * * `RedpandaCloud` - RedpandaCloud
+     * * `RentManager` - RentManager
+     * * `Reverb` - Reverb
+     * * `RocketMatter` - RocketMatter
+     * * `Rubygems` - Rubygems
+     * * `Scalr` - Scalr
+     * * `SecEdgar` - SecEdgar
+     * * `SelectStar` - SelectStar
+     * * `SemanticScholar` - SemanticScholar
+     * * `Semrush` - Semrush
+     * * `ServiceFusion` - ServiceFusion
+     * * `Servicem8` - Servicem8
+     * * `Servicetitan` - Servicetitan
+     * * `Servicetrade` - Servicetrade
+     * * `Sevdesk` - Sevdesk
+     * * `Similarweb` - Similarweb
+     * * `Simpro` - Simpro
+     * * `Sinch` - Sinch
+     * * `Singlestore` - Singlestore
+     * * `Site24x7` - Site24x7
+     * * `Sleuth` - Sleuth
+     * * `Smartlook` - Smartlook
+     * * `Smartrecruiters` - Smartrecruiters
+     * * `Smokeball` - Smokeball
+     * * `SodaCloud` - SodaCloud
+     * * `Speedcurve` - Speedcurve
+     * * `SpotIo` - SpotIo
+     * * `Sprig` - Sprig
+     * * `Sprinklr` - Sprinklr
+     * * `SproutSocial` - SproutSocial
+     * * `StackOverflowForTeams` - StackOverflowForTeams
+     * * `Stockx` - Stockx
+     * * `TackleIo` - TackleIo
+     * * `Talkdesk` - Talkdesk
+     * * `TeamupFitness` - TeamupFitness
+     * * `Tebra` - Tebra
+     * * `Telnyx` - Telnyx
+     * * `Ternary` - Ternary
+     * * `Thoughtspot` - Thoughtspot
+     * * `Thousandeyes` - Thousandeyes
+     * * `Threads` - Threads
+     * * `TiktokShop` - TiktokShop
+     * * `TinyErp` - TinyErp
+     * * `Tinybird` - Tinybird
+     * * `Tipalti` - Tipalti
+     * * `Toast` - Toast
+     * * `Torii` - Torii
+     * * `Transistor` - Transistor
+     * * `TrunkIo` - TrunkIo
+     * * `Trustradius` - Trustradius
+     * * `Twitch` - Twitch
+     * * `TwoC2p` - TwoC2p
+     * * `UkCompaniesHouse` - UkCompaniesHouse
+     * * `UkOns` - UkOns
+     * * `UnComtrade` - UnComtrade
+     * * `UsBea` - UsBea
+     * * `UsBls` - UsBls
+     * * `UsEia` - UsEia
+     * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+     * * `Vanta` - Vanta
+     * * `Vendr` - Vendr
+     * * `Virtuous` - Virtuous
+     * * `Vonage` - Vonage
+     * * `WalmartMarketplace` - WalmartMarketplace
+     * * `Waydev` - Waydev
+     * * `Wayfair` - Wayfair
+     * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+     * * `WhoGho` - WhoGho
+     * * `Whop` - Whop
+     * * `Wiz` - Wiz
+     * * `Wompi` - Wompi
+     * * `Workiz` - Workiz
+     * * `WorldBank` - WorldBank
+     * * `Xendit` - Xendit
+     * * `Yoco` - Yoco
+     * * `ZalandoZdirect` - ZalandoZdirect
+     * * `Zluri` - Zluri
+     * * `Zylo` - Zylo
+     * * `Tally` - Tally
+     * * `Nuntly` - Nuntly
+     * * `Vturb` - Vturb
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18827,7 +19330,6 @@ export namespace Schemas {
       Dixa: 'Dixa',
       Gladly: 'Gladly',
       Qualtrics: 'Qualtrics',
-      Delighted: 'Delighted',
       AzureDevOps: 'AzureDevOps',
       Rollbar: 'Rollbar',
       Opsgenie: 'Opsgenie',
@@ -19505,6 +20007,388 @@ export namespace Schemas {
       Plivo: 'Plivo',
       DataForSEO: 'DataForSEO',
       Sleekplan: 'Sleekplan',
+      AbTasty: 'AbTasty',
+      Ably: 'Ably',
+      AbnormalSecurity: 'AbnormalSecurity',
+      Acast: 'Acast',
+      Acculynx: 'Acculynx',
+      Actionstep: 'Actionstep',
+      Aftership: 'Aftership',
+      AhaIdeas: 'AhaIdeas',
+      AkamaiReporting: 'AkamaiReporting',
+      Alation: 'Alation',
+      Alegra: 'Alegra',
+      Allegro: 'Allegro',
+      AnodotCost: 'AnodotCost',
+      Anomalo: 'Anomalo',
+      Apaleo: 'Apaleo',
+      Apitally: 'Apitally',
+      AppStoreConnect: 'AppStoreConnect',
+      Appdirect: 'Appdirect',
+      Appfolio: 'Appfolio',
+      Arxiv: 'Arxiv',
+      Asaas: 'Asaas',
+      Astronomer: 'Astronomer',
+      Athenahealth: 'Athenahealth',
+      Atlan: 'Atlan',
+      AutodeskConstructionCloud: 'AutodeskConstructionCloud',
+      Avalara: 'Avalara',
+      AwsAthena: 'AwsAthena',
+      AwsBatch: 'AwsBatch',
+      AwsBudgets: 'AwsBudgets',
+      AwsCloudformation: 'AwsCloudformation',
+      AwsComputeOptimizer: 'AwsComputeOptimizer',
+      AwsConfig: 'AwsConfig',
+      AwsConnect: 'AwsConnect',
+      AwsCostAndUsageReport: 'AwsCostAndUsageReport',
+      AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
+      AwsCostExplorer: 'AwsCostExplorer',
+      AwsGlueDataCatalog: 'AwsGlueDataCatalog',
+      AwsGuardduty: 'AwsGuardduty',
+      AwsHealth: 'AwsHealth',
+      AwsIamAccessAnalyzer: 'AwsIamAccessAnalyzer',
+      AwsInspector: 'AwsInspector',
+      AwsMacie: 'AwsMacie',
+      AwsOrganizations: 'AwsOrganizations',
+      AwsRdsPerformanceInsights: 'AwsRdsPerformanceInsights',
+      AwsSagemaker: 'AwsSagemaker',
+      AwsSavingsPlans: 'AwsSavingsPlans',
+      AwsSecurityHub: 'AwsSecurityHub',
+      AwsSes: 'AwsSes',
+      AwsStepFunctions: 'AwsStepFunctions',
+      AwsSupport: 'AwsSupport',
+      AwsSystemsManager: 'AwsSystemsManager',
+      AwsTrustedAdvisor: 'AwsTrustedAdvisor',
+      AwsWaf: 'AwsWaf',
+      AwsXray: 'AwsXray',
+      AzureActivityLog: 'AzureActivityLog',
+      AzureAdvisor: 'AzureAdvisor',
+      AzureApiManagement: 'AzureApiManagement',
+      AzureApplicationInsights: 'AzureApplicationInsights',
+      AzureCostManagement: 'AzureCostManagement',
+      AzureDataExplorer: 'AzureDataExplorer',
+      AzureDataFactory: 'AzureDataFactory',
+      AzureLogAnalytics: 'AzureLogAnalytics',
+      AzureMonitorAlerts: 'AzureMonitorAlerts',
+      AzureMonitorMetrics: 'AzureMonitorMetrics',
+      AzureOpenaiUsage: 'AzureOpenaiUsage',
+      AzurePolicyInsights: 'AzurePolicyInsights',
+      AzureReservations: 'AzureReservations',
+      AzureResourceGraph: 'AzureResourceGraph',
+      AzureResourceHealth: 'AzureResourceHealth',
+      AzureServiceHealth: 'AzureServiceHealth',
+      AzureSynapse: 'AzureSynapse',
+      BackMarket: 'BackMarket',
+      Beehiiv: 'Beehiiv',
+      Bigeye: 'Bigeye',
+      BillCom: 'BillCom',
+      Billomat: 'Billomat',
+      BingWebmasterTools: 'BingWebmasterTools',
+      Bitwarden: 'Bitwarden',
+      BlackbaudRaisersEdgeNxt: 'BlackbaudRaisersEdgeNxt',
+      BlackboardLearn: 'BlackboardLearn',
+      Bling: 'Bling',
+      Bloomerang: 'Bloomerang',
+      Bluesky: 'Bluesky',
+      BolRetailer: 'BolRetailer',
+      Boulevard: 'Boulevard',
+      Buffer: 'Buffer',
+      Bugherd: 'Bugherd',
+      Buildium: 'Buildium',
+      Buttondown: 'Buttondown',
+      BuyMeACoffee: 'BuyMeACoffee',
+      Calendarific: 'Calendarific',
+      Calibre: 'Calibre',
+      CanvasLms: 'CanvasLms',
+      Captivate: 'Captivate',
+      Cashfree: 'Cashfree',
+      CastAi: 'CastAi',
+      Catchpoint: 'Catchpoint',
+      CdcOpenData: 'CdcOpenData',
+      Census: 'Census',
+      Checkly: 'Checkly',
+      CircleSo: 'CircleSo',
+      Classy: 'Classy',
+      Cleartax: 'Cleartax',
+      Clever: 'Clever',
+      Clevertap: 'Clevertap',
+      Cliniko: 'Cliniko',
+      Clio: 'Clio',
+      Clip: 'Clip',
+      Cloudability: 'Cloudability',
+      Cloudsmith: 'Cloudsmith',
+      Cloudzero: 'Cloudzero',
+      Clover: 'Clover',
+      Codemagic: 'Codemagic',
+      Codescene: 'Codescene',
+      Collibra: 'Collibra',
+      Companycam: 'Companycam',
+      Conekta: 'Conekta',
+      ContaAzul: 'ContaAzul',
+      Contentsquare: 'Contentsquare',
+      Cortex: 'Cortex',
+      Courier: 'Courier',
+      Crossref: 'Crossref',
+      CrowdstrikeFalcon: 'CrowdstrikeFalcon',
+      CubeCloud: 'CubeCloud',
+      D2lBrightspace: 'D2lBrightspace',
+      Dayforce: 'Dayforce',
+      Debugbear: 'Debugbear',
+      Descope: 'Descope',
+      Develocity: 'Develocity',
+      Dialpad: 'Dialpad',
+      Discord: 'Discord',
+      Discourse: 'Discourse',
+      Donorbox: 'Donorbox',
+      Doorloop: 'Doorloop',
+      Dovetail: 'Dovetail',
+      Drchrono: 'Drchrono',
+      Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
+      EcbDataPortal: 'EcbDataPortal',
+      Emarsys: 'Emarsys',
+      Embrace: 'Embrace',
+      Entsoe: 'Entsoe',
+      Eppo: 'Eppo',
+      Etsy: 'Etsy',
+      Eurostat: 'Eurostat',
+      Faire: 'Faire',
+      FarosAi: 'FarosAi',
+      Fieldpulse: 'Fieldpulse',
+      Fieldwire: 'Fieldwire',
+      Filevine: 'Filevine',
+      Finout: 'Finout',
+      Five9: 'Five9',
+      FlexeraCloudCost: 'FlexeraCloudCost',
+      Flutterwave: 'Flutterwave',
+      Fortnox: 'Fortnox',
+      Fourthwall: 'Fourthwall',
+      Fred: 'Fred',
+      Frontegg: 'Frontegg',
+      FusionAuth: 'FusionAuth',
+      G2: 'G2',
+      Gcore: 'Gcore',
+      GcpApigee: 'GcpApigee',
+      GcpArtifactRegistry: 'GcpArtifactRegistry',
+      GcpBigtable: 'GcpBigtable',
+      GcpChronicle: 'GcpChronicle',
+      GcpCloudAssetInventory: 'GcpCloudAssetInventory',
+      GcpCloudBilling: 'GcpCloudBilling',
+      GcpCloudBuild: 'GcpCloudBuild',
+      GcpCloudDeploy: 'GcpCloudDeploy',
+      GcpCloudDns: 'GcpCloudDns',
+      GcpCloudFunctions: 'GcpCloudFunctions',
+      GcpCloudLogging: 'GcpCloudLogging',
+      GcpCloudMonitoring: 'GcpCloudMonitoring',
+      GcpCloudRun: 'GcpCloudRun',
+      GcpCloudSpanner: 'GcpCloudSpanner',
+      GcpCloudSql: 'GcpCloudSql',
+      GcpCloudTrace: 'GcpCloudTrace',
+      GcpCloudWorkflows: 'GcpCloudWorkflows',
+      GcpComputeEngine: 'GcpComputeEngine',
+      GcpContainerAnalysis: 'GcpContainerAnalysis',
+      GcpDataflow: 'GcpDataflow',
+      GcpDataplex: 'GcpDataplex',
+      GcpDataproc: 'GcpDataproc',
+      GcpErrorReporting: 'GcpErrorReporting',
+      GcpGke: 'GcpGke',
+      GcpPubsub: 'GcpPubsub',
+      GcpRecaptchaEnterprise: 'GcpRecaptchaEnterprise',
+      GcpRecommender: 'GcpRecommender',
+      GcpSecurityCommandCenter: 'GcpSecurityCommandCenter',
+      Gdelt: 'Gdelt',
+      GenesysCloud: 'GenesysCloud',
+      Getdx: 'Getdx',
+      Ghost: 'Ghost',
+      Givebutter: 'Givebutter',
+      Gleif: 'Gleif',
+      GooglePlayConsole: 'GooglePlayConsole',
+      Guesty: 'Guesty',
+      Gumroad: 'Gumroad',
+      HarnessCcm: 'HarnessCcm',
+      HarnessSei: 'HarnessSei',
+      Harvest: 'Harvest',
+      Healthie: 'Healthie',
+      Hitpay: 'Hitpay',
+      Hivebrite: 'Hivebrite',
+      Holded: 'Holded',
+      Hostaway: 'Hostaway',
+      HousecallPro: 'HousecallPro',
+      Humanitec: 'Humanitec',
+      ImfData: 'ImfData',
+      Imperva: 'Imperva',
+      InfluxdbCloud: 'InfluxdbCloud',
+      Iyzico: 'Iyzico',
+      Jobtread: 'Jobtread',
+      Kameleoon: 'Kameleoon',
+      KauflandMarketplace: 'KauflandMarketplace',
+      Kestra: 'Kestra',
+      Kick: 'Kick',
+      Kinde: 'Kinde',
+      Kion: 'Kion',
+      Knowbe4: 'Knowbe4',
+      Komodor: 'Komodor',
+      Labelbox: 'Labelbox',
+      Lawmatics: 'Lawmatics',
+      Learnworlds: 'Learnworlds',
+      LexwareOffice: 'LexwareOffice',
+      Lightdash: 'Lightdash',
+      Lodgify: 'Lodgify',
+      Logicmonitor: 'Logicmonitor',
+      Logrocket: 'Logrocket',
+      LoopReturns: 'LoopReturns',
+      Mastodon: 'Mastodon',
+      Meetup: 'Meetup',
+      Memberful: 'Memberful',
+      MercadoPago: 'MercadoPago',
+      Meteostat: 'Meteostat',
+      Mews: 'Mews',
+      Mezmo: 'Mezmo',
+      Microsoft365UsageReports: 'Microsoft365UsageReports',
+      MicrosoftAdvertising: 'MicrosoftAdvertising',
+      MicrosoftClarity: 'MicrosoftClarity',
+      MicrosoftDefenderCloudApps: 'MicrosoftDefenderCloudApps',
+      MicrosoftDefenderEndpoint: 'MicrosoftDefenderEndpoint',
+      MicrosoftDefenderForCloud: 'MicrosoftDefenderForCloud',
+      MicrosoftIntune: 'MicrosoftIntune',
+      MicrosoftPurview: 'MicrosoftPurview',
+      MicrosoftPurviewAudit: 'MicrosoftPurviewAudit',
+      MicrosoftSentinel: 'MicrosoftSentinel',
+      MicrosoftTeamsCallRecords: 'MicrosoftTeamsCallRecords',
+      Midtrans: 'Midtrans',
+      MightyNetworks: 'MightyNetworks',
+      Mindbody: 'Mindbody',
+      Mirakl: 'Mirakl',
+      Moesif: 'Moesif',
+      Moneybird: 'Moneybird',
+      Moodle: 'Moodle',
+      Motherduck: 'Motherduck',
+      Mycase: 'Mycase',
+      NagerDate: 'NagerDate',
+      NeonCrm: 'NeonCrm',
+      Nexhealth: 'Nexhealth',
+      NoaaCdo: 'NoaaCdo',
+      Nobl9: 'Nobl9',
+      Nolt: 'Nolt',
+      Nops: 'Nops',
+      NpmRegistry: 'NpmRegistry',
+      Oecd: 'Oecd',
+      Okendo: 'Okendo',
+      Omni: 'Omni',
+      Onelogin: 'Onelogin',
+      OpenDental: 'OpenDental',
+      OpenMeteo: 'OpenMeteo',
+      Openalex: 'Openalex',
+      Opencorporates: 'Opencorporates',
+      Openfec: 'Openfec',
+      OpnPayments: 'OpnPayments',
+      Opslevel: 'Opslevel',
+      OttoMarket: 'OttoMarket',
+      Ownerrez: 'Ownerrez',
+      Pagbank: 'Pagbank',
+      Patreon: 'Patreon',
+      Pax8: 'Pax8',
+      Paychex: 'Paychex',
+      Paymob: 'Paymob',
+      Paymongo: 'Paymongo',
+      Phonepe: 'Phonepe',
+      Pike13: 'Pike13',
+      Pingone: 'Pingone',
+      PinterestOrganic: 'PinterestOrganic',
+      PlanningCenter: 'PlanningCenter',
+      PluralsightFlow: 'PluralsightFlow',
+      Podbean: 'Podbean',
+      Postscript: 'Postscript',
+      PowerBiAdmin: 'PowerBiAdmin',
+      Practicepanther: 'Practicepanther',
+      Preset: 'Preset',
+      Procore: 'Procore',
+      Productiv: 'Productiv',
+      ProofpointTap: 'ProofpointTap',
+      Propertyware: 'Propertyware',
+      Pubnub: 'Pubnub',
+      Quay: 'Quay',
+      Raken: 'Raken',
+      RedpandaCloud: 'RedpandaCloud',
+      RentManager: 'RentManager',
+      Reverb: 'Reverb',
+      RocketMatter: 'RocketMatter',
+      Rubygems: 'Rubygems',
+      Scalr: 'Scalr',
+      SecEdgar: 'SecEdgar',
+      SelectStar: 'SelectStar',
+      SemanticScholar: 'SemanticScholar',
+      Semrush: 'Semrush',
+      ServiceFusion: 'ServiceFusion',
+      Servicem8: 'Servicem8',
+      Servicetitan: 'Servicetitan',
+      Servicetrade: 'Servicetrade',
+      Sevdesk: 'Sevdesk',
+      Similarweb: 'Similarweb',
+      Simpro: 'Simpro',
+      Sinch: 'Sinch',
+      Singlestore: 'Singlestore',
+      Site24x7: 'Site24x7',
+      Sleuth: 'Sleuth',
+      Smartlook: 'Smartlook',
+      Smartrecruiters: 'Smartrecruiters',
+      Smokeball: 'Smokeball',
+      SodaCloud: 'SodaCloud',
+      Speedcurve: 'Speedcurve',
+      SpotIo: 'SpotIo',
+      Sprig: 'Sprig',
+      Sprinklr: 'Sprinklr',
+      SproutSocial: 'SproutSocial',
+      StackOverflowForTeams: 'StackOverflowForTeams',
+      Stockx: 'Stockx',
+      TackleIo: 'TackleIo',
+      Talkdesk: 'Talkdesk',
+      TeamupFitness: 'TeamupFitness',
+      Tebra: 'Tebra',
+      Telnyx: 'Telnyx',
+      Ternary: 'Ternary',
+      Thoughtspot: 'Thoughtspot',
+      Thousandeyes: 'Thousandeyes',
+      Threads: 'Threads',
+      TiktokShop: 'TiktokShop',
+      TinyErp: 'TinyErp',
+      Tinybird: 'Tinybird',
+      Tipalti: 'Tipalti',
+      Toast: 'Toast',
+      Torii: 'Torii',
+      Transistor: 'Transistor',
+      TrunkIo: 'TrunkIo',
+      Trustradius: 'Trustradius',
+      Twitch: 'Twitch',
+      TwoC2p: 'TwoC2p',
+      UkCompaniesHouse: 'UkCompaniesHouse',
+      UkOns: 'UkOns',
+      UnComtrade: 'UnComtrade',
+      UsBea: 'UsBea',
+      UsBls: 'UsBls',
+      UsEia: 'UsEia',
+      UsTreasuryFiscalData: 'UsTreasuryFiscalData',
+      Vanta: 'Vanta',
+      Vendr: 'Vendr',
+      Virtuous: 'Virtuous',
+      Vonage: 'Vonage',
+      WalmartMarketplace: 'WalmartMarketplace',
+      Waydev: 'Waydev',
+      Wayfair: 'Wayfair',
+      WhatsappBusinessManagement: 'WhatsappBusinessManagement',
+      WhoGho: 'WhoGho',
+      Whop: 'Whop',
+      Wiz: 'Wiz',
+      Wompi: 'Wompi',
+      Workiz: 'Workiz',
+      WorldBank: 'WorldBank',
+      Xendit: 'Xendit',
+      Yoco: 'Yoco',
+      ZalandoZdirect: 'ZalandoZdirect',
+      Zluri: 'Zluri',
+      Zylo: 'Zylo',
+      Tally: 'Tally',
+      Nuntly: 'Nuntly',
+      Vturb: 'Vturb',
     } as const;
 
     /**
@@ -19710,7 +20594,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -20387,7 +21270,389 @@ export namespace Schemas {
        * * `Axiom` - Axiom
        * * `Plivo` - Plivo
        * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan */
+       * * `Sleekplan` - Sleekplan
+       * * `AbTasty` - AbTasty
+       * * `Ably` - Ably
+       * * `AbnormalSecurity` - AbnormalSecurity
+       * * `Acast` - Acast
+       * * `Acculynx` - Acculynx
+       * * `Actionstep` - Actionstep
+       * * `Aftership` - Aftership
+       * * `AhaIdeas` - AhaIdeas
+       * * `AkamaiReporting` - AkamaiReporting
+       * * `Alation` - Alation
+       * * `Alegra` - Alegra
+       * * `Allegro` - Allegro
+       * * `AnodotCost` - AnodotCost
+       * * `Anomalo` - Anomalo
+       * * `Apaleo` - Apaleo
+       * * `Apitally` - Apitally
+       * * `AppStoreConnect` - AppStoreConnect
+       * * `Appdirect` - Appdirect
+       * * `Appfolio` - Appfolio
+       * * `Arxiv` - Arxiv
+       * * `Asaas` - Asaas
+       * * `Astronomer` - Astronomer
+       * * `Athenahealth` - Athenahealth
+       * * `Atlan` - Atlan
+       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+       * * `Avalara` - Avalara
+       * * `AwsAthena` - AwsAthena
+       * * `AwsBatch` - AwsBatch
+       * * `AwsBudgets` - AwsBudgets
+       * * `AwsCloudformation` - AwsCloudformation
+       * * `AwsComputeOptimizer` - AwsComputeOptimizer
+       * * `AwsConfig` - AwsConfig
+       * * `AwsConnect` - AwsConnect
+       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+       * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+       * * `AwsGuardduty` - AwsGuardduty
+       * * `AwsHealth` - AwsHealth
+       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+       * * `AwsInspector` - AwsInspector
+       * * `AwsMacie` - AwsMacie
+       * * `AwsOrganizations` - AwsOrganizations
+       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+       * * `AwsSagemaker` - AwsSagemaker
+       * * `AwsSavingsPlans` - AwsSavingsPlans
+       * * `AwsSecurityHub` - AwsSecurityHub
+       * * `AwsSes` - AwsSes
+       * * `AwsStepFunctions` - AwsStepFunctions
+       * * `AwsSupport` - AwsSupport
+       * * `AwsSystemsManager` - AwsSystemsManager
+       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+       * * `AwsWaf` - AwsWaf
+       * * `AwsXray` - AwsXray
+       * * `AzureActivityLog` - AzureActivityLog
+       * * `AzureAdvisor` - AzureAdvisor
+       * * `AzureApiManagement` - AzureApiManagement
+       * * `AzureApplicationInsights` - AzureApplicationInsights
+       * * `AzureCostManagement` - AzureCostManagement
+       * * `AzureDataExplorer` - AzureDataExplorer
+       * * `AzureDataFactory` - AzureDataFactory
+       * * `AzureLogAnalytics` - AzureLogAnalytics
+       * * `AzureMonitorAlerts` - AzureMonitorAlerts
+       * * `AzureMonitorMetrics` - AzureMonitorMetrics
+       * * `AzureOpenaiUsage` - AzureOpenaiUsage
+       * * `AzurePolicyInsights` - AzurePolicyInsights
+       * * `AzureReservations` - AzureReservations
+       * * `AzureResourceGraph` - AzureResourceGraph
+       * * `AzureResourceHealth` - AzureResourceHealth
+       * * `AzureServiceHealth` - AzureServiceHealth
+       * * `AzureSynapse` - AzureSynapse
+       * * `BackMarket` - BackMarket
+       * * `Beehiiv` - Beehiiv
+       * * `Bigeye` - Bigeye
+       * * `BillCom` - BillCom
+       * * `Billomat` - Billomat
+       * * `BingWebmasterTools` - BingWebmasterTools
+       * * `Bitwarden` - Bitwarden
+       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+       * * `BlackboardLearn` - BlackboardLearn
+       * * `Bling` - Bling
+       * * `Bloomerang` - Bloomerang
+       * * `Bluesky` - Bluesky
+       * * `BolRetailer` - BolRetailer
+       * * `Boulevard` - Boulevard
+       * * `Buffer` - Buffer
+       * * `Bugherd` - Bugherd
+       * * `Buildium` - Buildium
+       * * `Buttondown` - Buttondown
+       * * `BuyMeACoffee` - BuyMeACoffee
+       * * `Calendarific` - Calendarific
+       * * `Calibre` - Calibre
+       * * `CanvasLms` - CanvasLms
+       * * `Captivate` - Captivate
+       * * `Cashfree` - Cashfree
+       * * `CastAi` - CastAi
+       * * `Catchpoint` - Catchpoint
+       * * `CdcOpenData` - CdcOpenData
+       * * `Census` - Census
+       * * `Checkly` - Checkly
+       * * `CircleSo` - CircleSo
+       * * `Classy` - Classy
+       * * `Cleartax` - Cleartax
+       * * `Clever` - Clever
+       * * `Clevertap` - Clevertap
+       * * `Cliniko` - Cliniko
+       * * `Clio` - Clio
+       * * `Clip` - Clip
+       * * `Cloudability` - Cloudability
+       * * `Cloudsmith` - Cloudsmith
+       * * `Cloudzero` - Cloudzero
+       * * `Clover` - Clover
+       * * `Codemagic` - Codemagic
+       * * `Codescene` - Codescene
+       * * `Collibra` - Collibra
+       * * `Companycam` - Companycam
+       * * `Conekta` - Conekta
+       * * `ContaAzul` - ContaAzul
+       * * `Contentsquare` - Contentsquare
+       * * `Cortex` - Cortex
+       * * `Courier` - Courier
+       * * `Crossref` - Crossref
+       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+       * * `CubeCloud` - CubeCloud
+       * * `D2lBrightspace` - D2lBrightspace
+       * * `Dayforce` - Dayforce
+       * * `Debugbear` - Debugbear
+       * * `Descope` - Descope
+       * * `Develocity` - Develocity
+       * * `Dialpad` - Dialpad
+       * * `Discord` - Discord
+       * * `Discourse` - Discourse
+       * * `Donorbox` - Donorbox
+       * * `Doorloop` - Doorloop
+       * * `Dovetail` - Dovetail
+       * * `Drchrono` - Drchrono
+       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+       * * `EcbDataPortal` - EcbDataPortal
+       * * `Emarsys` - Emarsys
+       * * `Embrace` - Embrace
+       * * `Entsoe` - Entsoe
+       * * `Eppo` - Eppo
+       * * `Etsy` - Etsy
+       * * `Eurostat` - Eurostat
+       * * `Faire` - Faire
+       * * `FarosAi` - FarosAi
+       * * `Fieldpulse` - Fieldpulse
+       * * `Fieldwire` - Fieldwire
+       * * `Filevine` - Filevine
+       * * `Finout` - Finout
+       * * `Five9` - Five9
+       * * `FlexeraCloudCost` - FlexeraCloudCost
+       * * `Flutterwave` - Flutterwave
+       * * `Fortnox` - Fortnox
+       * * `Fourthwall` - Fourthwall
+       * * `Fred` - Fred
+       * * `Frontegg` - Frontegg
+       * * `FusionAuth` - FusionAuth
+       * * `G2` - G2
+       * * `Gcore` - Gcore
+       * * `GcpApigee` - GcpApigee
+       * * `GcpArtifactRegistry` - GcpArtifactRegistry
+       * * `GcpBigtable` - GcpBigtable
+       * * `GcpChronicle` - GcpChronicle
+       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+       * * `GcpCloudBilling` - GcpCloudBilling
+       * * `GcpCloudBuild` - GcpCloudBuild
+       * * `GcpCloudDeploy` - GcpCloudDeploy
+       * * `GcpCloudDns` - GcpCloudDns
+       * * `GcpCloudFunctions` - GcpCloudFunctions
+       * * `GcpCloudLogging` - GcpCloudLogging
+       * * `GcpCloudMonitoring` - GcpCloudMonitoring
+       * * `GcpCloudRun` - GcpCloudRun
+       * * `GcpCloudSpanner` - GcpCloudSpanner
+       * * `GcpCloudSql` - GcpCloudSql
+       * * `GcpCloudTrace` - GcpCloudTrace
+       * * `GcpCloudWorkflows` - GcpCloudWorkflows
+       * * `GcpComputeEngine` - GcpComputeEngine
+       * * `GcpContainerAnalysis` - GcpContainerAnalysis
+       * * `GcpDataflow` - GcpDataflow
+       * * `GcpDataplex` - GcpDataplex
+       * * `GcpDataproc` - GcpDataproc
+       * * `GcpErrorReporting` - GcpErrorReporting
+       * * `GcpGke` - GcpGke
+       * * `GcpPubsub` - GcpPubsub
+       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+       * * `GcpRecommender` - GcpRecommender
+       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+       * * `Gdelt` - Gdelt
+       * * `GenesysCloud` - GenesysCloud
+       * * `Getdx` - Getdx
+       * * `Ghost` - Ghost
+       * * `Givebutter` - Givebutter
+       * * `Gleif` - Gleif
+       * * `GooglePlayConsole` - GooglePlayConsole
+       * * `Guesty` - Guesty
+       * * `Gumroad` - Gumroad
+       * * `HarnessCcm` - HarnessCcm
+       * * `HarnessSei` - HarnessSei
+       * * `Harvest` - Harvest
+       * * `Healthie` - Healthie
+       * * `Hitpay` - Hitpay
+       * * `Hivebrite` - Hivebrite
+       * * `Holded` - Holded
+       * * `Hostaway` - Hostaway
+       * * `HousecallPro` - HousecallPro
+       * * `Humanitec` - Humanitec
+       * * `ImfData` - ImfData
+       * * `Imperva` - Imperva
+       * * `InfluxdbCloud` - InfluxdbCloud
+       * * `Iyzico` - Iyzico
+       * * `Jobtread` - Jobtread
+       * * `Kameleoon` - Kameleoon
+       * * `KauflandMarketplace` - KauflandMarketplace
+       * * `Kestra` - Kestra
+       * * `Kick` - Kick
+       * * `Kinde` - Kinde
+       * * `Kion` - Kion
+       * * `Knowbe4` - Knowbe4
+       * * `Komodor` - Komodor
+       * * `Labelbox` - Labelbox
+       * * `Lawmatics` - Lawmatics
+       * * `Learnworlds` - Learnworlds
+       * * `LexwareOffice` - LexwareOffice
+       * * `Lightdash` - Lightdash
+       * * `Lodgify` - Lodgify
+       * * `Logicmonitor` - Logicmonitor
+       * * `Logrocket` - Logrocket
+       * * `LoopReturns` - LoopReturns
+       * * `Mastodon` - Mastodon
+       * * `Meetup` - Meetup
+       * * `Memberful` - Memberful
+       * * `MercadoPago` - MercadoPago
+       * * `Meteostat` - Meteostat
+       * * `Mews` - Mews
+       * * `Mezmo` - Mezmo
+       * * `Microsoft365UsageReports` - Microsoft365UsageReports
+       * * `MicrosoftAdvertising` - MicrosoftAdvertising
+       * * `MicrosoftClarity` - MicrosoftClarity
+       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+       * * `MicrosoftIntune` - MicrosoftIntune
+       * * `MicrosoftPurview` - MicrosoftPurview
+       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+       * * `MicrosoftSentinel` - MicrosoftSentinel
+       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+       * * `Midtrans` - Midtrans
+       * * `MightyNetworks` - MightyNetworks
+       * * `Mindbody` - Mindbody
+       * * `Mirakl` - Mirakl
+       * * `Moesif` - Moesif
+       * * `Moneybird` - Moneybird
+       * * `Moodle` - Moodle
+       * * `Motherduck` - Motherduck
+       * * `Mycase` - Mycase
+       * * `NagerDate` - NagerDate
+       * * `NeonCrm` - NeonCrm
+       * * `Nexhealth` - Nexhealth
+       * * `NoaaCdo` - NoaaCdo
+       * * `Nobl9` - Nobl9
+       * * `Nolt` - Nolt
+       * * `Nops` - Nops
+       * * `NpmRegistry` - NpmRegistry
+       * * `Oecd` - Oecd
+       * * `Okendo` - Okendo
+       * * `Omni` - Omni
+       * * `Onelogin` - Onelogin
+       * * `OpenDental` - OpenDental
+       * * `OpenMeteo` - OpenMeteo
+       * * `Openalex` - Openalex
+       * * `Opencorporates` - Opencorporates
+       * * `Openfec` - Openfec
+       * * `OpnPayments` - OpnPayments
+       * * `Opslevel` - Opslevel
+       * * `OttoMarket` - OttoMarket
+       * * `Ownerrez` - Ownerrez
+       * * `Pagbank` - Pagbank
+       * * `Patreon` - Patreon
+       * * `Pax8` - Pax8
+       * * `Paychex` - Paychex
+       * * `Paymob` - Paymob
+       * * `Paymongo` - Paymongo
+       * * `Phonepe` - Phonepe
+       * * `Pike13` - Pike13
+       * * `Pingone` - Pingone
+       * * `PinterestOrganic` - PinterestOrganic
+       * * `PlanningCenter` - PlanningCenter
+       * * `PluralsightFlow` - PluralsightFlow
+       * * `Podbean` - Podbean
+       * * `Postscript` - Postscript
+       * * `PowerBiAdmin` - PowerBiAdmin
+       * * `Practicepanther` - Practicepanther
+       * * `Preset` - Preset
+       * * `Procore` - Procore
+       * * `Productiv` - Productiv
+       * * `ProofpointTap` - ProofpointTap
+       * * `Propertyware` - Propertyware
+       * * `Pubnub` - Pubnub
+       * * `Quay` - Quay
+       * * `Raken` - Raken
+       * * `RedpandaCloud` - RedpandaCloud
+       * * `RentManager` - RentManager
+       * * `Reverb` - Reverb
+       * * `RocketMatter` - RocketMatter
+       * * `Rubygems` - Rubygems
+       * * `Scalr` - Scalr
+       * * `SecEdgar` - SecEdgar
+       * * `SelectStar` - SelectStar
+       * * `SemanticScholar` - SemanticScholar
+       * * `Semrush` - Semrush
+       * * `ServiceFusion` - ServiceFusion
+       * * `Servicem8` - Servicem8
+       * * `Servicetitan` - Servicetitan
+       * * `Servicetrade` - Servicetrade
+       * * `Sevdesk` - Sevdesk
+       * * `Similarweb` - Similarweb
+       * * `Simpro` - Simpro
+       * * `Sinch` - Sinch
+       * * `Singlestore` - Singlestore
+       * * `Site24x7` - Site24x7
+       * * `Sleuth` - Sleuth
+       * * `Smartlook` - Smartlook
+       * * `Smartrecruiters` - Smartrecruiters
+       * * `Smokeball` - Smokeball
+       * * `SodaCloud` - SodaCloud
+       * * `Speedcurve` - Speedcurve
+       * * `SpotIo` - SpotIo
+       * * `Sprig` - Sprig
+       * * `Sprinklr` - Sprinklr
+       * * `SproutSocial` - SproutSocial
+       * * `StackOverflowForTeams` - StackOverflowForTeams
+       * * `Stockx` - Stockx
+       * * `TackleIo` - TackleIo
+       * * `Talkdesk` - Talkdesk
+       * * `TeamupFitness` - TeamupFitness
+       * * `Tebra` - Tebra
+       * * `Telnyx` - Telnyx
+       * * `Ternary` - Ternary
+       * * `Thoughtspot` - Thoughtspot
+       * * `Thousandeyes` - Thousandeyes
+       * * `Threads` - Threads
+       * * `TiktokShop` - TiktokShop
+       * * `TinyErp` - TinyErp
+       * * `Tinybird` - Tinybird
+       * * `Tipalti` - Tipalti
+       * * `Toast` - Toast
+       * * `Torii` - Torii
+       * * `Transistor` - Transistor
+       * * `TrunkIo` - TrunkIo
+       * * `Trustradius` - Trustradius
+       * * `Twitch` - Twitch
+       * * `TwoC2p` - TwoC2p
+       * * `UkCompaniesHouse` - UkCompaniesHouse
+       * * `UkOns` - UkOns
+       * * `UnComtrade` - UnComtrade
+       * * `UsBea` - UsBea
+       * * `UsBls` - UsBls
+       * * `UsEia` - UsEia
+       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+       * * `Vanta` - Vanta
+       * * `Vendr` - Vendr
+       * * `Virtuous` - Virtuous
+       * * `Vonage` - Vonage
+       * * `WalmartMarketplace` - WalmartMarketplace
+       * * `Waydev` - Waydev
+       * * `Wayfair` - Wayfair
+       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+       * * `WhoGho` - WhoGho
+       * * `Whop` - Whop
+       * * `Wiz` - Wiz
+       * * `Wompi` - Wompi
+       * * `Workiz` - Workiz
+       * * `WorldBank` - WorldBank
+       * * `Xendit` - Xendit
+       * * `Yoco` - Yoco
+       * * `ZalandoZdirect` - ZalandoZdirect
+       * * `Zluri` - Zluri
+       * * `Zylo` - Zylo
+       * * `Tally` - Tally
+       * * `Nuntly` - Nuntly
+       * * `Vturb` - Vturb */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -20890,6 +22155,13 @@ export namespace Schemas {
       L2Distance: 'L2Distance',
       CosineDistance: 'cosineDistance',
     } as const;
+
+    export interface DixaConversationSignalExtra {
+      status: string | null;
+      channel: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
 
     export interface DocsSearchRequest {
       /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
@@ -23598,17 +24870,15 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `gemini-2.5-flash` - Gemini 2.5 Flash
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.5-flash` - Gemini 3.5 Flash
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
 
 
     export const ScannerModelEnum = {
-      Gemini25Flash: 'gemini-2.5-flash',
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini35Flash: 'gemini-3.5-flash',
+      Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini36Flash: 'gemini-3.6-flash',
     } as const;
 
     /**
@@ -23636,9 +24906,8 @@ export namespace Schemas {
       scanner_id?: string | null;
       /** Proposed model; determines `credits_per_observation` in the response.
        *
-       * * `gemini-2.5-flash` - Gemini 2.5 Flash
-       * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -23669,6 +24938,8 @@ export namespace Schemas {
          * @maximum 100
          */
       session_limit?: number;
+      /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
+      config?: unknown;
     }
 
     /**
@@ -24519,6 +25790,22 @@ export namespace Schemas {
       AiSpan: '$ai_span',
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
+    } as const;
+
+    /**
+     * * `run_completed` - run_completed
+     * * `run_failed` - run_failed
+     * * `pr_created` - pr_created
+     * * `needs_attention` - needs_attention
+     */
+    export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
+
+
+    export const EventsEnum = {
+      RunCompleted: 'run_completed',
+      RunFailed: 'run_failed',
+      PrCreated: 'pr_created',
+      NeedsAttention: 'needs_attention',
     } as const;
 
     export interface ExecuteTestClusterRequest {
@@ -25550,6 +26837,8 @@ export namespace Schemas {
          * @nullable
          */
       pr_url: string | null;
+      /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+      can_view_task: boolean;
     }
 
     /**
@@ -25795,6 +27084,22 @@ export namespace Schemas {
     }
 
     /**
+     * One experiment metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricHit {
+      /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+      metric_uuid: string;
+      /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+      metric_name: string;
+      /** Total number of events in the session matching any of the metric's event/action sources. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching the metric. */
+      first_timestamp: string;
+      /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+      timestamps: string[];
+    }
+
+    /**
      * One experiment whose feature flag a session recording saw.
      */
     export interface ExperimentSessionContextItem {
@@ -25825,6 +27130,8 @@ export namespace Schemas {
          * @nullable
          */
       experiment_end_date: string | null;
+      /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+      metrics_in_session: ExperimentSessionMetricHit[];
     }
 
     /**
@@ -26591,7 +27898,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -27268,7 +28574,389 @@ export namespace Schemas {
        * * `Axiom` - Axiom
        * * `Plivo` - Plivo
        * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan */
+       * * `Sleekplan` - Sleekplan
+       * * `AbTasty` - AbTasty
+       * * `Ably` - Ably
+       * * `AbnormalSecurity` - AbnormalSecurity
+       * * `Acast` - Acast
+       * * `Acculynx` - Acculynx
+       * * `Actionstep` - Actionstep
+       * * `Aftership` - Aftership
+       * * `AhaIdeas` - AhaIdeas
+       * * `AkamaiReporting` - AkamaiReporting
+       * * `Alation` - Alation
+       * * `Alegra` - Alegra
+       * * `Allegro` - Allegro
+       * * `AnodotCost` - AnodotCost
+       * * `Anomalo` - Anomalo
+       * * `Apaleo` - Apaleo
+       * * `Apitally` - Apitally
+       * * `AppStoreConnect` - AppStoreConnect
+       * * `Appdirect` - Appdirect
+       * * `Appfolio` - Appfolio
+       * * `Arxiv` - Arxiv
+       * * `Asaas` - Asaas
+       * * `Astronomer` - Astronomer
+       * * `Athenahealth` - Athenahealth
+       * * `Atlan` - Atlan
+       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+       * * `Avalara` - Avalara
+       * * `AwsAthena` - AwsAthena
+       * * `AwsBatch` - AwsBatch
+       * * `AwsBudgets` - AwsBudgets
+       * * `AwsCloudformation` - AwsCloudformation
+       * * `AwsComputeOptimizer` - AwsComputeOptimizer
+       * * `AwsConfig` - AwsConfig
+       * * `AwsConnect` - AwsConnect
+       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+       * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+       * * `AwsGuardduty` - AwsGuardduty
+       * * `AwsHealth` - AwsHealth
+       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+       * * `AwsInspector` - AwsInspector
+       * * `AwsMacie` - AwsMacie
+       * * `AwsOrganizations` - AwsOrganizations
+       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+       * * `AwsSagemaker` - AwsSagemaker
+       * * `AwsSavingsPlans` - AwsSavingsPlans
+       * * `AwsSecurityHub` - AwsSecurityHub
+       * * `AwsSes` - AwsSes
+       * * `AwsStepFunctions` - AwsStepFunctions
+       * * `AwsSupport` - AwsSupport
+       * * `AwsSystemsManager` - AwsSystemsManager
+       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+       * * `AwsWaf` - AwsWaf
+       * * `AwsXray` - AwsXray
+       * * `AzureActivityLog` - AzureActivityLog
+       * * `AzureAdvisor` - AzureAdvisor
+       * * `AzureApiManagement` - AzureApiManagement
+       * * `AzureApplicationInsights` - AzureApplicationInsights
+       * * `AzureCostManagement` - AzureCostManagement
+       * * `AzureDataExplorer` - AzureDataExplorer
+       * * `AzureDataFactory` - AzureDataFactory
+       * * `AzureLogAnalytics` - AzureLogAnalytics
+       * * `AzureMonitorAlerts` - AzureMonitorAlerts
+       * * `AzureMonitorMetrics` - AzureMonitorMetrics
+       * * `AzureOpenaiUsage` - AzureOpenaiUsage
+       * * `AzurePolicyInsights` - AzurePolicyInsights
+       * * `AzureReservations` - AzureReservations
+       * * `AzureResourceGraph` - AzureResourceGraph
+       * * `AzureResourceHealth` - AzureResourceHealth
+       * * `AzureServiceHealth` - AzureServiceHealth
+       * * `AzureSynapse` - AzureSynapse
+       * * `BackMarket` - BackMarket
+       * * `Beehiiv` - Beehiiv
+       * * `Bigeye` - Bigeye
+       * * `BillCom` - BillCom
+       * * `Billomat` - Billomat
+       * * `BingWebmasterTools` - BingWebmasterTools
+       * * `Bitwarden` - Bitwarden
+       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+       * * `BlackboardLearn` - BlackboardLearn
+       * * `Bling` - Bling
+       * * `Bloomerang` - Bloomerang
+       * * `Bluesky` - Bluesky
+       * * `BolRetailer` - BolRetailer
+       * * `Boulevard` - Boulevard
+       * * `Buffer` - Buffer
+       * * `Bugherd` - Bugherd
+       * * `Buildium` - Buildium
+       * * `Buttondown` - Buttondown
+       * * `BuyMeACoffee` - BuyMeACoffee
+       * * `Calendarific` - Calendarific
+       * * `Calibre` - Calibre
+       * * `CanvasLms` - CanvasLms
+       * * `Captivate` - Captivate
+       * * `Cashfree` - Cashfree
+       * * `CastAi` - CastAi
+       * * `Catchpoint` - Catchpoint
+       * * `CdcOpenData` - CdcOpenData
+       * * `Census` - Census
+       * * `Checkly` - Checkly
+       * * `CircleSo` - CircleSo
+       * * `Classy` - Classy
+       * * `Cleartax` - Cleartax
+       * * `Clever` - Clever
+       * * `Clevertap` - Clevertap
+       * * `Cliniko` - Cliniko
+       * * `Clio` - Clio
+       * * `Clip` - Clip
+       * * `Cloudability` - Cloudability
+       * * `Cloudsmith` - Cloudsmith
+       * * `Cloudzero` - Cloudzero
+       * * `Clover` - Clover
+       * * `Codemagic` - Codemagic
+       * * `Codescene` - Codescene
+       * * `Collibra` - Collibra
+       * * `Companycam` - Companycam
+       * * `Conekta` - Conekta
+       * * `ContaAzul` - ContaAzul
+       * * `Contentsquare` - Contentsquare
+       * * `Cortex` - Cortex
+       * * `Courier` - Courier
+       * * `Crossref` - Crossref
+       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+       * * `CubeCloud` - CubeCloud
+       * * `D2lBrightspace` - D2lBrightspace
+       * * `Dayforce` - Dayforce
+       * * `Debugbear` - Debugbear
+       * * `Descope` - Descope
+       * * `Develocity` - Develocity
+       * * `Dialpad` - Dialpad
+       * * `Discord` - Discord
+       * * `Discourse` - Discourse
+       * * `Donorbox` - Donorbox
+       * * `Doorloop` - Doorloop
+       * * `Dovetail` - Dovetail
+       * * `Drchrono` - Drchrono
+       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+       * * `EcbDataPortal` - EcbDataPortal
+       * * `Emarsys` - Emarsys
+       * * `Embrace` - Embrace
+       * * `Entsoe` - Entsoe
+       * * `Eppo` - Eppo
+       * * `Etsy` - Etsy
+       * * `Eurostat` - Eurostat
+       * * `Faire` - Faire
+       * * `FarosAi` - FarosAi
+       * * `Fieldpulse` - Fieldpulse
+       * * `Fieldwire` - Fieldwire
+       * * `Filevine` - Filevine
+       * * `Finout` - Finout
+       * * `Five9` - Five9
+       * * `FlexeraCloudCost` - FlexeraCloudCost
+       * * `Flutterwave` - Flutterwave
+       * * `Fortnox` - Fortnox
+       * * `Fourthwall` - Fourthwall
+       * * `Fred` - Fred
+       * * `Frontegg` - Frontegg
+       * * `FusionAuth` - FusionAuth
+       * * `G2` - G2
+       * * `Gcore` - Gcore
+       * * `GcpApigee` - GcpApigee
+       * * `GcpArtifactRegistry` - GcpArtifactRegistry
+       * * `GcpBigtable` - GcpBigtable
+       * * `GcpChronicle` - GcpChronicle
+       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+       * * `GcpCloudBilling` - GcpCloudBilling
+       * * `GcpCloudBuild` - GcpCloudBuild
+       * * `GcpCloudDeploy` - GcpCloudDeploy
+       * * `GcpCloudDns` - GcpCloudDns
+       * * `GcpCloudFunctions` - GcpCloudFunctions
+       * * `GcpCloudLogging` - GcpCloudLogging
+       * * `GcpCloudMonitoring` - GcpCloudMonitoring
+       * * `GcpCloudRun` - GcpCloudRun
+       * * `GcpCloudSpanner` - GcpCloudSpanner
+       * * `GcpCloudSql` - GcpCloudSql
+       * * `GcpCloudTrace` - GcpCloudTrace
+       * * `GcpCloudWorkflows` - GcpCloudWorkflows
+       * * `GcpComputeEngine` - GcpComputeEngine
+       * * `GcpContainerAnalysis` - GcpContainerAnalysis
+       * * `GcpDataflow` - GcpDataflow
+       * * `GcpDataplex` - GcpDataplex
+       * * `GcpDataproc` - GcpDataproc
+       * * `GcpErrorReporting` - GcpErrorReporting
+       * * `GcpGke` - GcpGke
+       * * `GcpPubsub` - GcpPubsub
+       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+       * * `GcpRecommender` - GcpRecommender
+       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+       * * `Gdelt` - Gdelt
+       * * `GenesysCloud` - GenesysCloud
+       * * `Getdx` - Getdx
+       * * `Ghost` - Ghost
+       * * `Givebutter` - Givebutter
+       * * `Gleif` - Gleif
+       * * `GooglePlayConsole` - GooglePlayConsole
+       * * `Guesty` - Guesty
+       * * `Gumroad` - Gumroad
+       * * `HarnessCcm` - HarnessCcm
+       * * `HarnessSei` - HarnessSei
+       * * `Harvest` - Harvest
+       * * `Healthie` - Healthie
+       * * `Hitpay` - Hitpay
+       * * `Hivebrite` - Hivebrite
+       * * `Holded` - Holded
+       * * `Hostaway` - Hostaway
+       * * `HousecallPro` - HousecallPro
+       * * `Humanitec` - Humanitec
+       * * `ImfData` - ImfData
+       * * `Imperva` - Imperva
+       * * `InfluxdbCloud` - InfluxdbCloud
+       * * `Iyzico` - Iyzico
+       * * `Jobtread` - Jobtread
+       * * `Kameleoon` - Kameleoon
+       * * `KauflandMarketplace` - KauflandMarketplace
+       * * `Kestra` - Kestra
+       * * `Kick` - Kick
+       * * `Kinde` - Kinde
+       * * `Kion` - Kion
+       * * `Knowbe4` - Knowbe4
+       * * `Komodor` - Komodor
+       * * `Labelbox` - Labelbox
+       * * `Lawmatics` - Lawmatics
+       * * `Learnworlds` - Learnworlds
+       * * `LexwareOffice` - LexwareOffice
+       * * `Lightdash` - Lightdash
+       * * `Lodgify` - Lodgify
+       * * `Logicmonitor` - Logicmonitor
+       * * `Logrocket` - Logrocket
+       * * `LoopReturns` - LoopReturns
+       * * `Mastodon` - Mastodon
+       * * `Meetup` - Meetup
+       * * `Memberful` - Memberful
+       * * `MercadoPago` - MercadoPago
+       * * `Meteostat` - Meteostat
+       * * `Mews` - Mews
+       * * `Mezmo` - Mezmo
+       * * `Microsoft365UsageReports` - Microsoft365UsageReports
+       * * `MicrosoftAdvertising` - MicrosoftAdvertising
+       * * `MicrosoftClarity` - MicrosoftClarity
+       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+       * * `MicrosoftIntune` - MicrosoftIntune
+       * * `MicrosoftPurview` - MicrosoftPurview
+       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+       * * `MicrosoftSentinel` - MicrosoftSentinel
+       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+       * * `Midtrans` - Midtrans
+       * * `MightyNetworks` - MightyNetworks
+       * * `Mindbody` - Mindbody
+       * * `Mirakl` - Mirakl
+       * * `Moesif` - Moesif
+       * * `Moneybird` - Moneybird
+       * * `Moodle` - Moodle
+       * * `Motherduck` - Motherduck
+       * * `Mycase` - Mycase
+       * * `NagerDate` - NagerDate
+       * * `NeonCrm` - NeonCrm
+       * * `Nexhealth` - Nexhealth
+       * * `NoaaCdo` - NoaaCdo
+       * * `Nobl9` - Nobl9
+       * * `Nolt` - Nolt
+       * * `Nops` - Nops
+       * * `NpmRegistry` - NpmRegistry
+       * * `Oecd` - Oecd
+       * * `Okendo` - Okendo
+       * * `Omni` - Omni
+       * * `Onelogin` - Onelogin
+       * * `OpenDental` - OpenDental
+       * * `OpenMeteo` - OpenMeteo
+       * * `Openalex` - Openalex
+       * * `Opencorporates` - Opencorporates
+       * * `Openfec` - Openfec
+       * * `OpnPayments` - OpnPayments
+       * * `Opslevel` - Opslevel
+       * * `OttoMarket` - OttoMarket
+       * * `Ownerrez` - Ownerrez
+       * * `Pagbank` - Pagbank
+       * * `Patreon` - Patreon
+       * * `Pax8` - Pax8
+       * * `Paychex` - Paychex
+       * * `Paymob` - Paymob
+       * * `Paymongo` - Paymongo
+       * * `Phonepe` - Phonepe
+       * * `Pike13` - Pike13
+       * * `Pingone` - Pingone
+       * * `PinterestOrganic` - PinterestOrganic
+       * * `PlanningCenter` - PlanningCenter
+       * * `PluralsightFlow` - PluralsightFlow
+       * * `Podbean` - Podbean
+       * * `Postscript` - Postscript
+       * * `PowerBiAdmin` - PowerBiAdmin
+       * * `Practicepanther` - Practicepanther
+       * * `Preset` - Preset
+       * * `Procore` - Procore
+       * * `Productiv` - Productiv
+       * * `ProofpointTap` - ProofpointTap
+       * * `Propertyware` - Propertyware
+       * * `Pubnub` - Pubnub
+       * * `Quay` - Quay
+       * * `Raken` - Raken
+       * * `RedpandaCloud` - RedpandaCloud
+       * * `RentManager` - RentManager
+       * * `Reverb` - Reverb
+       * * `RocketMatter` - RocketMatter
+       * * `Rubygems` - Rubygems
+       * * `Scalr` - Scalr
+       * * `SecEdgar` - SecEdgar
+       * * `SelectStar` - SelectStar
+       * * `SemanticScholar` - SemanticScholar
+       * * `Semrush` - Semrush
+       * * `ServiceFusion` - ServiceFusion
+       * * `Servicem8` - Servicem8
+       * * `Servicetitan` - Servicetitan
+       * * `Servicetrade` - Servicetrade
+       * * `Sevdesk` - Sevdesk
+       * * `Similarweb` - Similarweb
+       * * `Simpro` - Simpro
+       * * `Sinch` - Sinch
+       * * `Singlestore` - Singlestore
+       * * `Site24x7` - Site24x7
+       * * `Sleuth` - Sleuth
+       * * `Smartlook` - Smartlook
+       * * `Smartrecruiters` - Smartrecruiters
+       * * `Smokeball` - Smokeball
+       * * `SodaCloud` - SodaCloud
+       * * `Speedcurve` - Speedcurve
+       * * `SpotIo` - SpotIo
+       * * `Sprig` - Sprig
+       * * `Sprinklr` - Sprinklr
+       * * `SproutSocial` - SproutSocial
+       * * `StackOverflowForTeams` - StackOverflowForTeams
+       * * `Stockx` - Stockx
+       * * `TackleIo` - TackleIo
+       * * `Talkdesk` - Talkdesk
+       * * `TeamupFitness` - TeamupFitness
+       * * `Tebra` - Tebra
+       * * `Telnyx` - Telnyx
+       * * `Ternary` - Ternary
+       * * `Thoughtspot` - Thoughtspot
+       * * `Thousandeyes` - Thousandeyes
+       * * `Threads` - Threads
+       * * `TiktokShop` - TiktokShop
+       * * `TinyErp` - TinyErp
+       * * `Tinybird` - Tinybird
+       * * `Tipalti` - Tipalti
+       * * `Toast` - Toast
+       * * `Torii` - Torii
+       * * `Transistor` - Transistor
+       * * `TrunkIo` - TrunkIo
+       * * `Trustradius` - Trustradius
+       * * `Twitch` - Twitch
+       * * `TwoC2p` - TwoC2p
+       * * `UkCompaniesHouse` - UkCompaniesHouse
+       * * `UkOns` - UkOns
+       * * `UnComtrade` - UnComtrade
+       * * `UsBea` - UsBea
+       * * `UsBls` - UsBls
+       * * `UsEia` - UsEia
+       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+       * * `Vanta` - Vanta
+       * * `Vendr` - Vendr
+       * * `Virtuous` - Virtuous
+       * * `Vonage` - Vonage
+       * * `WalmartMarketplace` - WalmartMarketplace
+       * * `Waydev` - Waydev
+       * * `Wayfair` - Wayfair
+       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+       * * `WhoGho` - WhoGho
+       * * `Whop` - Whop
+       * * `Wiz` - Wiz
+       * * `Wompi` - Wompi
+       * * `Workiz` - Workiz
+       * * `WorldBank` - WorldBank
+       * * `Xendit` - Xendit
+       * * `Yoco` - Yoco
+       * * `ZalandoZdirect` - ZalandoZdirect
+       * * `Zluri` - Zluri
+       * * `Zylo` - Zylo
+       * * `Tally` - Tally
+       * * `Nuntly` - Nuntly
+       * * `Vturb` - Vturb */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27487,7 +29175,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -28164,7 +29851,389 @@ export namespace Schemas {
        * * `Axiom` - Axiom
        * * `Plivo` - Plivo
        * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan */
+       * * `Sleekplan` - Sleekplan
+       * * `AbTasty` - AbTasty
+       * * `Ably` - Ably
+       * * `AbnormalSecurity` - AbnormalSecurity
+       * * `Acast` - Acast
+       * * `Acculynx` - Acculynx
+       * * `Actionstep` - Actionstep
+       * * `Aftership` - Aftership
+       * * `AhaIdeas` - AhaIdeas
+       * * `AkamaiReporting` - AkamaiReporting
+       * * `Alation` - Alation
+       * * `Alegra` - Alegra
+       * * `Allegro` - Allegro
+       * * `AnodotCost` - AnodotCost
+       * * `Anomalo` - Anomalo
+       * * `Apaleo` - Apaleo
+       * * `Apitally` - Apitally
+       * * `AppStoreConnect` - AppStoreConnect
+       * * `Appdirect` - Appdirect
+       * * `Appfolio` - Appfolio
+       * * `Arxiv` - Arxiv
+       * * `Asaas` - Asaas
+       * * `Astronomer` - Astronomer
+       * * `Athenahealth` - Athenahealth
+       * * `Atlan` - Atlan
+       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+       * * `Avalara` - Avalara
+       * * `AwsAthena` - AwsAthena
+       * * `AwsBatch` - AwsBatch
+       * * `AwsBudgets` - AwsBudgets
+       * * `AwsCloudformation` - AwsCloudformation
+       * * `AwsComputeOptimizer` - AwsComputeOptimizer
+       * * `AwsConfig` - AwsConfig
+       * * `AwsConnect` - AwsConnect
+       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+       * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+       * * `AwsGuardduty` - AwsGuardduty
+       * * `AwsHealth` - AwsHealth
+       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+       * * `AwsInspector` - AwsInspector
+       * * `AwsMacie` - AwsMacie
+       * * `AwsOrganizations` - AwsOrganizations
+       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+       * * `AwsSagemaker` - AwsSagemaker
+       * * `AwsSavingsPlans` - AwsSavingsPlans
+       * * `AwsSecurityHub` - AwsSecurityHub
+       * * `AwsSes` - AwsSes
+       * * `AwsStepFunctions` - AwsStepFunctions
+       * * `AwsSupport` - AwsSupport
+       * * `AwsSystemsManager` - AwsSystemsManager
+       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+       * * `AwsWaf` - AwsWaf
+       * * `AwsXray` - AwsXray
+       * * `AzureActivityLog` - AzureActivityLog
+       * * `AzureAdvisor` - AzureAdvisor
+       * * `AzureApiManagement` - AzureApiManagement
+       * * `AzureApplicationInsights` - AzureApplicationInsights
+       * * `AzureCostManagement` - AzureCostManagement
+       * * `AzureDataExplorer` - AzureDataExplorer
+       * * `AzureDataFactory` - AzureDataFactory
+       * * `AzureLogAnalytics` - AzureLogAnalytics
+       * * `AzureMonitorAlerts` - AzureMonitorAlerts
+       * * `AzureMonitorMetrics` - AzureMonitorMetrics
+       * * `AzureOpenaiUsage` - AzureOpenaiUsage
+       * * `AzurePolicyInsights` - AzurePolicyInsights
+       * * `AzureReservations` - AzureReservations
+       * * `AzureResourceGraph` - AzureResourceGraph
+       * * `AzureResourceHealth` - AzureResourceHealth
+       * * `AzureServiceHealth` - AzureServiceHealth
+       * * `AzureSynapse` - AzureSynapse
+       * * `BackMarket` - BackMarket
+       * * `Beehiiv` - Beehiiv
+       * * `Bigeye` - Bigeye
+       * * `BillCom` - BillCom
+       * * `Billomat` - Billomat
+       * * `BingWebmasterTools` - BingWebmasterTools
+       * * `Bitwarden` - Bitwarden
+       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+       * * `BlackboardLearn` - BlackboardLearn
+       * * `Bling` - Bling
+       * * `Bloomerang` - Bloomerang
+       * * `Bluesky` - Bluesky
+       * * `BolRetailer` - BolRetailer
+       * * `Boulevard` - Boulevard
+       * * `Buffer` - Buffer
+       * * `Bugherd` - Bugherd
+       * * `Buildium` - Buildium
+       * * `Buttondown` - Buttondown
+       * * `BuyMeACoffee` - BuyMeACoffee
+       * * `Calendarific` - Calendarific
+       * * `Calibre` - Calibre
+       * * `CanvasLms` - CanvasLms
+       * * `Captivate` - Captivate
+       * * `Cashfree` - Cashfree
+       * * `CastAi` - CastAi
+       * * `Catchpoint` - Catchpoint
+       * * `CdcOpenData` - CdcOpenData
+       * * `Census` - Census
+       * * `Checkly` - Checkly
+       * * `CircleSo` - CircleSo
+       * * `Classy` - Classy
+       * * `Cleartax` - Cleartax
+       * * `Clever` - Clever
+       * * `Clevertap` - Clevertap
+       * * `Cliniko` - Cliniko
+       * * `Clio` - Clio
+       * * `Clip` - Clip
+       * * `Cloudability` - Cloudability
+       * * `Cloudsmith` - Cloudsmith
+       * * `Cloudzero` - Cloudzero
+       * * `Clover` - Clover
+       * * `Codemagic` - Codemagic
+       * * `Codescene` - Codescene
+       * * `Collibra` - Collibra
+       * * `Companycam` - Companycam
+       * * `Conekta` - Conekta
+       * * `ContaAzul` - ContaAzul
+       * * `Contentsquare` - Contentsquare
+       * * `Cortex` - Cortex
+       * * `Courier` - Courier
+       * * `Crossref` - Crossref
+       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+       * * `CubeCloud` - CubeCloud
+       * * `D2lBrightspace` - D2lBrightspace
+       * * `Dayforce` - Dayforce
+       * * `Debugbear` - Debugbear
+       * * `Descope` - Descope
+       * * `Develocity` - Develocity
+       * * `Dialpad` - Dialpad
+       * * `Discord` - Discord
+       * * `Discourse` - Discourse
+       * * `Donorbox` - Donorbox
+       * * `Doorloop` - Doorloop
+       * * `Dovetail` - Dovetail
+       * * `Drchrono` - Drchrono
+       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+       * * `EcbDataPortal` - EcbDataPortal
+       * * `Emarsys` - Emarsys
+       * * `Embrace` - Embrace
+       * * `Entsoe` - Entsoe
+       * * `Eppo` - Eppo
+       * * `Etsy` - Etsy
+       * * `Eurostat` - Eurostat
+       * * `Faire` - Faire
+       * * `FarosAi` - FarosAi
+       * * `Fieldpulse` - Fieldpulse
+       * * `Fieldwire` - Fieldwire
+       * * `Filevine` - Filevine
+       * * `Finout` - Finout
+       * * `Five9` - Five9
+       * * `FlexeraCloudCost` - FlexeraCloudCost
+       * * `Flutterwave` - Flutterwave
+       * * `Fortnox` - Fortnox
+       * * `Fourthwall` - Fourthwall
+       * * `Fred` - Fred
+       * * `Frontegg` - Frontegg
+       * * `FusionAuth` - FusionAuth
+       * * `G2` - G2
+       * * `Gcore` - Gcore
+       * * `GcpApigee` - GcpApigee
+       * * `GcpArtifactRegistry` - GcpArtifactRegistry
+       * * `GcpBigtable` - GcpBigtable
+       * * `GcpChronicle` - GcpChronicle
+       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+       * * `GcpCloudBilling` - GcpCloudBilling
+       * * `GcpCloudBuild` - GcpCloudBuild
+       * * `GcpCloudDeploy` - GcpCloudDeploy
+       * * `GcpCloudDns` - GcpCloudDns
+       * * `GcpCloudFunctions` - GcpCloudFunctions
+       * * `GcpCloudLogging` - GcpCloudLogging
+       * * `GcpCloudMonitoring` - GcpCloudMonitoring
+       * * `GcpCloudRun` - GcpCloudRun
+       * * `GcpCloudSpanner` - GcpCloudSpanner
+       * * `GcpCloudSql` - GcpCloudSql
+       * * `GcpCloudTrace` - GcpCloudTrace
+       * * `GcpCloudWorkflows` - GcpCloudWorkflows
+       * * `GcpComputeEngine` - GcpComputeEngine
+       * * `GcpContainerAnalysis` - GcpContainerAnalysis
+       * * `GcpDataflow` - GcpDataflow
+       * * `GcpDataplex` - GcpDataplex
+       * * `GcpDataproc` - GcpDataproc
+       * * `GcpErrorReporting` - GcpErrorReporting
+       * * `GcpGke` - GcpGke
+       * * `GcpPubsub` - GcpPubsub
+       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+       * * `GcpRecommender` - GcpRecommender
+       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+       * * `Gdelt` - Gdelt
+       * * `GenesysCloud` - GenesysCloud
+       * * `Getdx` - Getdx
+       * * `Ghost` - Ghost
+       * * `Givebutter` - Givebutter
+       * * `Gleif` - Gleif
+       * * `GooglePlayConsole` - GooglePlayConsole
+       * * `Guesty` - Guesty
+       * * `Gumroad` - Gumroad
+       * * `HarnessCcm` - HarnessCcm
+       * * `HarnessSei` - HarnessSei
+       * * `Harvest` - Harvest
+       * * `Healthie` - Healthie
+       * * `Hitpay` - Hitpay
+       * * `Hivebrite` - Hivebrite
+       * * `Holded` - Holded
+       * * `Hostaway` - Hostaway
+       * * `HousecallPro` - HousecallPro
+       * * `Humanitec` - Humanitec
+       * * `ImfData` - ImfData
+       * * `Imperva` - Imperva
+       * * `InfluxdbCloud` - InfluxdbCloud
+       * * `Iyzico` - Iyzico
+       * * `Jobtread` - Jobtread
+       * * `Kameleoon` - Kameleoon
+       * * `KauflandMarketplace` - KauflandMarketplace
+       * * `Kestra` - Kestra
+       * * `Kick` - Kick
+       * * `Kinde` - Kinde
+       * * `Kion` - Kion
+       * * `Knowbe4` - Knowbe4
+       * * `Komodor` - Komodor
+       * * `Labelbox` - Labelbox
+       * * `Lawmatics` - Lawmatics
+       * * `Learnworlds` - Learnworlds
+       * * `LexwareOffice` - LexwareOffice
+       * * `Lightdash` - Lightdash
+       * * `Lodgify` - Lodgify
+       * * `Logicmonitor` - Logicmonitor
+       * * `Logrocket` - Logrocket
+       * * `LoopReturns` - LoopReturns
+       * * `Mastodon` - Mastodon
+       * * `Meetup` - Meetup
+       * * `Memberful` - Memberful
+       * * `MercadoPago` - MercadoPago
+       * * `Meteostat` - Meteostat
+       * * `Mews` - Mews
+       * * `Mezmo` - Mezmo
+       * * `Microsoft365UsageReports` - Microsoft365UsageReports
+       * * `MicrosoftAdvertising` - MicrosoftAdvertising
+       * * `MicrosoftClarity` - MicrosoftClarity
+       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+       * * `MicrosoftIntune` - MicrosoftIntune
+       * * `MicrosoftPurview` - MicrosoftPurview
+       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+       * * `MicrosoftSentinel` - MicrosoftSentinel
+       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+       * * `Midtrans` - Midtrans
+       * * `MightyNetworks` - MightyNetworks
+       * * `Mindbody` - Mindbody
+       * * `Mirakl` - Mirakl
+       * * `Moesif` - Moesif
+       * * `Moneybird` - Moneybird
+       * * `Moodle` - Moodle
+       * * `Motherduck` - Motherduck
+       * * `Mycase` - Mycase
+       * * `NagerDate` - NagerDate
+       * * `NeonCrm` - NeonCrm
+       * * `Nexhealth` - Nexhealth
+       * * `NoaaCdo` - NoaaCdo
+       * * `Nobl9` - Nobl9
+       * * `Nolt` - Nolt
+       * * `Nops` - Nops
+       * * `NpmRegistry` - NpmRegistry
+       * * `Oecd` - Oecd
+       * * `Okendo` - Okendo
+       * * `Omni` - Omni
+       * * `Onelogin` - Onelogin
+       * * `OpenDental` - OpenDental
+       * * `OpenMeteo` - OpenMeteo
+       * * `Openalex` - Openalex
+       * * `Opencorporates` - Opencorporates
+       * * `Openfec` - Openfec
+       * * `OpnPayments` - OpnPayments
+       * * `Opslevel` - Opslevel
+       * * `OttoMarket` - OttoMarket
+       * * `Ownerrez` - Ownerrez
+       * * `Pagbank` - Pagbank
+       * * `Patreon` - Patreon
+       * * `Pax8` - Pax8
+       * * `Paychex` - Paychex
+       * * `Paymob` - Paymob
+       * * `Paymongo` - Paymongo
+       * * `Phonepe` - Phonepe
+       * * `Pike13` - Pike13
+       * * `Pingone` - Pingone
+       * * `PinterestOrganic` - PinterestOrganic
+       * * `PlanningCenter` - PlanningCenter
+       * * `PluralsightFlow` - PluralsightFlow
+       * * `Podbean` - Podbean
+       * * `Postscript` - Postscript
+       * * `PowerBiAdmin` - PowerBiAdmin
+       * * `Practicepanther` - Practicepanther
+       * * `Preset` - Preset
+       * * `Procore` - Procore
+       * * `Productiv` - Productiv
+       * * `ProofpointTap` - ProofpointTap
+       * * `Propertyware` - Propertyware
+       * * `Pubnub` - Pubnub
+       * * `Quay` - Quay
+       * * `Raken` - Raken
+       * * `RedpandaCloud` - RedpandaCloud
+       * * `RentManager` - RentManager
+       * * `Reverb` - Reverb
+       * * `RocketMatter` - RocketMatter
+       * * `Rubygems` - Rubygems
+       * * `Scalr` - Scalr
+       * * `SecEdgar` - SecEdgar
+       * * `SelectStar` - SelectStar
+       * * `SemanticScholar` - SemanticScholar
+       * * `Semrush` - Semrush
+       * * `ServiceFusion` - ServiceFusion
+       * * `Servicem8` - Servicem8
+       * * `Servicetitan` - Servicetitan
+       * * `Servicetrade` - Servicetrade
+       * * `Sevdesk` - Sevdesk
+       * * `Similarweb` - Similarweb
+       * * `Simpro` - Simpro
+       * * `Sinch` - Sinch
+       * * `Singlestore` - Singlestore
+       * * `Site24x7` - Site24x7
+       * * `Sleuth` - Sleuth
+       * * `Smartlook` - Smartlook
+       * * `Smartrecruiters` - Smartrecruiters
+       * * `Smokeball` - Smokeball
+       * * `SodaCloud` - SodaCloud
+       * * `Speedcurve` - Speedcurve
+       * * `SpotIo` - SpotIo
+       * * `Sprig` - Sprig
+       * * `Sprinklr` - Sprinklr
+       * * `SproutSocial` - SproutSocial
+       * * `StackOverflowForTeams` - StackOverflowForTeams
+       * * `Stockx` - Stockx
+       * * `TackleIo` - TackleIo
+       * * `Talkdesk` - Talkdesk
+       * * `TeamupFitness` - TeamupFitness
+       * * `Tebra` - Tebra
+       * * `Telnyx` - Telnyx
+       * * `Ternary` - Ternary
+       * * `Thoughtspot` - Thoughtspot
+       * * `Thousandeyes` - Thousandeyes
+       * * `Threads` - Threads
+       * * `TiktokShop` - TiktokShop
+       * * `TinyErp` - TinyErp
+       * * `Tinybird` - Tinybird
+       * * `Tipalti` - Tipalti
+       * * `Toast` - Toast
+       * * `Torii` - Torii
+       * * `Transistor` - Transistor
+       * * `TrunkIo` - TrunkIo
+       * * `Trustradius` - Trustradius
+       * * `Twitch` - Twitch
+       * * `TwoC2p` - TwoC2p
+       * * `UkCompaniesHouse` - UkCompaniesHouse
+       * * `UkOns` - UkOns
+       * * `UnComtrade` - UnComtrade
+       * * `UsBea` - UsBea
+       * * `UsBls` - UsBls
+       * * `UsEia` - UsEia
+       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+       * * `Vanta` - Vanta
+       * * `Vendr` - Vendr
+       * * `Virtuous` - Virtuous
+       * * `Vonage` - Vonage
+       * * `WalmartMarketplace` - WalmartMarketplace
+       * * `Waydev` - Waydev
+       * * `Wayfair` - Wayfair
+       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+       * * `WhoGho` - WhoGho
+       * * `Whop` - Whop
+       * * `Wiz` - Wiz
+       * * `Wompi` - Wompi
+       * * `Workiz` - Workiz
+       * * `WorldBank` - WorldBank
+       * * `Xendit` - Xendit
+       * * `Yoco` - Yoco
+       * * `ZalandoZdirect` - ZalandoZdirect
+       * * `Zluri` - Zluri
+       * * `Zylo` - Zylo
+       * * `Tally` - Tally
+       * * `Nuntly` - Nuntly
+       * * `Vturb` - Vturb */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -28711,6 +30780,13 @@ export namespace Schemas {
       readonly modified_by: number | null;
     }
 
+    export interface FeaturebaseFeedbackSignalExtra {
+      status: string | null;
+      tags: unknown[];
+      upvotes: string | null;
+      createdAt: string | null;
+    }
+
     export interface FeedbackThemeSession {
       /** Observation whose feedback comment backs this theme. */
       observation_id: string;
@@ -29164,6 +31240,36 @@ export namespace Schemas {
       deleted: boolean;
     }
 
+    export interface FreshdeskTicketSignalExtra {
+      status: string | null;
+      priority: string | null;
+      type: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
+    export interface FreshserviceTicketSignalExtra {
+      status: string | null;
+      priority: string | null;
+      type: string | null;
+      category: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
+    export interface FrillFeedbackSignalExtra {
+      status: string | null;
+      vote_count: string | null;
+      topics: unknown[];
+      created_at: string | null;
+    }
+
+    export interface FrontConversationSignalExtra {
+      status: string | null;
+      tags: unknown[];
+      created_at: string | null;
+    }
+
     export interface GapAction {
       /**
          * Optional knowledge source to link when accepting.
@@ -29428,6 +31534,14 @@ export namespace Schemas {
       error?: string;
     }
 
+    export interface GiteaIssueSignalExtra {
+      state: string | null;
+      labels: unknown[];
+      html_url: string | null;
+      number: string | null;
+      created_at: string | null;
+    }
+
     export interface GithubIssueSignalExtra {
       html_url: string;
       number: number;
@@ -29436,6 +31550,14 @@ export namespace Schemas {
       updated_at: string;
       locked: boolean;
       state: string;
+    }
+
+    export interface GitlabIssueSignalExtra {
+      state: string | null;
+      labels: unknown[];
+      iid: string | null;
+      project_id: string | null;
+      created_at: string | null;
     }
 
     export interface Goal {
@@ -29537,6 +31659,14 @@ export namespace Schemas {
       samples: GoalEventSample[];
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
+    }
+
+    export interface GorgiasTicketSignalExtra {
+      status: string | null;
+      priority: string | null;
+      channel: string | null;
+      tags: unknown[];
+      created_datetime: string | null;
     }
 
     /**
@@ -32759,6 +34889,22 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface HoneybadgerFaultSignalExtra {
+      environment: string | null;
+      component: string | null;
+      action: string | null;
+      tags: unknown[];
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface HubspotTicketSignalExtra {
+      hs_ticket_priority: string | null;
+      hs_pipeline_stage: string | null;
+      hs_ticket_category: string | null;
+      createdate: string | null;
+    }
+
     export interface IdentityMatchingError {
       /** Human-readable explanation of why the request could not be served. */
       detail: string;
@@ -33547,6 +35693,13 @@ export namespace Schemas {
       Recording: 'recording',
     } as const;
 
+    export interface IntercomTicketSignalExtra {
+      state: string | null;
+      priority: string | null;
+      admin_assignee_id: string | null;
+      created_at: string | null;
+    }
+
     export interface InterestingNote {
       text: string;
       line_refs: string;
@@ -33640,6 +35793,13 @@ export namespace Schemas {
     export const JsonrpcEnum = {
       '20': '2.0',
     } as const;
+
+    export interface JudgemeReviewsReviewSignalExtra {
+      rating: string | null;
+      product_title: string | null;
+      verified: string | null;
+      created_at: string | null;
+    }
 
     /**
      * One chunk in a drill-down window over a single knowledge document.
@@ -33814,6 +35974,13 @@ export namespace Schemas {
       readonly always_include: boolean;
     }
 
+    export interface KustomerConversationSignalExtra {
+      status: string | null;
+      priority: string | null;
+      tags: unknown[];
+      createdAt: string | null;
+    }
+
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -33891,6 +36058,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface LLMPromptLabelSummary {
+      /** Label name, e.g. 'production'. */
+      name: string;
+      /** Prompt version this label currently points to. */
+      version: number;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -33916,6 +36090,7 @@ export namespace Schemas {
       readonly labels: readonly string[];
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
+      readonly all_labels: readonly LLMPromptLabelSummary[];
     }
 
     export interface LLMPromptPublic {
@@ -33955,6 +36130,8 @@ export namespace Schemas {
       prompt: LLMPrompt;
       versions: LLMPromptVersionSummary[];
       has_more: boolean;
+      /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
+      labels: LLMPromptLabel[];
     }
 
     export interface LLMPromptSetLabel {
@@ -35165,6 +37342,452 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    export interface LoopBehaviors {
+      /** Whether the agent may push branches and open PRs. False makes this a report-only loop. */
+      create_prs?: boolean;
+      /** Whether to watch CI on loop-created PRs and report status. */
+      watch_ci?: boolean;
+      /** Whether to automatically address review comments on loop-created PRs. */
+      fix_review_comments?: boolean;
+      /**
+         * Ceiling on automatic CI/review-comment fix iterations, capped at 10.
+         * @minimum 0
+         * @maximum 10
+         */
+      max_fix_iterations?: number;
+    }
+
+    export interface LoopBehaviorsDTO {
+      create_prs?: boolean;
+      watch_ci?: boolean;
+      fix_review_comments?: boolean;
+      max_fix_iterations?: number;
+    }
+
+    /**
+     * * `read_only` - read_only
+     * * `full` - full
+     */
+    export type PosthogMcpScopesEnum = typeof PosthogMcpScopesEnum[keyof typeof PosthogMcpScopesEnum];
+
+
+    export const PosthogMcpScopesEnum = {
+      ReadOnly: 'read_only',
+      Full: 'full',
+    } as const;
+
+    export interface LoopConnectors {
+      /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
+      mcp_installation_ids?: string[];
+      /** Scope of the PostHog MCP access injected into this loop's runs.
+       *
+       * * `read_only` - read_only
+       * * `full` - full */
+      posthog_mcp_scopes?: PosthogMcpScopesEnum;
+    }
+
+    export interface LoopConnectorsDTO {
+      mcp_installation_ids?: string[];
+      posthog_mcp_scopes?: string;
+    }
+
+    export interface LoopContextOutputsDTO {
+      post_to_feed?: boolean;
+      update_context?: boolean;
+      /** @nullable */
+      canvas_id?: string | null;
+    }
+
+    export interface LoopContextOutputsWrite {
+      /** Whether each run is filed into the context's feed as a card (sets the run's channel). */
+      post_to_feed?: boolean;
+      /** Whether each run reads and republishes the context's context.md to reflect the latest state. */
+      update_context?: boolean;
+      /**
+         * Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.
+         * @nullable
+         */
+      canvas_id?: string | null;
+    }
+
+    export interface LoopContextTargetDTO {
+      /** What the loop maintains in this context each run. */
+      outputs: LoopContextOutputsDTO;
+      folder_id: string;
+      name: string;
+    }
+
+    export interface LoopContextTargetWrite {
+      /** Desktop folder id of the context this loop is attached to. */
+      folder_id: string;
+      /**
+         * Context (channel) name, used to file runs into its feed.
+         * @maxLength 128
+         */
+      name: string;
+      /** What the loop maintains in this context each run. */
+      outputs?: LoopContextOutputsWrite;
+    }
+
+    export interface LoopRepositoryEntryDTO {
+      github_integration_id: number;
+      full_name: string;
+    }
+
+    export type LoopNotificationChannelDTOParams = { [key: string]: unknown };
+
+    export interface LoopNotificationChannelDTO {
+      enabled?: boolean;
+      events?: string[];
+      params?: LoopNotificationChannelDTOParams;
+    }
+
+    export interface LoopNotificationsDTO {
+      push: LoopNotificationChannelDTO;
+      email: LoopNotificationChannelDTO;
+      slack: LoopNotificationChannelDTO;
+    }
+
+    export type LoopTriggerDTOConfig = { [key: string]: unknown };
+
+    /**
+     * Read response for a single loop trigger.
+     */
+    export interface LoopTriggerDTO {
+      id: string;
+      loop_id: string;
+      type: string;
+      enabled: boolean;
+      config: LoopTriggerDTOConfig;
+      /** @nullable */
+      schedule_sync_status: string | null;
+      /** @nullable */
+      last_fired_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    /**
+     * Detail/create/update response for a loop, including its triggers.
+     */
+    export interface LoopDTO {
+      id: string;
+      team_id: number;
+      /** @nullable */
+      created_by_id: number | null;
+      name: string;
+      description: string;
+      visibility: string;
+      instructions: string;
+      runtime_adapter: string;
+      model: string;
+      /** @nullable */
+      reasoning_effort: string | null;
+      /** Repositories this loop operates on. */
+      repositories: LoopRepositoryEntryDTO[];
+      /** @nullable */
+      sandbox_environment_id: string | null;
+      enabled: boolean;
+      /** @nullable */
+      disabled_reason: string | null;
+      overlap_policy: string;
+      /** PR / CI-follow-up behavior configuration. */
+      behaviors: LoopBehaviorsDTO;
+      /** MCP connector configuration for this loop's runs. */
+      connectors: LoopConnectorsDTO;
+      /** Per-channel notification configuration. */
+      notifications: LoopNotificationsDTO;
+      /** Context this loop is attached to, or null when unattached. */
+      context_target?: LoopContextTargetDTO | null;
+      internal: boolean;
+      origin_product: string;
+      /** @nullable */
+      last_run_at: string | null;
+      /** @nullable */
+      last_run_status: string | null;
+      /** @nullable */
+      last_error: string | null;
+      consecutive_failures: number;
+      created_at: string;
+      updated_at: string;
+      /** Triggers attached to this loop. */
+      triggers: LoopTriggerDTO[];
+    }
+
+    /**
+     * * `created` - created
+     * * `deduped` - deduped
+     * * `overlap_skipped` - overlap_skipped
+     * * `rate_capped` - rate_capped
+     * * `team_rate_capped` - team_rate_capped
+     * * `disabled` - disabled
+     * * `gate_blocked` - gate_blocked
+     * * `owner_inactive` - owner_inactive
+     * * `owner_changed` - owner_changed
+     */
+    export type LoopFireResultReasonEnum = typeof LoopFireResultReasonEnum[keyof typeof LoopFireResultReasonEnum];
+
+
+    export const LoopFireResultReasonEnum = {
+      Created: 'created',
+      Deduped: 'deduped',
+      OverlapSkipped: 'overlap_skipped',
+      RateCapped: 'rate_capped',
+      TeamRateCapped: 'team_rate_capped',
+      Disabled: 'disabled',
+      GateBlocked: 'gate_blocked',
+      OwnerInactive: 'owner_inactive',
+      OwnerChanged: 'owner_changed',
+    } as const;
+
+    /**
+     * Response for a manual (`run/`) or external (`trigger/`) fire.
+     */
+    export interface LoopFireResult {
+      created: boolean;
+      /** Outcome of the fire attempt.
+       *
+       * * `created` - created
+       * * `deduped` - deduped
+       * * `overlap_skipped` - overlap_skipped
+       * * `rate_capped` - rate_capped
+       * * `team_rate_capped` - team_rate_capped
+       * * `disabled` - disabled
+       * * `gate_blocked` - gate_blocked
+       * * `owner_inactive` - owner_inactive
+       * * `owner_changed` - owner_changed */
+      reason: LoopFireResultReasonEnum;
+      /**
+         * Id of the created task, when `created` is true.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Id of the created task run, when `created` is true.
+         * @nullable
+         */
+      task_run_id: string | null;
+    }
+
+    /**
+     * Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.
+     */
+    export type LoopNotificationChannelParams = { [key: string]: unknown };
+
+    export interface LoopNotificationChannel {
+      /** Whether this channel is active. */
+      enabled?: boolean;
+      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+      events?: EventsEnum[];
+      /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
+      params?: LoopNotificationChannelParams;
+    }
+
+    export interface LoopNotifications {
+      /** Push notification settings. */
+      push?: LoopNotificationChannel;
+      /** Email notification settings. */
+      email?: LoopNotificationChannel;
+      /** Slack notification settings. */
+      slack?: LoopNotificationChannel;
+    }
+
+    export interface LoopPreviewDTO {
+      instructions: string;
+      trigger_type: string;
+      trigger_context: string;
+    }
+
+    /**
+     * * `schedule` - schedule
+     * * `github` - github
+     * * `api` - api
+     */
+    export type LoopTriggerTypeEnum = typeof LoopTriggerTypeEnum[keyof typeof LoopTriggerTypeEnum];
+
+
+    export const LoopTriggerTypeEnum = {
+      Schedule: 'schedule',
+      Github: 'github',
+      Api: 'api',
+    } as const;
+
+    export interface LoopPreviewRequest {
+      /** Trigger type to simulate. Defaults to a synthetic schedule fire.
+       *
+       * * `schedule` - schedule
+       * * `github` - github
+       * * `api` - api */
+      trigger_type?: LoopTriggerTypeEnum;
+      /** Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context. */
+      payload?: unknown;
+    }
+
+    export interface LoopRepositoryEntry {
+      /** GitHub integration id this repository is accessed through. */
+      github_integration_id: number;
+      /**
+         * Repository in `organization/repo` format, e.g. `posthog/posthog`.
+         * @maxLength 255
+         */
+      full_name: string;
+    }
+
+    /**
+     * @nullable
+     */
+    export type LoopRunDTOOutput = { [key: string]: unknown } | null;
+
+    /**
+     * A single entry in a loop's run history.
+     */
+    export interface LoopRunDTO {
+      id: string;
+      task_id: string;
+      /** @nullable */
+      loop_trigger_id: string | null;
+      status: string;
+      environment: string;
+      /** @nullable */
+      branch: string | null;
+      /** @nullable */
+      error_message: string | null;
+      /** @nullable */
+      output: LoopRunDTOOutput;
+      created_at: string;
+      /** @nullable */
+      completed_at: string | null;
+    }
+
+    export interface LoopRunPage {
+      /** Run history entries, newest first. */
+      results: LoopRunDTO[];
+      /**
+         * Opaque cursor for the next page, or null when there are no more results.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
+    export interface LoopTriggerWrite {
+      /** Existing trigger id to update in place. Omit to create a new trigger. */
+      id?: string;
+      /** Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).
+       *
+       * * `schedule` - schedule
+       * * `github` - github
+       * * `api` - api */
+      type: LoopTriggerTypeEnum;
+      /** Whether this trigger is active. Disabling pauses only this trigger. */
+      enabled?: boolean;
+      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+      config?: unknown;
+    }
+
+    /**
+     * * `personal` - personal
+     * * `team` - team
+     */
+    export type LoopWriteVisibilityEnum = typeof LoopWriteVisibilityEnum[keyof typeof LoopWriteVisibilityEnum];
+
+
+    export const LoopWriteVisibilityEnum = {
+      Personal: 'personal',
+      Team: 'team',
+    } as const;
+
+    /**
+     * * `claude` - claude
+     * * `codex` - codex
+     */
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+
+
+    export const RuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * * `skip` - skip
+     * * `allow` - allow
+     * * `cancel_previous` - cancel_previous
+     */
+    export type OverlapPolicyEnum = typeof OverlapPolicyEnum[keyof typeof OverlapPolicyEnum];
+
+
+    export const OverlapPolicyEnum = {
+      Skip: 'skip',
+      Allow: 'allow',
+      CancelPrevious: 'cancel_previous',
+    } as const;
+
+    /**
+     * Request body for creating or updating a loop. Field required/default semantics match
+     * the `Loop` model; partial updates only touch keys present in the payload.
+     */
+    export interface LoopWrite {
+      /**
+         * Display name for the loop.
+         * @maxLength 400
+         */
+      name: string;
+      /** Free-form description of what this loop does. */
+      description?: string;
+      /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+      take_ownership?: boolean;
+      /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+       *
+       * * `personal` - personal
+       * * `team` - team */
+      visibility?: LoopWriteVisibilityEnum;
+      /** The prompt delivered to the agent on every run. */
+      instructions: string;
+      /** Runtime adapter: 'claude' or 'codex'.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter: RuntimeAdapterEnum;
+      /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
+      model?: string;
+      /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+         * @maxItems 1
+         */
+      repositories?: LoopRepositoryEntry[];
+      /**
+         * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+         * @nullable
+         */
+      sandbox_environment?: string | null;
+      /** Whether the loop's triggers are active. Pausing disables all triggers. */
+      enabled?: boolean;
+      /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+       *
+       * * `skip` - skip
+       * * `allow` - allow
+       * * `cancel_previous` - cancel_previous */
+      overlap_policy?: OverlapPolicyEnum;
+      /** PR / CI-follow-up behavior configuration. */
+      behaviors?: LoopBehaviors;
+      /** MCP connector configuration for this loop's runs. */
+      connectors?: LoopConnectors;
+      /** Per-channel notification configuration. */
+      notifications?: LoopNotifications;
+      /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+      context_target?: LoopContextTargetWrite | null;
+      /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
+      triggers?: LoopTriggerWrite[];
     }
 
     export interface MCPActivityClientRow {
@@ -36661,8 +39284,6 @@ export namespace Schemas {
       read: boolean;
       /** @nullable */
       read_at: string | null;
-      /** Whether this notification opted in to being archived (dismissed) by the recipient. When false, the notification only supports read/unread. */
-      archivable: boolean;
       target_type: string;
       target_id: string;
       /** @nullable */
@@ -36747,6 +39368,8 @@ export namespace Schemas {
       version: number;
       /** The prompt text this version ran with, taken from the observation run snapshots. */
       prompt: string;
+      /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
+      scanner_config: unknown;
       /** Thumbs-up ratings on this version's observations. */
       up: number;
       /** Thumbs-down ratings on this version's observations. */
@@ -37402,6 +40025,7 @@ export namespace Schemas {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
+     * * `loop` - Loop
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -37423,6 +40047,7 @@ export namespace Schemas {
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',
       ImageBuilder: 'image_builder',
+      Loop: 'loop',
     } as const;
 
     /**
@@ -38605,6 +41230,19 @@ export namespace Schemas {
       results: LogsView[];
     }
 
+    export interface PaginatedLoopDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LoopDTO[];
+      /** Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value. */
+      max_loops_per_team?: number;
+      /** Current number of non-deleted, user-facing loops in this project, counted against `max_loops_per_team`. At or above the cap, creation is blocked. */
+      total_loop_count?: number;
+    }
+
     export interface PaginatedMCPAnalyticsSubmissionList {
       count: number;
       /** @nullable */
@@ -39479,9 +42117,8 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
-       * * `gemini-2.5-flash` - Gemini 2.5 Flash
-       * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -40448,6 +43085,38 @@ export namespace Schemas {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `freshdesk` - Freshdesk
+     * * `freshservice` - Freshservice
+     * * `front` - Front
+     * * `gorgias` - Gorgias
+     * * `kustomer` - Kustomer
+     * * `dixa` - Dixa
+     * * `plain` - Plain
+     * * `gitlab` - GitLab
+     * * `gitea` - Gitea
+     * * `shortcut` - Shortcut
+     * * `sentry` - Sentry
+     * * `rollbar` - Rollbar
+     * * `bugsnag` - Bugsnag
+     * * `honeybadger` - Honeybadger
+     * * `raygun` - Raygun
+     * * `snyk` - Snyk
+     * * `sonarqube` - SonarQube
+     * * `semgrep` - Semgrep
+     * * `rapid7_insightvm` - Rapid7 InsightVM
+     * * `featurebase` - Featurebase
+     * * `frill` - Frill
+     * * `aha` - Aha
+     * * `uservoice` - UserVoice
+     * * `productboard` - Productboard
+     * * `canny` - Canny
+     * * `asknicely` - AskNicely
+     * * `retently` - Retently
+     * * `appfigures` - Appfigures
+     * * `appfollow` - AppFollow
+     * * `judgeme_reviews` - Judge.me
+     * * `intercom` - Intercom
+     * * `hubspot` - HubSpot
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -40468,6 +43137,38 @@ export namespace Schemas {
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Freshdesk: 'freshdesk',
+      Freshservice: 'freshservice',
+      Front: 'front',
+      Gorgias: 'gorgias',
+      Kustomer: 'kustomer',
+      Dixa: 'dixa',
+      Plain: 'plain',
+      Gitlab: 'gitlab',
+      Gitea: 'gitea',
+      Shortcut: 'shortcut',
+      Sentry: 'sentry',
+      Rollbar: 'rollbar',
+      Bugsnag: 'bugsnag',
+      Honeybadger: 'honeybadger',
+      Raygun: 'raygun',
+      Snyk: 'snyk',
+      Sonarqube: 'sonarqube',
+      Semgrep: 'semgrep',
+      Rapid7Insightvm: 'rapid7_insightvm',
+      Featurebase: 'featurebase',
+      Frill: 'frill',
+      Aha: 'aha',
+      Uservoice: 'uservoice',
+      Productboard: 'productboard',
+      Canny: 'canny',
+      Asknicely: 'asknicely',
+      Retently: 'retently',
+      Appfigures: 'appfigures',
+      Appfollow: 'appfollow',
+      JudgemeReviews: 'judgeme_reviews',
+      Intercom: 'intercom',
+      Hubspot: 'hubspot',
     } as const;
 
     /**
@@ -41343,6 +44044,8 @@ export namespace Schemas {
       deleted?: boolean | null;
       /** @maxLength 128 */
       name: string;
+      /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+      readonly hogql_name: string;
       format: TableFormatEnum;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -41509,18 +44212,6 @@ export namespace Schemas {
       previous?: string | null;
       results: TaskAutomationDTO[];
     }
-
-    /**
-     * * `claude` - claude
-     * * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
-
-
-    export const RuntimeAdapterEnum = {
-      Claude: 'claude',
-      Codex: 'codex',
-    } as const;
 
     /**
      * * `anthropic` - anthropic
@@ -42094,6 +44785,8 @@ export namespace Schemas {
       filters?: TicketViewFilters;
       readonly created_at: string;
       readonly created_by: UserBasic;
+      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+      is_favorited?: boolean;
     }
 
     export interface PaginatedTicketViewList {
@@ -42641,10 +45334,10 @@ export namespace Schemas {
      * * `schedule` - Schedule
      * * `threshold` - Threshold
      */
-    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
+    export type VisionActionTriggerTypeEnum = typeof VisionActionTriggerTypeEnum[keyof typeof VisionActionTriggerTypeEnum];
 
 
-    export const TriggerTypeEnum = {
+    export const VisionActionTriggerTypeEnum = {
       Schedule: 'schedule',
       Threshold: 'threshold',
     } as const;
@@ -42732,7 +45425,7 @@ export namespace Schemas {
        *
        * * `schedule` - Schedule
        * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
+      trigger_type?: VisionActionTriggerTypeEnum;
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
@@ -43656,7 +46349,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: VisibilityEnum;
+      visibility?: ColumnConfigurationVisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;
@@ -44083,7 +46776,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -46420,6 +49113,72 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    /**
+     * Request body for creating or updating a loop. Field required/default semantics match
+     * the `Loop` model; partial updates only touch keys present in the payload.
+     */
+    export interface PatchedLoopWrite {
+      /**
+         * Display name for the loop.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Free-form description of what this loop does. */
+      description?: string;
+      /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+      take_ownership?: boolean;
+      /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+       *
+       * * `personal` - personal
+       * * `team` - team */
+      visibility?: LoopWriteVisibilityEnum;
+      /** The prompt delivered to the agent on every run. */
+      instructions?: string;
+      /** Runtime adapter: 'claude' or 'codex'.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
+      model?: string;
+      /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+         * @maxItems 1
+         */
+      repositories?: LoopRepositoryEntry[];
+      /**
+         * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+         * @nullable
+         */
+      sandbox_environment?: string | null;
+      /** Whether the loop's triggers are active. Pausing disables all triggers. */
+      enabled?: boolean;
+      /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+       *
+       * * `skip` - skip
+       * * `allow` - allow
+       * * `cancel_previous` - cancel_previous */
+      overlap_policy?: OverlapPolicyEnum;
+      /** PR / CI-follow-up behavior configuration. */
+      behaviors?: LoopBehaviors;
+      /** MCP connector configuration for this loop's runs. */
+      connectors?: LoopConnectors;
+      /** Per-channel notification configuration. */
+      notifications?: LoopNotifications;
+      /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+      context_target?: LoopContextTargetWrite | null;
+      /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
+      triggers?: LoopTriggerWrite[];
+    }
+
     export interface PatchedMCPServerInstallationUpdate {
       display_name?: string;
       description?: string;
@@ -47985,9 +50744,8 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
-       * * `gemini-2.5-flash` - Gemini 2.5 Flash
-       * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -49305,6 +52063,8 @@ export namespace Schemas {
       deleted?: boolean | null;
       /** @maxLength 128 */
       name?: string;
+      /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
+      readonly hogql_name?: string;
       format?: TableFormatEnum;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -49489,7 +52249,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `loop` - Loop */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -49871,6 +52632,8 @@ export namespace Schemas {
       filters?: PatchedTicketViewFilters;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
+      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+      is_favorited?: boolean;
     }
 
     /**
@@ -50256,7 +53019,7 @@ export namespace Schemas {
        *
        * * `schedule` - Schedule
        * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
+      trigger_type?: VisionActionTriggerTypeEnum;
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
@@ -50692,6 +53455,13 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    export interface PlainThreadSignalExtra {
+      status: string | null;
+      priority: string | null;
+      labels: unknown[];
+      createdAt: string | null;
+    }
+
     /**
      * * `Postgres` - Postgres
      */
@@ -50910,6 +53680,13 @@ export namespace Schemas {
        * * `app` - app
        * * `toolbar` - toolbar */
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
+    }
+
+    export interface ProductboardFeedbackSignalExtra {
+      state: string | null;
+      tags: unknown[];
+      displayUrl: string | null;
+      createdAt: string | null;
     }
 
     export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
@@ -55442,6 +58219,13 @@ export namespace Schemas {
       code_usage_billing_active: boolean;
     }
 
+    export interface Rapid7InsightvmScannerFindingSignalExtra {
+      severity: string | null;
+      cvss_v3_score: string | null;
+      published: string | null;
+      added: string | null;
+    }
+
     export interface RawUnmatchedSample {
       /** A raw utm_source value matching no integration */
       raw_utm_source: string;
@@ -55452,6 +58236,13 @@ export namespace Schemas {
          * @nullable
          */
       suggested_integration: string | null;
+    }
+
+    export interface RaygunErrorGroupSignalExtra {
+      status: string | null;
+      applicationUrl: string | null;
+      lastOccurredAt: string | null;
+      createdAt: string | null;
     }
 
     /**
@@ -55695,6 +58486,38 @@ export namespace Schemas {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `freshdesk` - freshdesk
+     * * `freshservice` - freshservice
+     * * `front` - front
+     * * `gorgias` - gorgias
+     * * `kustomer` - kustomer
+     * * `dixa` - dixa
+     * * `plain` - plain
+     * * `gitlab` - gitlab
+     * * `gitea` - gitea
+     * * `shortcut` - shortcut
+     * * `sentry` - sentry
+     * * `rollbar` - rollbar
+     * * `bugsnag` - bugsnag
+     * * `honeybadger` - honeybadger
+     * * `raygun` - raygun
+     * * `snyk` - snyk
+     * * `sonarqube` - sonarqube
+     * * `semgrep` - semgrep
+     * * `rapid7_insightvm` - rapid7_insightvm
+     * * `featurebase` - featurebase
+     * * `frill` - frill
+     * * `aha` - aha
+     * * `uservoice` - uservoice
+     * * `productboard` - productboard
+     * * `canny` - canny
+     * * `asknicely` - asknicely
+     * * `retently` - retently
+     * * `appfigures` - appfigures
+     * * `appfollow` - appfollow
+     * * `judgeme_reviews` - judgeme_reviews
+     * * `intercom` - intercom
+     * * `hubspot` - hubspot
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -55715,6 +58538,38 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Freshdesk: 'freshdesk',
+      Freshservice: 'freshservice',
+      Front: 'front',
+      Gorgias: 'gorgias',
+      Kustomer: 'kustomer',
+      Dixa: 'dixa',
+      Plain: 'plain',
+      Gitlab: 'gitlab',
+      Gitea: 'gitea',
+      Shortcut: 'shortcut',
+      Sentry: 'sentry',
+      Rollbar: 'rollbar',
+      Bugsnag: 'bugsnag',
+      Honeybadger: 'honeybadger',
+      Raygun: 'raygun',
+      Snyk: 'snyk',
+      Sonarqube: 'sonarqube',
+      Semgrep: 'semgrep',
+      Rapid7Insightvm: 'rapid7_insightvm',
+      Featurebase: 'featurebase',
+      Frill: 'frill',
+      Aha: 'aha',
+      Uservoice: 'uservoice',
+      Productboard: 'productboard',
+      Canny: 'canny',
+      Asknicely: 'asknicely',
+      Retently: 'retently',
+      Appfigures: 'appfigures',
+      Appfollow: 'appfollow',
+      JudgemeReviews: 'judgeme_reviews',
+      Intercom: 'intercom',
+      Hubspot: 'hubspot',
     } as const;
 
     /**
@@ -55734,6 +58589,8 @@ export namespace Schemas {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `feedback` - feedback
+     * * `review` - review
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -55755,6 +58612,8 @@ export namespace Schemas {
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
       AnomalyInvestigation: 'anomaly_investigation',
+      Feedback: 'feedback',
+      Review: 'review',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -55817,7 +58676,69 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra;
+    export interface ShortcutStorySignalExtra {
+      story_type: string | null;
+      labels: unknown[];
+      workflow_state_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface SentryIssueSignalExtra {
+      level: string | null;
+      status: string | null;
+      permalink: string | null;
+      shortId: string | null;
+      firstSeen: string | null;
+    }
+
+    export interface RollbarItemSignalExtra {
+      level: string | null;
+      status: string | null;
+      environment: string | null;
+      framework: string | null;
+      last_occurrence_timestamp: string | null;
+    }
+
+    export interface SnykScannerFindingSignalExtra {
+      effective_severity_level: string | null;
+      status: string | null;
+      type: string | null;
+      created_at: string | null;
+    }
+
+    export interface SonarqubeScannerFindingSignalExtra {
+      severity: string | null;
+      type: string | null;
+      status: string | null;
+      component: string | null;
+      rule: string | null;
+      creationDate: string | null;
+    }
+
+    export interface SemgrepScannerFindingSignalExtra {
+      severity: string | null;
+      confidence: string | null;
+      status: string | null;
+      state: string | null;
+      created_at: string | null;
+    }
+
+    export interface UservoiceFeedbackSignalExtra {
+      state: string | null;
+      vote_count: string | null;
+      category_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface RetentlyFeedbackSignalExtra {
+      score: string | null;
+      ratingCategory: string | null;
+      feedbackTopics: unknown[];
+      resolved: string | null;
+      createdDate: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -55842,7 +58763,39 @@ export namespace Schemas {
        * * `logs` - logs
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
-       * * `analytics` - analytics */
+       * * `analytics` - analytics
+       * * `freshdesk` - freshdesk
+       * * `freshservice` - freshservice
+       * * `front` - front
+       * * `gorgias` - gorgias
+       * * `kustomer` - kustomer
+       * * `dixa` - dixa
+       * * `plain` - plain
+       * * `gitlab` - gitlab
+       * * `gitea` - gitea
+       * * `shortcut` - shortcut
+       * * `sentry` - sentry
+       * * `rollbar` - rollbar
+       * * `bugsnag` - bugsnag
+       * * `honeybadger` - honeybadger
+       * * `raygun` - raygun
+       * * `snyk` - snyk
+       * * `sonarqube` - sonarqube
+       * * `semgrep` - semgrep
+       * * `rapid7_insightvm` - rapid7_insightvm
+       * * `featurebase` - featurebase
+       * * `frill` - frill
+       * * `aha` - aha
+       * * `uservoice` - uservoice
+       * * `productboard` - productboard
+       * * `canny` - canny
+       * * `asknicely` - asknicely
+       * * `retently` - retently
+       * * `appfigures` - appfigures
+       * * `appfollow` - appfollow
+       * * `judgeme_reviews` - judgeme_reviews
+       * * `intercom` - intercom
+       * * `hubspot` - hubspot */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -55861,7 +58814,9 @@ export namespace Schemas {
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
        * * `scanner_finding` - scanner_finding
-       * * `anomaly_investigation` - anomaly_investigation */
+       * * `anomaly_investigation` - anomaly_investigation
+       * * `feedback` - feedback
+       * * `review` - review */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -58403,7 +61358,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -59080,7 +62034,389 @@ export namespace Schemas {
        * * `Axiom` - Axiom
        * * `Plivo` - Plivo
        * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan */
+       * * `Sleekplan` - Sleekplan
+       * * `AbTasty` - AbTasty
+       * * `Ably` - Ably
+       * * `AbnormalSecurity` - AbnormalSecurity
+       * * `Acast` - Acast
+       * * `Acculynx` - Acculynx
+       * * `Actionstep` - Actionstep
+       * * `Aftership` - Aftership
+       * * `AhaIdeas` - AhaIdeas
+       * * `AkamaiReporting` - AkamaiReporting
+       * * `Alation` - Alation
+       * * `Alegra` - Alegra
+       * * `Allegro` - Allegro
+       * * `AnodotCost` - AnodotCost
+       * * `Anomalo` - Anomalo
+       * * `Apaleo` - Apaleo
+       * * `Apitally` - Apitally
+       * * `AppStoreConnect` - AppStoreConnect
+       * * `Appdirect` - Appdirect
+       * * `Appfolio` - Appfolio
+       * * `Arxiv` - Arxiv
+       * * `Asaas` - Asaas
+       * * `Astronomer` - Astronomer
+       * * `Athenahealth` - Athenahealth
+       * * `Atlan` - Atlan
+       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+       * * `Avalara` - Avalara
+       * * `AwsAthena` - AwsAthena
+       * * `AwsBatch` - AwsBatch
+       * * `AwsBudgets` - AwsBudgets
+       * * `AwsCloudformation` - AwsCloudformation
+       * * `AwsComputeOptimizer` - AwsComputeOptimizer
+       * * `AwsConfig` - AwsConfig
+       * * `AwsConnect` - AwsConnect
+       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+       * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+       * * `AwsGuardduty` - AwsGuardduty
+       * * `AwsHealth` - AwsHealth
+       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+       * * `AwsInspector` - AwsInspector
+       * * `AwsMacie` - AwsMacie
+       * * `AwsOrganizations` - AwsOrganizations
+       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+       * * `AwsSagemaker` - AwsSagemaker
+       * * `AwsSavingsPlans` - AwsSavingsPlans
+       * * `AwsSecurityHub` - AwsSecurityHub
+       * * `AwsSes` - AwsSes
+       * * `AwsStepFunctions` - AwsStepFunctions
+       * * `AwsSupport` - AwsSupport
+       * * `AwsSystemsManager` - AwsSystemsManager
+       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+       * * `AwsWaf` - AwsWaf
+       * * `AwsXray` - AwsXray
+       * * `AzureActivityLog` - AzureActivityLog
+       * * `AzureAdvisor` - AzureAdvisor
+       * * `AzureApiManagement` - AzureApiManagement
+       * * `AzureApplicationInsights` - AzureApplicationInsights
+       * * `AzureCostManagement` - AzureCostManagement
+       * * `AzureDataExplorer` - AzureDataExplorer
+       * * `AzureDataFactory` - AzureDataFactory
+       * * `AzureLogAnalytics` - AzureLogAnalytics
+       * * `AzureMonitorAlerts` - AzureMonitorAlerts
+       * * `AzureMonitorMetrics` - AzureMonitorMetrics
+       * * `AzureOpenaiUsage` - AzureOpenaiUsage
+       * * `AzurePolicyInsights` - AzurePolicyInsights
+       * * `AzureReservations` - AzureReservations
+       * * `AzureResourceGraph` - AzureResourceGraph
+       * * `AzureResourceHealth` - AzureResourceHealth
+       * * `AzureServiceHealth` - AzureServiceHealth
+       * * `AzureSynapse` - AzureSynapse
+       * * `BackMarket` - BackMarket
+       * * `Beehiiv` - Beehiiv
+       * * `Bigeye` - Bigeye
+       * * `BillCom` - BillCom
+       * * `Billomat` - Billomat
+       * * `BingWebmasterTools` - BingWebmasterTools
+       * * `Bitwarden` - Bitwarden
+       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+       * * `BlackboardLearn` - BlackboardLearn
+       * * `Bling` - Bling
+       * * `Bloomerang` - Bloomerang
+       * * `Bluesky` - Bluesky
+       * * `BolRetailer` - BolRetailer
+       * * `Boulevard` - Boulevard
+       * * `Buffer` - Buffer
+       * * `Bugherd` - Bugherd
+       * * `Buildium` - Buildium
+       * * `Buttondown` - Buttondown
+       * * `BuyMeACoffee` - BuyMeACoffee
+       * * `Calendarific` - Calendarific
+       * * `Calibre` - Calibre
+       * * `CanvasLms` - CanvasLms
+       * * `Captivate` - Captivate
+       * * `Cashfree` - Cashfree
+       * * `CastAi` - CastAi
+       * * `Catchpoint` - Catchpoint
+       * * `CdcOpenData` - CdcOpenData
+       * * `Census` - Census
+       * * `Checkly` - Checkly
+       * * `CircleSo` - CircleSo
+       * * `Classy` - Classy
+       * * `Cleartax` - Cleartax
+       * * `Clever` - Clever
+       * * `Clevertap` - Clevertap
+       * * `Cliniko` - Cliniko
+       * * `Clio` - Clio
+       * * `Clip` - Clip
+       * * `Cloudability` - Cloudability
+       * * `Cloudsmith` - Cloudsmith
+       * * `Cloudzero` - Cloudzero
+       * * `Clover` - Clover
+       * * `Codemagic` - Codemagic
+       * * `Codescene` - Codescene
+       * * `Collibra` - Collibra
+       * * `Companycam` - Companycam
+       * * `Conekta` - Conekta
+       * * `ContaAzul` - ContaAzul
+       * * `Contentsquare` - Contentsquare
+       * * `Cortex` - Cortex
+       * * `Courier` - Courier
+       * * `Crossref` - Crossref
+       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+       * * `CubeCloud` - CubeCloud
+       * * `D2lBrightspace` - D2lBrightspace
+       * * `Dayforce` - Dayforce
+       * * `Debugbear` - Debugbear
+       * * `Descope` - Descope
+       * * `Develocity` - Develocity
+       * * `Dialpad` - Dialpad
+       * * `Discord` - Discord
+       * * `Discourse` - Discourse
+       * * `Donorbox` - Donorbox
+       * * `Doorloop` - Doorloop
+       * * `Dovetail` - Dovetail
+       * * `Drchrono` - Drchrono
+       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+       * * `EcbDataPortal` - EcbDataPortal
+       * * `Emarsys` - Emarsys
+       * * `Embrace` - Embrace
+       * * `Entsoe` - Entsoe
+       * * `Eppo` - Eppo
+       * * `Etsy` - Etsy
+       * * `Eurostat` - Eurostat
+       * * `Faire` - Faire
+       * * `FarosAi` - FarosAi
+       * * `Fieldpulse` - Fieldpulse
+       * * `Fieldwire` - Fieldwire
+       * * `Filevine` - Filevine
+       * * `Finout` - Finout
+       * * `Five9` - Five9
+       * * `FlexeraCloudCost` - FlexeraCloudCost
+       * * `Flutterwave` - Flutterwave
+       * * `Fortnox` - Fortnox
+       * * `Fourthwall` - Fourthwall
+       * * `Fred` - Fred
+       * * `Frontegg` - Frontegg
+       * * `FusionAuth` - FusionAuth
+       * * `G2` - G2
+       * * `Gcore` - Gcore
+       * * `GcpApigee` - GcpApigee
+       * * `GcpArtifactRegistry` - GcpArtifactRegistry
+       * * `GcpBigtable` - GcpBigtable
+       * * `GcpChronicle` - GcpChronicle
+       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+       * * `GcpCloudBilling` - GcpCloudBilling
+       * * `GcpCloudBuild` - GcpCloudBuild
+       * * `GcpCloudDeploy` - GcpCloudDeploy
+       * * `GcpCloudDns` - GcpCloudDns
+       * * `GcpCloudFunctions` - GcpCloudFunctions
+       * * `GcpCloudLogging` - GcpCloudLogging
+       * * `GcpCloudMonitoring` - GcpCloudMonitoring
+       * * `GcpCloudRun` - GcpCloudRun
+       * * `GcpCloudSpanner` - GcpCloudSpanner
+       * * `GcpCloudSql` - GcpCloudSql
+       * * `GcpCloudTrace` - GcpCloudTrace
+       * * `GcpCloudWorkflows` - GcpCloudWorkflows
+       * * `GcpComputeEngine` - GcpComputeEngine
+       * * `GcpContainerAnalysis` - GcpContainerAnalysis
+       * * `GcpDataflow` - GcpDataflow
+       * * `GcpDataplex` - GcpDataplex
+       * * `GcpDataproc` - GcpDataproc
+       * * `GcpErrorReporting` - GcpErrorReporting
+       * * `GcpGke` - GcpGke
+       * * `GcpPubsub` - GcpPubsub
+       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+       * * `GcpRecommender` - GcpRecommender
+       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+       * * `Gdelt` - Gdelt
+       * * `GenesysCloud` - GenesysCloud
+       * * `Getdx` - Getdx
+       * * `Ghost` - Ghost
+       * * `Givebutter` - Givebutter
+       * * `Gleif` - Gleif
+       * * `GooglePlayConsole` - GooglePlayConsole
+       * * `Guesty` - Guesty
+       * * `Gumroad` - Gumroad
+       * * `HarnessCcm` - HarnessCcm
+       * * `HarnessSei` - HarnessSei
+       * * `Harvest` - Harvest
+       * * `Healthie` - Healthie
+       * * `Hitpay` - Hitpay
+       * * `Hivebrite` - Hivebrite
+       * * `Holded` - Holded
+       * * `Hostaway` - Hostaway
+       * * `HousecallPro` - HousecallPro
+       * * `Humanitec` - Humanitec
+       * * `ImfData` - ImfData
+       * * `Imperva` - Imperva
+       * * `InfluxdbCloud` - InfluxdbCloud
+       * * `Iyzico` - Iyzico
+       * * `Jobtread` - Jobtread
+       * * `Kameleoon` - Kameleoon
+       * * `KauflandMarketplace` - KauflandMarketplace
+       * * `Kestra` - Kestra
+       * * `Kick` - Kick
+       * * `Kinde` - Kinde
+       * * `Kion` - Kion
+       * * `Knowbe4` - Knowbe4
+       * * `Komodor` - Komodor
+       * * `Labelbox` - Labelbox
+       * * `Lawmatics` - Lawmatics
+       * * `Learnworlds` - Learnworlds
+       * * `LexwareOffice` - LexwareOffice
+       * * `Lightdash` - Lightdash
+       * * `Lodgify` - Lodgify
+       * * `Logicmonitor` - Logicmonitor
+       * * `Logrocket` - Logrocket
+       * * `LoopReturns` - LoopReturns
+       * * `Mastodon` - Mastodon
+       * * `Meetup` - Meetup
+       * * `Memberful` - Memberful
+       * * `MercadoPago` - MercadoPago
+       * * `Meteostat` - Meteostat
+       * * `Mews` - Mews
+       * * `Mezmo` - Mezmo
+       * * `Microsoft365UsageReports` - Microsoft365UsageReports
+       * * `MicrosoftAdvertising` - MicrosoftAdvertising
+       * * `MicrosoftClarity` - MicrosoftClarity
+       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+       * * `MicrosoftIntune` - MicrosoftIntune
+       * * `MicrosoftPurview` - MicrosoftPurview
+       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+       * * `MicrosoftSentinel` - MicrosoftSentinel
+       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+       * * `Midtrans` - Midtrans
+       * * `MightyNetworks` - MightyNetworks
+       * * `Mindbody` - Mindbody
+       * * `Mirakl` - Mirakl
+       * * `Moesif` - Moesif
+       * * `Moneybird` - Moneybird
+       * * `Moodle` - Moodle
+       * * `Motherduck` - Motherduck
+       * * `Mycase` - Mycase
+       * * `NagerDate` - NagerDate
+       * * `NeonCrm` - NeonCrm
+       * * `Nexhealth` - Nexhealth
+       * * `NoaaCdo` - NoaaCdo
+       * * `Nobl9` - Nobl9
+       * * `Nolt` - Nolt
+       * * `Nops` - Nops
+       * * `NpmRegistry` - NpmRegistry
+       * * `Oecd` - Oecd
+       * * `Okendo` - Okendo
+       * * `Omni` - Omni
+       * * `Onelogin` - Onelogin
+       * * `OpenDental` - OpenDental
+       * * `OpenMeteo` - OpenMeteo
+       * * `Openalex` - Openalex
+       * * `Opencorporates` - Opencorporates
+       * * `Openfec` - Openfec
+       * * `OpnPayments` - OpnPayments
+       * * `Opslevel` - Opslevel
+       * * `OttoMarket` - OttoMarket
+       * * `Ownerrez` - Ownerrez
+       * * `Pagbank` - Pagbank
+       * * `Patreon` - Patreon
+       * * `Pax8` - Pax8
+       * * `Paychex` - Paychex
+       * * `Paymob` - Paymob
+       * * `Paymongo` - Paymongo
+       * * `Phonepe` - Phonepe
+       * * `Pike13` - Pike13
+       * * `Pingone` - Pingone
+       * * `PinterestOrganic` - PinterestOrganic
+       * * `PlanningCenter` - PlanningCenter
+       * * `PluralsightFlow` - PluralsightFlow
+       * * `Podbean` - Podbean
+       * * `Postscript` - Postscript
+       * * `PowerBiAdmin` - PowerBiAdmin
+       * * `Practicepanther` - Practicepanther
+       * * `Preset` - Preset
+       * * `Procore` - Procore
+       * * `Productiv` - Productiv
+       * * `ProofpointTap` - ProofpointTap
+       * * `Propertyware` - Propertyware
+       * * `Pubnub` - Pubnub
+       * * `Quay` - Quay
+       * * `Raken` - Raken
+       * * `RedpandaCloud` - RedpandaCloud
+       * * `RentManager` - RentManager
+       * * `Reverb` - Reverb
+       * * `RocketMatter` - RocketMatter
+       * * `Rubygems` - Rubygems
+       * * `Scalr` - Scalr
+       * * `SecEdgar` - SecEdgar
+       * * `SelectStar` - SelectStar
+       * * `SemanticScholar` - SemanticScholar
+       * * `Semrush` - Semrush
+       * * `ServiceFusion` - ServiceFusion
+       * * `Servicem8` - Servicem8
+       * * `Servicetitan` - Servicetitan
+       * * `Servicetrade` - Servicetrade
+       * * `Sevdesk` - Sevdesk
+       * * `Similarweb` - Similarweb
+       * * `Simpro` - Simpro
+       * * `Sinch` - Sinch
+       * * `Singlestore` - Singlestore
+       * * `Site24x7` - Site24x7
+       * * `Sleuth` - Sleuth
+       * * `Smartlook` - Smartlook
+       * * `Smartrecruiters` - Smartrecruiters
+       * * `Smokeball` - Smokeball
+       * * `SodaCloud` - SodaCloud
+       * * `Speedcurve` - Speedcurve
+       * * `SpotIo` - SpotIo
+       * * `Sprig` - Sprig
+       * * `Sprinklr` - Sprinklr
+       * * `SproutSocial` - SproutSocial
+       * * `StackOverflowForTeams` - StackOverflowForTeams
+       * * `Stockx` - Stockx
+       * * `TackleIo` - TackleIo
+       * * `Talkdesk` - Talkdesk
+       * * `TeamupFitness` - TeamupFitness
+       * * `Tebra` - Tebra
+       * * `Telnyx` - Telnyx
+       * * `Ternary` - Ternary
+       * * `Thoughtspot` - Thoughtspot
+       * * `Thousandeyes` - Thousandeyes
+       * * `Threads` - Threads
+       * * `TiktokShop` - TiktokShop
+       * * `TinyErp` - TinyErp
+       * * `Tinybird` - Tinybird
+       * * `Tipalti` - Tipalti
+       * * `Toast` - Toast
+       * * `Torii` - Torii
+       * * `Transistor` - Transistor
+       * * `TrunkIo` - TrunkIo
+       * * `Trustradius` - Trustradius
+       * * `Twitch` - Twitch
+       * * `TwoC2p` - TwoC2p
+       * * `UkCompaniesHouse` - UkCompaniesHouse
+       * * `UkOns` - UkOns
+       * * `UnComtrade` - UnComtrade
+       * * `UsBea` - UsBea
+       * * `UsBls` - UsBls
+       * * `UsEia` - UsEia
+       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+       * * `Vanta` - Vanta
+       * * `Vendr` - Vendr
+       * * `Virtuous` - Virtuous
+       * * `Vonage` - Vonage
+       * * `WalmartMarketplace` - WalmartMarketplace
+       * * `Waydev` - Waydev
+       * * `Wayfair` - Wayfair
+       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+       * * `WhoGho` - WhoGho
+       * * `Whop` - Whop
+       * * `Wiz` - Wiz
+       * * `Wompi` - Wompi
+       * * `Workiz` - Workiz
+       * * `WorldBank` - WorldBank
+       * * `Xendit` - Xendit
+       * * `Yoco` - Yoco
+       * * `ZalandoZdirect` - ZalandoZdirect
+       * * `Zluri` - Zluri
+       * * `Zylo` - Zylo
+       * * `Tally` - Tally
+       * * `Nuntly` - Nuntly
+       * * `Vturb` - Vturb */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -59312,7 +62648,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -59989,7 +63324,389 @@ export namespace Schemas {
        * * `Axiom` - Axiom
        * * `Plivo` - Plivo
        * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan */
+       * * `Sleekplan` - Sleekplan
+       * * `AbTasty` - AbTasty
+       * * `Ably` - Ably
+       * * `AbnormalSecurity` - AbnormalSecurity
+       * * `Acast` - Acast
+       * * `Acculynx` - Acculynx
+       * * `Actionstep` - Actionstep
+       * * `Aftership` - Aftership
+       * * `AhaIdeas` - AhaIdeas
+       * * `AkamaiReporting` - AkamaiReporting
+       * * `Alation` - Alation
+       * * `Alegra` - Alegra
+       * * `Allegro` - Allegro
+       * * `AnodotCost` - AnodotCost
+       * * `Anomalo` - Anomalo
+       * * `Apaleo` - Apaleo
+       * * `Apitally` - Apitally
+       * * `AppStoreConnect` - AppStoreConnect
+       * * `Appdirect` - Appdirect
+       * * `Appfolio` - Appfolio
+       * * `Arxiv` - Arxiv
+       * * `Asaas` - Asaas
+       * * `Astronomer` - Astronomer
+       * * `Athenahealth` - Athenahealth
+       * * `Atlan` - Atlan
+       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+       * * `Avalara` - Avalara
+       * * `AwsAthena` - AwsAthena
+       * * `AwsBatch` - AwsBatch
+       * * `AwsBudgets` - AwsBudgets
+       * * `AwsCloudformation` - AwsCloudformation
+       * * `AwsComputeOptimizer` - AwsComputeOptimizer
+       * * `AwsConfig` - AwsConfig
+       * * `AwsConnect` - AwsConnect
+       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+       * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+       * * `AwsGuardduty` - AwsGuardduty
+       * * `AwsHealth` - AwsHealth
+       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+       * * `AwsInspector` - AwsInspector
+       * * `AwsMacie` - AwsMacie
+       * * `AwsOrganizations` - AwsOrganizations
+       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+       * * `AwsSagemaker` - AwsSagemaker
+       * * `AwsSavingsPlans` - AwsSavingsPlans
+       * * `AwsSecurityHub` - AwsSecurityHub
+       * * `AwsSes` - AwsSes
+       * * `AwsStepFunctions` - AwsStepFunctions
+       * * `AwsSupport` - AwsSupport
+       * * `AwsSystemsManager` - AwsSystemsManager
+       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+       * * `AwsWaf` - AwsWaf
+       * * `AwsXray` - AwsXray
+       * * `AzureActivityLog` - AzureActivityLog
+       * * `AzureAdvisor` - AzureAdvisor
+       * * `AzureApiManagement` - AzureApiManagement
+       * * `AzureApplicationInsights` - AzureApplicationInsights
+       * * `AzureCostManagement` - AzureCostManagement
+       * * `AzureDataExplorer` - AzureDataExplorer
+       * * `AzureDataFactory` - AzureDataFactory
+       * * `AzureLogAnalytics` - AzureLogAnalytics
+       * * `AzureMonitorAlerts` - AzureMonitorAlerts
+       * * `AzureMonitorMetrics` - AzureMonitorMetrics
+       * * `AzureOpenaiUsage` - AzureOpenaiUsage
+       * * `AzurePolicyInsights` - AzurePolicyInsights
+       * * `AzureReservations` - AzureReservations
+       * * `AzureResourceGraph` - AzureResourceGraph
+       * * `AzureResourceHealth` - AzureResourceHealth
+       * * `AzureServiceHealth` - AzureServiceHealth
+       * * `AzureSynapse` - AzureSynapse
+       * * `BackMarket` - BackMarket
+       * * `Beehiiv` - Beehiiv
+       * * `Bigeye` - Bigeye
+       * * `BillCom` - BillCom
+       * * `Billomat` - Billomat
+       * * `BingWebmasterTools` - BingWebmasterTools
+       * * `Bitwarden` - Bitwarden
+       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+       * * `BlackboardLearn` - BlackboardLearn
+       * * `Bling` - Bling
+       * * `Bloomerang` - Bloomerang
+       * * `Bluesky` - Bluesky
+       * * `BolRetailer` - BolRetailer
+       * * `Boulevard` - Boulevard
+       * * `Buffer` - Buffer
+       * * `Bugherd` - Bugherd
+       * * `Buildium` - Buildium
+       * * `Buttondown` - Buttondown
+       * * `BuyMeACoffee` - BuyMeACoffee
+       * * `Calendarific` - Calendarific
+       * * `Calibre` - Calibre
+       * * `CanvasLms` - CanvasLms
+       * * `Captivate` - Captivate
+       * * `Cashfree` - Cashfree
+       * * `CastAi` - CastAi
+       * * `Catchpoint` - Catchpoint
+       * * `CdcOpenData` - CdcOpenData
+       * * `Census` - Census
+       * * `Checkly` - Checkly
+       * * `CircleSo` - CircleSo
+       * * `Classy` - Classy
+       * * `Cleartax` - Cleartax
+       * * `Clever` - Clever
+       * * `Clevertap` - Clevertap
+       * * `Cliniko` - Cliniko
+       * * `Clio` - Clio
+       * * `Clip` - Clip
+       * * `Cloudability` - Cloudability
+       * * `Cloudsmith` - Cloudsmith
+       * * `Cloudzero` - Cloudzero
+       * * `Clover` - Clover
+       * * `Codemagic` - Codemagic
+       * * `Codescene` - Codescene
+       * * `Collibra` - Collibra
+       * * `Companycam` - Companycam
+       * * `Conekta` - Conekta
+       * * `ContaAzul` - ContaAzul
+       * * `Contentsquare` - Contentsquare
+       * * `Cortex` - Cortex
+       * * `Courier` - Courier
+       * * `Crossref` - Crossref
+       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+       * * `CubeCloud` - CubeCloud
+       * * `D2lBrightspace` - D2lBrightspace
+       * * `Dayforce` - Dayforce
+       * * `Debugbear` - Debugbear
+       * * `Descope` - Descope
+       * * `Develocity` - Develocity
+       * * `Dialpad` - Dialpad
+       * * `Discord` - Discord
+       * * `Discourse` - Discourse
+       * * `Donorbox` - Donorbox
+       * * `Doorloop` - Doorloop
+       * * `Dovetail` - Dovetail
+       * * `Drchrono` - Drchrono
+       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+       * * `EcbDataPortal` - EcbDataPortal
+       * * `Emarsys` - Emarsys
+       * * `Embrace` - Embrace
+       * * `Entsoe` - Entsoe
+       * * `Eppo` - Eppo
+       * * `Etsy` - Etsy
+       * * `Eurostat` - Eurostat
+       * * `Faire` - Faire
+       * * `FarosAi` - FarosAi
+       * * `Fieldpulse` - Fieldpulse
+       * * `Fieldwire` - Fieldwire
+       * * `Filevine` - Filevine
+       * * `Finout` - Finout
+       * * `Five9` - Five9
+       * * `FlexeraCloudCost` - FlexeraCloudCost
+       * * `Flutterwave` - Flutterwave
+       * * `Fortnox` - Fortnox
+       * * `Fourthwall` - Fourthwall
+       * * `Fred` - Fred
+       * * `Frontegg` - Frontegg
+       * * `FusionAuth` - FusionAuth
+       * * `G2` - G2
+       * * `Gcore` - Gcore
+       * * `GcpApigee` - GcpApigee
+       * * `GcpArtifactRegistry` - GcpArtifactRegistry
+       * * `GcpBigtable` - GcpBigtable
+       * * `GcpChronicle` - GcpChronicle
+       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+       * * `GcpCloudBilling` - GcpCloudBilling
+       * * `GcpCloudBuild` - GcpCloudBuild
+       * * `GcpCloudDeploy` - GcpCloudDeploy
+       * * `GcpCloudDns` - GcpCloudDns
+       * * `GcpCloudFunctions` - GcpCloudFunctions
+       * * `GcpCloudLogging` - GcpCloudLogging
+       * * `GcpCloudMonitoring` - GcpCloudMonitoring
+       * * `GcpCloudRun` - GcpCloudRun
+       * * `GcpCloudSpanner` - GcpCloudSpanner
+       * * `GcpCloudSql` - GcpCloudSql
+       * * `GcpCloudTrace` - GcpCloudTrace
+       * * `GcpCloudWorkflows` - GcpCloudWorkflows
+       * * `GcpComputeEngine` - GcpComputeEngine
+       * * `GcpContainerAnalysis` - GcpContainerAnalysis
+       * * `GcpDataflow` - GcpDataflow
+       * * `GcpDataplex` - GcpDataplex
+       * * `GcpDataproc` - GcpDataproc
+       * * `GcpErrorReporting` - GcpErrorReporting
+       * * `GcpGke` - GcpGke
+       * * `GcpPubsub` - GcpPubsub
+       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+       * * `GcpRecommender` - GcpRecommender
+       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+       * * `Gdelt` - Gdelt
+       * * `GenesysCloud` - GenesysCloud
+       * * `Getdx` - Getdx
+       * * `Ghost` - Ghost
+       * * `Givebutter` - Givebutter
+       * * `Gleif` - Gleif
+       * * `GooglePlayConsole` - GooglePlayConsole
+       * * `Guesty` - Guesty
+       * * `Gumroad` - Gumroad
+       * * `HarnessCcm` - HarnessCcm
+       * * `HarnessSei` - HarnessSei
+       * * `Harvest` - Harvest
+       * * `Healthie` - Healthie
+       * * `Hitpay` - Hitpay
+       * * `Hivebrite` - Hivebrite
+       * * `Holded` - Holded
+       * * `Hostaway` - Hostaway
+       * * `HousecallPro` - HousecallPro
+       * * `Humanitec` - Humanitec
+       * * `ImfData` - ImfData
+       * * `Imperva` - Imperva
+       * * `InfluxdbCloud` - InfluxdbCloud
+       * * `Iyzico` - Iyzico
+       * * `Jobtread` - Jobtread
+       * * `Kameleoon` - Kameleoon
+       * * `KauflandMarketplace` - KauflandMarketplace
+       * * `Kestra` - Kestra
+       * * `Kick` - Kick
+       * * `Kinde` - Kinde
+       * * `Kion` - Kion
+       * * `Knowbe4` - Knowbe4
+       * * `Komodor` - Komodor
+       * * `Labelbox` - Labelbox
+       * * `Lawmatics` - Lawmatics
+       * * `Learnworlds` - Learnworlds
+       * * `LexwareOffice` - LexwareOffice
+       * * `Lightdash` - Lightdash
+       * * `Lodgify` - Lodgify
+       * * `Logicmonitor` - Logicmonitor
+       * * `Logrocket` - Logrocket
+       * * `LoopReturns` - LoopReturns
+       * * `Mastodon` - Mastodon
+       * * `Meetup` - Meetup
+       * * `Memberful` - Memberful
+       * * `MercadoPago` - MercadoPago
+       * * `Meteostat` - Meteostat
+       * * `Mews` - Mews
+       * * `Mezmo` - Mezmo
+       * * `Microsoft365UsageReports` - Microsoft365UsageReports
+       * * `MicrosoftAdvertising` - MicrosoftAdvertising
+       * * `MicrosoftClarity` - MicrosoftClarity
+       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+       * * `MicrosoftIntune` - MicrosoftIntune
+       * * `MicrosoftPurview` - MicrosoftPurview
+       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+       * * `MicrosoftSentinel` - MicrosoftSentinel
+       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+       * * `Midtrans` - Midtrans
+       * * `MightyNetworks` - MightyNetworks
+       * * `Mindbody` - Mindbody
+       * * `Mirakl` - Mirakl
+       * * `Moesif` - Moesif
+       * * `Moneybird` - Moneybird
+       * * `Moodle` - Moodle
+       * * `Motherduck` - Motherduck
+       * * `Mycase` - Mycase
+       * * `NagerDate` - NagerDate
+       * * `NeonCrm` - NeonCrm
+       * * `Nexhealth` - Nexhealth
+       * * `NoaaCdo` - NoaaCdo
+       * * `Nobl9` - Nobl9
+       * * `Nolt` - Nolt
+       * * `Nops` - Nops
+       * * `NpmRegistry` - NpmRegistry
+       * * `Oecd` - Oecd
+       * * `Okendo` - Okendo
+       * * `Omni` - Omni
+       * * `Onelogin` - Onelogin
+       * * `OpenDental` - OpenDental
+       * * `OpenMeteo` - OpenMeteo
+       * * `Openalex` - Openalex
+       * * `Opencorporates` - Opencorporates
+       * * `Openfec` - Openfec
+       * * `OpnPayments` - OpnPayments
+       * * `Opslevel` - Opslevel
+       * * `OttoMarket` - OttoMarket
+       * * `Ownerrez` - Ownerrez
+       * * `Pagbank` - Pagbank
+       * * `Patreon` - Patreon
+       * * `Pax8` - Pax8
+       * * `Paychex` - Paychex
+       * * `Paymob` - Paymob
+       * * `Paymongo` - Paymongo
+       * * `Phonepe` - Phonepe
+       * * `Pike13` - Pike13
+       * * `Pingone` - Pingone
+       * * `PinterestOrganic` - PinterestOrganic
+       * * `PlanningCenter` - PlanningCenter
+       * * `PluralsightFlow` - PluralsightFlow
+       * * `Podbean` - Podbean
+       * * `Postscript` - Postscript
+       * * `PowerBiAdmin` - PowerBiAdmin
+       * * `Practicepanther` - Practicepanther
+       * * `Preset` - Preset
+       * * `Procore` - Procore
+       * * `Productiv` - Productiv
+       * * `ProofpointTap` - ProofpointTap
+       * * `Propertyware` - Propertyware
+       * * `Pubnub` - Pubnub
+       * * `Quay` - Quay
+       * * `Raken` - Raken
+       * * `RedpandaCloud` - RedpandaCloud
+       * * `RentManager` - RentManager
+       * * `Reverb` - Reverb
+       * * `RocketMatter` - RocketMatter
+       * * `Rubygems` - Rubygems
+       * * `Scalr` - Scalr
+       * * `SecEdgar` - SecEdgar
+       * * `SelectStar` - SelectStar
+       * * `SemanticScholar` - SemanticScholar
+       * * `Semrush` - Semrush
+       * * `ServiceFusion` - ServiceFusion
+       * * `Servicem8` - Servicem8
+       * * `Servicetitan` - Servicetitan
+       * * `Servicetrade` - Servicetrade
+       * * `Sevdesk` - Sevdesk
+       * * `Similarweb` - Similarweb
+       * * `Simpro` - Simpro
+       * * `Sinch` - Sinch
+       * * `Singlestore` - Singlestore
+       * * `Site24x7` - Site24x7
+       * * `Sleuth` - Sleuth
+       * * `Smartlook` - Smartlook
+       * * `Smartrecruiters` - Smartrecruiters
+       * * `Smokeball` - Smokeball
+       * * `SodaCloud` - SodaCloud
+       * * `Speedcurve` - Speedcurve
+       * * `SpotIo` - SpotIo
+       * * `Sprig` - Sprig
+       * * `Sprinklr` - Sprinklr
+       * * `SproutSocial` - SproutSocial
+       * * `StackOverflowForTeams` - StackOverflowForTeams
+       * * `Stockx` - Stockx
+       * * `TackleIo` - TackleIo
+       * * `Talkdesk` - Talkdesk
+       * * `TeamupFitness` - TeamupFitness
+       * * `Tebra` - Tebra
+       * * `Telnyx` - Telnyx
+       * * `Ternary` - Ternary
+       * * `Thoughtspot` - Thoughtspot
+       * * `Thousandeyes` - Thousandeyes
+       * * `Threads` - Threads
+       * * `TiktokShop` - TiktokShop
+       * * `TinyErp` - TinyErp
+       * * `Tinybird` - Tinybird
+       * * `Tipalti` - Tipalti
+       * * `Toast` - Toast
+       * * `Torii` - Torii
+       * * `Transistor` - Transistor
+       * * `TrunkIo` - TrunkIo
+       * * `Trustradius` - Trustradius
+       * * `Twitch` - Twitch
+       * * `TwoC2p` - TwoC2p
+       * * `UkCompaniesHouse` - UkCompaniesHouse
+       * * `UkOns` - UkOns
+       * * `UnComtrade` - UnComtrade
+       * * `UsBea` - UsBea
+       * * `UsBls` - UsBls
+       * * `UsEia` - UsEia
+       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+       * * `Vanta` - Vanta
+       * * `Vendr` - Vendr
+       * * `Virtuous` - Virtuous
+       * * `Vonage` - Vonage
+       * * `WalmartMarketplace` - WalmartMarketplace
+       * * `Waydev` - Waydev
+       * * `Wayfair` - Wayfair
+       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+       * * `WhoGho` - WhoGho
+       * * `Whop` - Whop
+       * * `Wiz` - Wiz
+       * * `Wompi` - Wompi
+       * * `Workiz` - Workiz
+       * * `WorldBank` - WorldBank
+       * * `Xendit` - Xendit
+       * * `Yoco` - Yoco
+       * * `ZalandoZdirect` - ZalandoZdirect
+       * * `Zluri` - Zluri
+       * * `Zylo` - Zylo
+       * * `Tally` - Tally
+       * * `Nuntly` - Nuntly
+       * * `Vturb` - Vturb */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -60213,7 +63930,6 @@ export namespace Schemas {
        * * `Dixa` - Dixa
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
-       * * `Delighted` - Delighted
        * * `AzureDevOps` - AzureDevOps
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
@@ -60890,7 +64606,389 @@ export namespace Schemas {
        * * `Axiom` - Axiom
        * * `Plivo` - Plivo
        * * `DataForSEO` - DataForSEO
-       * * `Sleekplan` - Sleekplan */
+       * * `Sleekplan` - Sleekplan
+       * * `AbTasty` - AbTasty
+       * * `Ably` - Ably
+       * * `AbnormalSecurity` - AbnormalSecurity
+       * * `Acast` - Acast
+       * * `Acculynx` - Acculynx
+       * * `Actionstep` - Actionstep
+       * * `Aftership` - Aftership
+       * * `AhaIdeas` - AhaIdeas
+       * * `AkamaiReporting` - AkamaiReporting
+       * * `Alation` - Alation
+       * * `Alegra` - Alegra
+       * * `Allegro` - Allegro
+       * * `AnodotCost` - AnodotCost
+       * * `Anomalo` - Anomalo
+       * * `Apaleo` - Apaleo
+       * * `Apitally` - Apitally
+       * * `AppStoreConnect` - AppStoreConnect
+       * * `Appdirect` - Appdirect
+       * * `Appfolio` - Appfolio
+       * * `Arxiv` - Arxiv
+       * * `Asaas` - Asaas
+       * * `Astronomer` - Astronomer
+       * * `Athenahealth` - Athenahealth
+       * * `Atlan` - Atlan
+       * * `AutodeskConstructionCloud` - AutodeskConstructionCloud
+       * * `Avalara` - Avalara
+       * * `AwsAthena` - AwsAthena
+       * * `AwsBatch` - AwsBatch
+       * * `AwsBudgets` - AwsBudgets
+       * * `AwsCloudformation` - AwsCloudformation
+       * * `AwsComputeOptimizer` - AwsComputeOptimizer
+       * * `AwsConfig` - AwsConfig
+       * * `AwsConnect` - AwsConnect
+       * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
+       * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
+       * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
+       * * `AwsGuardduty` - AwsGuardduty
+       * * `AwsHealth` - AwsHealth
+       * * `AwsIamAccessAnalyzer` - AwsIamAccessAnalyzer
+       * * `AwsInspector` - AwsInspector
+       * * `AwsMacie` - AwsMacie
+       * * `AwsOrganizations` - AwsOrganizations
+       * * `AwsRdsPerformanceInsights` - AwsRdsPerformanceInsights
+       * * `AwsSagemaker` - AwsSagemaker
+       * * `AwsSavingsPlans` - AwsSavingsPlans
+       * * `AwsSecurityHub` - AwsSecurityHub
+       * * `AwsSes` - AwsSes
+       * * `AwsStepFunctions` - AwsStepFunctions
+       * * `AwsSupport` - AwsSupport
+       * * `AwsSystemsManager` - AwsSystemsManager
+       * * `AwsTrustedAdvisor` - AwsTrustedAdvisor
+       * * `AwsWaf` - AwsWaf
+       * * `AwsXray` - AwsXray
+       * * `AzureActivityLog` - AzureActivityLog
+       * * `AzureAdvisor` - AzureAdvisor
+       * * `AzureApiManagement` - AzureApiManagement
+       * * `AzureApplicationInsights` - AzureApplicationInsights
+       * * `AzureCostManagement` - AzureCostManagement
+       * * `AzureDataExplorer` - AzureDataExplorer
+       * * `AzureDataFactory` - AzureDataFactory
+       * * `AzureLogAnalytics` - AzureLogAnalytics
+       * * `AzureMonitorAlerts` - AzureMonitorAlerts
+       * * `AzureMonitorMetrics` - AzureMonitorMetrics
+       * * `AzureOpenaiUsage` - AzureOpenaiUsage
+       * * `AzurePolicyInsights` - AzurePolicyInsights
+       * * `AzureReservations` - AzureReservations
+       * * `AzureResourceGraph` - AzureResourceGraph
+       * * `AzureResourceHealth` - AzureResourceHealth
+       * * `AzureServiceHealth` - AzureServiceHealth
+       * * `AzureSynapse` - AzureSynapse
+       * * `BackMarket` - BackMarket
+       * * `Beehiiv` - Beehiiv
+       * * `Bigeye` - Bigeye
+       * * `BillCom` - BillCom
+       * * `Billomat` - Billomat
+       * * `BingWebmasterTools` - BingWebmasterTools
+       * * `Bitwarden` - Bitwarden
+       * * `BlackbaudRaisersEdgeNxt` - BlackbaudRaisersEdgeNxt
+       * * `BlackboardLearn` - BlackboardLearn
+       * * `Bling` - Bling
+       * * `Bloomerang` - Bloomerang
+       * * `Bluesky` - Bluesky
+       * * `BolRetailer` - BolRetailer
+       * * `Boulevard` - Boulevard
+       * * `Buffer` - Buffer
+       * * `Bugherd` - Bugherd
+       * * `Buildium` - Buildium
+       * * `Buttondown` - Buttondown
+       * * `BuyMeACoffee` - BuyMeACoffee
+       * * `Calendarific` - Calendarific
+       * * `Calibre` - Calibre
+       * * `CanvasLms` - CanvasLms
+       * * `Captivate` - Captivate
+       * * `Cashfree` - Cashfree
+       * * `CastAi` - CastAi
+       * * `Catchpoint` - Catchpoint
+       * * `CdcOpenData` - CdcOpenData
+       * * `Census` - Census
+       * * `Checkly` - Checkly
+       * * `CircleSo` - CircleSo
+       * * `Classy` - Classy
+       * * `Cleartax` - Cleartax
+       * * `Clever` - Clever
+       * * `Clevertap` - Clevertap
+       * * `Cliniko` - Cliniko
+       * * `Clio` - Clio
+       * * `Clip` - Clip
+       * * `Cloudability` - Cloudability
+       * * `Cloudsmith` - Cloudsmith
+       * * `Cloudzero` - Cloudzero
+       * * `Clover` - Clover
+       * * `Codemagic` - Codemagic
+       * * `Codescene` - Codescene
+       * * `Collibra` - Collibra
+       * * `Companycam` - Companycam
+       * * `Conekta` - Conekta
+       * * `ContaAzul` - ContaAzul
+       * * `Contentsquare` - Contentsquare
+       * * `Cortex` - Cortex
+       * * `Courier` - Courier
+       * * `Crossref` - Crossref
+       * * `CrowdstrikeFalcon` - CrowdstrikeFalcon
+       * * `CubeCloud` - CubeCloud
+       * * `D2lBrightspace` - D2lBrightspace
+       * * `Dayforce` - Dayforce
+       * * `Debugbear` - Debugbear
+       * * `Descope` - Descope
+       * * `Develocity` - Develocity
+       * * `Dialpad` - Dialpad
+       * * `Discord` - Discord
+       * * `Discourse` - Discourse
+       * * `Donorbox` - Donorbox
+       * * `Doorloop` - Doorloop
+       * * `Dovetail` - Dovetail
+       * * `Drchrono` - Drchrono
+       * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
+       * * `EcbDataPortal` - EcbDataPortal
+       * * `Emarsys` - Emarsys
+       * * `Embrace` - Embrace
+       * * `Entsoe` - Entsoe
+       * * `Eppo` - Eppo
+       * * `Etsy` - Etsy
+       * * `Eurostat` - Eurostat
+       * * `Faire` - Faire
+       * * `FarosAi` - FarosAi
+       * * `Fieldpulse` - Fieldpulse
+       * * `Fieldwire` - Fieldwire
+       * * `Filevine` - Filevine
+       * * `Finout` - Finout
+       * * `Five9` - Five9
+       * * `FlexeraCloudCost` - FlexeraCloudCost
+       * * `Flutterwave` - Flutterwave
+       * * `Fortnox` - Fortnox
+       * * `Fourthwall` - Fourthwall
+       * * `Fred` - Fred
+       * * `Frontegg` - Frontegg
+       * * `FusionAuth` - FusionAuth
+       * * `G2` - G2
+       * * `Gcore` - Gcore
+       * * `GcpApigee` - GcpApigee
+       * * `GcpArtifactRegistry` - GcpArtifactRegistry
+       * * `GcpBigtable` - GcpBigtable
+       * * `GcpChronicle` - GcpChronicle
+       * * `GcpCloudAssetInventory` - GcpCloudAssetInventory
+       * * `GcpCloudBilling` - GcpCloudBilling
+       * * `GcpCloudBuild` - GcpCloudBuild
+       * * `GcpCloudDeploy` - GcpCloudDeploy
+       * * `GcpCloudDns` - GcpCloudDns
+       * * `GcpCloudFunctions` - GcpCloudFunctions
+       * * `GcpCloudLogging` - GcpCloudLogging
+       * * `GcpCloudMonitoring` - GcpCloudMonitoring
+       * * `GcpCloudRun` - GcpCloudRun
+       * * `GcpCloudSpanner` - GcpCloudSpanner
+       * * `GcpCloudSql` - GcpCloudSql
+       * * `GcpCloudTrace` - GcpCloudTrace
+       * * `GcpCloudWorkflows` - GcpCloudWorkflows
+       * * `GcpComputeEngine` - GcpComputeEngine
+       * * `GcpContainerAnalysis` - GcpContainerAnalysis
+       * * `GcpDataflow` - GcpDataflow
+       * * `GcpDataplex` - GcpDataplex
+       * * `GcpDataproc` - GcpDataproc
+       * * `GcpErrorReporting` - GcpErrorReporting
+       * * `GcpGke` - GcpGke
+       * * `GcpPubsub` - GcpPubsub
+       * * `GcpRecaptchaEnterprise` - GcpRecaptchaEnterprise
+       * * `GcpRecommender` - GcpRecommender
+       * * `GcpSecurityCommandCenter` - GcpSecurityCommandCenter
+       * * `Gdelt` - Gdelt
+       * * `GenesysCloud` - GenesysCloud
+       * * `Getdx` - Getdx
+       * * `Ghost` - Ghost
+       * * `Givebutter` - Givebutter
+       * * `Gleif` - Gleif
+       * * `GooglePlayConsole` - GooglePlayConsole
+       * * `Guesty` - Guesty
+       * * `Gumroad` - Gumroad
+       * * `HarnessCcm` - HarnessCcm
+       * * `HarnessSei` - HarnessSei
+       * * `Harvest` - Harvest
+       * * `Healthie` - Healthie
+       * * `Hitpay` - Hitpay
+       * * `Hivebrite` - Hivebrite
+       * * `Holded` - Holded
+       * * `Hostaway` - Hostaway
+       * * `HousecallPro` - HousecallPro
+       * * `Humanitec` - Humanitec
+       * * `ImfData` - ImfData
+       * * `Imperva` - Imperva
+       * * `InfluxdbCloud` - InfluxdbCloud
+       * * `Iyzico` - Iyzico
+       * * `Jobtread` - Jobtread
+       * * `Kameleoon` - Kameleoon
+       * * `KauflandMarketplace` - KauflandMarketplace
+       * * `Kestra` - Kestra
+       * * `Kick` - Kick
+       * * `Kinde` - Kinde
+       * * `Kion` - Kion
+       * * `Knowbe4` - Knowbe4
+       * * `Komodor` - Komodor
+       * * `Labelbox` - Labelbox
+       * * `Lawmatics` - Lawmatics
+       * * `Learnworlds` - Learnworlds
+       * * `LexwareOffice` - LexwareOffice
+       * * `Lightdash` - Lightdash
+       * * `Lodgify` - Lodgify
+       * * `Logicmonitor` - Logicmonitor
+       * * `Logrocket` - Logrocket
+       * * `LoopReturns` - LoopReturns
+       * * `Mastodon` - Mastodon
+       * * `Meetup` - Meetup
+       * * `Memberful` - Memberful
+       * * `MercadoPago` - MercadoPago
+       * * `Meteostat` - Meteostat
+       * * `Mews` - Mews
+       * * `Mezmo` - Mezmo
+       * * `Microsoft365UsageReports` - Microsoft365UsageReports
+       * * `MicrosoftAdvertising` - MicrosoftAdvertising
+       * * `MicrosoftClarity` - MicrosoftClarity
+       * * `MicrosoftDefenderCloudApps` - MicrosoftDefenderCloudApps
+       * * `MicrosoftDefenderEndpoint` - MicrosoftDefenderEndpoint
+       * * `MicrosoftDefenderForCloud` - MicrosoftDefenderForCloud
+       * * `MicrosoftIntune` - MicrosoftIntune
+       * * `MicrosoftPurview` - MicrosoftPurview
+       * * `MicrosoftPurviewAudit` - MicrosoftPurviewAudit
+       * * `MicrosoftSentinel` - MicrosoftSentinel
+       * * `MicrosoftTeamsCallRecords` - MicrosoftTeamsCallRecords
+       * * `Midtrans` - Midtrans
+       * * `MightyNetworks` - MightyNetworks
+       * * `Mindbody` - Mindbody
+       * * `Mirakl` - Mirakl
+       * * `Moesif` - Moesif
+       * * `Moneybird` - Moneybird
+       * * `Moodle` - Moodle
+       * * `Motherduck` - Motherduck
+       * * `Mycase` - Mycase
+       * * `NagerDate` - NagerDate
+       * * `NeonCrm` - NeonCrm
+       * * `Nexhealth` - Nexhealth
+       * * `NoaaCdo` - NoaaCdo
+       * * `Nobl9` - Nobl9
+       * * `Nolt` - Nolt
+       * * `Nops` - Nops
+       * * `NpmRegistry` - NpmRegistry
+       * * `Oecd` - Oecd
+       * * `Okendo` - Okendo
+       * * `Omni` - Omni
+       * * `Onelogin` - Onelogin
+       * * `OpenDental` - OpenDental
+       * * `OpenMeteo` - OpenMeteo
+       * * `Openalex` - Openalex
+       * * `Opencorporates` - Opencorporates
+       * * `Openfec` - Openfec
+       * * `OpnPayments` - OpnPayments
+       * * `Opslevel` - Opslevel
+       * * `OttoMarket` - OttoMarket
+       * * `Ownerrez` - Ownerrez
+       * * `Pagbank` - Pagbank
+       * * `Patreon` - Patreon
+       * * `Pax8` - Pax8
+       * * `Paychex` - Paychex
+       * * `Paymob` - Paymob
+       * * `Paymongo` - Paymongo
+       * * `Phonepe` - Phonepe
+       * * `Pike13` - Pike13
+       * * `Pingone` - Pingone
+       * * `PinterestOrganic` - PinterestOrganic
+       * * `PlanningCenter` - PlanningCenter
+       * * `PluralsightFlow` - PluralsightFlow
+       * * `Podbean` - Podbean
+       * * `Postscript` - Postscript
+       * * `PowerBiAdmin` - PowerBiAdmin
+       * * `Practicepanther` - Practicepanther
+       * * `Preset` - Preset
+       * * `Procore` - Procore
+       * * `Productiv` - Productiv
+       * * `ProofpointTap` - ProofpointTap
+       * * `Propertyware` - Propertyware
+       * * `Pubnub` - Pubnub
+       * * `Quay` - Quay
+       * * `Raken` - Raken
+       * * `RedpandaCloud` - RedpandaCloud
+       * * `RentManager` - RentManager
+       * * `Reverb` - Reverb
+       * * `RocketMatter` - RocketMatter
+       * * `Rubygems` - Rubygems
+       * * `Scalr` - Scalr
+       * * `SecEdgar` - SecEdgar
+       * * `SelectStar` - SelectStar
+       * * `SemanticScholar` - SemanticScholar
+       * * `Semrush` - Semrush
+       * * `ServiceFusion` - ServiceFusion
+       * * `Servicem8` - Servicem8
+       * * `Servicetitan` - Servicetitan
+       * * `Servicetrade` - Servicetrade
+       * * `Sevdesk` - Sevdesk
+       * * `Similarweb` - Similarweb
+       * * `Simpro` - Simpro
+       * * `Sinch` - Sinch
+       * * `Singlestore` - Singlestore
+       * * `Site24x7` - Site24x7
+       * * `Sleuth` - Sleuth
+       * * `Smartlook` - Smartlook
+       * * `Smartrecruiters` - Smartrecruiters
+       * * `Smokeball` - Smokeball
+       * * `SodaCloud` - SodaCloud
+       * * `Speedcurve` - Speedcurve
+       * * `SpotIo` - SpotIo
+       * * `Sprig` - Sprig
+       * * `Sprinklr` - Sprinklr
+       * * `SproutSocial` - SproutSocial
+       * * `StackOverflowForTeams` - StackOverflowForTeams
+       * * `Stockx` - Stockx
+       * * `TackleIo` - TackleIo
+       * * `Talkdesk` - Talkdesk
+       * * `TeamupFitness` - TeamupFitness
+       * * `Tebra` - Tebra
+       * * `Telnyx` - Telnyx
+       * * `Ternary` - Ternary
+       * * `Thoughtspot` - Thoughtspot
+       * * `Thousandeyes` - Thousandeyes
+       * * `Threads` - Threads
+       * * `TiktokShop` - TiktokShop
+       * * `TinyErp` - TinyErp
+       * * `Tinybird` - Tinybird
+       * * `Tipalti` - Tipalti
+       * * `Toast` - Toast
+       * * `Torii` - Torii
+       * * `Transistor` - Transistor
+       * * `TrunkIo` - TrunkIo
+       * * `Trustradius` - Trustradius
+       * * `Twitch` - Twitch
+       * * `TwoC2p` - TwoC2p
+       * * `UkCompaniesHouse` - UkCompaniesHouse
+       * * `UkOns` - UkOns
+       * * `UnComtrade` - UnComtrade
+       * * `UsBea` - UsBea
+       * * `UsBls` - UsBls
+       * * `UsEia` - UsEia
+       * * `UsTreasuryFiscalData` - UsTreasuryFiscalData
+       * * `Vanta` - Vanta
+       * * `Vendr` - Vendr
+       * * `Virtuous` - Virtuous
+       * * `Vonage` - Vonage
+       * * `WalmartMarketplace` - WalmartMarketplace
+       * * `Waydev` - Waydev
+       * * `Wayfair` - Wayfair
+       * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
+       * * `WhoGho` - WhoGho
+       * * `Whop` - Whop
+       * * `Wiz` - Wiz
+       * * `Wompi` - Wompi
+       * * `Workiz` - Workiz
+       * * `WorldBank` - WorldBank
+       * * `Xendit` - Xendit
+       * * `Yoco` - Yoco
+       * * `ZalandoZdirect` - ZalandoZdirect
+       * * `Zluri` - Zluri
+       * * `Zylo` - Zylo
+       * * `Tally` - Tally
+       * * `Nuntly` - Nuntly
+       * * `Vturb` - Vturb */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -62235,7 +66333,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `loop` - Loop */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -63220,7 +67319,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `loop` - Loop */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -66433,7 +70533,7 @@ export namespace Schemas {
       time: string;
       /** Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans. */
       bucket_ns: number;
-      /** Spans (or traces when rootSpans is true) in this cell. 0 only on sentinel rows. */
+      /** Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows. */
       count: number;
     }
 
@@ -66577,5030 +70677,6 @@ export namespace Schemas {
      */
     limit?: number;
     };
-
-    export type EnvironmentsAccountsListParams = {
-    /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string;
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string;
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
-     */
-    all_roles_unassigned?: boolean;
-    /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
-     */
-    csm?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort order. Defaults to '-created_at'.
-     */
-    ordering?: string;
-    /**
-     * Case-insensitive substring search across account name and external ID.
-     */
-    search?: string;
-    /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
-     */
-    tags?: string;
-    };
-
-    export type EnvironmentsAccountsNotebooksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort by creation date or author. Defaults to '-created_at'.
-     */
-    ordering?: string;
-    /**
-     * Full-text search across notebook title and content.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsAlertsListParams = {
-    /**
-     * Optional. Restrict results to alerts created by the user with this UUID.
-     */
-    created_by?: string;
-    /**
-     * Optional. Restrict results to alerts on this insight ID.
-     */
-    insight_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsAlertsRetrieveParams = {
-    /**
-     * Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.
-     */
-    checks_date_from?: string;
-    /**
-     * Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.
-     */
-    checks_date_to?: string;
-    /**
-     * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
-     */
-    checks_limit?: number;
-    /**
-     * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
-     */
-    checks_offset?: number;
-    };
-
-    export type EnvironmentsApprovalPoliciesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsBatchExportsBackfillsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    };
-
-    export type EnvironmentsBatchExportsRunsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    };
-
-    export type EnvironmentsBatchExportsRunsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsBatchExportsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsChangeRequestsListParams = {
-    action_key?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    requester?: number;
-    resource_id?: string;
-    resource_type?: string;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    state?: string[];
-    };
-
-    export type EnvironmentsColumnConfigurationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsConversationsViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsCoreEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsCoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsCustomPropertyDefinitionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsCustomPropertyDefinitionsValuesRetrieveParams = {
-    /**
-     * Id of the custom property definition to suggest values for.
-     */
-    key: string;
-    /**
-     * Case-insensitive substring to narrow the suggestions.
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsCustomerJourneysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsCustomerProfileConfigsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsDashboardsListParams = {
-    /**
-     * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
-     */
-    folder?: string;
-    format?: EnvironmentsDashboardsListFormat;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsDashboardsListFormat = typeof EnvironmentsDashboardsListFormat[keyof typeof EnvironmentsDashboardsListFormat];
-
-
-    export const EnvironmentsDashboardsListFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsCreateParams = {
-    format?: EnvironmentsDashboardsCreateFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    };
-
-    export type EnvironmentsDashboardsCreateFormat = typeof EnvironmentsDashboardsCreateFormat[keyof typeof EnvironmentsDashboardsCreateFormat];
-
-
-    export const EnvironmentsDashboardsCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string;
-    format?: EnvironmentsDashboardsRetrieveFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
-     */
-    variables_override?: string;
-    };
-
-    export type EnvironmentsDashboardsRetrieveFormat = typeof EnvironmentsDashboardsRetrieveFormat[keyof typeof EnvironmentsDashboardsRetrieveFormat];
-
-
-    export const EnvironmentsDashboardsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsUpdateParams = {
-    format?: EnvironmentsDashboardsUpdateFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    };
-
-    export type EnvironmentsDashboardsUpdateFormat = typeof EnvironmentsDashboardsUpdateFormat[keyof typeof EnvironmentsDashboardsUpdateFormat];
-
-
-    export const EnvironmentsDashboardsUpdateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsPartialUpdateParams = {
-    format?: EnvironmentsDashboardsPartialUpdateFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    };
-
-    export type EnvironmentsDashboardsPartialUpdateFormat = typeof EnvironmentsDashboardsPartialUpdateFormat[keyof typeof EnvironmentsDashboardsPartialUpdateFormat];
-
-
-    export const EnvironmentsDashboardsPartialUpdateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsDestroyParams = {
-    format?: EnvironmentsDashboardsDestroyFormat;
-    };
-
-    export type EnvironmentsDashboardsDestroyFormat = typeof EnvironmentsDashboardsDestroyFormat[keyof typeof EnvironmentsDashboardsDestroyFormat];
-
-
-    export const EnvironmentsDashboardsDestroyFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsCopyTileCreateParams = {
-    format?: EnvironmentsDashboardsCopyTileCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsCopyTileCreateFormat = typeof EnvironmentsDashboardsCopyTileCreateFormat[keyof typeof EnvironmentsDashboardsCopyTileCreateFormat];
-
-
-    export const EnvironmentsDashboardsCopyTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsCreateTextTileCreateParams = {
-    format?: EnvironmentsDashboardsCreateTextTileCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsCreateTextTileCreateFormat = typeof EnvironmentsDashboardsCreateTextTileCreateFormat[keyof typeof EnvironmentsDashboardsCreateTextTileCreateFormat];
-
-
-    export const EnvironmentsDashboardsCreateTextTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsDeleteTileParams = {
-    format?: EnvironmentsDashboardsDeleteTileFormat;
-    };
-
-    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
-
-
-    export const EnvironmentsDashboardsDeleteTileFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsMoveTileCreateParams = {
-    format?: EnvironmentsDashboardsMoveTileCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
-
-
-    export const EnvironmentsDashboardsMoveTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
-    format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
-    };
-
-    export type EnvironmentsDashboardsMoveTilePartialUpdateFormat = typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat[keyof typeof EnvironmentsDashboardsMoveTilePartialUpdateFormat];
-
-
-    export const EnvironmentsDashboardsMoveTilePartialUpdateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsReorderTilesCreateParams = {
-    format?: EnvironmentsDashboardsReorderTilesCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsReorderTilesCreateFormat = typeof EnvironmentsDashboardsReorderTilesCreateFormat[keyof typeof EnvironmentsDashboardsReorderTilesCreateFormat];
-
-
-    export const EnvironmentsDashboardsReorderTilesCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string;
-    format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
-    /**
-     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
-     */
-    output_format?: EnvironmentsDashboardsRunInsightsRetrieveOutputFormat;
-    /**
-     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
-     */
-    refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
-     */
-    variables_override?: string;
-    };
-
-    export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
-
-
-    export const EnvironmentsDashboardsRunInsightsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat];
-
-
-    export const EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = {
-      Json: 'json',
-      Optimized: 'optimized',
-    } as const;
-
-    export type EnvironmentsDashboardsRunInsightsRetrieveRefresh = typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh];
-
-
-    export const EnvironmentsDashboardsRunInsightsRetrieveRefresh = {
-      Blocking: 'blocking',
-      ForceBlocking: 'force_blocking',
-      ForceCache: 'force_cache',
-    } as const;
-
-    export type EnvironmentsDashboardsRunWidgetsRetrieveParams = {
-    format?: EnvironmentsDashboardsRunWidgetsRetrieveFormat;
-    /**
-     * Comma-separated dashboard tile IDs to run widgets for.
-     */
-    tile_ids: string;
-    };
-
-    export type EnvironmentsDashboardsRunWidgetsRetrieveFormat = typeof EnvironmentsDashboardsRunWidgetsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunWidgetsRetrieveFormat];
-
-
-    export const EnvironmentsDashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string;
-    format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
-    /**
-     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
-     */
-    layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
-     */
-    variables_override?: string;
-    };
-
-    export type EnvironmentsDashboardsStreamTilesRetrieveFormat = typeof EnvironmentsDashboardsStreamTilesRetrieveFormat[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat];
-
-
-    export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize];
-
-
-    export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
-      Sm: 'sm',
-      Xs: 'xs',
-    } as const;
-
-    export type EnvironmentsDashboardsSubscribeNudgeCreateParams = {
-    format?: EnvironmentsDashboardsSubscribeNudgeCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsSubscribeNudgeCreateFormat = typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat[keyof typeof EnvironmentsDashboardsSubscribeNudgeCreateFormat];
-
-
-    export const EnvironmentsDashboardsSubscribeNudgeCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsUpdateTextTileCreateParams = {
-    format?: EnvironmentsDashboardsUpdateTextTileCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsUpdateTextTileCreateFormat = typeof EnvironmentsDashboardsUpdateTextTileCreateFormat[keyof typeof EnvironmentsDashboardsUpdateTextTileCreateFormat];
-
-
-    export const EnvironmentsDashboardsUpdateTextTileCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsWidgetsBatchCreateParams = {
-    format?: EnvironmentsDashboardsWidgetsBatchCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsWidgetsBatchCreateFormat = typeof EnvironmentsDashboardsWidgetsBatchCreateFormat[keyof typeof EnvironmentsDashboardsWidgetsBatchCreateFormat];
-
-
-    export const EnvironmentsDashboardsWidgetsBatchCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsUpdateWidgetsBatchParams = {
-    format?: EnvironmentsDashboardsUpdateWidgetsBatchFormat;
-    };
-
-    export type EnvironmentsDashboardsUpdateWidgetsBatchFormat = typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat[keyof typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat];
-
-
-    export const EnvironmentsDashboardsUpdateWidgetsBatchFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
-    format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsBulkUpdateTagsCreateFormat = typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat];
-
-
-    export const EnvironmentsDashboardsBulkUpdateTagsCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsCreateFromTemplateJsonCreateParams = {
-    format?: EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat = typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat[keyof typeof EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat];
-
-
-    export const EnvironmentsDashboardsCreateFromTemplateJsonCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsCreateUnlistedDashboardCreateParams = {
-    format?: EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat[keyof typeof EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat];
-
-
-    export const EnvironmentsDashboardsCreateUnlistedDashboardCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsWidgetCatalogRetrieveParams = {
-    format?: EnvironmentsDashboardsWidgetCatalogRetrieveFormat;
-    };
-
-    export type EnvironmentsDashboardsWidgetCatalogRetrieveFormat = typeof EnvironmentsDashboardsWidgetCatalogRetrieveFormat[keyof typeof EnvironmentsDashboardsWidgetCatalogRetrieveFormat];
-
-
-    export const EnvironmentsDashboardsWidgetCatalogRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsDataModelingDagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsDataModelingEdgesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsDataModelingJobsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    saved_query_id?: string;
-    };
-
-    export type EnvironmentsDataModelingNodesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsDataModelingNodesLineageRetrieveParams = {
-    /**
-     * Node to build lineage for.
-     */
-    node_id?: string;
-    /**
-     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
-     */
-    saved_query_id?: string;
-    };
-
-    export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
-    /**
-     * Database name to check
-     * @minLength 1
-     */
-    name: string;
-    };
-
-    export type EnvironmentsDataWarehouseCheckSchemaNameRetrieveParams = {
-    /**
-     * Schema name to check
-     * @minLength 1
-     */
-    name: string;
-    };
-
-    export type EnvironmentsDataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
-    /**
-     * Imported source connection to fetch per-schema detail for.
-     */
-    source_id: string;
-    };
-
-    export type EnvironmentsDatasetItemsListParams = {
-    /**
-     * Filter by dataset ID
-     */
-    dataset?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsDatasetsListParams = {
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name, description, or metadata
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsElementsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsElementsStatsRetrieveParams = {
-    /**
-     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
-     */
-    data_attributes?: string;
-    /**
-     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
-     */
-    date_from?: string;
-    /**
-     * End of the date range (e.g. 2024-01-31). Defaults to now.
-     */
-    date_to?: string;
-    /**
-     * When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.
-     */
-    filter_test_accounts?: boolean;
-    /**
-     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
-     */
-    include?: string[];
-    /**
-     * Maximum rows per page
-     */
-    limit?: number;
-    /**
-     * Pagination offset
-     */
-    offset?: number;
-    /**
-     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
-     */
-    properties?: string;
-    /**
-     * Sampling factor between 0 and 1
-     */
-    sampling_factor?: number;
-    };
-
-    export type EnvironmentsElementsValuesListParams = {
-    /**
-     * Element property to list values for: tag_name, text, href, or attr_id.
-     */
-    key: string;
-    /**
-     * Optional substring to filter values by (case-sensitive contains match).
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsEndpointsListParams = {
-    created_by?: number;
-    is_active?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsEndpointsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
-    /**
-     * Specific endpoint version to generate the spec for. Defaults to latest.
-     */
-    version?: number;
-    };
-
-    export type EnvironmentsEndpointsVersionsListParams = {
-    created_by?: number;
-    is_active?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingBypassRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingExternalReferencesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingFingerprintsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingFingerprintsResolveRetrieveParams = {
-    /**
-     * Fingerprint value to resolve to the issue it currently belongs to.
-     */
-    fingerprint: string;
-    };
-
-    export type EnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type EnvironmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type EnvironmentsErrorTrackingIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingRecommendationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingSpikeEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingStackFramesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingSuppressionRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsErrorTrackingSymbolSetsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort order for symbol sets. Prefix with `-` for descending order.
-     *
-     * * `created_at` - created_at
-     * * `-created_at` - -created_at
-     * * `ref` - ref
-     * * `-ref` - -ref
-     * * `last_used` - last_used
-     * * `-last_used` - -last_used
-     * @minLength 1
-     */
-    order_by?: string;
-    /**
-     * Exact symbol set reference to filter by.
-     * @minLength 1
-     */
-    ref?: string;
-    /**
-     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
-     * @minLength 1
-     */
-    search?: string;
-    /**
-     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
-     *
-     * * `all` - all
-     * * `valid` - valid
-     * * `invalid` - invalid
-     * @minLength 1
-     */
-    status?: EnvironmentsErrorTrackingSymbolSetsListStatus;
-    };
-
-    export type EnvironmentsErrorTrackingSymbolSetsListStatus = typeof EnvironmentsErrorTrackingSymbolSetsListStatus[keyof typeof EnvironmentsErrorTrackingSymbolSetsListStatus];
-
-
-    export const EnvironmentsErrorTrackingSymbolSetsListStatus = {
-      All: 'all',
-      Valid: 'valid',
-      Invalid: 'invalid',
-    } as const;
-
-    export type EnvironmentsEvaluationRunsCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsEvaluationsListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Filter by evaluation type
-     *
-     * * `llm_judge` - LLM as a judge
-     * * `hog` - Hog
-     * * `sentiment` - Sentiment analysis
-     */
-    evaluation_type?: EnvironmentsEvaluationsListEvaluationType;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsEvaluationsListEvaluationType = typeof EnvironmentsEvaluationsListEvaluationType[keyof typeof EnvironmentsEvaluationsListEvaluationType];
-
-
-    export const EnvironmentsEvaluationsListEvaluationType = {
-      Hog: 'hog',
-      LlmJudge: 'llm_judge',
-      Sentiment: 'sentiment',
-    } as const;
-
-    export type EnvironmentsEventsListParams = {
-    /**
-     * Only return events with a timestamp after this time. Default: now() - 24 hours.
-     */
-    after?: string;
-    /**
-     * Only return events with a timestamp before this time. Default: now() + 5 seconds.
-     */
-    before?: string;
-    /**
-     * Filter list by distinct id.
-     */
-    distinct_id?: number;
-    /**
-     * Filter list by event. For example `user sign up` or `$pageview`.
-     */
-    event?: string;
-    format?: EnvironmentsEventsListFormat;
-    /**
-     * Include person details for each event. Default: false.
-     */
-    include_person?: boolean;
-    /**
-     * The maximum number of results to return
-     */
-    limit?: number;
-    /**
-     * Allows to skip first offset rows. Will fail for value larger than 100000. Read about proper way of paginating: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset
-     */
-    offset?: number;
-    /**
-     * Filter list by person id.
-     */
-    person_id?: number;
-    /**
-     * Filter events by event property, person property, cohort, groups and more.
-     */
-    properties?: Property[];
-    /**
-     * (Experimental) JSON-serialized array of HogQL expressions to return
-     */
-    select?: string[];
-    /**
-     * (Experimental) JSON-serialized array of HogQL expressions that must pass
-     */
-    where?: string[];
-    };
-
-    export type EnvironmentsEventsListFormat = typeof EnvironmentsEventsListFormat[keyof typeof EnvironmentsEventsListFormat];
-
-
-    export const EnvironmentsEventsListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsEventsRetrieveParams = {
-    format?: EnvironmentsEventsRetrieveFormat;
-    /**
-     * Include person details for the event. Default: false.
-     */
-    include_person?: boolean;
-    };
-
-    export type EnvironmentsEventsRetrieveFormat = typeof EnvironmentsEventsRetrieveFormat[keyof typeof EnvironmentsEventsRetrieveFormat];
-
-
-    export const EnvironmentsEventsRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsEventsRetrieve200One = { [key: string]: unknown };
-
-    export type EnvironmentsEventsRetrieve200Two = { [key: string]: unknown };
-
-    export type EnvironmentsEventsValuesRetrieveParams = {
-    format?: EnvironmentsEventsValuesRetrieveFormat;
-    };
-
-    export type EnvironmentsEventsValuesRetrieveFormat = typeof EnvironmentsEventsValuesRetrieveFormat[keyof typeof EnvironmentsEventsValuesRetrieveFormat];
-
-
-    export const EnvironmentsEventsValuesRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsExternalDataSchemasListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsExternalDataSchemasCancelCreate400 = {
-      detail?: string;
-    };
-
-    export type EnvironmentsExternalDataSchemasLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesRepairCdcCreate200 = {
-      success?: boolean;
-      schemas_reset?: number;
-    };
-
-    export type EnvironmentsExternalDataSourcesResumeCdcCreate200 = {
-      success?: boolean;
-    };
-
-    export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-      valid?: boolean;
-      errors?: string[];
-    };
-
-    export type EnvironmentsExternalDataSourcesConnectLinkRetrieveParams = {
-    /**
-     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
-     */
-    source_type: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
-    /**
-     * The OAuth integration id whose accounts should be listed.
-     */
-    integration_id: number;
-    /**
-     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
-     */
-    search?: string;
-    /**
-     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
-     */
-    source_type: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
-    /**
-     * A search term.
-     */
-    search?: string;
-    /**
-     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
-     */
-    source_type?: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesWizardRetrieveParams = {
-    /**
-     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
-     */
-    source_type?: string;
-    };
-
-    export type EnvironmentsFileDownloadBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsFixHogqlListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsGroupsListParams = {
-    /**
-     * Pagination cursor returned in the `next` URL of a previous response
-     */
-    cursor?: string;
-    /**
-     * Filter groups whose key contains this string (case-insensitive)
-     */
-    group_key?: string;
-    /**
-     * Specify the group type to list
-     */
-    group_type_index: number;
-    /**
-     * Search the group name
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsGroupsActivityRetrieveParams = {
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number;
-    /**
-     * Specify the id of the user to find groups for
-     */
-    id: string;
-    };
-
-    export type EnvironmentsGroupsDeletePropertyCreateParams = {
-    /**
-     * Specify the key of the group to find
-     */
-    group_key: string;
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number;
-    };
-
-    export type EnvironmentsGroupsFindRetrieveParams = {
-    /**
-     * Specify the key of the group to find
-     */
-    group_key: string;
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number;
-    /**
-     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
-     */
-    skip_create_notebook?: boolean;
-    };
-
-    export type EnvironmentsGroupsRelatedRetrieveParams = {
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number;
-    /**
-     * Specify the id of the user to find groups for
-     */
-    id: string;
-    };
-
-    export type EnvironmentsGroupsUpdatePropertyCreateParams = {
-    /**
-     * Specify the key of the group to find
-     */
-    group_key: string;
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number;
-    };
-
-    export type EnvironmentsHealthIssuesListParams = {
-    /**
-     * Filter by dismissed state. Omit to include both dismissed and non-dismissed issues.
-     */
-    dismissed?: boolean;
-    /**
-     * Only return issues from this check kind (e.g. 'sdk_outdated').
-     */
-    kind?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Only return issues with this severity. One of: 'critical', 'warning', 'info'.
-     */
-    severity?: string;
-    /**
-     * Only return issues with this status. One of: 'active', 'resolved'.
-     */
-    status?: string;
-    };
-
-    export type EnvironmentsHeatmapScreenshotsContentRetrieveParams = {
-    /**
-     * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.
-     */
-    width?: number;
-    };
-
-    export type EnvironmentsHeatmapsListParams = {
-    /**
-     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
-     *
-     * * `unique_visitors` - unique_visitors
-     * * `total_count` - total_count
-     * @minLength 1
-     */
-    aggregation?: EnvironmentsHeatmapsListAggregation;
-    /**
-     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
-     * @nullable
-     */
-    cohort_ids?: string | null;
-    /**
-     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
-     * @minLength 1
-     */
-    date_from?: string;
-    /**
-     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
-     * @minLength 1
-     */
-    date_to?: string;
-    /**
-     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
-     * @nullable
-     */
-    filter_test_accounts?: boolean | null;
-    /**
-     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
-     */
-    hide_zero_coordinates?: boolean;
-    /**
-     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
-     * @minimum 0
-     * @maximum 1000000
-     */
-    limit?: number;
-    /**
-     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
-     * @minimum 0
-     * @maximum 1000000
-     */
-    offset?: number;
-    /**
-     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
-     * @minLength 1
-     */
-    type?: string;
-    /**
-     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
-     * @minLength 1
-     */
-    url_exact?: string;
-    /**
-     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
-     * @minLength 1
-     */
-    url_pattern?: string;
-    /**
-     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
-     */
-    viewport_width_max?: number;
-    /**
-     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
-     */
-    viewport_width_min?: number;
-    };
-
-    export type EnvironmentsHeatmapsListAggregation = typeof EnvironmentsHeatmapsListAggregation[keyof typeof EnvironmentsHeatmapsListAggregation];
-
-
-    export const EnvironmentsHeatmapsListAggregation = {
-      UniqueVisitors: 'unique_visitors',
-      TotalCount: 'total_count',
-    } as const;
-
-    export type EnvironmentsHeatmapsEventsRetrieveParams = {
-    /**
-     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
-     *
-     * * `unique_visitors` - unique_visitors
-     * * `total_count` - total_count
-     * @minLength 1
-     */
-    aggregation?: EnvironmentsHeatmapsEventsRetrieveAggregation;
-    /**
-     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
-     * @nullable
-     */
-    cohort_ids?: string | null;
-    /**
-     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
-     * @minLength 1
-     */
-    date_from?: string;
-    /**
-     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
-     * @minLength 1
-     */
-    date_to?: string;
-    /**
-     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
-     * @nullable
-     */
-    filter_test_accounts?: boolean | null;
-    /**
-     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
-     */
-    hide_zero_coordinates?: boolean;
-    /**
-     * Maximum interactions to return (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Number of interactions to skip, for pagination.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * JSON array of the heatmap coordinates to drill into, e.g. '[{"x": 0.5, "y": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.
-     * @minLength 1
-     */
-    points: string;
-    /**
-     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
-     * @minLength 1
-     */
-    type?: string;
-    /**
-     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
-     * @minLength 1
-     */
-    url_exact?: string;
-    /**
-     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
-     * @minLength 1
-     */
-    url_pattern?: string;
-    /**
-     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
-     */
-    viewport_width_max?: number;
-    /**
-     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
-     */
-    viewport_width_min?: number;
-    };
-
-    export type EnvironmentsHeatmapsEventsRetrieveAggregation = typeof EnvironmentsHeatmapsEventsRetrieveAggregation[keyof typeof EnvironmentsHeatmapsEventsRetrieveAggregation];
-
-
-    export const EnvironmentsHeatmapsEventsRetrieveAggregation = {
-      UniqueVisitors: 'unique_visitors',
-      TotalCount: 'total_count',
-    } as const;
-
-    export type EnvironmentsHogFlowTemplatesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsHogFlowTemplatesLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsHogFlowsListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsListStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsListStatus = typeof EnvironmentsHogFlowsListStatus[keyof typeof EnvironmentsHogFlowsListStatus];
-
-
-    export const EnvironmentsHogFlowsListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type EnvironmentsHogFlowsAssetsRetrieveParams = {
-    /**
-     * Only return assets sent by this email step (action node id) — used to drill in from a step's metric.
-     * @minLength 1
-     */
-    action_id?: string;
-    /**
-     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    /**
-     * Only return assets sent to this distinct_id.
-     * @minLength 1
-     */
-    distinct_id?: string;
-    /**
-     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
-     * @minLength 1
-     */
-    invocation_id?: string;
-    /**
-     * Maximum number of assets to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Number of assets to skip, for pagination.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
-     */
-    parent_run_id?: string;
-    /**
-     * Case-insensitive substring match on recipient email or subject.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsHogFlowsAssetContentRetrieveParams = {
-    /**
-     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
-     */
-    action_id?: string;
-    /**
-     * The workflow run the email was sent in.
-     * @minLength 1
-     */
-    invocation_id: string;
-    };
-
-    export type EnvironmentsHogFlowsInvocationResultsRetrieveParams = {
-    /**
-     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    /**
-     * Only return invocations triggered for this distinct_id (the person the run executed for).
-     * @minLength 1
-     */
-    distinct_id?: string;
-    /**
-     * Maximum number of invocations to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
-     * @minLength 1
-     */
-    status?: string;
-    };
-
-    export type EnvironmentsHogFlowsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsHogFlowsMetricsRetrieveParams = {
-    /**
-     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    /**
-     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-     *
-     * * `name` - name
-     * * `kind` - kind
-     * @minLength 1
-     */
-    breakdown_by?: EnvironmentsHogFlowsMetricsRetrieveBreakdownBy;
-    /**
-     * Filter metrics to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-     *
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * @minLength 1
-     */
-    interval?: EnvironmentsHogFlowsMetricsRetrieveInterval;
-    /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
-     * @minLength 1
-     */
-    kind?: string;
-    /**
-     * Comma-separated metric names to filter by.
-     * @minLength 1
-     */
-    name?: string;
-    };
-
-    export type EnvironmentsHogFlowsMetricsRetrieveBreakdownBy = typeof EnvironmentsHogFlowsMetricsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFlowsMetricsRetrieveBreakdownBy];
-
-
-    export const EnvironmentsHogFlowsMetricsRetrieveBreakdownBy = {
-      Name: 'name',
-      Kind: 'kind',
-    } as const;
-
-    export type EnvironmentsHogFlowsMetricsRetrieveInterval = typeof EnvironmentsHogFlowsMetricsRetrieveInterval[keyof typeof EnvironmentsHogFlowsMetricsRetrieveInterval];
-
-
-    export const EnvironmentsHogFlowsMetricsRetrieveInterval = {
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFlowsMetricsTotalsRetrieveParams = {
-    /**
-     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    /**
-     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-     *
-     * * `name` - name
-     * * `kind` - kind
-     * @minLength 1
-     */
-    breakdown_by?: EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy;
-    /**
-     * Filter metrics to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-     *
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * @minLength 1
-     */
-    interval?: EnvironmentsHogFlowsMetricsTotalsRetrieveInterval;
-    /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
-     * @minLength 1
-     */
-    kind?: string;
-    /**
-     * Comma-separated metric names to filter by.
-     * @minLength 1
-     */
-    name?: string;
-    };
-
-    export type EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy = typeof EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy];
-
-
-    export const EnvironmentsHogFlowsMetricsTotalsRetrieveBreakdownBy = {
-      Name: 'name',
-      Kind: 'kind',
-    } as const;
-
-    export type EnvironmentsHogFlowsMetricsTotalsRetrieveInterval = typeof EnvironmentsHogFlowsMetricsTotalsRetrieveInterval[keyof typeof EnvironmentsHogFlowsMetricsTotalsRetrieveInterval];
-
-
-    export const EnvironmentsHogFlowsMetricsTotalsRetrieveInterval = {
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFlowsMetricsGlobalRetrieveParams = {
-    /**
-     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the window. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    };
-
-    export type EnvironmentsHogFunctionsListParams = {
-    created_at?: string;
-    created_by?: number;
-    enabled?: boolean;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    type?: string[];
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFunctionsLogsRetrieveParams = {
-    /**
-     * Only return entries after this ISO 8601 timestamp.
-     */
-    after?: string;
-    /**
-     * Only return entries before this ISO 8601 timestamp.
-     */
-    before?: string;
-    /**
-     * Filter logs to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
-     * @minLength 1
-     */
-    level?: string;
-    /**
-     * Maximum number of log entries to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Case-insensitive substring search across log messages.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsHogFunctionsMetricsRetrieveParams = {
-    /**
-     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    /**
-     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-     *
-     * * `name` - name
-     * * `kind` - kind
-     * @minLength 1
-     */
-    breakdown_by?: EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy;
-    /**
-     * Filter metrics to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-     *
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * @minLength 1
-     */
-    interval?: EnvironmentsHogFunctionsMetricsRetrieveInterval;
-    /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
-     * @minLength 1
-     */
-    kind?: string;
-    /**
-     * Comma-separated metric names to filter by.
-     * @minLength 1
-     */
-    name?: string;
-    };
-
-    export type EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy = typeof EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy];
-
-
-    export const EnvironmentsHogFunctionsMetricsRetrieveBreakdownBy = {
-      Name: 'name',
-      Kind: 'kind',
-    } as const;
-
-    export type EnvironmentsHogFunctionsMetricsRetrieveInterval = typeof EnvironmentsHogFunctionsMetricsRetrieveInterval[keyof typeof EnvironmentsHogFunctionsMetricsRetrieveInterval];
-
-
-    export const EnvironmentsHogFunctionsMetricsRetrieveInterval = {
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveParams = {
-    /**
-     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    /**
-     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-     *
-     * * `name` - name
-     * * `kind` - kind
-     * @minLength 1
-     */
-    breakdown_by?: EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy;
-    /**
-     * Filter metrics to a specific execution instance.
-     * @minLength 1
-     */
-    instance_id?: string;
-    /**
-     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-     *
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * @minLength 1
-     */
-    interval?: EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval;
-    /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
-     * @minLength 1
-     */
-    kind?: string;
-    /**
-     * Comma-separated metric names to filter by.
-     * @minLength 1
-     */
-    name?: string;
-    };
-
-    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy];
-
-
-    export const EnvironmentsHogFunctionsMetricsTotalsRetrieveBreakdownBy = {
-      Name: 'name',
-      Kind: 'kind',
-    } as const;
-
-    export type EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval = typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval[keyof typeof EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval];
-
-
-    export const EnvironmentsHogFunctionsMetricsTotalsRetrieveInterval = {
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-    } as const;
-
-    export type EnvironmentsInsightVariablesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    };
-
-    export type EnvironmentsInsightsListParams = {
-    /**
-     * Return basic insight metadata only (no results, faster).
-     */
-    basic?: boolean;
-    /**
-     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
-     */
-    created_by?: string;
-    /**
-     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
-     */
-    created_date_from?: string;
-    /**
-     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
-     */
-    created_date_to?: string;
-    /**
-     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
-     */
-    dashboards?: string;
-    /**
-     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
-     */
-    date_from?: string;
-    /**
-     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
-     */
-    date_to?: string;
-    /**
-     * Include this parameter (any value) to restrict results to insights marked as favorited.
-     */
-    favorited?: boolean;
-    format?: EnvironmentsInsightsListFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    /**
-     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
-     */
-    insight?: EnvironmentsInsightsListInsight;
-    /**
-     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
-     */
-    last_viewed_date_from?: string;
-    /**
-     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
-     */
-    last_viewed_date_to?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     *
-     * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
-     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
-     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
-     * Background calculation can be tracked using the `query_status` response field.
-     */
-    refresh?: EnvironmentsInsightsListRefresh;
-    /**
-     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
-     */
-    saved?: boolean;
-    /**
-     * Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`.
-     */
-    search?: string;
-    short_id?: string;
-    /**
-     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
-     */
-    tags?: string;
-    /**
-     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
-     */
-    user?: boolean;
-    };
-
-    export type EnvironmentsInsightsListFormat = typeof EnvironmentsInsightsListFormat[keyof typeof EnvironmentsInsightsListFormat];
-
-
-    export const EnvironmentsInsightsListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsListInsight = typeof EnvironmentsInsightsListInsight[keyof typeof EnvironmentsInsightsListInsight];
-
-
-    export const EnvironmentsInsightsListInsight = {
-      Funnels: 'FUNNELS',
-      Json: 'JSON',
-      Lifecycle: 'LIFECYCLE',
-      Paths: 'PATHS',
-      Retention: 'RETENTION',
-      Sql: 'SQL',
-      Stickiness: 'STICKINESS',
-      Trends: 'TRENDS',
-    } as const;
-
-    export type EnvironmentsInsightsListRefresh = typeof EnvironmentsInsightsListRefresh[keyof typeof EnvironmentsInsightsListRefresh];
-
-
-    export const EnvironmentsInsightsListRefresh = {
-      Async: 'async',
-      AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
-      Blocking: 'blocking',
-      ForceAsync: 'force_async',
-      ForceBlocking: 'force_blocking',
-      ForceCache: 'force_cache',
-      LazyAsync: 'lazy_async',
-    } as const;
-
-    export type EnvironmentsInsightsCreateParams = {
-    format?: EnvironmentsInsightsCreateFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    };
-
-    export type EnvironmentsInsightsCreateFormat = typeof EnvironmentsInsightsCreateFormat[keyof typeof EnvironmentsInsightsCreateFormat];
-
-
-    export const EnvironmentsInsightsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsThresholdsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsInsightsRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string;
-    format?: EnvironmentsInsightsRetrieveFormat;
-    /**
-     *
-     * Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
-     * When set, the specified dashboard's filters and date range override will be applied.
-     */
-    from_dashboard?: number;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    /**
-     *
-     * Whether to refresh the insight, how aggresively, and if sync or async:
-     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
-     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
-     * Background calculation can be tracked using the `query_status` response field.
-     */
-    refresh?: EnvironmentsInsightsRetrieveRefresh;
-    /**
-     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
-     */
-    variables_override?: string;
-    };
-
-    export type EnvironmentsInsightsRetrieveFormat = typeof EnvironmentsInsightsRetrieveFormat[keyof typeof EnvironmentsInsightsRetrieveFormat];
-
-
-    export const EnvironmentsInsightsRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsRetrieveRefresh = typeof EnvironmentsInsightsRetrieveRefresh[keyof typeof EnvironmentsInsightsRetrieveRefresh];
-
-
-    export const EnvironmentsInsightsRetrieveRefresh = {
-      Async: 'async',
-      AsyncExceptOnCacheMiss: 'async_except_on_cache_miss',
-      Blocking: 'blocking',
-      ForceAsync: 'force_async',
-      ForceBlocking: 'force_blocking',
-      ForceCache: 'force_cache',
-      LazyAsync: 'lazy_async',
-    } as const;
-
-    export type EnvironmentsInsightsUpdateParams = {
-    format?: EnvironmentsInsightsUpdateFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    };
-
-    export type EnvironmentsInsightsUpdateFormat = typeof EnvironmentsInsightsUpdateFormat[keyof typeof EnvironmentsInsightsUpdateFormat];
-
-
-    export const EnvironmentsInsightsUpdateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsPartialUpdateParams = {
-    format?: EnvironmentsInsightsPartialUpdateFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    };
-
-    export type EnvironmentsInsightsPartialUpdateFormat = typeof EnvironmentsInsightsPartialUpdateFormat[keyof typeof EnvironmentsInsightsPartialUpdateFormat];
-
-
-    export const EnvironmentsInsightsPartialUpdateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsDestroyParams = {
-    format?: EnvironmentsInsightsDestroyFormat;
-    };
-
-    export type EnvironmentsInsightsDestroyFormat = typeof EnvironmentsInsightsDestroyFormat[keyof typeof EnvironmentsInsightsDestroyFormat];
-
-
-    export const EnvironmentsInsightsDestroyFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsActivityRetrieveParams = {
-    format?: EnvironmentsInsightsActivityRetrieveFormat;
-    /**
-     * Page size. Defaults to 10.
-     */
-    limit?: number;
-    /**
-     * 1-indexed page number. Defaults to 1.
-     */
-    page?: number;
-    };
-
-    export type EnvironmentsInsightsActivityRetrieveFormat = typeof EnvironmentsInsightsActivityRetrieveFormat[keyof typeof EnvironmentsInsightsActivityRetrieveFormat];
-
-
-    export const EnvironmentsInsightsActivityRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsAnalyzeRetrieveParams = {
-    format?: EnvironmentsInsightsAnalyzeRetrieveFormat;
-    };
-
-    export type EnvironmentsInsightsAnalyzeRetrieveFormat = typeof EnvironmentsInsightsAnalyzeRetrieveFormat[keyof typeof EnvironmentsInsightsAnalyzeRetrieveFormat];
-
-
-    export const EnvironmentsInsightsAnalyzeRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsSuggestionsRetrieveParams = {
-    format?: EnvironmentsInsightsSuggestionsRetrieveFormat;
-    };
-
-    export type EnvironmentsInsightsSuggestionsRetrieveFormat = typeof EnvironmentsInsightsSuggestionsRetrieveFormat[keyof typeof EnvironmentsInsightsSuggestionsRetrieveFormat];
-
-
-    export const EnvironmentsInsightsSuggestionsRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsSuggestionsCreateParams = {
-    format?: EnvironmentsInsightsSuggestionsCreateFormat;
-    };
-
-    export type EnvironmentsInsightsSuggestionsCreateFormat = typeof EnvironmentsInsightsSuggestionsCreateFormat[keyof typeof EnvironmentsInsightsSuggestionsCreateFormat];
-
-
-    export const EnvironmentsInsightsSuggestionsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsAllActivityRetrieveParams = {
-    format?: EnvironmentsInsightsAllActivityRetrieveFormat;
-    /**
-     * Page size. Defaults to 10.
-     */
-    limit?: number;
-    /**
-     * 1-indexed page number. Defaults to 1.
-     */
-    page?: number;
-    };
-
-    export type EnvironmentsInsightsAllActivityRetrieveFormat = typeof EnvironmentsInsightsAllActivityRetrieveFormat[keyof typeof EnvironmentsInsightsAllActivityRetrieveFormat];
-
-
-    export const EnvironmentsInsightsAllActivityRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsBulkDeleteCreateParams = {
-    format?: EnvironmentsInsightsBulkDeleteCreateFormat;
-    };
-
-    export type EnvironmentsInsightsBulkDeleteCreateFormat = typeof EnvironmentsInsightsBulkDeleteCreateFormat[keyof typeof EnvironmentsInsightsBulkDeleteCreateFormat];
-
-
-    export const EnvironmentsInsightsBulkDeleteCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsBulkRestoreCreateParams = {
-    format?: EnvironmentsInsightsBulkRestoreCreateFormat;
-    };
-
-    export type EnvironmentsInsightsBulkRestoreCreateFormat = typeof EnvironmentsInsightsBulkRestoreCreateFormat[keyof typeof EnvironmentsInsightsBulkRestoreCreateFormat];
-
-
-    export const EnvironmentsInsightsBulkRestoreCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
-    format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
-    };
-
-    export type EnvironmentsInsightsBulkUpdateTagsCreateFormat = typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat];
-
-
-    export const EnvironmentsInsightsBulkUpdateTagsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsCancelCreateParams = {
-    format?: EnvironmentsInsightsCancelCreateFormat;
-    };
-
-    export type EnvironmentsInsightsCancelCreateFormat = typeof EnvironmentsInsightsCancelCreateFormat[keyof typeof EnvironmentsInsightsCancelCreateFormat];
-
-
-    export const EnvironmentsInsightsCancelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsGenerateMetadataCreateParams = {
-    format?: EnvironmentsInsightsGenerateMetadataCreateFormat;
-    };
-
-    export type EnvironmentsInsightsGenerateMetadataCreateFormat = typeof EnvironmentsInsightsGenerateMetadataCreateFormat[keyof typeof EnvironmentsInsightsGenerateMetadataCreateFormat];
-
-
-    export const EnvironmentsInsightsGenerateMetadataCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsMyLastViewedRetrieveParams = {
-    format?: EnvironmentsInsightsMyLastViewedRetrieveFormat;
-    };
-
-    export type EnvironmentsInsightsMyLastViewedRetrieveFormat = typeof EnvironmentsInsightsMyLastViewedRetrieveFormat[keyof typeof EnvironmentsInsightsMyLastViewedRetrieveFormat];
-
-
-    export const EnvironmentsInsightsMyLastViewedRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsTrendingRetrieveParams = {
-    /**
-     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
-     */
-    days?: number;
-    format?: EnvironmentsInsightsTrendingRetrieveFormat;
-    /**
-     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
-     */
-    include_dashboards?: boolean;
-    /**
-     * Maximum number of insights to return. Defaults to 10. Capped at 100.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsInsightsTrendingRetrieveFormat = typeof EnvironmentsInsightsTrendingRetrieveFormat[keyof typeof EnvironmentsInsightsTrendingRetrieveFormat];
-
-
-    export const EnvironmentsInsightsTrendingRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsInsightsViewedCreateParams = {
-    format?: EnvironmentsInsightsViewedCreateFormat;
-    };
-
-    export type EnvironmentsInsightsViewedCreateFormat = typeof EnvironmentsInsightsViewedCreateFormat[keyof typeof EnvironmentsInsightsViewedCreateFormat];
-
-
-    export const EnvironmentsInsightsViewedCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsIntegrationsListParams = {
-    /**
-     * * `anthropic` - Anthropic
-     * * `apns` - Apple Push
-     * * `aws-s3` - Aws S3
-     * * `azure-blob` - Azure Blob
-     * * `bing-ads` - Bing Ads
-     * * `clickup` - Clickup
-     * * `customerio-app` - Customerio App
-     * * `customerio-track` - Customerio Track
-     * * `customerio-webhook` - Customerio Webhook
-     * * `databricks` - Databricks
-     * * `email` - Email
-     * * `firebase` - Firebase
-     * * `github` - Github
-     * * `gitlab` - Gitlab
-     * * `google-ads` - Google Ads
-     * * `google-analytics` - Google Analytics
-     * * `google-cloud-service-account` - Google Cloud Service Account
-     * * `google-cloud-storage` - Google Cloud Storage
-     * * `google-pubsub` - Google Pubsub
-     * * `google-search-console` - Google Search Console
-     * * `google-sheets` - Google Sheets
-     * * `hubspot` - Hubspot
-     * * `intercom` - Intercom
-     * * `jira` - Jira
-     * * `linear` - Linear
-     * * `linkedin-ads` - Linkedin Ads
-     * * `meta-ads` - Meta Ads
-     * * `pinterest-ads` - Pinterest Ads
-     * * `postgresql` - Postgresql
-     * * `reddit-ads` - Reddit Ads
-     * * `s3-compatible` - S3 Compatible
-     * * `salesforce` - Salesforce
-     * * `slack` - Slack
-     * * `slack-posthog-code` - Slack Posthog Code
-     * * `snapchat` - Snapchat
-     * * `snowflake` - Snowflake
-     * * `stripe` - Stripe
-     * * `tiktok-ads` - Tiktok Ads
-     * * `twilio` - Twilio
-     * * `vercel` - Vercel
-     */
-    kind?: EnvironmentsIntegrationsListKind;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsIntegrationsListKind = typeof EnvironmentsIntegrationsListKind[keyof typeof EnvironmentsIntegrationsListKind];
-
-
-    export const EnvironmentsIntegrationsListKind = {
-      Anthropic: 'anthropic',
-      Apns: 'apns',
-      AwsS3: 'aws-s3',
-      AzureBlob: 'azure-blob',
-      BingAds: 'bing-ads',
-      Clickup: 'clickup',
-      CustomerioApp: 'customerio-app',
-      CustomerioTrack: 'customerio-track',
-      CustomerioWebhook: 'customerio-webhook',
-      Databricks: 'databricks',
-      Email: 'email',
-      Firebase: 'firebase',
-      Github: 'github',
-      Gitlab: 'gitlab',
-      GoogleAds: 'google-ads',
-      GoogleAnalytics: 'google-analytics',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GooglePubsub: 'google-pubsub',
-      GoogleSearchConsole: 'google-search-console',
-      GoogleSheets: 'google-sheets',
-      Hubspot: 'hubspot',
-      Intercom: 'intercom',
-      Jira: 'jira',
-      Linear: 'linear',
-      LinkedinAds: 'linkedin-ads',
-      MetaAds: 'meta-ads',
-      PinterestAds: 'pinterest-ads',
-      Postgresql: 'postgresql',
-      RedditAds: 'reddit-ads',
-      S3Compatible: 's3-compatible',
-      Salesforce: 'salesforce',
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Snapchat: 'snapchat',
-      Snowflake: 'snowflake',
-      Stripe: 'stripe',
-      TiktokAds: 'tiktok-ads',
-      Twilio: 'twilio',
-      Vercel: 'vercel',
-    } as const;
-
-    export type EnvironmentsIntegrationsChannelsRetrieveParams = {
-    /**
-     * Maximum number of channels to return per request (max 200).
-     * @minimum 1
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Number of channels to skip before returning results.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Optional case-insensitive channel name or ID search query.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Maximum number of branches to return
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number;
-    /**
-     * Number of branches to skip
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string;
-    /**
-     * Optional case-insensitive branch name search query.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
-    /**
-     * Maximum number of repositories to return per request (max 500).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Number of repositories to skip before returning results.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Optional case-insensitive repository name search query.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
-    /**
-     * Maximum number of teams to return per request (max 500).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Number of teams to skip before returning results.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Optional case-insensitive team name or slug search query.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsLlmAnalyticsClusteringJobsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLlmAnalyticsEvaluationReportsListParams = {
-    /**
-     * Only return report configs for this evaluation UUID.
-     */
-    evaluation?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLlmAnalyticsEvaluationReportsRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsModelsRetrieveParams = {
-    /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
-     */
-    key_id?: string;
-    /**
-     * LLM provider to list models for. Must be one of the supported providers.
-     */
-    provider: EnvironmentsLlmAnalyticsModelsRetrieveProvider;
-    };
-
-    export type EnvironmentsLlmAnalyticsModelsRetrieveProvider = typeof EnvironmentsLlmAnalyticsModelsRetrieveProvider[keyof typeof EnvironmentsLlmAnalyticsModelsRetrieveProvider];
-
-
-    export const EnvironmentsLlmAnalyticsModelsRetrieveProvider = {
-      Anthropic: 'anthropic',
-      AzureOpenai: 'azure_openai',
-      Fireworks: 'fireworks',
-      Gemini: 'gemini',
-      Minimax: 'minimax',
-      Openai: 'openai',
-      Openrouter: 'openrouter',
-      TogetherAi: 'together_ai',
-      Zeabur: 'zeabur',
-    } as const;
-
-    export type EnvironmentsLlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsProviderKeysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLlmAnalyticsReviewQueueItemsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `created_at` or `updated_at`.
-     */
-    order_by?: string;
-    /**
-     * Filter by a specific review queue ID.
-     */
-    queue_id?: string;
-    /**
-     * Search pending trace IDs.
-     */
-    search?: string;
-    /**
-     * Filter by an exact trace ID.
-     */
-    trace_id?: string;
-    /**
-     * Filter by multiple trace IDs separated by commas.
-     */
-    trace_id__in?: string;
-    };
-
-    export type EnvironmentsLlmAnalyticsReviewQueuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    name?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `name`, `updated_at`, or `created_at`.
-     */
-    order_by?: string;
-    /**
-     * Search review queue names.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsLlmAnalyticsScoreDefinitionsListParams = {
-    /**
-     * Filter by archived state.
-     */
-    archived?: boolean;
-    /**
-     * Filter by scorer kind.
-     */
-    kind?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort by name, kind, created_at, updated_at, or current_version.
-     */
-    order_by?: string;
-    /**
-     * Search scorers by name or description.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsTraceReviewsListParams = {
-    /**
-     * Filter by a stable scorer definition ID.
-     */
-    definition_id?: string;
-    /**
-     * Filter by multiple scorer definition IDs separated by commas.
-     */
-    definition_id__in?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `updated_at` or `created_at`.
-     */
-    order_by?: string;
-    /**
-     * Search trace IDs and comments.
-     */
-    search?: string;
-    /**
-     * Filter by an exact trace ID.
-     */
-    trace_id?: string;
-    /**
-     * Filter by multiple trace IDs separated by commas.
-     */
-    trace_id__in?: string;
-    };
-
-    export type EnvironmentsLlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmPromptsListParams = {
-    /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-     *
-     * * `full` - full
-     * * `preview` - preview
-     * * `none` - none
-     * @minLength 1
-     */
-    content?: EnvironmentsLlmPromptsListContent;
-    /**
-     * Filter prompts by the ID of the user who created them.
-     */
-    created_by_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional substring filter applied to prompt names and prompt content.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsLlmPromptsListContent = typeof EnvironmentsLlmPromptsListContent[keyof typeof EnvironmentsLlmPromptsListContent];
-
-
-    export const EnvironmentsLlmPromptsListContent = {
-      Full: 'full',
-      Preview: 'preview',
-      None: 'none',
-    } as const;
-
-    export type EnvironmentsLlmPromptsNameRetrieveParams = {
-    /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-     *
-     * * `full` - full
-     * * `preview` - preview
-     * * `none` - none
-     * @minLength 1
-     */
-    content?: EnvironmentsLlmPromptsNameRetrieveContent;
-    /**
-     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
-     * @minLength 1
-     * @maxLength 128
-     */
-    label?: string;
-    /**
-     * Specific prompt version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type EnvironmentsLlmPromptsNameRetrieveContent = typeof EnvironmentsLlmPromptsNameRetrieveContent[keyof typeof EnvironmentsLlmPromptsNameRetrieveContent];
-
-
-    export const EnvironmentsLlmPromptsNameRetrieveContent = {
-      Full: 'full',
-      Preview: 'preview',
-      None: 'none',
-    } as const;
-
-    export type EnvironmentsLlmPromptsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number;
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Specific prompt version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    /**
-     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
-     */
-    version_id?: string;
-    };
-
-    export type EnvironmentsLlmSkillsListParams = {
-    /**
-     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
-     */
-    category?: string;
-    /**
-     * Filter skills by the ID of the user who created them.
-     */
-    created_by_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional substring filter applied to skill names and descriptions.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsLlmSkillsNameRetrieveParams = {
-    /**
-     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
-     * @minimum 1
-     */
-    body_length?: number;
-    /**
-     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
-     * @minimum 0
-     */
-    body_offset?: number;
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type EnvironmentsLlmSkillsNameExportRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type EnvironmentsLlmSkillsNameFilesRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type EnvironmentsLlmSkillsNameFilesDestroyParams = {
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number;
-    };
-
-    export type EnvironmentsLlmSkillsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number;
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    /**
-     * Exact skill version UUID to resolve.
-     */
-    version_id?: string;
-    };
-
-    export type EnvironmentsLogsAlertsListParams = {
-    /**
-     * Only return log alerts created by the user with this UUID.
-     */
-    created_by?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLogsAlertsEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLogsAttributesRetrieveParams = {
-    /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
-     *
-     * * `log` - log
-     * * `resource` - resource
-     * @minLength 1
-     */
-    attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
-    /**
-     * Date range to search within. Defaults to last hour.
-     */
-    dateRange?: _DateRange;
-    /**
-     * Property filters to narrow which logs are scanned for attributes.
-     */
-    filterGroup?: _LogPropertyFilter[];
-    /**
-     * Max results (default: 100)
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Pagination offset (default: 0)
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Search filter for attribute names
-     * @minLength 1
-     */
-    search?: string;
-    /**
-     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
-     */
-    search_values?: boolean;
-    /**
-     * Filter attributes to those appearing in logs from these services.
-     */
-    serviceNames?: string[];
-    };
-
-    export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
-
-
-    export const EnvironmentsLogsAttributesRetrieveAttributeType = {
-      Log: 'log',
-      Resource: 'resource',
-    } as const;
-
-    export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
-
-    export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsLogsSamplingRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLogsSamplingRulesReorderCreateParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsLogsValuesRetrieveParams = {
-    /**
-     * Type of attribute: "log" or "resource". Defaults to "log".
-     *
-     * * `log` - log
-     * * `resource` - resource
-     * @minLength 1
-     */
-    attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
-    /**
-     * Date range to search within. Defaults to last hour.
-     */
-    dateRange?: _DateRange;
-    /**
-     * Property filters to narrow which logs are scanned for values.
-     */
-    filterGroup?: _LogPropertyFilter[];
-    /**
-     * The attribute key to get values for
-     * @minLength 1
-     */
-    key: string;
-    /**
-     * Filter values to those appearing in logs from these services.
-     */
-    serviceNames?: string[];
-    /**
-     * Search filter for attribute values
-     * @minLength 1
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsLogsValuesRetrieveAttributeType = typeof EnvironmentsLogsValuesRetrieveAttributeType[keyof typeof EnvironmentsLogsValuesRetrieveAttributeType];
-
-
-    export const EnvironmentsLogsValuesRetrieveAttributeType = {
-      Log: 'log',
-      Resource: 'resource',
-    } as const;
-
-    export type EnvironmentsLogsViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMarketingAnalyticsDataSourcesRetrieveParams = {
-    /**
-     * Optional. Restrict to one integration (e.g. 'GoogleAds').
-     * @nullable
-     */
-    source_type?: string | null;
-    };
-
-    export type EnvironmentsMarketingAnalyticsDiagnoseRetrieveParams = {
-    /**
-     * Lookback window for attribution health (1-365 days); defaults to 7
-     * @minimum 1
-     * @maximum 365
-     */
-    attribution_lookback_days?: number;
-    /**
-     * Whether to include the conversion-goal summary in the diagnostic
-     */
-    include_conversion_goals?: boolean;
-    /**
-     * Optional integration filter
-     * @nullable
-     */
-    source_type?: string | null;
-    };
-
-    export type EnvironmentsMarketingAnalyticsExplainConversionGoalRetrieveParams = {
-    /**
-     * ISO start; defaults to 30 days ago
-     * @nullable
-     */
-    date_from?: string | null;
-    /**
-     * ISO end; defaults to now
-     * @nullable
-     */
-    date_to?: string | null;
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string;
-    };
-
-    export type EnvironmentsMarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
-    /**
-     * Minimum 30d event count to be a candidate
-     */
-    min_count?: number;
-    /**
-     * Max candidates to return
-     */
-    top_n?: number;
-    };
-
-    export type EnvironmentsMarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
-    /**
-     * Days of history to inspect (1-365); defaults to 90
-     * @minimum 1
-     * @maximum 365
-     */
-    lookback_days?: number;
-    /**
-     * Only suggest for raw values with >= this many events
-     */
-    min_event_count?: number;
-    };
-
-    export type EnvironmentsMarketingAnalyticsUtmAuditRetrieveParams = {
-    /**
-     * Start date for the audit period
-     * @minLength 1
-     */
-    date_from?: string;
-    /**
-     * End date for the audit period
-     * @nullable
-     */
-    date_to?: string | null;
-    };
-
-    export type EnvironmentsMaterializedColumnSlotsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMaxHandsFreeTokenCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsMaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsMcpAnalyticsFeedbackListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMcpAnalyticsMissingCapabilitiesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMcpAnalyticsSessionsListParams = {
-    /**
-     * Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.
-     */
-    date_from?: string;
-    /**
-     * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
-     */
-    date_to?: string;
-    /**
-     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
-     */
-    order_by?: string;
-    /**
-     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsMcpAnalyticsSessionsGenerateIntentParams = {
-    /**
-     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
-     */
-    date_from?: string;
-    };
-
-    export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
-    /**
-     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
-     */
-    date_from?: string;
-    /**
-     * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.
-     * @minimum 0
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMcpServerInstallationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMcpServerInstallationsAuthorizeRetrieveParams = {
-    /**
-     * * `posthog` - posthog
-     * * `posthog-code` - posthog-code
-     * @minLength 1
-     */
-    install_source?: EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource;
-    installation_id?: string;
-    posthog_code_callback_url?: string;
-    template_id?: string;
-    };
-
-    export type EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource = typeof EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource];
-
-
-    export const EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource = {
-      Posthog: 'posthog',
-      PosthogCode: 'posthog-code',
-    } as const;
-
-    export type EnvironmentsMcpServersListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMcpToolsCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsMessagingCategoriesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMessagingTemplatesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsMetricsAttributeValuesRetrieveParams = {
-    /**
-     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
-     * @nullable
-     */
-    dateFrom?: string | null;
-    /**
-     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
-     * @nullable
-     */
-    dateTo?: string | null;
-    /**
-     * Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.
-     * @minLength 1
-     * @maxLength 255
-     */
-    key: string;
-    /**
-     * Max number of values to return. Defaults to 100; maximum 1000.
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number;
-    /**
-     * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
-     * @maxLength 1024
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsMetricsAttributesRetrieveParams = {
-    /**
-     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
-     * @nullable
-     */
-    dateFrom?: string | null;
-    /**
-     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
-     * @nullable
-     */
-    dateTo?: string | null;
-    /**
-     * Max number of keys to return. Defaults to 100; maximum 1000.
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number;
-    /**
-     * Substring filter (case-insensitive) applied to attribute keys.
-     * @maxLength 255
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsMetricsValuesRetrieveParams = {
-    /**
-     * Max number of names to return. Defaults to 100; maximum 1000.
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number;
-    /**
-     * Substring filter (case-insensitive) applied to metric names.
-     * @maxLength 255
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsNotificationsListParams = {
-    /**
-     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
-     */
-    archived?: boolean;
-    /**
-     * ISO 8601 timestamp; only events at or after this time
-     */
-    created_after?: string;
-    /**
-     * ISO 8601 timestamp; only events strictly before this time
-     */
-    created_before?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Filter by notification type
-     */
-    notification_type?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by the ID of the resource the notification refers to
-     */
-    resource_id?: string;
-    /**
-     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
-     */
-    resource_type?: string;
-    /**
-     * Filter by recipient target ID (e.g. a user ID)
-     */
-    target_id?: string;
-    /**
-     * Filter by recipient target type (e.g. `user`, `team`)
-     */
-    target_type?: string;
-    };
-
-    export type EnvironmentsPersonsListParams = {
-    /**
-     * Filter list by distinct id.
-     */
-    distinct_id?: string;
-    /**
-     * Filter persons by email (exact match)
-     */
-    email?: string;
-    format?: EnvironmentsPersonsListFormat;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter Persons by person properties.
-     */
-    properties?: Property[];
-    /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsPersonsListFormat = typeof EnvironmentsPersonsListFormat[keyof typeof EnvironmentsPersonsListFormat];
-
-
-    export const EnvironmentsPersonsListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsRetrieveParams = {
-    format?: EnvironmentsPersonsRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsRetrieveFormat = typeof EnvironmentsPersonsRetrieveFormat[keyof typeof EnvironmentsPersonsRetrieveFormat];
-
-
-    export const EnvironmentsPersonsRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsUpdateParams = {
-    format?: EnvironmentsPersonsUpdateFormat;
-    };
-
-    export type EnvironmentsPersonsUpdateFormat = typeof EnvironmentsPersonsUpdateFormat[keyof typeof EnvironmentsPersonsUpdateFormat];
-
-
-    export const EnvironmentsPersonsUpdateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsPartialUpdateParams = {
-    format?: EnvironmentsPersonsPartialUpdateFormat;
-    };
-
-    export type EnvironmentsPersonsPartialUpdateFormat = typeof EnvironmentsPersonsPartialUpdateFormat[keyof typeof EnvironmentsPersonsPartialUpdateFormat];
-
-
-    export const EnvironmentsPersonsPartialUpdateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsActivityRetrieveParams = {
-    format?: EnvironmentsPersonsActivityRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsActivityRetrieveFormat = typeof EnvironmentsPersonsActivityRetrieveFormat[keyof typeof EnvironmentsPersonsActivityRetrieveFormat];
-
-
-    export const EnvironmentsPersonsActivityRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsDeletePropertyCreateParams = {
-    format?: EnvironmentsPersonsDeletePropertyCreateFormat;
-    };
-
-    export type EnvironmentsPersonsDeletePropertyCreateFormat = typeof EnvironmentsPersonsDeletePropertyCreateFormat[keyof typeof EnvironmentsPersonsDeletePropertyCreateFormat];
-
-
-    export const EnvironmentsPersonsDeletePropertyCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsEmailsListParams = {
-    /**
-     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
-     * @minLength 1
-     */
-    after?: string;
-    /**
-     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
-     * @minLength 1
-     */
-    before?: string;
-    format?: EnvironmentsPersonsEmailsListFormat;
-    /**
-     * Maximum number of emails to return (1-500, default 50).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number;
-    /**
-     * Number of emails to skip, for pagination.
-     * @minimum 0
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsPersonsEmailsListFormat = typeof EnvironmentsPersonsEmailsListFormat[keyof typeof EnvironmentsPersonsEmailsListFormat];
-
-
-    export const EnvironmentsPersonsEmailsListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsPropertiesTimelineRetrieveParams = {
-    format?: EnvironmentsPersonsPropertiesTimelineRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsPropertiesTimelineRetrieveFormat = typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat[keyof typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat];
-
-
-    export const EnvironmentsPersonsPropertiesTimelineRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsSplitCreateParams = {
-    format?: EnvironmentsPersonsSplitCreateFormat;
-    };
-
-    export type EnvironmentsPersonsSplitCreateFormat = typeof EnvironmentsPersonsSplitCreateFormat[keyof typeof EnvironmentsPersonsSplitCreateFormat];
-
-
-    export const EnvironmentsPersonsSplitCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsUpdatePropertyCreateParams = {
-    format?: EnvironmentsPersonsUpdatePropertyCreateFormat;
-    };
-
-    export type EnvironmentsPersonsUpdatePropertyCreateFormat = typeof EnvironmentsPersonsUpdatePropertyCreateFormat[keyof typeof EnvironmentsPersonsUpdatePropertyCreateFormat];
-
-
-    export const EnvironmentsPersonsUpdatePropertyCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsAllActivityRetrieveParams = {
-    format?: EnvironmentsPersonsAllActivityRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsAllActivityRetrieveFormat = typeof EnvironmentsPersonsAllActivityRetrieveFormat[keyof typeof EnvironmentsPersonsAllActivityRetrieveFormat];
-
-
-    export const EnvironmentsPersonsAllActivityRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsBatchByDistinctIdsCreateParams = {
-    format?: EnvironmentsPersonsBatchByDistinctIdsCreateFormat;
-    };
-
-    export type EnvironmentsPersonsBatchByDistinctIdsCreateFormat = typeof EnvironmentsPersonsBatchByDistinctIdsCreateFormat[keyof typeof EnvironmentsPersonsBatchByDistinctIdsCreateFormat];
-
-
-    export const EnvironmentsPersonsBatchByDistinctIdsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsBatchByUuidsCreateParams = {
-    format?: EnvironmentsPersonsBatchByUuidsCreateFormat;
-    };
-
-    export type EnvironmentsPersonsBatchByUuidsCreateFormat = typeof EnvironmentsPersonsBatchByUuidsCreateFormat[keyof typeof EnvironmentsPersonsBatchByUuidsCreateFormat];
-
-
-    export const EnvironmentsPersonsBatchByUuidsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsBulkDeleteCreateParams = {
-    format?: EnvironmentsPersonsBulkDeleteCreateFormat;
-    };
-
-    export type EnvironmentsPersonsBulkDeleteCreateFormat = typeof EnvironmentsPersonsBulkDeleteCreateFormat[keyof typeof EnvironmentsPersonsBulkDeleteCreateFormat];
-
-
-    export const EnvironmentsPersonsBulkDeleteCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsCohortsRetrieveParams = {
-    format?: EnvironmentsPersonsCohortsRetrieveFormat;
-    /**
-     * The person ID or UUID to get cohorts for.
-     */
-    person_id: string;
-    };
-
-    export type EnvironmentsPersonsCohortsRetrieveFormat = typeof EnvironmentsPersonsCohortsRetrieveFormat[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat];
-
-
-    export const EnvironmentsPersonsCohortsRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsDeletionStatusListParams = {
-    format?: EnvironmentsPersonsDeletionStatusListFormat;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by a specific person UUID.
-     */
-    person_uuid?: string;
-    /**
-     * Filter by deletion status: 'pending', 'completed', or 'all'.
-     */
-    status?: EnvironmentsPersonsDeletionStatusListStatus;
-    };
-
-    export type EnvironmentsPersonsDeletionStatusListFormat = typeof EnvironmentsPersonsDeletionStatusListFormat[keyof typeof EnvironmentsPersonsDeletionStatusListFormat];
-
-
-    export const EnvironmentsPersonsDeletionStatusListFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsDeletionStatusListStatus = typeof EnvironmentsPersonsDeletionStatusListStatus[keyof typeof EnvironmentsPersonsDeletionStatusListStatus];
-
-
-    export const EnvironmentsPersonsDeletionStatusListStatus = {
-      All: 'all',
-      Completed: 'completed',
-      Pending: 'pending',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelRetrieveFormat = typeof EnvironmentsPersonsFunnelRetrieveFormat[keyof typeof EnvironmentsPersonsFunnelRetrieveFormat];
-
-
-    export const EnvironmentsPersonsFunnelRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCreateParams = {
-    format?: EnvironmentsPersonsFunnelCreateFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCreateFormat = typeof EnvironmentsPersonsFunnelCreateFormat[keyof typeof EnvironmentsPersonsFunnelCreateFormat];
-
-
-    export const EnvironmentsPersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsLifecycleRetrieveParams = {
-    format?: EnvironmentsPersonsLifecycleRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsLifecycleRetrieveFormat = typeof EnvironmentsPersonsLifecycleRetrieveFormat[keyof typeof EnvironmentsPersonsLifecycleRetrieveFormat];
-
-
-    export const EnvironmentsPersonsLifecycleRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * The distinct_id of the person (mutually exclusive with person_id)
-     */
-    distinct_id?: string;
-    format?: EnvironmentsPersonsPropertiesAtTimeRetrieveFormat;
-    /**
-     * Whether to handle $set_once operations (default: false)
-     */
-    include_set_once?: boolean;
-    /**
-     * The person_id (UUID) to build properties for (mutually exclusive with distinct_id)
-     */
-    person_id?: string;
-    /**
-     * ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')
-     */
-    timestamp: string;
-    };
-
-    export type EnvironmentsPersonsPropertiesAtTimeRetrieveFormat = typeof EnvironmentsPersonsPropertiesAtTimeRetrieveFormat[keyof typeof EnvironmentsPersonsPropertiesAtTimeRetrieveFormat];
-
-
-    export const EnvironmentsPersonsPropertiesAtTimeRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsResetPersonDistinctIdCreateParams = {
-    format?: EnvironmentsPersonsResetPersonDistinctIdCreateFormat;
-    };
-
-    export type EnvironmentsPersonsResetPersonDistinctIdCreateFormat = typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat[keyof typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat];
-
-
-    export const EnvironmentsPersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsTrendsRetrieveParams = {
-    format?: EnvironmentsPersonsTrendsRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsTrendsRetrieveFormat = typeof EnvironmentsPersonsTrendsRetrieveFormat[keyof typeof EnvironmentsPersonsTrendsRetrieveFormat];
-
-
-    export const EnvironmentsPersonsTrendsRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsValuesRetrieveParams = {
-    format?: EnvironmentsPersonsValuesRetrieveFormat;
-    /**
-     * The person property key to get values for (e.g., 'email', 'plan', 'role').
-     */
-    key: string;
-    /**
-     * Optional search string to filter values (case-insensitive substring match).
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsPersonsValuesRetrieveFormat = typeof EnvironmentsPersonsValuesRetrieveFormat[keyof typeof EnvironmentsPersonsValuesRetrieveFormat];
-
-
-    export const EnvironmentsPersonsValuesRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPluginConfigsLogsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsProjectSecretApiKeysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsPropertyAccessControlsRetrieveParams = {
-    /**
-     * The property definition ID to fetch access control rules for.
-     */
-    property_definition_id: string;
-    };
-
-    export type EnvironmentsPropertyAccessControlsDestroyParams = {
-    /**
-     * The organization member UUID whose override should be deleted.
-     */
-    organization_member?: string;
-    /**
-     * The property definition ID the rule applies to.
-     */
-    property_definition_id: string;
-    /**
-     * The role UUID whose override should be deleted.
-     */
-    role?: string;
-    };
-
-    export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
-
-    export type EnvironmentsQueryDraftSqlRetrieve200 = { [key: string]: unknown };
-
-    export type EnvironmentsQuickFiltersListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsSavedListParams = {
-    /**
-     * Filter by the creating user's ID.
-     */
-    created_by?: number;
-    /**
-     * Maximum saved heatmaps to return.
-     */
-    limit?: number;
-    /**
-     * Number to skip, for pagination.
-     */
-    offset?: number;
-    /**
-     * Field to order by, e.g. '-updated_at' (default) or 'created_at'.
-     * @minLength 1
-     */
-    order?: string;
-    /**
-     * Case-insensitive substring match on URL or name.
-     * @minLength 1
-     */
-    search?: string;
-    /**
-     * Filter by generation status: 'processing', 'completed', or 'failed'.
-     * @minLength 1
-     */
-    status?: string;
-    /**
-     * Filter by render mode: 'screenshot', 'iframe', or 'recording'.
-     * @minLength 1
-     */
-    type?: string;
-    };
-
-    export type EnvironmentsSessionRecordingExternalReferencesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsSessionRecordingPlaylistsListParams = {
-    created_by?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    short_id?: string;
-    };
-
-    export type EnvironmentsSessionRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsSubscriptionsListParams = {
-    /**
-     * Filter by creator user UUID.
-     */
-    created_by?: string;
-    /**
-     * Filter by dashboard ID.
-     */
-    dashboard?: number;
-    /**
-     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
-     */
-    dashboard_tiles?: number;
-    /**
-     * Filter by insight ID.
-     */
-    insight?: number;
-    /**
-     * Filter by a comma-separated list of insight IDs.
-     */
-    insights?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * Filter by subscription resource: insight, dashboard export, or AI report.
-     */
-    resource_type?: EnvironmentsSubscriptionsListResourceType;
-    /**
-     * A search term.
-     */
-    search?: string;
-    /**
-     * Filter by delivery channel (email or Slack).
-     */
-    target_type?: EnvironmentsSubscriptionsListTargetType;
-    };
-
-    export type EnvironmentsSubscriptionsListResourceType = typeof EnvironmentsSubscriptionsListResourceType[keyof typeof EnvironmentsSubscriptionsListResourceType];
-
-
-    export const EnvironmentsSubscriptionsListResourceType = {
-      AiPrompt: 'ai_prompt',
-      Dashboard: 'dashboard',
-      Insight: 'insight',
-    } as const;
-
-    export type EnvironmentsSubscriptionsListTargetType = typeof EnvironmentsSubscriptionsListTargetType[keyof typeof EnvironmentsSubscriptionsListTargetType];
-
-
-    export const EnvironmentsSubscriptionsListTargetType = {
-      Email: 'email',
-      Slack: 'slack',
-    } as const;
-
-    export type EnvironmentsSubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: EnvironmentsSubscriptionsDeliveriesListStatus;
-    };
-
-    export type EnvironmentsSubscriptionsDeliveriesListStatus = typeof EnvironmentsSubscriptionsDeliveriesListStatus[keyof typeof EnvironmentsSubscriptionsDeliveriesListStatus];
-
-
-    export const EnvironmentsSubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
-    } as const;
-
-    export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
-      active_count: number;
-      /** @nullable */
-      limit: number | null;
-      at_limit: boolean;
-    };
-
-    export type EnvironmentsTaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsTracingSpansAttributesRetrieveParams = {
-    /**
-     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
-     *
-     * * `span_attribute` - span_attribute
-     * * `span_resource_attribute` - span_resource_attribute
-     * @minLength 1
-     */
-    attribute_type?: EnvironmentsTracingSpansAttributesRetrieveAttributeType;
-    /**
-     * Max results (default: 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Pagination offset (default: 0).
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Search filter for attribute names.
-     * @minLength 1
-     */
-    search?: string;
-    /**
-     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
-     */
-    search_values?: boolean;
-    };
-
-    export type EnvironmentsTracingSpansAttributesRetrieveAttributeType = typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType];
-
-
-    export const EnvironmentsTracingSpansAttributesRetrieveAttributeType = {
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export type EnvironmentsTracingSpansServiceNamesRetrieveParams = {
-    /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
-     * @minLength 1
-     */
-    dateRange?: string;
-    /**
-     * Search filter for service names.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsTracingSpansValuesRetrieveParams = {
-    /**
-     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
-     *
-     * * `span` - span
-     * * `span_attribute` - span_attribute
-     * * `span_resource_attribute` - span_resource_attribute
-     * @minLength 1
-     */
-    attribute_type?: EnvironmentsTracingSpansValuesRetrieveAttributeType;
-    /**
-     * The attribute key to get values for.
-     * @minLength 1
-     */
-    key: string;
-    /**
-     * Max results (default: 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Pagination offset (default: 0).
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Search filter for attribute values.
-     * @minLength 1
-     */
-    value?: string;
-    };
-
-    export type EnvironmentsTracingSpansValuesRetrieveAttributeType = typeof EnvironmentsTracingSpansValuesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansValuesRetrieveAttributeType];
-
-
-    export const EnvironmentsTracingSpansValuesRetrieveAttributeType = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export type EnvironmentsTracingViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsUserInterviewTopicsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsUserInterviewTopicsIntervieweesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsUserInterviewsListParams = {
-    /**
-     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
-     */
-    classifications?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    topic?: string;
-    };
-
-    export type EnvironmentsUserProductListListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsVisionObservationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
-     */
-    order_by?: string;
-    /**
-     * Session recording id to return observations for.
-     */
-    session_id: string;
-    };
-
-    export type EnvironmentsVisionObservationsRetrieveParams = {
-    /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
-     */
-    date_from?: string;
-    /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
-     */
-    date_to?: string;
-    /**
-     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
-     */
-    labeled?: string;
-    /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
-     */
-    order_by?: string;
-    /**
-     * Filter to observations whose person email contains this value (case-insensitive).
-     */
-    recording_subject?: string;
-    /**
-     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
-     */
-    session_id?: string;
-    /**
-     * Filter by observation status. Accepts a comma-separated list.
-     */
-    status?: string;
-    /**
-     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
-     */
-    tags?: string;
-    /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
-     */
-    triggered_by?: string;
-    /**
-     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
-     */
-    verdict?: string;
-    };
-
-    export type EnvironmentsVisionScannersListParams = {
-    /**
-     * Filter to scanners created by the given user IDs (comma-separated).
-     */
-    created_by?: string;
-    /**
-     * Filter to scanners that emit Signals.
-     */
-    emits_signals?: boolean;
-    /**
-     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
-     */
-    enabled?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.
-     */
-    order_by?: string;
-    /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
-     */
-    scanner_type?: string;
-    /**
-     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsVisionScannersImpactRetrieveParams = {
-    /**
-     * Scorer scanners only: count sessions scoring at or below this value.
-     * @nullable
-     */
-    max_score?: number | null;
-    /**
-     * Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.
-     * @nullable
-     */
-    min_score?: number | null;
-    /**
-     * Classifier scanners only, required for them: count sessions carrying this tag (fixed or freeform). Not applicable to other scanner types.
-     * @maxLength 100
-     * @nullable
-     */
-    tag?: string | null;
-    /**
-     * Trailing window of observations to count. Defaults to 30 days.
-     * @minimum 1
-     * @maximum 90
-     */
-    window_days?: number;
-    };
-
-    export type EnvironmentsVisionScannersObservationsListParams = {
-    /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
-     */
-    date_from?: string;
-    /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
-     */
-    date_to?: string;
-    /**
-     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
-     */
-    labeled?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
-     */
-    order_by?: string;
-    /**
-     * Filter to observations whose person email contains this value (case-insensitive).
-     */
-    recording_subject?: string;
-    /**
-     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
-     */
-    session_id?: string;
-    /**
-     * Filter by observation status. Accepts a comma-separated list.
-     */
-    status?: string;
-    /**
-     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
-     */
-    tags?: string;
-    /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
-     */
-    triggered_by?: string;
-    /**
-     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
-     */
-    verdict?: string;
-    };
-
-    export type EnvironmentsVisionScannersObservationsRetrieveParams = {
-    /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
-     */
-    date_from?: string;
-    /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
-     */
-    date_to?: string;
-    /**
-     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
-     */
-    labeled?: string;
-    /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
-     */
-    order_by?: string;
-    /**
-     * Filter to observations whose person email contains this value (case-insensitive).
-     */
-    recording_subject?: string;
-    /**
-     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
-     */
-    session_id?: string;
-    /**
-     * Filter by observation status. Accepts a comma-separated list.
-     */
-    status?: string;
-    /**
-     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
-     */
-    tags?: string;
-    /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
-     */
-    triggered_by?: string;
-    /**
-     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
-     */
-    verdict?: string;
-    };
-
-    export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
-    /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
-     */
-    date_from?: string;
-    /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
-     */
-    date_to?: string;
-    /**
-     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
-     */
-    labeled?: string;
-    /**
-     * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
-     */
-    recent_days?: number;
-    /**
-     * Filter to observations whose person email contains this value (case-insensitive).
-     */
-    recording_subject?: string;
-    /**
-     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
-     */
-    session_id?: string;
-    /**
-     * Filter by observation status. Accepts a comma-separated list.
-     */
-    status?: string;
-    /**
-     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
-     */
-    tags?: string;
-    /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
-     */
-    triggered_by?: string;
-    /**
-     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
-     */
-    verdict?: string;
-    };
-
-    export type EnvironmentsVisionScannersPromptSuggestionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsWarehouseSavedQueriesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsWarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsWarehouseTablesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsWarehouseViewLinkListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsWarehouseViewLinksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type EnvironmentsWebAnalyticsRecapParams = {
-    /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
-     */
-    compare?: boolean;
-    /**
-     * Lookback window in days (1–90). Defaults to 7.
-     */
-    days?: number;
-    };
-
-    export type EnvironmentsWebAnalyticsWeeklyDigestParams = {
-    /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
-     */
-    compare?: boolean;
-    /**
-     * Lookback window in days (1–90). Defaults to 7.
-     */
-    days?: number;
-    };
-
-    export type EnvironmentsWebAnalyticsFilterPresetsListParams = {
-    created_by?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    short_id?: string;
-    };
-
-    export type EnvironmentsWebVitalsRetrieveParams = {
-    /**
-     * Filter web vitals by pathname
-     */
-    pathname: string;
-    };
-
-    export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
 
     export type FeatureFlagsStaffCacheListParams = {
     /**
@@ -72394,6 +71470,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `Billing` - Billing
+     * * `Loop` - Loop
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -72483,6 +71560,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       Billing: 'Billing',
+      Loop: 'Loop',
     } as const;
 
     /**
@@ -72558,6 +71636,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `Billing` - Billing
+     * * `Loop` - Loop
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -72635,6 +71714,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       Billing: 'Billing',
+      Loop: 'Loop',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -77966,6 +77046,37 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type LoopsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LoopsRunsRetrieveParams = {
+    /**
+     * Opaque pagination cursor from a previous response's `next_cursor`.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * Max results per page (default 50, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type LoopsTriggerCreateBodyOne = { [key: string]: unknown };
+
+    export type LoopsTriggerCreateBodyTwo = { [key: string]: unknown };
+
+    export type LoopsTriggerCreateBodyThree = { [key: string]: unknown };
 
     export type ManagedMigrationsListParams = {
     /**

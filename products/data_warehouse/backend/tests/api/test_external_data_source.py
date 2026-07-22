@@ -2746,6 +2746,39 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertCountEqual(names, ["table_a", "table_b"])
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_system_managed_source_rejects_schema_refresh(self, mock_get_source):
+        source = self._create_external_data_source()
+        source.connection_metadata = {"system_managed": True}
+        source.save(update_fields=["connection_metadata"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_get_source.assert_not_called()
+
+    def test_system_managed_source_schema_rejects_update(self):
+        source = self._create_external_data_source()
+        source.connection_metadata = {"system_managed": True}
+        source.save(update_fields=["connection_metadata"])
+        schema = ExternalDataSchema.objects.create(
+            name="sibling_team_events",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.pk}/",
+            data={"should_sync": True},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
     @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_source, mock_schedule):
@@ -3513,6 +3546,22 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+
+    def test_create_direct_postgres_rejects_the_managed_warehouse_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "managed_warehouse",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "This source name is reserved by PostHog."}
+        assert not ExternalDataSource.objects.filter(team=self.team, prefix="managed_warehouse").exists()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
@@ -11048,7 +11097,11 @@ class TestResumeCDC(APIBaseTest):
     )
     def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        self._cdc_schema(source)
+        schema = self._cdc_schema(source)
+        # The non-retryable failure that paused the schedule also stamped this marker; a resume
+        # that leaves it behind keeps the schema reading as halted (digest badge, status guard).
+        schema.sync_type_config["cdc_extraction_paused"] = {"reason": "auth_failed", "at": "2026-07-16T05:42:00+00:00"}
+        schema.save()
 
         response = self._resume(source)
         assert response.status_code == 200, response.content
@@ -11058,6 +11111,9 @@ class TestResumeCDC(APIBaseTest):
         assert mock_sync.call_args.args[0].pk == source.pk
         mock_unpause.assert_called_once_with(str(source.pk))
         assert mock_get_status.call_args.args[0].pk == source.pk
+        schema.refresh_from_db()
+        assert "cdc_extraction_paused" not in schema.sync_type_config
+        assert schema.sync_halted is False
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
     @patch(
@@ -11205,6 +11261,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "does not support one-shot setup" in response.json()["message"]
         mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    def test_create_rejects_source_without_schema_discovery_without_persisting(self):
+        # AmazonS3 is an unreleased scaffold with no get_schemas. Creating it must 400 and leave no
+        # row behind — otherwise get_schemas raises NotImplementedError as an uncaught 500 after the
+        # source row is already persisted, orphaning it.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={"source_type": "AmazonS3", "prefix": "s3_create_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support schema discovery" in response.json()["message"]
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):
