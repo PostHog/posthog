@@ -1,5 +1,3 @@
-import posthog from 'posthog-js'
-
 import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
 import { LifecycleToggle } from '~/types'
 
@@ -50,10 +48,19 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
 }
 
 export function getColorVar(variable: string): string {
-    const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
+    // Read from <body> first: the base variables are declared on :root/:host and inherit down,
+    // but dark-mode overrides (e.g. --data-color-*) are applied via [theme='dark'] on <body>,
+    // so only <body> resolves both the base values and those overrides.
+    let colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
-        // Fall back to black or white depending on the theme
+        // <body> can momentarily fail to resolve the value (stylesheet not applied yet, a theme
+        // transition, or a detached rendering context). Try :root, where the base values live.
+        colorValue = getComputedStyle(document.documentElement).getPropertyValue('--' + variable)
+    }
+    if (!colorValue) {
+        // Fall back quietly to black or white for the current theme. This is a cosmetic
+        // fallback, not an actionable error, so we don't report it — capturing here floods
+        // error tracking without surfacing anything useful.
         return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
     return colorValue.trim()
