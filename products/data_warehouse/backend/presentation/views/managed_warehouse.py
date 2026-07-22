@@ -198,9 +198,17 @@ def _get_project_team_row(*, organization_id: UUID | str, team_id: int) -> dict 
     if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
         raise RuntimeError("Failed to read the organization's managed warehouse team rows")
     for row in resp.data.get("teams") or []:
-        if isinstance(row, dict) and row.get("team_id") == team_id:
+        if isinstance(row, dict) and _row_team_id(row) == team_id:
             return row
     return None
+
+
+def _row_team_id(row: dict) -> int | None:
+    """A control-plane row's team id as int, tolerating a string serialization."""
+    try:
+        return int(row["team_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def configure_project_reader(
@@ -639,7 +647,7 @@ def team_onboarding_state(organization_id: UUID | str, team_id: int) -> dict:
     try:
         teams = _teams_from_response(list_teams(organization_id, require_enabled=False))
         if teams is not None:
-            duckgres_team = next((row for row in teams if row.get("team_id") == team_id), None)
+            duckgres_team = next((row for row in teams if _row_team_id(row) == team_id), None)
             if duckgres_team is None and has_django_row:
                 duckgres_team = _push_grandfathered_team(organization_id, team_id, table_suffix)
             elif duckgres_team is not None and not has_django_row:

@@ -3018,7 +3018,14 @@ def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam])
             teams = managed_warehouse._teams_from_response(managed_warehouse.list_teams(org_id, require_enabled=False))
             if teams is None:
                 continue
-            cp_dates = {row.get("team_id"): row.get("earliest_event_date") for row in teams}
+            # Coerce team ids to int: a control plane serializing them as JSON strings
+            # would otherwise make every team look unknown and silently skip the repair.
+            cp_dates = {}
+            for row in teams:
+                try:
+                    cp_dates[int(row["team_id"])] = row.get("earliest_event_date")
+                except (KeyError, TypeError, ValueError):
+                    continue
             for bf in rows:
                 if bf.team_id not in cp_dates:
                     continue
