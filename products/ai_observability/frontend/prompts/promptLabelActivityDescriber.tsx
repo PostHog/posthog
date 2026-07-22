@@ -5,7 +5,10 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
-// detail.name is "{prompt name}: {label name}" (set in backend activity_logging.py)
+// detail.name is "{prompt name}: {label name}" (set in backend activity_logging.py).
+// The first ": " is always the separator: prompt names only allow [a-zA-Z0-9_-]
+// (validate_prompt_name_value) and label names only allow lowercase [a-z0-9._-]
+// (validate_prompt_label_name_value), so neither can contain a colon or a space.
 function parseDetailName(logItem: ActivityLogItem): { promptName: string; labelName: string } {
     const name = logItem?.detail?.name ?? ''
     const separatorIndex = name.indexOf(': ')
