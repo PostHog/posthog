@@ -48,7 +48,7 @@ export function ComposeTicketButton({
                 overlay={
                     <div className="p-3 max-w-xs flex flex-col gap-2">
                         <p className="m-0 text-sm">
-                            Conversations are not enabled for this project. Enable them in settings to start writing to
+                            Support is not enabled for this project. Enable it in settings to start writing to
                             customers.
                         </p>
                         <LemonButton

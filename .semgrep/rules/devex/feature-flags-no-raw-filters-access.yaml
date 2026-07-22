@@ -37,8 +37,6 @@ rules:
               - '/posthog/tasks/update_survey_iteration.py'
               - '/products/early_access_features/backend/api.py'
               - '/products/early_access_features/backend/apps.py'
-              - '/products/experiments/backend/experiment_service.py'
-              - '/products/experiments/backend/experiment_summary_data_service.py'
       patterns:
           - pattern-either:
                 - pattern: $FLAG.filters[$KEY]
