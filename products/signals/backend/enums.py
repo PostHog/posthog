@@ -68,6 +68,7 @@ class SignalSourceProduct(StrEnum):
     # OAuth-connected support sources
     INTERCOM = "intercom"
     HUBSPOT = "hubspot"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
 
 
 class SignalSourceType(StrEnum):
@@ -89,6 +90,9 @@ class SignalSourceType(StrEnum):
     ANOMALY_INVESTIGATION = "anomaly_investigation"
     FEEDBACK = "feedback"
     REVIEW = "review"
+    CI_FLAKY_CHECK = "ci_flaky_check"
+    CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
+    CI_DURATION_REGRESSION = "ci_duration_regression"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -146,6 +150,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.JUDGEME_REVIEWS: "Judge.me",
     SignalSourceProduct.INTERCOM: "Intercom",
     SignalSourceProduct.HUBSPOT: "HubSpot",
+    SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
 }
 
 # The Django model's `source_product` choices, frozen-equivalent to the prior nested TextChoices so

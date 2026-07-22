@@ -97,18 +97,6 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.presentation.views.external_data_schema import (
-    ExternalDataSchemaSerializer,
-    RowFiltersField,
-    SimpleExternalDataSchemaSerializer,
-    source_supports_column_selection,
-    unsupported_row_filter_reason,
-)
-from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
-from products.data_warehouse.backend.presentation.views.source_api_versions import (
-    ExternalDataSourceApiVersionDeprecationSerializer,
-    api_version_deprecation_payload,
-)
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
@@ -163,6 +151,18 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    ExternalDataSchemaSerializer,
+    RowFiltersField,
+    SimpleExternalDataSchemaSerializer,
+    source_supports_column_selection,
+    unsupported_row_filter_reason,
+)
+from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
+from products.warehouse_sources.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
+)
 
 logger = structlog.get_logger(__name__)
 

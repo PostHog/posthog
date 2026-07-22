@@ -1,5 +1,5 @@
 import { CompatMessage } from '../../types'
-import { AVAILABLE_TOOLS_ROLE } from '../roles'
+import { AVAILABLE_TOOLS_ROLE } from '../../utils'
 import { loadRecipes } from './registry'
 import { RecipePipeline, RunOutcome } from './runtime/pipeline'
 import { Recipe } from './spec/recipe'

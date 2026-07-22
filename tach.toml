@@ -272,6 +272,7 @@ depends_on = [
     "products.data_warehouse",
     "products.notifications",
     "products.posthog_ai",
+    "products.revenue_analytics",
     "products.warehouse_sources_queue",
     "products.workflows",
 ]
