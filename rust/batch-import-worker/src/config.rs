@@ -191,6 +191,48 @@ pub struct Config {
     // can pin until the bucket TTL. 0 disables the cap. Default 10 GiB.
     #[envconfig(from = "TEMP_BUCKET_QUARANTINE_MAX_BYTES", default = "10737418240")]
     pub temp_bucket_quarantine_max_bytes: u64,
+
+    // Bucket for trial-run output (browsable pages + summary, served to users via
+    // the Django API). Empty string disables trial jobs on this worker: claimed
+    // trial jobs pause with a configuration error.
+    #[envconfig(from = "TRIAL_BUCKET_NAME", default = "")]
+    pub trial_bucket_name: String,
+    // Custom S3 endpoint for local dev / CI (SeaweedFS, same shape as
+    // TEMP_BUCKET_ENDPOINT).
+    #[envconfig(from = "TRIAL_BUCKET_ENDPOINT", default = "")]
+    pub trial_bucket_endpoint: String,
+    #[envconfig(from = "TRIAL_BUCKET_REGION", default = "")]
+    pub trial_bucket_region: String,
+    // Key prefix inside the bucket; the per-job layout below it is
+    // `team_<team_id>/job_<job_id>/`. An S3 lifecycle rule on this prefix
+    // enforces trial-result retention.
+    #[envconfig(from = "TRIAL_BUCKET_PREFIX", default = "trial_runs/")]
+    pub trial_bucket_prefix: String,
+    // Explicit S3 credentials for local dev / CI without IAM (production uses the
+    // standard AWS chain: IRSA web-identity). Both must be set to take effect.
+    #[envconfig(from = "TRIAL_BUCKET_ACCESS_KEY_ID", default = "")]
+    pub trial_bucket_access_key_id: String,
+    #[envconfig(from = "TRIAL_BUCKET_SECRET_ACCESS_KEY", default = "")]
+    pub trial_bucket_secret_access_key: String,
+    // Path-style object URLs (required by S3-compatible dev stores like SeaweedFS).
+    #[envconfig(from = "TRIAL_BUCKET_FORCE_PATH_STYLE", default = "false")]
+    pub trial_bucket_force_path_style: bool,
+
+    // Records per JSONL page of trial output. Pages are proxied whole through the
+    // Django API, so this bounds the response size of a page fetch.
+    #[envconfig(from = "TRIAL_RECORDS_PER_PAGE", default = "500")]
+    pub trial_records_per_page: usize,
+
+    // Bytes fetched from the source per iteration for trial jobs. Smaller than
+    // CHUNK_SIZE so a bounded trial produces first results quickly instead of
+    // downloading ~100 MB before the first page.
+    #[envconfig(from = "TRIAL_CHUNK_SIZE", default = "8388608")]
+    pub trial_chunk_size: usize,
+
+    // Worker-side clamp on a trial job's record_limit (defense in depth on top of
+    // API validation).
+    #[envconfig(from = "TRIAL_MAX_RECORD_LIMIT", default = "50000")]
+    pub trial_max_record_limit: u64,
 }
 
 /// S3 multipart uploads are capped at 10,000 parts (AWS hard limit).
@@ -302,6 +344,27 @@ impl Config {
     pub fn temp_bucket_credentials(&self) -> Option<(&str, &str)> {
         let key = self.temp_bucket_access_key_id.trim();
         let secret = self.temp_bucket_secret_access_key.trim();
+        (!key.is_empty() && !secret.is_empty()).then_some((key, secret))
+    }
+
+    /// Optional custom S3 endpoint for the trial output bucket. `None` when unset.
+    pub fn trial_bucket_endpoint(&self) -> Option<&str> {
+        let e = self.trial_bucket_endpoint.trim();
+        (!e.is_empty()).then_some(e)
+    }
+
+    /// Optional S3 region override for the trial output bucket. `None` when unset.
+    pub fn trial_bucket_region(&self) -> Option<&str> {
+        let r = self.trial_bucket_region.trim();
+        (!r.is_empty()).then_some(r)
+    }
+
+    /// Explicit S3 credentials for the trial output bucket (local dev / CI).
+    /// `None` unless both parts are set; production relies on the standard AWS
+    /// chain (IRSA) instead.
+    pub fn trial_bucket_credentials(&self) -> Option<(&str, &str)> {
+        let key = self.trial_bucket_access_key_id.trim();
+        let secret = self.trial_bucket_secret_access_key.trim();
         (!key.is_empty() && !secret.is_empty()).then_some((key, secret))
     }
 
