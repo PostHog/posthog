@@ -25,7 +25,11 @@ def team_ids_with_unclassified_published_reports() -> list[int]:
 
 
 def unclassified_published_reports(team_id: int) -> list[ReviewReport]:
-    """This team's published reports with no `finding_outcome` artefact yet (idempotency guard)."""
+    """This team's published reports with no `finding_outcome` artefact yet (idempotency guard).
+
+    Sound because the classifier writes a report's artefacts in one transaction (all findings or
+    none) — one artefact existing means the whole report is done.
+    """
     return list(
         ReviewReport.objects.for_team(team_id)
         .filter(published_head_sha__isnull=False, pr_number__isnull=False)

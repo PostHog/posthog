@@ -19,8 +19,9 @@ from products.engineering_analytics.backend.facade.contracts import MergedPullRe
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 # HogQL applies a default 100-row limit when a query names none, silently truncating the result; set
-# an explicit ceiling so the recency-bounded set isn't capped at an arbitrary 100 (the caller's
-# ``since`` is the real bound).
+# an explicit ceiling so the recency-bounded set isn't capped at an arbitrary 100. In a repo merging
+# more than this many PRs inside the window, the ceiling drops the oldest merges — callers that need
+# specific PRs pass ``numbers`` so the result is bounded by their ask instead.
 _LIMIT = 1000
 
 _SELECT = f"""
@@ -33,12 +34,15 @@ _SELECT = f"""
         AND pr.merged_at >= {{since}}
         AND lower(pr.repo_owner) = {{repo_owner}}
         AND lower(pr.repo_name) = {{repo_name}}
+        __NUMBERS_FILTER__
     ORDER BY pr.merged_at DESC
     LIMIT {_LIMIT}
 """
 
 
-def build_merged_pull_requests(*, curated: CuratedGitHubSource, repo: str, since: datetime) -> list[MergedPullRequest]:
+def build_merged_pull_requests(
+    *, curated: CuratedGitHubSource, repo: str, since: datetime, numbers: list[int] | None = None
+) -> list[MergedPullRequest]:
     owner, _, name = repo.partition("/")
     # A half-specified repo (bare org, trailing/leading slash) would silently drop the scope and
     # return merges from every repo in the source — fail loudly instead.
@@ -49,8 +53,12 @@ def build_merged_pull_requests(*, curated: CuratedGitHubSource, repo: str, since
         "repo_owner": ast.Constant(value=owner.lower()),
         "repo_name": ast.Constant(value=name.lower()),
     }
+    numbers_filter = ""
+    if numbers is not None:
+        numbers_filter = "AND pr.number IN {numbers}"
+        placeholders["numbers"] = ast.Constant(value=numbers)
     response = curated.run(
-        _SELECT.replace("__PR_SOURCE__", curated.pr_source()),
+        _SELECT.replace("__PR_SOURCE__", curated.pr_source()).replace("__NUMBERS_FILTER__", numbers_filter),
         query_type="engineering_analytics.merged_pull_requests",
         placeholders=placeholders,
     )

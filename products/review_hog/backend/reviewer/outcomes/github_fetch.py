@@ -11,6 +11,11 @@ from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPAR
 
 logger = logging.getLogger(__name__)
 
+# Compares paginate their `files` array at GitHub's 300-file cap per page. 10 pages (3,000 files)
+# comfortably covers a post-review master merge without letting one pathological compare eat the
+# installation's egress budget.
+_MAX_COMPARE_PAGES = 10
+
 
 def fetch_compare_files(
     *, owner: str, repo: str, base_sha: str, head_sha: str, token: str, installation_id: str | None = None
@@ -18,27 +23,34 @@ def fetch_compare_files(
     """The changed files (with ``patch``) between ``base_sha`` and ``head_sha`` — the commits that
     landed after review.
 
-    One call; GitHub caps the compare at 300 files with no pagination, so a very large post-review
-    diff is truncated. We log the truncation so a finding in a dropped file reading as ``ignored`` is
-    never silent.
+    GitHub returns at most 300 files per compare page, so we paginate until a short page — a
+    post-review merge of the default branch routinely exceeds one page, and truncated evidence would
+    durably classify findings in dropped files as ``ignored``. Beyond ``_MAX_COMPARE_PAGES`` we log
+    loudly and classify on what we have rather than re-sweeping a compare that will never shrink.
     """
-    comparison = github_api_request(
-        "GET",
-        f"/repos/{owner}/{repo}/compare/{base_sha}...{head_sha}",
-        token=token,
-        installation_id=installation_id,
-        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-    ).json()
-    files: list[dict[str, Any]] = comparison.get("files") or []
-    if len(files) >= GITHUB_COMPARE_FILES_CAP:
-        logger.warning(
-            "Compare %s/%s %s...%s hit GitHub's %d-file cap; findings in dropped files may read as ignored",
-            owner,
-            repo,
-            base_sha[:12],
-            head_sha[:12],
-            GITHUB_COMPARE_FILES_CAP,
-        )
+    files: list[dict[str, Any]] = []
+    for page in range(1, _MAX_COMPARE_PAGES + 1):
+        comparison = github_api_request(
+            "GET",
+            f"/repos/{owner}/{repo}/compare/{base_sha}...{head_sha}",
+            token=token,
+            installation_id=installation_id,
+            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+            params={"page": page},
+        ).json()
+        chunk: list[dict[str, Any]] = comparison.get("files") or []
+        files.extend(chunk)
+        if len(chunk) < GITHUB_COMPARE_FILES_CAP:
+            return files
+    logger.warning(
+        "Compare %s/%s %s...%s still capped after %d pages (%d files); findings in dropped files may read as ignored",
+        owner,
+        repo,
+        base_sha[:12],
+        head_sha[:12],
+        _MAX_COMPARE_PAGES,
+        len(files),
+    )
     return files
 
 

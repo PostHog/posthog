@@ -59,6 +59,9 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # The urgency threshold in force at the latest publish — outcome classification reconstructs the
+    # published finding set from this, since the user's live setting can change after publish.
+    published_urgency_threshold = models.CharField(max_length=20, null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
     # The PR's live "review in progress" status comment (publish path only): the GitHub comment id we
     # edit in place, and the last-edit watermark that debounces refreshes across concurrent activities.

@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -31,22 +32,24 @@ _FAR = [{"filename": "f.py", "patch": "@@ -80,1 +80,1 @@\n-old\n+new\n"}]
 _ISSUE_KEY = "r1:f.py:10:logic"
 
 
-def _finding() -> ReviewIssueFinding:
+def _finding(
+    issue_key: str = _ISSUE_KEY, title: str = "Off-by-one", priority: IssuePriority = IssuePriority.MUST_FIX
+) -> ReviewIssueFinding:
     return ReviewIssueFinding(
-        issue_key=_ISSUE_KEY,
+        issue_key=issue_key,
         run_index=1,
-        title="Off-by-one",
+        title=title,
         file="f.py",
         lines=[LineRange(start=10)],
         body="loop runs one short",
         suggestion="use <=",
-        priority=IssuePriority.MUST_FIX,
+        priority=priority,
         source_perspective="logic",
     )
 
 
-def _verdict() -> ValidationVerdict:
-    return ValidationVerdict(issue_key=_ISSUE_KEY, is_valid=True, argumentation="real bug", category="bug")
+def _verdict(issue_key: str = _ISSUE_KEY) -> ValidationVerdict:
+    return ValidationVerdict(issue_key=issue_key, is_valid=True, argumentation="real bug", category="bug")
 
 
 class TestClassifyReportDecision:
@@ -67,7 +70,7 @@ class TestClassifyReportDecision:
         captured: list[dict[str, Any]] = []
         with (
             patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
-            patch(f"{_CLASSIFY}._persist_outcome"),
+            patch(f"{_CLASSIFY}._persist_outcomes"),
             patch(f"{_CLASSIFY}.judge_addressed", new=AsyncMock(return_value=judge_return)) as judge,
         ):
             async_to_sync(classify_report)(
@@ -108,6 +111,38 @@ class TestClassifyReportDecision:
         first, _ = self._run(inputs=self._inputs(comment=None, compare_files=_FAR), report=report)
         second, _ = self._run(inputs=self._inputs(comment=None, compare_files=_FAR), report=report)
         assert first[0]["uuid"] == second[0]["uuid"]
+
+    def test_failure_mid_report_persists_no_outcomes(self):
+        # Discovery reads "any finding_outcome artefact" as "report done", so persisting per finding
+        # would strand the rest of a report when the judge dies partway: the retry and every later
+        # sweep would skip it. Nothing may persist unless the whole report classified.
+        published = [
+            _PublishedFinding(finding=_finding(), verdict=_verdict(), comment=None),
+            _PublishedFinding(
+                finding=_finding(issue_key="r1:f.py:11:logic", title="Two"), verdict=_verdict(), comment=None
+            ),
+        ]
+        inputs = _ReportInputs(
+            reviewed_head="base_sha",
+            compare_files=_TOUCHING,
+            review_comments=[],
+            published=published,
+            distinct_id="user-distinct",
+            judge_user_id=0,
+        )
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
+            patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(f"{_CLASSIFY}.judge_addressed", new=AsyncMock(side_effect=[True, RuntimeError("judge died")])),
+            pytest.raises(RuntimeError),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: None,
+            )
+        persist.assert_not_called()
 
     def test_event_carries_join_keys_and_finding_metadata(self):
         captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_FAR))
@@ -167,6 +202,32 @@ class TestGatherAndIdempotency(BaseTest):
         assert [pf.finding.issue_key for pf in inputs.published] == [_ISSUE_KEY]
         assert inputs.published[0].comment == comment  # the finding was paired with its posted comment
         assert inputs.distinct_id == self.user.distinct_id
+
+    def test_published_set_uses_the_threshold_snapshotted_at_publish(self):
+        # The user's live threshold can change between publish and the merge sweep; the classifier
+        # must reconstruct the published set from the snapshot taken when the review was posted
+        # (here must_fix), not from current settings (default consider, which would admit both).
+        report = self._report()
+        report.published_urgency_threshold = IssuePriority.MUST_FIX.value
+        report.save(update_fields=["published_urgency_threshold"])
+        low = _finding(issue_key="r1:f.py:20:style", title="Nitpick", priority=IssuePriority.CONSIDER)
+        ReviewReportArtefact.append_finding(
+            team_id=self.team.id, report_id=str(report.id), content=low, attribution=ArtefactAttribution.system()
+        )
+        ReviewReportArtefact.append_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=_verdict(issue_key=low.issue_key),
+            attribution=ArtefactAttribution.system(),
+        )
+        with (
+            patch(f"{_CLASSIFY}._installation_auth", return_value=("tok", "inst")),
+            patch(f"{_CLASSIFY}.fetch_compare_files", return_value=_FAR),
+            patch(f"{_CLASSIFY}.fetch_review_comments", return_value=[]),
+        ):
+            inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
+
+        assert [pf.finding.issue_key for pf in inputs.published] == [_ISSUE_KEY]
 
     def test_finding_outcome_artefact_excludes_the_report_from_discovery(self):
         report = self._report()

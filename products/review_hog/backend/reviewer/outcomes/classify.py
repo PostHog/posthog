@@ -3,9 +3,11 @@
 Per report: pull the post-review compare and the PR's review comments, pair the report's published
 findings with their inline comments, then decide each finding's outcome in precedence order —
 `reacted` (a human replied or reacted, cheap and certain) beats `addressed` (a post-review commit
-touched the finding's lines AND the judge confirms it resolved it) beats `ignored`. Each finding
-gets a durable `finding_outcome` artefact (the idempotency marker) and one `reviewhog_finding_outcome`
-event with a deterministic uuid so overlapping sweeps can't double-count.
+touched the finding's lines AND the judge confirms it resolved it) beats `ignored`. One
+`reviewhog_finding_outcome` event per finding carries a deterministic uuid so overlapping sweeps
+can't double-count; the durable `finding_outcome` artefacts (the idempotency markers) are written
+last, in one transaction for the whole report, so a crash mid-report leaves no marker — the next
+sweep redoes the report and the re-emitted events dedup on their uuids.
 """
 
 import logging
@@ -14,6 +16,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
+
+from django.db import transaction
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
@@ -141,9 +145,11 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
 
     bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id)])
     all_valid = bundle.all_valid(str(report.id))
-    # `urgency_threshold` is a UrgencyThreshold whose values mirror IssuePriority; coerce through the
-    # value like the publish path (`published_priorities_for(IssuePriority(urgency_threshold))`).
-    threshold = (
+    # The threshold snapshotted at publish is the one that gated the posted set; the live user setting
+    # is only a fallback for reports published before the snapshot existed (`urgency_threshold` is a
+    # UrgencyThreshold whose values mirror IssuePriority, coerced through the value like the publish
+    # path).
+    threshold = report.published_urgency_threshold or (
         str(ReviewUserSettings.load(team_id, report.acting_user_id).urgency_threshold)
         if report.acting_user_id
         else DEFAULT_URGENCY_THRESHOLD.value
@@ -180,34 +186,40 @@ class _SkipReport(Exception):
     """Raised when a single report can't be classified (bad auth) — skip it, don't stop the sweep."""
 
 
-def _persist_outcome(
+def _persist_outcomes(
     *,
     team_id: int,
     report_id: str,
-    finding: ReviewIssueFinding,
-    outcome: str,
-    method: str,
+    outcomes: list[tuple[ReviewIssueFinding, str, str]],
     reviewed_head: str,
     final_head: str,
 ) -> None:
-    ReviewReportArtefact.add_finding_outcome(
-        team_id=team_id,
-        report_id=report_id,
-        content=FindingOutcomeArtefact(
-            issue_key=finding.issue_key,
-            run_index=finding.run_index,
-            outcome=outcome,
-            method=method,
-            reviewed_head=reviewed_head,
-            final_head=final_head,
-            judge_model=OUTCOME_JUDGE_MODEL if method in ("judge_confirmed", "judge_rejected") else None,
-        ),
-        attribution=ArtefactAttribution.system(),
-    )
+    """Write the report's `finding_outcome` artefacts in one transaction — all findings or none.
+
+    Discovery treats any `finding_outcome` artefact as "this report is classified", so a partial
+    write would silently strand the remaining findings; atomicity makes the marker mean what
+    discovery reads it as.
+    """
+    with transaction.atomic():
+        for finding, outcome, method in outcomes:
+            ReviewReportArtefact.add_finding_outcome(
+                team_id=team_id,
+                report_id=report_id,
+                content=FindingOutcomeArtefact(
+                    issue_key=finding.issue_key,
+                    run_index=finding.run_index,
+                    outcome=outcome,
+                    method=method,
+                    reviewed_head=reviewed_head,
+                    final_head=final_head,
+                    judge_model=OUTCOME_JUDGE_MODEL if method in ("judge_confirmed", "judge_rejected") else None,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
 
 
 async def classify_report(*, team_id: int, report: ReviewReport, final_head: str, capture: Capture) -> int:
-    """Classify one report's published findings, persisting an outcome + emitting an event for each.
+    """Classify one report's published findings: emit an event per finding, then persist all outcomes.
 
     Returns the number of findings classified. GitHub errors for this one PR (a 4xx on the compare or
     comments) raise `GitHubAPIError` for the caller to skip; rate-limit / budget exhaustion propagate
@@ -218,6 +230,7 @@ async def classify_report(*, team_id: int, report: ReviewReport, final_head: str
     )
     repository = report.repository
     compared = parse_compare_files(inputs.compare_files)
+    outcomes: list[tuple[ReviewIssueFinding, str, str]] = []
 
     for pf in inputs.published:
         finding, verdict = pf.finding, pf.verdict
@@ -242,15 +255,7 @@ async def classify_report(*, team_id: int, report: ReviewReport, final_head: str
         else:
             outcome, method = "ignored", "no_signal"
 
-        await database_sync_to_async(_persist_outcome, thread_sensitive=False)(
-            team_id=team_id,
-            report_id=str(report.id),
-            finding=finding,
-            outcome=outcome,
-            method=method,
-            reviewed_head=inputs.reviewed_head,
-            final_head=final_head,
-        )
+        outcomes.append((finding, outcome, method))
         capture(
             distinct_id=inputs.distinct_id,
             event=_EVENT,
@@ -276,6 +281,17 @@ async def classify_report(*, team_id: int, report: ReviewReport, final_head: str
             },
         )
 
+    # Markers land last, atomically, and only after every event went out: a crash anywhere above
+    # leaves the report discoverable for the next sweep, and the re-emitted events dedup on their
+    # deterministic uuids instead of double-counting.
+    await database_sync_to_async(_persist_outcomes, thread_sensitive=False)(
+        team_id=team_id,
+        report_id=str(report.id),
+        outcomes=outcomes,
+        reviewed_head=inputs.reviewed_head,
+        final_head=final_head,
+    )
+
     return len(inputs.published)
 
 
@@ -300,8 +316,13 @@ async def classify_team(
     reports_done = 0
     for repository, repo_reports in by_repo.items():
         try:
+            # Scoped to the PR numbers awaiting classification, so a high-merge-volume repo can't
+            # push an eligible older PR past the lookup's row ceiling.
             merged = await database_sync_to_async(list_recently_merged_pull_requests, thread_sensitive=False)(
-                team=team, repository=repository, since=since
+                team=team,
+                repository=repository,
+                since=since,
+                numbers=[report.pr_number for report in repo_reports if report.pr_number is not None],
             )
         except GitHubSourceNotConnectedError:
             logger.info("Skipping %s for team %s: no connected GitHub warehouse source", repository, team.id)

@@ -1944,6 +1944,8 @@ class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
                 _pr_row(
                     23, "dave", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha23", full_name="PostHog/other"
                 ),
+                # merged in-window -> returned unless a `numbers` scope excludes it
+                _pr_row(24, "erin", "closed", 0, _ago(2), merged_at=_ago(1), head_sha="sha24"),
             ],
         )
         # workflow_runs is required for the source to resolve, though this read only touches PRs.
@@ -1955,8 +1957,14 @@ class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
 
         since = timezone.now() - timedelta(days=10)
         merged = api.list_recently_merged_pull_requests(team=self.team, repository="PostHog/posthog", since=since)
+        assert [(pr.number, pr.head_sha) for pr in merged] == [(24, "sha24"), (20, "sha20")]
 
-        assert [(pr.number, pr.head_sha) for pr in merged] == [(20, "sha20")]
+        # `numbers` scopes the lookup to the PRs a caller is waiting on, so a high-merge-volume repo
+        # can't push them past the query's row ceiling.
+        scoped = api.list_recently_merged_pull_requests(
+            team=self.team, repository="PostHog/posthog", since=since, numbers=[20]
+        )
+        assert [pr.number for pr in scoped] == [20]
 
 
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):

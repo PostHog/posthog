@@ -1186,7 +1186,7 @@ def _publish(
         repo=repo,
         pr_number=pr_number,
         token=token,
-        published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
+        urgency_threshold=IssuePriority(urgency_threshold),
         installation_id=installation_id,
     )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
