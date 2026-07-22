@@ -544,16 +544,22 @@ export function canonicalizeUiHost(candidate: string | undefined | null): string
 
 /**
  * Sanitize an apiHost candidate. Like canonicalizeUiHost, but preserves the URL
- * path so reverse-proxy deployments (e.g. `https://proxy/ingest`) keep working
- * — apiHost is concatenated with `/static/toolbar.css` and `/i/v1/logs`, so the
- * path prefix must survive. Query and fragment are still dropped.
+ * path so reverse-proxy deployments keep working, whether configured absolutely
+ * (`https://proxy/ingest`) or as a relative path (`/ingest`, resolved against the
+ * current origin). apiHost is concatenated with `/static/toolbar.css` and
+ * `/i/v1/logs`, so the path prefix must survive. Query and fragment are dropped.
  */
 export function canonicalizeApiHost(candidate: string | undefined | null): string | null {
     if (!candidate) {
         return null
     }
     try {
-        const parsed = new URL(candidate)
+        // Path-absolute values like "/ingest" are relative reverse-proxy configs;
+        // resolve them against the current origin. Protocol-relative refs
+        // ("//evil.com", "/\evil.com") are excluded so they can't hijack the origin:
+        // they fall through to base-less parsing and are rejected, as is any non-path garbage.
+        const trimmed = candidate.trim()
+        const parsed = /^\/(?![/\\])/.test(trimmed) ? new URL(trimmed, window.location.origin) : new URL(candidate)
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
             return null
         }
