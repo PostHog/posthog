@@ -1,7 +1,6 @@
 name: Node.js CI
 on:
     pull_request:
-    merge_group:
     push:
         branches:
             - master
@@ -89,7 +88,7 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
 
             - name: Decide whether Node.js checks should run
