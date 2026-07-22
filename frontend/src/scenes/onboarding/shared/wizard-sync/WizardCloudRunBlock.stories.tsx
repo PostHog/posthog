@@ -207,12 +207,14 @@ export const RepoPickerOpen: Story = cloudRunStory({
     integrations: [githubIntegration],
     waitForSelector: '[data-attr="select-github-repository"]',
     extraPlay: async () => {
+        // LemonInput puts data-attr on the <input> element itself, so match the input directly —
+        // a descendant selector like `[data-attr=...] input` never matches anything.
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="select-github-repository"] input')) {
+            if (!document.querySelector('input[data-attr="select-github-repository"]')) {
                 throw new Error('repo picker not ready')
             }
         }, WAIT_OPTIONS)
-        await userEvent.click(document.querySelector('[data-attr="select-github-repository"] input') as Element)
+        await userEvent.click(document.querySelector('input[data-attr="select-github-repository"]') as Element)
         // full_name only appears in the open dropdown (nothing is selected), so this confirms it's open.
         await waitFor(() => {
             if (!Array.from(document.querySelectorAll('span')).some((el) => el.textContent === 'acme-co/mobile-app')) {

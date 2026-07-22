@@ -174,8 +174,15 @@ export default {
                             ).__STORYBOOK_ADDONS_CHANNEL__
                             const doneEvents = [...failureEvents, 'storyRendered']
                             const listeners: Record<string, (data?: unknown) => void> = {}
+                            // Purely diagnostic: when the remount wait times out, the phase it was stuck
+                            // in ("loading" vs "playing") points at the story rather than the machinery.
+                            let lastPhase: string | undefined
+                            const phaseListener = (data?: unknown): void => {
+                                lastPhase = (data as { newPhase?: string } | undefined)?.newPhase
+                            }
                             const finish = (event: string, data?: unknown): void => {
                                 clearTimeout(timeoutId)
+                                channel.off('storyRenderPhaseChanged', phaseListener)
                                 doneEvents.forEach((e) => channel.off(e, listeners[e]))
                                 // unhandledErrorsWhilePlaying's payload is an array of serialized errors;
                                 // every other done event passes the error object directly.
@@ -188,10 +195,19 @@ export default {
                                 listeners[e] = (data?: unknown) => finish(e, data)
                                 channel.on(e, listeners[e])
                             })
+                            channel.on('storyRenderPhaseChanged', phaseListener)
                             // If the remount never settles, stop waiting so postVisit can proceed — but
                             // treat it as a failed retry below rather than silently falling through as if
                             // the remount had finished cleanly.
-                            const timeoutId = setTimeout(() => finish('timeout'), 30000)
+                            const timeoutId = setTimeout(
+                                () =>
+                                    finish('timeout', {
+                                        message: `remount did not settle within 30s (last render phase: ${
+                                            lastPhase ?? 'unknown'
+                                        })`,
+                                    }),
+                                30000
+                            )
                             channel.emit('forceRemount', { storyId })
                         })
                     },
