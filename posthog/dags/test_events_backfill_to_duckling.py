@@ -931,6 +931,8 @@ class TestEarliestEventDateReconcile:
         [
             # CP has no date for the team -> re-push
             ("cp_missing_date", {"team_id": 1, "earliest_event_date": None}, True),
+            # A CP serializing team_id as a string must not make the team look unknown
+            ("cp_string_team_id", {"team_id": "1", "earliest_event_date": None}, True),
             # CP has a stale date -> re-push
             ("cp_stale_date", {"team_id": 1, "earliest_event_date": "2019-01-01"}, True),
             # CP already converged -> nothing to do
