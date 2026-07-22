@@ -525,6 +525,11 @@ impl IngestionConsumer {
                 dispatcher.record_send_outcome(&worker, false);
             }
             Err(send_err) => {
+                // Re-stash before the resolve. The eager release popped the
+                // group without decrementing its key's outstanding count, so
+                // across defer_failed (+1) and the clears_deferral resolve
+                // (-1) the count nets to unchanged and never dips to zero —
+                // newer batches keep deferring behind the re-stashed group.
                 dispatcher.defer_failed(&batch_id, send_err.messages);
                 dispatcher.eager_flush_failed(&batch_id);
                 dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys, true, true);
