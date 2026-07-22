@@ -3,7 +3,6 @@ import { BindLogic, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCard, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,12 +13,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { VisionActionApi } from '../generated/api.schemas'
 import { VisionActionModeEnumApi } from '../generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from './cadence'
 import { VisionActionRuns } from './components/VisionActionRuns'
+import { replayScannerLogic } from './replayScannerLogic'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
 import { visionActionSceneLogic } from './visionActionSceneLogic'
 
@@ -41,6 +41,9 @@ function ActionOverview({
     const guidance = action.synthesis_config?.prompt_guide?.trim()
     const isAlert = action.mode === VisionActionModeEnumApi.Alert
     const everyMatch = action.alert_config?.frequency === 'every_match'
+    // `action.scanner` is only the id — the action's own user_access_level would just reflect the
+    // replay_scanner resource default, not a per-scanner object grant, so load the scanner itself.
+    const { scanner } = useValues(replayScannerLogic({ id: action.scanner }))
 
     return (
         <>
@@ -57,19 +60,15 @@ function ActionOverview({
                 }
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPencil />}
+                        to={urls.replayVisionActionEdit(action.id)}
+                        disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+                        data-attr="vision-action-edit-from-page"
                     >
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPencil />}
-                            to={urls.replayVisionActionEdit(action.id)}
-                            data-attr="vision-action-edit-from-page"
-                        >
-                            Edit
-                        </LemonButton>
-                    </AccessControlAction>
+                        Edit
+                    </LemonButton>
                 }
             />
             {!isAlert && (

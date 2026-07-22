@@ -201,6 +201,9 @@ const InsightCreateSchema = InsightsCreateBody.omit({
     dashboards: InsightsCreateBody.shape['dashboards'].describe(
         'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
     ),
+    description: InsightsCreateBody.shape['description'].describe(
+        'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+    ),
 })
 
 const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
@@ -322,6 +325,9 @@ const InsightUpdateSchema = z.preprocess(
             query: InsightQuery.optional(),
             dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
                 'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+            ),
+            description: InsightsPartialUpdateBody.shape['description'].describe(
+                'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
             ),
         })
 )
