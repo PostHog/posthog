@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     MySQLImplementation,
@@ -95,6 +95,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             name=SchemaExternalDataSourceType.MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
+            keywords=["sql", "mariadb"],
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
@@ -168,7 +169,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Can't connect to MySQL server on": None,
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
             # MySQL/MariaDB error 1045 (ER_ACCESS_DENIED_ERROR): the user/password (or the
             # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
             # source — so the user fixes credentials instead of the generic "check connection
@@ -266,6 +271,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
+            # a value carrying a non-latin-1 character — most often an invisible zero-width space
+            # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is
+            # sent, so the connect fails identically on every retry. Match the codec's stable
+            # range-256 reason, not the volatile character/position: it appears in the raw str(exc)
+            # the sync path classifies and in the " ".join(e.args) form validate_credentials builds
+            # (the formatted "codec can't encode character" text is reconstructed in neither).
+            "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
 
     def reconcile_schema_metadata(
@@ -307,10 +320,17 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         try:
             self.get_schemas(config, team_id)
         except BaseSSHTunnelForwarderError as e:
+            # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
+            # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
+            # generic `except Exception` branch below already applies — instead of leaking the
+            # internal wording to the wizard.
+            ssh_error = e.value or ""
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if friendly_error and pattern in ssh_error:
+                    return False, friendly_error
             return (
                 False,
-                e.value
-                or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             # Connection/credential failures we already classify as non-retryable during sync

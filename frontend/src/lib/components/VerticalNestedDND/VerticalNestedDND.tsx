@@ -26,7 +26,7 @@ import {
 } from '@dnd-kit/sortable'
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import React, { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDebouncedCallback } from 'use-debounce'

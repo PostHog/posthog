@@ -36,9 +36,9 @@ from pathlib import Path
 
 from gates import is_trivial_at_dismiss_time
 
-# Both identities Stamphog approves under: github-actions[bot] posts a
-# bodyless approval, stamphog[bot] (the app) posts the approval carrying the
-# review body. Either counts as a prior bot approval for the delta check.
+# Stamphog now approves only as stamphog[bot] (the app), carrying the review
+# body. github-actions[bot] is kept here so legacy bodyless approvals from
+# before that change still count as a prior bot approval for the delta check.
 BOT_LOGINS = {"github-actions[bot]", "stamphog[bot]"}
 
 

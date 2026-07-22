@@ -1354,6 +1354,11 @@ class ActiveOrganizationMiddleware:
 # Session key used to mark an impersonation session as read-only
 IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
 
+# Session key holding the reason the operator gave when impersonation started (or was
+# up/downgraded). Persisted server-side so the reason survives both Django-admin and
+# in-app starts and can be surfaced to the frontend and the activity log.
+IMPERSONATION_REASON_SESSION_KEY = "impersonation_reason"
+
 
 def is_read_only_impersonation(request: HttpRequest) -> bool:
     """Check if the current session is a read-only impersonation session."""

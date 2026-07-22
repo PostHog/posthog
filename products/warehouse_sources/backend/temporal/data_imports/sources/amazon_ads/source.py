@@ -26,12 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AmazonAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
+    AmazonAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AmazonAdsSource(SimpleSource[AmazonAdsSourceConfig]):
+    api_docs_url = "https://advertising.amazon.com/API/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

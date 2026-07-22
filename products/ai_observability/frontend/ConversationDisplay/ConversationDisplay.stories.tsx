@@ -5,8 +5,14 @@ import { ConversationDisplay as ConversationDisplayComponent, ConversationDispla
 const meta: Meta<ConversationDisplayProps> = {
     title: 'Scenes-App/AI observability/Conversation Display',
     component: ConversationDisplayComponent,
-    render: ({ eventProperties, eventId }) => {
-        return <ConversationDisplayComponent eventProperties={eventProperties} eventId={eventId || 'story-event-1'} />
+    render: ({ eventProperties, eventId, eventName }) => {
+        return (
+            <ConversationDisplayComponent
+                eventProperties={eventProperties}
+                eventId={eventId || 'story-event-1'}
+                eventName={eventName || '$ai_generation'}
+            />
+        )
     },
 }
 export default meta

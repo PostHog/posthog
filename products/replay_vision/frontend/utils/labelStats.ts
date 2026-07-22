@@ -35,6 +35,26 @@ export function fillLabelDays(
     return { labels, dates, up, down }
 }
 
+/**
+ * X-tick formatter for the daily ratings chart. Full "MMM D" labels collide at 30 days, and the
+ * chart resolves collisions greedily left to right: a wide month anchor either hides the day after
+ * it ("Jun 11" hides "12") or is hidden by the day before it ("30" hides "Jul 1"). Keep the month
+ * only on the anchors (first tick, month starts) and hide the single day adjacent to each anchor,
+ * so anchors always render and any gap is deterministic instead of viewport-dependent.
+ */
+export function buildChartDayFormatter(dates: string[]): (label: string, index: number) => string | null {
+    return (label, index) => {
+        const day = label.split(' ')[1]
+        if (index === 0 || day === '1') {
+            return label
+        }
+        if (index === 1 || dates[index + 1]?.endsWith('-01')) {
+            return null
+        }
+        return day
+    }
+}
+
 export interface VersionAccuracyEntry {
     version: number
     rated: number

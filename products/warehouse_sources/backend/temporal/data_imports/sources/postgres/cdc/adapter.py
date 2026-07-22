@@ -7,7 +7,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
+import psycopg
 import structlog
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
@@ -43,6 +45,27 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _retry_logger = structlog.get_logger(__name__)
+
+
+def _slot_setup_error_message(exc: Exception) -> str:
+    """User-facing message for a failed slot/publication setup.
+
+    When the failure is a lack of replication privilege — the most common CDC blocker —
+    point at the simplest fix rather than only echoing the raw error: switch the affected
+    tables to Incremental sync, which needs only SELECT.
+    """
+    message = str(exc).lower()
+    is_permission_error = isinstance(exc, psycopg.errors.InsufficientPrivilege) or (
+        "permission denied" in message or "must be superuser" in message
+    )
+    if is_permission_error:
+        return (
+            f"Failed to create replication slot: {exc} "
+            "The database user lacks permission to create logical replication slots. "
+            "Either grant it replication access, or switch these tables to Incremental sync "
+            "instead of CDC. Incremental needs only SELECT permission."
+        )
+    return f"Failed to create replication slot: {exc}"
 
 
 def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
@@ -122,6 +145,13 @@ class PostgresCDCAdapter:
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
         return is_slot_invalidation_error(exc)
+
+    def is_connection_error(self, exc: BaseException) -> bool:
+        # psycopg raises OperationalError for every failure to reach the source DB
+        # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
+        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established.
+        # Neither points at a bug in our code.
+        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)
@@ -233,7 +263,7 @@ class PostgresCDCAdapter:
                             drop_publication(conn, pub_name)
                 except Exception as rollback_error:
                     logger.exception("Failed to roll back partial CDC slot/publication: %s", rollback_error)
-                return {}, f"Failed to create replication slot: {e}"
+                return {}, _slot_setup_error_message(e)
             return resource_fields, None
 
         # self_managed: the publication is customer-owned; PostHog only creates the slot.
@@ -258,7 +288,7 @@ class PostgresCDCAdapter:
                     drop_slot(conn, slot_name)
             except Exception as rollback_error:
                 logger.exception("Failed to roll back partial self-managed CDC slot: %s", rollback_error)
-            return {}, f"Failed to create replication slot: {e}"
+            return {}, _slot_setup_error_message(e)
         return resource_fields, None
 
     def cleanup_resources(self, source: ExternalDataSource) -> None:

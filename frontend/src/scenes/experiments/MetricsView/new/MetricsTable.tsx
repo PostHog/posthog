@@ -104,11 +104,7 @@ export function MetricsTable({
         )
     }
 
-    /**
-     * Show this section's loader while any of its own metrics is loading: recalculating in place, or cold
-     * (no result and no error yet). Exposures load globally, so they count for whichever section has metrics.
-     */
-    const hasColdMetric = metrics.some((_, index) => !results[index] && !errors[index])
+    const hasColdMetric = isLaunched(experiment) && metrics.some((_, index) => !results[index] && !errors[index])
     const sectionLoading =
         sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric || exposuresLoading
 

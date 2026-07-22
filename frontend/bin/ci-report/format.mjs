@@ -30,9 +30,9 @@ export function formatDelta(bytes, baselineBytes, { noBaseline } = {}) {
 }
 
 // One total compared against the base branch: the body line, header summary, and status
-// for a size section, with the missing-baseline presentation handled once — growth warns,
-// shrink/flat is ok, and no baseline is informational rather than a bogus "new" delta.
-export function totalComparison(bytes, baselineBytes) {
+// for a size section, with the missing-baseline presentation handled once. Growth at or
+// above the configured threshold warns, shrink/flat is ok, and no baseline is informational.
+export function totalComparison(bytes, baselineBytes, { warningThresholdPercent = 0 } = {}) {
     if (baselineBytes === null || baselineBytes === undefined) {
         return {
             status: 'info',
@@ -40,8 +40,9 @@ export function totalComparison(bytes, baselineBytes) {
             totalLine: `**Total:** ${formatBytes(bytes)} _(no base branch measurement to compare against yet)_`,
         }
     }
+    const growthPercent = baselineBytes === 0 ? Infinity : ((bytes - baselineBytes) / baselineBytes) * 100
     return {
-        status: bytes > baselineBytes ? 'warn' : 'ok',
+        status: growthPercent >= warningThresholdPercent && bytes > baselineBytes ? 'warn' : 'ok',
         summary: formatDelta(bytes, baselineBytes),
         totalLine: `**Total:** ${formatBytes(bytes)} · ${formatDelta(bytes, baselineBytes)}`,
     }

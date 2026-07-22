@@ -31,7 +31,7 @@
         "sass": "^1.26.2",
         "storybook": "catalog:",
         "storybook-addon-pseudo-states": "^10.4.3",
-        "vite": "^7.3.3"
+        "vite": "catalog:"
     },
     "devDependencies": {
         "@playwright/test": "catalog:",

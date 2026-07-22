@@ -7,6 +7,12 @@
  * per-batch setup/teardown: prefetching data all the items in a batch will
  * need, or flushing an accumulated write once the batch is done.
  *
+ * A batch is not the same as a chunk. A batch is one `feed()` call's worth of
+ * elements, tracked here by `batchId` and the `beforeBatch`/`afterBatch` hooks.
+ * A chunk is the array a pipeline stage processes at once, and chunk boundaries
+ * need not align with batch boundaries. See chapter 2's "Chunks vs batches"
+ * section for the distinction.
+ *
  * ## Key concepts
  *
  * - **A batch is one `feed()` call.** The batching pipeline does not accumulate
@@ -32,7 +38,7 @@
  * feed(batch B) ─► beforeBatch(B) ─► [ sub-pipeline ] ─► afterBatch(B) ─► next()
  * ```
  *
- * Unlike a plain `BatchPipeline`, `feed()` is async and returns a `FeedResult`:
+ * Unlike a plain `ChunkPipeline`, `feed()` is async and returns a `FeedResult`:
  * `{ ok: true }` when accepted, or `{ ok: false, kind, reason }` when rejected.
  * `next()` returns a `BatchResult` (`{ elements, sideEffects }`) per completed
  * batch, or `null` when fully drained. Batches are returned in completion
