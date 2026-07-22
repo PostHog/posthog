@@ -69,25 +69,20 @@ pub fn upload(args: &Args) -> Result<()> {
     // logs-and-skips failures (e.g. a missing dwarfdump), so a dSYM-only
     // directory can yield zero uploads — creating the release up front would
     // leave a release record behind with no symbols attached to it.
-    let mut uploads: Vec<SymbolSetUpload> = Vec::new();
+    let mut native_uploads = Vec::with_capacity(report.files.len());
     for file in report.files {
         info!(
             "Processing {} (debug id {})",
             file.path.display(),
             file.debug_id
         );
-        uploads.push(file.into_upload(None, *include_source)?);
+        native_uploads.push(file.into_upload(None, *include_source)?);
     }
 
-    // Apple dSYM bundles run through the same packaging path as
-    // `posthog-cli dsym upload` (uppercase UUID chunk_ids, AppleDsym container);
-    // a bundle that can't be processed (e.g. no dwarfdump on Linux) is skipped
-    // with a warning so any ELF symbols above still upload.
-    uploads.extend(package_dsym_bundles(&report.dsym_bundles, *include_source));
-
-    // ELF (lowercase) and dSYM (uppercase) chunk_ids can't collide, but the same
-    // dSYM UUID can appear in more than one bundle — keep one upload per chunk_id.
-    let mut uploads = dedup_uploads_by_chunk_id(uploads);
+    // A failed dSYM bundle produces no upload, leaving a matching standalone
+    // Mach-O as the fallback. Successfully packaged dSYMs take priority.
+    let dsym_uploads = package_dsym_bundles(&report.dsym_bundles, *include_source);
+    let mut uploads = merge_uploads_prefer_dsym(dsym_uploads, native_uploads);
 
     if uploads.is_empty() {
         anyhow::bail!(
@@ -134,4 +129,35 @@ pub fn upload(args: &Args) -> Result<()> {
     info!("Debug symbol upload complete");
 
     Ok(())
+}
+
+/// Merge packaged native symbols, preferring a dSYM when both inputs carry the
+/// same uppercase Mach-O UUID. ELF ids remain lowercase and cannot collide.
+fn merge_uploads_prefer_dsym(
+    mut dsym_uploads: Vec<SymbolSetUpload>,
+    native_uploads: Vec<SymbolSetUpload>,
+) -> Vec<SymbolSetUpload> {
+    dsym_uploads.extend(native_uploads);
+    dedup_uploads_by_chunk_id(dsym_uploads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_uploads_prefers_dsym_over_matching_macho() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let upload = |chunk_id: &str, data: &[u8]| SymbolSetUpload {
+            chunk_id: chunk_id.to_string(),
+            release_id: None,
+            data: data.to_vec(),
+        };
+
+        let uploads =
+            merge_uploads_prefer_dsym(vec![upload(uuid, b"dsym")], vec![upload(uuid, b"macho")]);
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].data, b"dsym");
+    }
 }
