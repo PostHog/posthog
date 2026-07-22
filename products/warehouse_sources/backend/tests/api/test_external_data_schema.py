@@ -122,6 +122,62 @@ class TestExternalDataSchema(APIBaseTest):
             "detected_primary_keys": None,
         }
 
+    def test_incremental_fields_probe_uses_schema_pin_over_source_pin(self):
+        # A schema-level api_version override must win over the source pin in capability probes,
+        # matching sync-time precedence — consolidating probe callers to the source pin would
+        # silently ignore overrides and no other test would fail.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+            api_version="v-source-pin",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            api_version="v-schema-pin",
+        )
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)) as validate,
+            mock.patch.object(StripeSource, "get_schemas", return_value=[]) as get_schemas,
+        ):
+            self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+        assert validate.call_args.kwargs["api_version"] == "v-schema-pin"
+        assert get_schemas.call_args_list, "expected the probe to run discovery"
+        assert all(c.kwargs["api_version"] == "v-schema-pin" for c in get_schemas.call_args_list)
+
+    def test_sync_type_gate_probes_under_incoming_api_version(self):
+        # A PATCH changing api_version and sync_type together must gate capabilities under the
+        # incoming version (what the schema will sync with), not the stored one.
+        current_version = StripeSource().supported_versions[0]
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            api_version="v-retired-pin",
+        )
+        with mock.patch.object(StripeSource, "get_schemas", return_value=[]) as get_schemas:
+            self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+                data={"sync_type": "full_refresh", "api_version": current_version},
+            )
+        assert get_schemas.call_args_list, "expected the webhook-only gate to probe discovery"
+        assert all(c.kwargs["api_version"] == current_version for c in get_schemas.call_args_list)
+
     def test_incremental_fields_missing_source_type(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -296,7 +352,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=team_ff_enabled,
             ),
         ):
@@ -435,10 +491,10 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger_external_data_workflow,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -470,10 +526,10 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -514,10 +570,10 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -571,10 +627,10 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -727,10 +783,10 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -844,14 +900,14 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
         ):
@@ -890,7 +946,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with mock.patch(
-            "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
             return_value=True,
         ):
             response = self.client.patch(
@@ -1067,11 +1123,11 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             self._xmin_discovery_patch(),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ),
         ):
             response = self.client.patch(
@@ -1102,7 +1158,7 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             self._xmin_discovery_patch(),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger,
         ):
             response = self.client.patch(
@@ -1134,7 +1190,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger,
             mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
         ):
@@ -1177,18 +1233,18 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
             ),
         ):
             response = self.client.patch(
@@ -1225,14 +1281,14 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
             ),
         ):
             response = self.client.patch(
@@ -1265,11 +1321,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ) as mock_sync_workflow,
         ):
             response = self.client.patch(
@@ -1303,11 +1359,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ) as mock_sync_workflow,
         ):
             response = self.client.patch(
@@ -1383,14 +1439,14 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger_external_data_workflow,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=True,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
                 return_value=mock_hog_fn_result,
             ),
         ):
@@ -1434,7 +1490,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger_external_data_workflow,
             mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
         ):
@@ -1634,11 +1690,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
                 return_value=mock_hog_fn_result,
             ) as mock_get_or_create,
             mock.patch.object(
@@ -1683,11 +1739,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
                 return_value=mock_hog_fn_result,
             ),
             mock.patch.object(
@@ -1735,11 +1791,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
                 return_value=mock_hog_fn_result,
             ),
             mock.patch.object(
@@ -1788,11 +1844,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
                 return_value=mock_hog_fn_result,
             ),
             mock.patch.object(StripeSource, "sync_webhook_events", side_effect=ValueError("Missing Stripe API key")),
@@ -1822,11 +1878,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
             ) as mock_get_or_create,
         ):
             response = self.client.patch(
@@ -1852,11 +1908,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
             ) as mock_get_or_create,
         ):
             response = self.client.patch(
@@ -1892,11 +1948,11 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
             ) as mock_get_or_create,
         ):
             response = self.client.patch(
@@ -1931,12 +1987,12 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch.object(StripeSource, "get_schemas", return_value=mock_non_webhook_schemas),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
             ) as mock_get_or_create,
         ):
             response = self.client.patch(
@@ -2178,10 +2234,10 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists"
             ) as mock_external_data_workflow_exists,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ) as mock_sync_external_data_job_workflow,
         ):
             response = client.patch(
@@ -2245,7 +2301,9 @@ class TestUpdateExternalDataSchema:
             },
         )
 
-        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.Database.create_for"
+        ):
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
                 data={
@@ -2303,10 +2361,10 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists"
             ) as mock_external_data_workflow_exists,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ) as mock_sync_external_data_job_workflow,
         ):
             response = client.patch(
@@ -2370,7 +2428,9 @@ class TestUpdateExternalDataSchema:
             },
         )
 
-        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.Database.create_for"
+        ):
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
                 data={
@@ -2431,21 +2491,21 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
             ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ) as mock_add_table,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
             ),
         ):
             response = client.patch(
@@ -2657,14 +2717,14 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
             ) as mock_trigger,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow",
             ),
         ):
             response = client.patch(
@@ -2699,14 +2759,14 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
             ) as mock_trigger,
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow",
             ),
         ):
             response = client.patch(
@@ -2748,21 +2808,21 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
             ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
             ),
         ):
             response = client.patch(
@@ -2807,10 +2867,12 @@ class TestCancelExternalDataSchema(APIBaseTest):
         return schema, job
 
     @mock.patch(
-        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.finish_row_tracking",
         new_callable=mock.AsyncMock,
     )
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
     def test_cancel_running_v3_sync_marks_job_failed(self, mock_cancel, mock_finish_row_tracking):
         from products.warehouse_sources.backend.facade.models import ExternalDataJob
 
@@ -2844,10 +2906,12 @@ class TestCancelExternalDataSchema(APIBaseTest):
         ]
     )
     @mock.patch(
-        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.finish_row_tracking",
         new_callable=mock.AsyncMock,
     )
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
     def test_cancel_v3_succeeds_when_cancel_rpc_fails(self, _case, rpc_status_name, mock_cancel, _mock_finish):
         from temporalio.service import RPCError, RPCStatusCode
 
@@ -2869,7 +2933,9 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert schema.status == ExternalDataSchema.Status.FAILED
 
     @parameterized.expand([("v1", "v1-dlt-sync"), ("legacy_null_version", None)])
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
     def test_cancel_legacy_pipeline_leaves_status_to_the_workflow(self, _case, pipeline_version, mock_cancel):
         # Pre-v3 pipelines: the cancelled workflow records the job's terminal status itself,
         # so the endpoint must not write a Failed marker.
@@ -2888,7 +2954,9 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert job.status == ExternalDataJob.Status.RUNNING
         assert job.latest_error is None
 
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
     def test_cancel_legacy_pipeline_returns_400_when_workflow_missing(self, mock_cancel):
         from temporalio.service import RPCError, RPCStatusCode
 
@@ -2906,7 +2974,9 @@ class TestCancelExternalDataSchema(APIBaseTest):
         job.refresh_from_db()
         assert job.status == ExternalDataJob.Status.RUNNING
 
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
     def test_cancel_when_no_running_job(self, mock_cancel):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
@@ -3075,7 +3145,9 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
         )
 
     def test_patch_does_not_clobber_concurrent_activity_position(self):
-        from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
 
         # The serializer's in-memory copy is loaded here, holding position 0/100.
         instance = ExternalDataSchema.objects.get(id=self.schema.id)
@@ -3099,7 +3171,9 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
     def test_patch_changing_sync_type_config_key_keeps_concurrent_write(self):
-        from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
 
         instance = ExternalDataSchema.objects.get(id=self.schema.id)  # in-memory copy, position 0/100
 
@@ -3115,7 +3189,7 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
             context={"team_id": self.team.pk, "post_commit_actions": []},
         )
         with mock.patch(
-            "products.data_warehouse.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
             return_value=False,
         ):
             serializer.is_valid(raise_exception=True)
@@ -3546,7 +3620,9 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
         response = self._patch(schema, {"api_version": "v2"})
         assert response.status_code == 400
 
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
     def test_repin_cancels_running_sync(self, mock_cancel):
         from products.warehouse_sources.backend.facade.models import ExternalDataJob
 

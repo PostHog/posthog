@@ -175,7 +175,6 @@ export const FEATURE_FLAGS = {
 
     // UX flags, used to control the UX of the app
     CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
-    MORE_MENU_ICON_EXPERIMENT: 'more-menu-icon-experiment', // owner: #team-platform-ux multivariate=control,test — A/B test of the "More" nav button icon: control = 3-line hamburger menu icon, test = filled burger glyph
     NEW_INSIGHT_MENU_EXPERIMENT: 'new-insight-menu-experiment', // owner: @thmsobrmlr #team-product-analytics multivariate=control,chips,grouped — experiment on the saved insights "New" menu: control = text list, chips = visual card grid with sub-insight chips, grouped = two-column card grid grouped by question
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
@@ -369,6 +368,7 @@ export const FEATURE_FLAGS = {
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
     LOGS_SQL_VIEW: 'logs-sql-view', // owner: #team-logs
     LOGS_TABBED_VIEW: 'logs-tabbed-view', // owner: #team-logs
+    MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_COSTS_PRECOMPUTATION: 'marketing-analytics-costs-precomputation', // owner: @jabahamondes #team-web-analytics — gates reading the native cost precompute table

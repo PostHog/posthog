@@ -97,13 +97,18 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # All endpoints are full refresh: the Core API has no server-side timestamp filter, so there's
         # no cheap incremental sync (INCREMENTAL_FIELDS is empty). See zendesk_sell.py for details.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ZendeskSellSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZendeskSellSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_zendesk_sell_credentials(config.access_token):
             return True, None

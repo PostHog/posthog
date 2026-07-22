@@ -13,7 +13,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
 )
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
-from products.engineering_analytics.backend.presentation.views.suite_health import TestHealthActionsMixin
+from products.engineering_analytics.backend.presentation.views.suite_health import SuiteHealthActionsMixin
 from products.engineering_analytics.backend.presentation.views.teams import TeamActionsMixin
 from products.engineering_analytics.backend.presentation.views.workflows import WorkflowActionsMixin
 
@@ -23,45 +23,19 @@ class EngineeringAnalyticsViewSet(
     SourcesMixin,
     PullRequestActionsMixin,
     WorkflowActionsMixin,
-    TestHealthActionsMixin,
+    SuiteHealthActionsMixin,
     TeamActionsMixin,
     EngineeringAnalyticsViewSetBase,
 ):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
-    # Grouped by mixin; TestScopeEnrollment asserts this stays in lockstep with the actions.
+    # Personal API keys get 403 on any action not enrolled here. Each mixin declares its own
+    # actions; TestScopeEnrollment asserts the composition stays in lockstep with the @actions.
     scope_object_read_actions = [
-        # sources
-        "sources",
-        # pull_requests
-        "ci_cards",
-        "pull_requests",
-        "pr_lifecycle",
-        "resolve_branch",
-        "pr_runs",
-        "ci_failure_logs",
-        "pr_cost",
-        "author_workflow_costs",
-        # workflows
-        "workflow_health",
-        "workflow_run",
-        "workflow_runs",
-        "workflow_run_activity",
-        "workflow_runner_costs",
-        "workflow_jobs",
-        "repo_overview",
-        "current_branch_health",
-        "repo_run_activity",
-        "master_failures",
-        "run_failure_logs",
-        "job_aggregates",
-        # test_health
-        "flaky_tests",
-        "broken_tests",
-        "quarantine",
-        # teams
-        "team_ci_health",
-        "team_ci_activity",
-        "team_merge_trend",
+        *SourcesMixin.READ_ACTIONS,
+        *PullRequestActionsMixin.READ_ACTIONS,
+        *WorkflowActionsMixin.READ_ACTIONS,
+        *SuiteHealthActionsMixin.READ_ACTIONS,
+        *TeamActionsMixin.READ_ACTIONS,
     ]
-    scope_object_write_actions: list[str] = ["quarantine_request"]
+    scope_object_write_actions: list[str] = [*SuiteHealthActionsMixin.WRITE_ACTIONS]

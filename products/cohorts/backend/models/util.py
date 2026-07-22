@@ -364,6 +364,18 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
+        # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
+        # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
+        # when the query is unbounded. With a LIMIT/OFFSET the ordering decides which rows
+        # survive, so dropping it would silently make membership a non-deterministic subset;
+        # keep both so a bounded "top N" cohort stays deterministic.
+        is_bounded = (
+            select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
+        )
+        if not is_bounded:
+            select_query.order_by = None
+
         columns: dict[str, ast.Expr] = {}
 
         for expr in select_query.select:

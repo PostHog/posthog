@@ -11,6 +11,8 @@ from products.engineering_analytics.backend.presentation.views._base import Engi
 
 
 class SourcesMixin(EngineeringAnalyticsViewSetBase):
+    READ_ACTIONS = ["sources"]
+
     @extend_schema(
         operation_id="engineering_analytics_sources",
         responses={200: GitHubSourceSerializer(many=True)},
