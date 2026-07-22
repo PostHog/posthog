@@ -5079,7 +5079,14 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+            self.assertEqual(
+                response.json(),
+                {
+                    "message": "This host points to an internal or private IP address, which PostHog can't reach. "
+                    "Use a host that's reachable from the public internet. "
+                    "If your database isn't publicly reachable, connect through an SSH tunnel."
+                },
+            )
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1 = Team.objects.create(id=1, organization=self.team.organization)
@@ -5150,7 +5157,14 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+            self.assertEqual(
+                response.json(),
+                {
+                    "message": "This host points to an internal or private IP address, which PostHog can't reach. "
+                    "Use a host that's reachable from the public internet. "
+                    "If your database isn't publicly reachable, connect through an SSH tunnel."
+                },
+            )
 
         patch_get_postgres_row_count.assert_not_called()
 
@@ -5203,7 +5217,14 @@ class TestExternalDataSource(APIBaseTest):
             for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
                 response = self.client.post(url, data=data)
                 self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
-                self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+                self.assertEqual(
+                    response.json(),
+                    {
+                        "message": "This host points to an internal or private IP address, which PostHog can't reach. "
+                        "Use a host that's reachable from the public internet. "
+                        "If your database isn't publicly reachable, connect through an SSH tunnel."
+                    },
+                )
 
             self.assertFalse(
                 ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
@@ -6694,7 +6715,11 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == 400
-        assert response.json()["detail"] == "Hosts with internal IP addresses are not allowed"
+        assert response.json()["detail"] == (
+            "This host points to an internal or private IP address, which PostHog can't reach. "
+            "Use a host that's reachable from the public internet. "
+            "If your database isn't publicly reachable, connect through an SSH tunnel."
+        )
 
         source.refresh_from_db()
         assert source.job_inputs["host"] == "db.example.com"

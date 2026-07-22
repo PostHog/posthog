@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import useResizeObserver from 'use-resize-observer'
 
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
@@ -411,16 +412,53 @@ function ReviewStatus({ warning, children }: { warning?: boolean; children: Reac
     )
 }
 
-function RecordingBackgroundPreview({ html }: { html: string }): JSX.Element {
+function RecordingBackgroundPreview({
+    html,
+    width,
+    height,
+}: {
+    html: string
+    width: number
+    height: number
+}): JSX.Element {
+    const { ref, width: containerWidth = 0 } = useResizeObserver<HTMLDivElement>()
+    const hasDims = width > 0 && height > 0
+    const measured = containerWidth > 0
+    // Scale the natural-size snapshot down to fit the container so the whole recorded viewport is
+    // visible; never scale up past its natural size (a narrow/mobile capture stays crisp).
+    const scale = hasDims && measured ? Math.min(1, containerWidth / width) : 1
+
     return (
-        <div className="overflow-hidden rounded border bg-surface-secondary">
-            <iframe
-                srcDoc={html}
-                title="Selected session recording background"
-                sandbox="allow-same-origin"
-                tabIndex={-1}
-                className="w-full h-96 border-0 bg-white pointer-events-none ph-no-capture"
-            />
+        <div ref={ref} className="overflow-hidden rounded border bg-surface-secondary w-full">
+            {hasDims ? (
+                measured ? (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div className="relative" style={{ height: height * scale }}>
+                        <iframe
+                            srcDoc={html}
+                            title="Selected session recording background"
+                            sandbox="allow-same-origin"
+                            tabIndex={-1}
+                            className="absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width, height, transform: `scale(${scale})` }}
+                        />
+                    </div>
+                ) : (
+                    // Reserve the recording's aspect ratio until the observer reports a width, so a wide
+                    // capture never renders at full size and gets clipped before we can scale it down.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div className="w-full" style={{ aspectRatio: `${width} / ${height}` }} />
+                )
+            ) : (
+                <iframe
+                    srcDoc={html}
+                    title="Selected session recording background"
+                    sandbox="allow-same-origin"
+                    tabIndex={-1}
+                    className="w-full h-96 border-0 bg-white pointer-events-none ph-no-capture"
+                />
+            )}
         </div>
     )
 }
@@ -442,7 +480,7 @@ function ReviewStep(): JSX.Element {
     const usesRecordingBackground = pageAccess === 'login' && !!recordingBackgroundData
 
     return (
-        <LemonCard hoverEffect={false} className="max-w-3xl mx-auto">
+        <LemonCard hoverEffect={false} className={cn('mx-auto', usesRecordingBackground ? 'max-w-5xl' : 'max-w-3xl')}>
             <div className="flex flex-col gap-6">
                 <div>
                     <h2 className="mb-1">{usesRecordingBackground ? 'Review background' : 'Review and create'}</h2>
@@ -473,7 +511,13 @@ function ReviewStep(): JSX.Element {
                     </dd>
                 </dl>
 
-                {recordingBackgroundData ? <RecordingBackgroundPreview html={recordingBackgroundData.html} /> : null}
+                {recordingBackgroundData ? (
+                    <RecordingBackgroundPreview
+                        html={recordingBackgroundData.html}
+                        width={recordingBackgroundData.width}
+                        height={recordingBackgroundData.height}
+                    />
+                ) : null}
 
                 <div className="flex flex-col gap-2">
                     <ReviewStatus warning={!captureEnabled}>

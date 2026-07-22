@@ -142,11 +142,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
     """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source
     is a single entry here — everything else derives from this map."""
-    # Supabase is Postgres on the wire, so it reuses the Postgres adapter verbatim.
+    # Supabase and Neon are Postgres on the wire, so they reuse the Postgres adapter verbatim.
     postgres_adapter = PostgresCDCAdapter()
     return {
         ExternalDataSourceType.POSTGRES: postgres_adapter,
         ExternalDataSourceType.SUPABASE: postgres_adapter,
+        ExternalDataSourceType.NEON: postgres_adapter,
     }
 
 

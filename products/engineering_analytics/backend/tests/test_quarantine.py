@@ -34,7 +34,7 @@ _TODAY = date(2026, 6, 12)
 _REQUESTS_GET = "products.engineering_analytics.backend.logic.quarantine.requests.get"
 _MAX_BYTES = "products.engineering_analytics.backend.logic.quarantine._MAX_QUARANTINE_BYTES"
 _FOR_TEAM = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.for_team"
-_VIEWS = "products.engineering_analytics.backend.presentation.views.api"
+_VIEWS = "products.engineering_analytics.backend.facade.api"
 _Q = "products.engineering_analytics.backend.logic.quarantine"
 
 # The exact bytes core.render (and therefore `hogli test:quarantine add`) writes for one

@@ -7935,11 +7935,23 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
+    export interface TileFilters {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+      ignoreDashboardFilters?: boolean | null;
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
     export interface InsightFilterOverrideContext {
       /** Dashboard filters that remain active after applying tile precedence. */
       dashboard?: DashboardFilter | null;
       /** Tile filters applied above the dashboard filters. */
-      tile?: DashboardFilter | null;
+      tile?: TileFilters | null;
       /** Dashboard filters replaced by the tile filters. */
       overridden_dashboard?: DashboardFilter | null;
     }
@@ -36207,6 +36219,8 @@ export namespace Schemas {
       readonly outline: readonly LLMPromptOutlineEntry[];
       /** Names of the labels currently pointing at this version. */
       readonly labels: readonly string[];
+      /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+      readonly activity_item_id: string;
     }
 
     export interface LLMPromptDuplicate {
@@ -36266,6 +36280,8 @@ export namespace Schemas {
       readonly outline: readonly LLMPromptOutlineEntry[];
       /** Names of the labels currently pointing at this version. */
       readonly labels: readonly string[];
+      /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+      readonly activity_item_id: string;
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
@@ -44925,6 +44941,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -52820,6 +52841,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly organization_id?: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -66992,11 +67018,6 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
-      /**
-         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
-         * @maxLength 120
-         */
-      home_quick_action?: string;
     }
 
     export interface TaskRunCancelRequest {

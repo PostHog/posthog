@@ -619,7 +619,12 @@ class BatchConsumer:
         return await self._ensure_poll_conn()
 
     async def _verify_ownership(self, lock_conn: psycopg.AsyncConnection[Any] | None, batch: PendingBatch) -> None:
-        """Raise OwnershipLostError if this consumer no longer holds the group lease."""
+        """Raise OwnershipLostError if this consumer no longer holds the group lease.
+
+        A pure fail-closed verify: it never extends the lease. Used post-process
+        and pre-commit, where an expired lease must stop the write rather than
+        revive it. The batch-*entry* check is ``_renew_ownership`` instead.
+        """
         if lock_conn is None:
             return
         try:
@@ -629,6 +634,38 @@ class BatchConsumer:
         except Exception as e:
             raise OwnershipLostError("lease verification query failed") from e
         if not owns:
+            raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
+
+    async def _renew_ownership(self, lock_conn: psycopg.AsyncConnection[Any] | None, batch: PendingBatch) -> None:
+        """Renew the group lease at batch entry, doubling as the ownership check.
+
+        Without this, a group of many batches each shorter than the heartbeat's
+        first tick (grace/3) renews only once — at group dispatch — because the
+        per-batch heartbeat is cancelled before it ever fires. The lease then
+        expires at cumulative TTL mid-group and the group is abandoned
+        (OwnershipLostError) even though this pod is healthily draining it;
+        the abandoned backlog then churns between pods at ~50% duty cycle.
+        Renewing on entry keeps the lease alive for as long as we keep
+        processing. ``renew_lease`` extends a lease that is still live *and*
+        still ours, so it never resurrects one that lapsed (the recovery sweep
+        may already have re-queued the group) and never steals one another pod
+        reclaimed — both raise. Must run before the executing-status write; the
+        post-process and pre-commit checks stay pure fail-closed verifies
+        (``_verify_ownership``).
+        """
+        if lock_conn is None:
+            return
+        try:
+            renewed = await self._adapter.renew_lease(
+                lock_conn,
+                team_id=batch.team_id,
+                schema_id=batch.schema_id,
+                owner_token=self._owner_token,
+                lease_ttl_seconds=self._lease_ttl_seconds,
+            )
+        except Exception as e:
+            raise OwnershipLostError("lease renewal query failed") from e
+        if not renewed:
             raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
 
     async def _batch_heartbeat(
@@ -745,7 +782,11 @@ class BatchConsumer:
         )
         self._inflight_started[batch.id] = time.monotonic()
         try:
-            await self._verify_ownership(lock_conn, batch)
+            # Renew-or-abandon at entry (not a pure verify): re-ups the lease on
+            # every batch so a long run of short batches can't expire it at
+            # cumulative TTL and get abandoned mid-group. The pre-commit check in
+            # _process_single_inner stays a fail-closed verify.
+            await self._renew_ownership(lock_conn, batch)
             return await self._process_single_inner(batch, attempt, team_id, schema_id, lock_conn)
         finally:
             self._inflight_started.pop(batch.id, None)

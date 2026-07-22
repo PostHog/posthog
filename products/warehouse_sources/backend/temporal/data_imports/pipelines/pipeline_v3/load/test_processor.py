@@ -8,9 +8,15 @@ import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
+    _enrich_cdc_rows,
     _get_write_type,
     _mark_job_completed,
     _promote_staged_cursor,
@@ -458,6 +464,98 @@ class TestMarkJobCompleted:
 
 
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
+class TestEnrichCdcRows:
+    """Cross-batch CDC enrichment against a real local Delta table."""
+
+    @staticmethod
+    def _batch(rows: list[dict[str, Any]]) -> pa.Table:
+        return pa.table(
+            {
+                "id": pa.array([r["id"] for r in rows], pa.int64()),
+                "name": pa.array([r.get("name") for r in rows], pa.string()),
+                "big": pa.array([r.get("big") for r in rows], pa.string()),
+                CDC_OP_COLUMN: pa.array([r["op"] for r in rows], pa.string()),
+                TOAST_OMITTED_COLUMN: pa.array([r.get("omitted") for r in rows], pa.list_(pa.string())),
+            }
+        )
+
+    def test_fills_toast_and_delete_rows_from_delta_state_and_drops_marker(self):
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1, 2], pa.int64()),
+                        "name": pa.array(["one", "two"], pa.string()),
+                        "big": pa.array(["toasted-1", "toasted-2"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = self._batch(
+                [
+                    {"id": 1, "op": "U", "name": "renamed", "omitted": ["big"]},
+                    {"id": 2, "op": "D"},
+                ]
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            # The unchanged-TOAST column keeps its persisted value instead of
+            # merging NULL over it; the DELETE row is enriched as before.
+            assert result.column("big").to_pylist() == ["toasted-1", "toasted-2"]
+            assert result.column("name").to_pylist() == ["renamed", "two"]
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+
+    def test_scd2_fill_uses_current_row_not_history(self):
+        with tempfile.TemporaryDirectory() as path:
+            ts = pa.timestamp("us", tz="UTC")
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1, 1], pa.int64()),
+                        "name": pa.array(["v1", "v2"], pa.string()),
+                        "big": pa.array(["old-toast", "current-toast"], pa.string()),
+                        SCD2_VALID_TO_COLUMN: pa.array([1_000_000, None], ts),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = self._batch([{"id": 1, "op": "U", "name": "v3", "omitted": ["big"]}])
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id"],
+                cdc_write_mode="scd2_append",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert result.column("big").to_pylist() == ["current-toast"]
+
+    def test_marker_dropped_when_enrichment_cannot_run(self):
+        # First-ever CDC batch: no existing Delta table to fill from. The value is
+        # unknowable (stays null) but the transport marker must never reach the write.
+        batch = self._batch([{"id": 1, "op": "U", "name": "renamed", "omitted": ["big"]}])
+        result = _enrich_cdc_rows(
+            batch,
+            primary_keys=["id"],
+            cdc_write_mode="incremental_merge",
+            existing_delta_table=None,
+            batch_index=0,
+        )
+
+        assert TOAST_OMITTED_COLUMN not in result.column_names
+        assert result.column("big").to_pylist() == [None]
+
+
 class TestReadExistingRowsByFirstPk:
     @staticmethod
     def _string_view_table(path: str) -> DeltaTable:
