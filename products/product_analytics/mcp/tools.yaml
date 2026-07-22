@@ -100,6 +100,9 @@ tools:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+            description:
+                description: |
+                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
         response:
             exclude:
                 - result
@@ -121,6 +124,13 @@ tools:
         title: Delete insight
         description: |
             Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
         soft_delete: true
     insight-get:
         operation: insights_retrieve
@@ -142,6 +152,13 @@ tools:
             - format
             - refresh
             - from_dashboard
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
         response:
             exclude:
                 - result
@@ -175,12 +192,21 @@ tools:
             - favorited
             - dashboards
         param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
             query:
                 schema_ref: InsightQuery
             dashboards:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+            description:
+                description: |
+                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
         response:
             exclude:
                 - result

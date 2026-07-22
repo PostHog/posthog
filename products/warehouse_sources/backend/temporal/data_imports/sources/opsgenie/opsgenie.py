@@ -1,20 +1,23 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import (
-    OPSGENIE_ENDPOINTS,
-    OpsgenieEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import OPSGENIE_ENDPOINTS
 
 OPSGENIE_BASE_URLS = {
     "us": "https://api.opsgenie.com",
@@ -30,15 +33,7 @@ PAGE_SIZE = 100
 # createdAt is immutable, so the slices tile the full history).
 MAX_SEARCH_RESULTS = 20_000
 
-# Retry/throttle settings kept near the top for easy tuning. Opsgenie rate limits are
-# token-bucket per API domain and return 429s; exponential backoff is the documented
-# recovery.
-RETRY_ATTEMPTS = 5
 REQUEST_TIMEOUT_SECONDS = 60
-
-
-class OpsgenieRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -85,33 +80,89 @@ def _parse_created_at_ms(item: dict[str, Any]) -> Optional[int]:
         return None
 
 
-def _build_params(
-    config: OpsgenieEndpointConfig,
-    offset: int,
-    window_start_ms: Optional[int],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset}
+class OpsgeniePaginator(BasePaginator):
+    """Offset paginator for Opsgenie's list/search endpoints.
 
-    if config.supports_search_window:
-        # createdAt is immutable, so an ascending sort means new rows append to the end
-        # and never shift pages we've already read. We send this on every sync (not just
-        # incremental ones) so full refreshes paginate over a stable ordering too.
-        params["sort"] = "createdAt"
-        params["order"] = "asc"
+    Beyond plain offset pagination it reproduces the search-window re-slicing the
+    alert/incident search endpoints need: those cap `offset + limit` at 20,000, so
+    when the next page would cross the cap this paginator anchors a new
+    `createdAt >= <last row ms>` window and restarts the offset instead of truncating.
+    Because createdAt is immutable and the search is sorted ascending, the windows tile
+    the full history without dropping rows (the `>=` boundary re-reads one millisecond;
+    the merge dedupes on id).
+    """
 
-        # A window opened mid-sync (after hitting the 20,000-result search cap) always
-        # starts at or after the incremental cursor, so it takes precedence.
-        start_ms = window_start_ms
-        if start_ms is None and should_use_incremental_field and db_incremental_field_last_value is not None:
-            start_ms = _to_epoch_ms(db_incremental_field_last_value)
+    def __init__(
+        self,
+        limit: int,
+        supports_search_window: bool,
+        offset: int = 0,
+        window_start_ms: Optional[int] = None,
+    ) -> None:
+        super().__init__()
+        self.limit = limit
+        self.supports_search_window = supports_search_window
+        self.offset = offset
+        self.window_start_ms = window_start_ms
 
-        if start_ms is not None:
-            # `>=` re-fetches rows sharing the boundary millisecond; merge dedupes on id.
-            params["query"] = f"createdAt >= {start_ms}"
+    def _apply(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["offset"] = self.offset
+        # A re-sliced window takes precedence over any incremental `query` seeded on the
+        # first request; once set it stays until the next re-slice.
+        if self.window_start_ms is not None:
+            request.params["query"] = f"createdAt >= {self.window_start_ms}"
 
-    return params
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        has_next = bool((body.get("paging") or {}).get("next"))
+        if not has_next or len(data) < self.limit:
+            self._has_next_page = False
+            return
+
+        next_offset = self.offset + self.limit
+        if self.supports_search_window and next_offset + self.limit > MAX_SEARCH_RESULTS:
+            # Approaching the 20,000-result search cap: open a new createdAt window from
+            # the last row read and restart the offset instead of truncating the sync.
+            new_window_start_ms = _parse_created_at_ms(data[-1])
+            if new_window_start_ms is None or new_window_start_ms == self.window_start_ms:
+                # Can't advance the window (missing createdAt, or >20k rows share one
+                # millisecond) — stop rather than loop on the same slice forever.
+                self._has_next_page = False
+                return
+            self.window_start_ms = new_window_start_ms
+            self.offset = 0
+        else:
+            self.offset = next_offset
+
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.offset/window_start_ms already point at the next page (update_state advanced them).
+        if self._has_next_page:
+            return {"offset": self.offset, "window_start_ms": self.window_start_ms}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self.window_start_ms = state.get("window_start_ms")
+            self._has_next_page = True
 
 
 def validate_credentials(api_key: str, region: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
@@ -128,7 +179,7 @@ def validate_credentials(api_key: str, region: str, endpoint: Optional[str] = No
         url = f"{url}?{urlencode(params)}"
 
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, 0, str(e)
 
@@ -149,113 +200,92 @@ def validate_credentials(api_key: str, region: str, endpoint: Optional[str] = No
     return False, response.status_code, message
 
 
-def get_rows(
-    api_key: str,
-    region: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OpsgenieResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = OPSGENIE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    base_url = _get_base_url(region)
-
-    @retry(
-        retry=retry_if_exception_type((OpsgenieRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(params: dict[str, Any]) -> dict:
-        url = f"{base_url}{config.path}"
-        if params:
-            url = f"{url}?{urlencode(params)}"
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise OpsgenieRetryableError(f"Opsgenie API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"Opsgenie API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    if not config.paginated:
-        data = fetch_page({})
-        items = data.get("data", [])
-        if items:
-            yield items
-        return
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume_config.offset if resume_config is not None else 0
-    window_start_ms = resume_config.window_start_ms if resume_config is not None else None
-    if resume_config is not None:
-        logger.debug(f"Opsgenie: resuming {endpoint} from offset {offset}, window_start_ms {window_start_ms}")
-
-    while True:
-        params = _build_params(
-            config, offset, window_start_ms, should_use_incremental_field, db_incremental_field_last_value
-        )
-        data = fetch_page(params)
-
-        items = data.get("data", [])
-        if not items:
-            break
-
-        yield items
-
-        has_next = bool(data.get("paging", {}).get("next"))
-        if not has_next or len(items) < PAGE_SIZE:
-            break
-
-        next_offset = offset + PAGE_SIZE
-        if config.supports_search_window and next_offset + PAGE_SIZE > MAX_SEARCH_RESULTS:
-            # Approaching the 20,000-result search cap: open a new createdAt window from
-            # the last row read and restart the offset instead of truncating the sync.
-            new_window_start_ms = _parse_created_at_ms(items[-1])
-            if new_window_start_ms is None or new_window_start_ms == window_start_ms:
-                # Can't advance the window (missing createdAt, or >20k rows share one
-                # millisecond) — stop rather than loop on the same slice forever.
-                logger.warning(
-                    f"Opsgenie: unable to advance search window for endpoint '{endpoint}' at offset "
-                    f"{next_offset}; stopping pagination (results may be truncated)"
-                )
-                break
-            window_start_ms = new_window_start_ms
-            offset = 0
-        else:
-            offset = next_offset
-
-        # Save AFTER yielding so a crash re-fetches the last page; merge dedupes on primary key.
-        resumable_source_manager.save_state(OpsgenieResumeConfig(offset=offset, window_start_ms=window_start_ms))
-
-
 def opsgenie_source(
     api_key: str,
     region: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[OpsgenieResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     config = OPSGENIE_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {}
+    paginator: BasePaginator
+    if config.paginated:
+        params["limit"] = PAGE_SIZE
+        if config.supports_search_window:
+            # createdAt is immutable, so an ascending sort means new rows append to the end
+            # and never shift pages we've already read. Sent on every sync (not just
+            # incremental ones) so full refreshes paginate over a stable ordering too.
+            params["sort"] = "createdAt"
+            params["order"] = "asc"
+            if should_use_incremental_field and db_incremental_field_last_value is not None:
+                start_ms = _to_epoch_ms(db_incremental_field_last_value)
+                if start_ms is not None:
+                    # `>=` re-fetches rows sharing the boundary millisecond; merge dedupes on id.
+                    params["query"] = f"createdAt >= {start_ms}"
+        paginator = OpsgeniePaginator(limit=PAGE_SIZE, supports_search_window=config.supports_search_window)
+    else:
+        # teams, schedules, escalations, integrations return their full collection at once.
+        paginator = SinglePagePaginator()
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _get_base_url(region),
+            # Framework auth so the key is redacted from logs and error messages; the GenieKey
+            # scheme is Opsgenie's own bearer-style header.
+            "auth": {
+                "type": "api_key",
+                "api_key": f"GenieKey {api_key}",
+                "name": "Authorization",
+                "location": "header",
+            },
+            "paginator": paginator,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Opsgenie wraps every collection under `data`; a missing key is treated as an
+                    # empty page (matching the previous `data.get("data", [])`), not a hard error.
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset, "window_start_ms": resume.window_start_ms}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded (only when a next page remains) so a crash re-yields the
+        # last page rather than skipping it; merge dedupes on the primary key.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(
+                OpsgenieResumeConfig(offset=int(state["offset"]), window_start_ms=state.get("window_start_ms"))
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            region=region,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         # Search-window endpoints request createdAt ascending; full-refresh endpoints
         # replace wholesale, so ascending is correct everywhere.
@@ -265,4 +295,5 @@ def opsgenie_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

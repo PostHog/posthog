@@ -3,17 +3,19 @@ import { useActions, useValues } from 'kea'
 import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -40,6 +42,17 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
     { value: 'no', label: 'No' },
     { value: 'inconclusive', label: 'Inconclusive' },
+]
+
+// Empty values on "All time" clear the range, matching the unfiltered default.
+const OBSERVATION_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    { key: 'All time', values: [] },
+    { key: 'Last 24 hours', values: ['-24h'] },
+    { key: 'Last 3 days', values: ['-3d'] },
+    { key: 'Last 7 days', values: ['-7d'] },
+    { key: 'Last 30 days', values: ['-30d'] },
+    { key: 'Last 90 days', values: ['-90d'] },
 ]
 
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
@@ -94,6 +107,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationVerdictFilter,
         observationTagFilter,
         observationSubjectFilter,
+        observationDateFrom,
+        observationDateTo,
         hasActiveObservationFilters,
         observationDetailLinkParams,
         availableTags,
@@ -112,6 +127,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationVerdictFilter,
         setObservationTagFilter,
         setObservationSubjectFilter,
+        setObservationDateRange,
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
@@ -153,20 +169,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 <div className="flex items-center gap-1">
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
                     {obs.status === 'failed' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                onClick={() => retryObservation(obs.id)}
-                                loading={retryingObservationIds.includes(obs.id)}
-                                tooltip="Retry scan"
-                                data-attr="vision-observation-retry"
-                            />
-                        </AccessControlAction>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => retryObservation(obs.id)}
+                            loading={retryingObservationIds.includes(obs.id)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+                            tooltip="Retry scan"
+                            data-attr="vision-observation-retry"
+                        />
                     )}
                 </div>
             ),
@@ -250,6 +262,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     value={observationSubjectFilter}
                                     onChange={setObservationSubjectFilter}
                                     className="w-56"
+                                />
+                                <DateFilter
+                                    size="small"
+                                    dateFrom={observationDateFrom}
+                                    dateTo={observationDateTo}
+                                    dateOptions={OBSERVATION_DATE_OPTIONS}
+                                    onChange={(dateFrom, dateTo) => setObservationDateRange(dateFrom, dateTo)}
                                 />
                                 <FilterPill<ObservationStatusValue>
                                     label="Status"

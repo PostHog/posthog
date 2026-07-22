@@ -17,10 +17,6 @@ const normalizeIdentifier = (email: string): string => email.trim().toLowerCase(
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
 
 export type EmailSuppressionConfig = {
-    // Populate the list on soft bounces / hard bounces / deliveries.
-    writeEnabled: boolean
-    // Skip sends to suppressed recipients (pre-send hook).
-    enforceEnabled: boolean
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
 }
@@ -28,12 +24,9 @@ export type EmailSuppressionConfig = {
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
 // can call this to construct the same shape without duplicating the parse logic.
 export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
-    const flagOn = (value: string | undefined): boolean => value === '1' || value?.toLowerCase() === 'true'
     const rawThreshold = process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
     const parsedThreshold = rawThreshold ? parseInt(rawThreshold, 10) : NaN
     return {
-        writeEnabled: flagOn(process.env.EMAIL_SUPPRESSION_WRITE_ENABLED),
-        enforceEnabled: flagOn(process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED),
         transientBounceThreshold: Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : 5,
     }
 }
@@ -62,16 +55,12 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
  */
 export class EmailSuppressionService {
     private readonly threshold: number
-    private readonly writeEnabled: boolean
-    private readonly enforceEnabled: boolean
     private readonly lazyLoader: LazyLoader<boolean>
 
     constructor(
         private postgres: PostgresRouter,
         config: EmailSuppressionConfig
     ) {
-        this.writeEnabled = config.writeEnabled
-        this.enforceEnabled = config.enforceEnabled
         this.threshold = config.transientBounceThreshold
         this.lazyLoader = new LazyLoader({
             name: 'email_suppression',
@@ -85,10 +74,6 @@ export class EmailSuppressionService {
 
     /** Pre-send check: is this recipient currently on the team's suppression list? */
     public async isSuppressed(teamId: number, email: string): Promise<boolean> {
-        // Enforcement is gated: when off, the list never blocks a send (writes may still populate it).
-        if (!this.enforceEnabled) {
-            return false
-        }
         const identifier = normalizeIdentifier(email)
         if (!identifier) {
             return false
@@ -112,9 +97,6 @@ export class EmailSuppressionService {
      * entries keep their suppressed state untouched.
      */
     public async recordTransientBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
-        if (!this.writeEnabled) {
-            return
-        }
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
@@ -184,9 +166,6 @@ export class EmailSuppressionService {
      * touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it.
      */
     public async recordHardBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
-        if (!this.writeEnabled) {
-            return
-        }
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
@@ -252,9 +231,6 @@ export class EmailSuppressionService {
      * recorded bounce.
      */
     public async recordDeliveries(teamId: number, emails: string[], deliveryTimestamp?: string): Promise<void> {
-        if (!this.writeEnabled) {
-            return
-        }
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return

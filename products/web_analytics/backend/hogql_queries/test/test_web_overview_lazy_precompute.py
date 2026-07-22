@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import unittest
 from freezegun import freeze_time
@@ -20,6 +21,8 @@ from posthog.schema import (
     WebAnalyticsSampling,
     WebOverviewQuery,
 )
+
+from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
@@ -694,3 +697,167 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert delay.call_count == 1
         assert delay.call_args.kwargs["team_id"] == self.team.pk
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestWebOverviewSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
+    """The filtered-insert chooser and the id-set insert's parity with the join insert."""
+
+    def _make_runner(self, properties: list | None = None, filter_test_accounts: bool = False):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"),
+            properties=properties or [],
+            filterTestAccounts=filter_test_accounts,
+            useWebAnalyticsPrecompute=True,
+        )
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand(
+        [
+            ("unfiltered", [], False, None, "no_join"),
+            (
+                "event_filter_allowlisted",
+                [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)],
+                False,
+                True,
+                "session_id_set",
+            ),
+            (
+                "cohort_test_filter",
+                [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)],
+                True,  # team test filters include a cohort filter (set below)
+                True,
+                "join",
+            ),
+            (
+                "event_filter_not_allowlisted",
+                [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)],
+                False,
+                False,
+                "join",
+            ),
+        ]
+    )
+    def test_insert_template_chooser(self, _name, properties, cohort_test_filter, allowlisted, expected):
+        from products.web_analytics.backend.hogql_queries import web_overview_lazy_precompute as mod
+
+        if cohort_test_filter:
+            from products.cohorts.backend.models.cohort import Cohort
+
+            cohort = Cohort.objects.create(team=self.team, name="test-accounts", groups=[], is_static=True)
+            self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
+            self.team.save()
+
+        allowlist = [self.team.pk] if allowlisted else []
+        captured: dict = {}
+
+        def capture(**kwargs):
+            captured.update(kwargs)
+            return LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist,
+        ):
+            runner = self._make_runner(properties=properties, filter_test_accounts=cohort_test_filter)
+            with patch.object(mod, "web_ensure_precomputed", side_effect=capture):
+                mod.ensure_web_overview_precomputed(
+                    runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC)
+                )
+
+        template = captured["insert_query"]
+        modifiers = captured["modifiers"]
+        if expected == "no_join":
+            assert template is mod.NO_JOIN_INSERT_QUERY_TEMPLATE
+            assert modifiers is None
+        elif expected == "session_id_set":
+            assert template is mod.SESSION_ID_SET_INSERT_QUERY_TEMPLATE
+            assert template.count("session_id_v7 IN") == 1
+            assert modifiers is not None and modifiers.sessionIdPushdown is True
+        else:
+            assert template is mod.JOIN_INSERT_QUERY_TEMPLATE
+            assert modifiers is None
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_filtered_insert_matches_join_insert(self):
+        """The id-set insert must store the same finalized metrics as the join insert
+        for the same filtered key — the whole point of the shape swap. Compares the
+        two templates' SELECT output directly (finalized with -Merge) instead of the
+        distributed INSERT round trip, which is flaky (see the skip above)."""
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        from products.web_analytics.backend.hogql_queries import web_overview_lazy_precompute as mod
+        from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+            SESSION_FORWARD_PAD_MINUTES,
+            events_session_id_expr,
+            test_account_filter_expr,
+            user_filter_expr,
+        )
+
+        # Sessions on both sides of the filter plus a malformed session id. The v7
+        # ids embed the first-event timestamp — the no-join shape buckets by the
+        # embedded time, so a midnight-embedded id would bucket differently from
+        # the join shape by construction.
+        s1, s2 = str(uuid7("2024-01-02T10:00:00")), str(uuid7("2024-01-03T11:00:00"))
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        for sid, did, ts, host, n_views in [
+            (s1, "p1", "2024-01-02T10:00:00Z", "example.com", 2),
+            (s2, "p2", "2024-01-03T11:00:00Z", "other.com", 1),
+        ]:
+            for i in range(n_views):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=did,
+                    timestamp=ts[:-1] + f"" if i == 0 else ts,
+                    properties={"$session_id": sid, "$host": host},
+                )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2024-01-02T12:00:00Z",
+            properties={"$session_id": "legacy-session", "$host": "example.com"},
+        )
+
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
+            )
+            placeholders = {
+                "events_session_id": events_session_id_expr(runner),
+                "event_type_filter": runner.event_type_expr,
+                "user_filter": user_filter_expr(runner),
+                "test_account_filter": test_account_filter_expr(runner),
+                "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 7, tzinfo=UTC)),
+            }
+
+            def run_template(template: str, pushdown: bool):
+                modifiers = create_default_modifiers_for_team(self.team)
+                modifiers.sessionIdPushdown = pushdown
+                context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+                inner = parse_select(template, placeholders=dict(placeholders))
+                sql, _ = prepare_and_print_ast(inner, context=context, dialect="clickhouse")
+                merged = f"""
+                    SELECT formatDateTime(time_window_start, '%%Y-%%m-%%d %%H:%%i:%%S') AS window_key,
+                           uniqMerge(uniq_users_state), uniqMerge(uniq_sessions_state),
+                           sumMerge(sum_pageviews_state),
+                           round(avgMerge(avg_duration_state), 4), round(avgMerge(avg_bounce_state), 4)
+                    FROM ({sql}) GROUP BY time_window_start ORDER BY time_window_start
+                """
+                return sync_execute(merged, context.values, team_id=self.team.pk)
+
+            join_rows = run_template(mod.JOIN_INSERT_QUERY_TEMPLATE, pushdown=False)
+            id_set_rows = run_template(mod.SESSION_ID_SET_INSERT_QUERY_TEMPLATE, pushdown=True)
+
+        assert join_rows, "join insert produced no rows — fixture broken"
+        assert id_set_rows == join_rows

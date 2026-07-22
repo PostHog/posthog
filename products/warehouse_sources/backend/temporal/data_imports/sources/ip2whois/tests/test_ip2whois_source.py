@@ -6,7 +6,9 @@ import structlog
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IP2WhoisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
+    IP2WhoisSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.source import IP2WhoisSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
