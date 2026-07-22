@@ -337,6 +337,19 @@ def get_project_scoped_visible_membership_ids(requesting_membership: Organizatio
     return visible
 
 
+def restricted_visible_membership_ids(organization: Organization, user: User) -> Optional[set[str]]:
+    """Membership ids `user` may see when the org restricts member list visibility, or None when
+    unrestricted (the setting is enabled, or the user is an org admin)."""
+    if organization.members_can_see_org_members:
+        return None
+    membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
+    if membership is None:
+        return set()
+    if membership.level >= OrganizationMembership.Level.ADMIN:
+        return None
+    return get_project_scoped_visible_membership_ids(membership)
+
+
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents
