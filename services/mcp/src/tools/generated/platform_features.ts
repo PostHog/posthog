@@ -2,11 +2,16 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
+
 import {
     AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
     ApprovalPoliciesRetrieveParams,
+    ChangeRequestsApproveCreateBody,
+    ChangeRequestsApproveCreateParams,
     ChangeRequestsListQueryParams,
+    ChangeRequestsRejectCreateBody,
+    ChangeRequestsRejectCreateParams,
     ChangeRequestsRetrieveParams,
     CommentsListQueryParams,
     CommentsRetrieveParams,
@@ -189,7 +194,88 @@ const changeRequestGet = (): ToolBase<typeof ChangeRequestGetSchema, Schemas.Cha
     },
 })
 
-const ChangeRequestsListSchema = ChangeRequestsListQueryParams
+const ChangeRequestsApproveSchema = ChangeRequestsApproveCreateParams.omit({ project_id: true })
+    .extend(ChangeRequestsApproveCreateBody.shape)
+    .extend({
+        reason: ChangeRequestsApproveCreateBody.shape['reason'].describe(
+            'Optional note recorded alongside your approval vote.'
+        ),
+    })
+
+const ChangeRequestsApproveSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const changeRequestsApprovePrepare = (): ToolBase<
+    typeof ChangeRequestsApproveSchema,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'change-requests-approve-prepare',
+    schema: ChangeRequestsApproveSchema,
+    handler: async (context: Context, params: z.infer<typeof ChangeRequestsApproveSchema>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'change-requests-approve',
+            actionLabel: 'approve change request',
+            messageTemplate:
+                "About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is applied immediately. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const changeRequestsApproveExecute = (): ToolBase<
+    typeof ChangeRequestsApproveSchemaExecute,
+    Schemas.ChangeRequestDecisionResponse
+> => ({
+    name: 'change-requests-approve-execute',
+    schema: ChangeRequestsApproveSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof ChangeRequestsApproveSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof ChangeRequestsApproveSchema>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'change-requests-approve',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.ChangeRequestDecisionResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/change_requests/${encodeURIComponent(String(params.id))}/approve/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'status',
+            'message',
+            'change_request.id',
+            'change_request.state',
+            'change_request.intent_display',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const ChangeRequestsListSchema = ChangeRequestsListQueryParams.extend({
+    state: ChangeRequestsListQueryParams.shape['state'].describe(
+        'Optional filter by state (comma-separated to combine). Use `pending` to see only requests still open for a decision. Values: pending, approved, applied, rejected, expired.'
+    ),
+})
 
 const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas.PaginatedChangeRequestList> => ({
     name: 'change-requests-list',
@@ -209,7 +295,95 @@ const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas
                 state: Array.isArray(params.state) ? params.state.join(',') || undefined : params.state,
             },
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'state',
+            'action_key',
+            'resource_type',
+            'resource_id',
+            'intent_display',
+            'created_by.email',
+            'created_at',
+            'expires_at',
+            'can_approve',
+            'user_decision',
+            'is_requester',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const ChangeRequestsRejectSchema = ChangeRequestsRejectCreateParams.omit({ project_id: true })
+    .extend(ChangeRequestsRejectCreateBody.shape)
+    .extend({
+        reason: ChangeRequestsRejectCreateBody.shape['reason'].describe(
+            'Reason for the rejection (required). Recorded with the vote and shown to the requester.'
+        ),
+    })
+
+const ChangeRequestsRejectSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const changeRequestsRejectPrepare = (): ToolBase<typeof ChangeRequestsRejectSchema, PrepareConfirmedActionResult> => ({
+    name: 'change-requests-reject-prepare',
+    schema: ChangeRequestsRejectSchema,
+    handler: async (context: Context, params: z.infer<typeof ChangeRequestsRejectSchema>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'change-requests-reject',
+            actionLabel: 'reject change request',
+            messageTemplate:
+                "About to REJECT change request {id}. This blocks the proposed change and notifies the requester. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const changeRequestsRejectExecute = (): ToolBase<
+    typeof ChangeRequestsRejectSchemaExecute,
+    Schemas.ChangeRequestDecisionResponse
+> => ({
+    name: 'change-requests-reject-execute',
+    schema: ChangeRequestsRejectSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof ChangeRequestsRejectSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof ChangeRequestsRejectSchema>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'change-requests-reject',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.ChangeRequestDecisionResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/change_requests/${encodeURIComponent(String(params.id))}/reject/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'status',
+            'message',
+            'change_request.id',
+            'change_request.state',
+            'change_request.intent_display',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -585,7 +759,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'approval-policies-list': approvalPoliciesList,
     'approval-policy-get': approvalPolicyGet,
     'change-request-get': changeRequestGet,
+    'change-requests-approve-prepare': changeRequestsApprovePrepare,
+    'change-requests-approve-execute': changeRequestsApproveExecute,
     'change-requests-list': changeRequestsList,
+    'change-requests-reject-prepare': changeRequestsRejectPrepare,
+    'change-requests-reject-execute': changeRequestsRejectExecute,
     'comment-count': commentCount,
     'comment-get': commentGet,
     'comment-thread': commentThread,

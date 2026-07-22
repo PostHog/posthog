@@ -14075,6 +14075,25 @@ export namespace Schemas {
       readonly user_decision: string | null;
     }
 
+    export interface ChangeRequestApprove {
+      /** Optional note recorded with the approval vote explaining the decision. */
+      reason?: string;
+    }
+
+    export interface ChangeRequestDecisionResponse {
+      /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+      status: string;
+      /** Human-readable summary of what happened. */
+      message: string;
+      /** The change request after the vote was recorded. */
+      change_request: ChangeRequest;
+    }
+
+    export interface ChangeRequestReject {
+      /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+      reason: string;
+    }
+
     /**
      * @nullable
      */
