@@ -73,15 +73,3 @@ export function createAnalyticsOverflowStrategies(config: {
     }
     return strategies
 }
-
-/**
- * Metrics label for a strategy, derived from its class name
- * (e.g. EventRateOverflowStrategy -> event_rate). The class name is thereby
- * part of the metrics contract: renaming a strategy renames its label.
- */
-export function overflowStrategyLabel(strategy: OverflowStrategy): string {
-    return strategy.constructor.name
-        .replace(/OverflowStrategy$/, '')
-        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-        .toLowerCase()
-}

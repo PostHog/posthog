@@ -2,7 +2,6 @@ import {
     EventRateOverflowStrategy,
     MergeEventRateOverflowStrategy,
     createAnalyticsOverflowStrategies,
-    overflowStrategyLabel,
 } from './overflow-strategy'
 
 describe('overflow strategies', () => {
@@ -29,16 +28,6 @@ describe('overflow strategies', () => {
 
             expect(strategies).toHaveLength(1)
             expect(strategies[0].strategy).toBeInstanceOf(EventRateOverflowStrategy)
-        })
-    })
-
-    describe('overflowStrategyLabel', () => {
-        // These labels are a metrics contract: dashboards filter on them
-        it.each([
-            [new EventRateOverflowStrategy(), 'event_rate'],
-            [new MergeEventRateOverflowStrategy(), 'merge_event_rate'],
-        ])('derives a stable snake_case label from the class name (%#)', (strategy, expected) => {
-            expect(overflowStrategyLabel(strategy)).toBe(expected)
         })
     })
 })

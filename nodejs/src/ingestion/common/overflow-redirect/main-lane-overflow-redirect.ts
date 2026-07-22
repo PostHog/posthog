@@ -14,7 +14,7 @@ import {
 } from './metrics'
 import { OverflowEventGroup, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-redis-repository'
-import { OverflowStrategy, OverflowStrategyEntry, overflowStrategyLabel } from './overflow-strategy'
+import { OverflowStrategy, OverflowStrategyEntry } from './overflow-strategy'
 
 export interface MainLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
@@ -56,7 +56,8 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
             ttl: config.localCacheTTLSeconds * 1000,
         })
         this.strategies = config.strategies.map((entry) => ({
-            label: overflowStrategyLabel(entry.strategy),
+            // The class name is the metrics label: renaming a strategy renames its label.
+            label: entry.strategy.constructor.name,
             strategy: entry.strategy,
             limiter: new MemoryRateLimiter(entry.bucketCapacity, entry.replenishRate),
         }))
