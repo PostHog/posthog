@@ -452,6 +452,13 @@ def is_precompute_enabled_for_team(team: Team) -> bool:
         return True
     if is_precompute_unrestricted_for_team(team):
         return True
+    # Background warmers build buckets for every active team regardless of the
+    # rollout flag: warming precedes read enablement, and flag evaluation is not
+    # reliably available in the Dagster processes the warmers run in. User-facing
+    # reads still require flag enrollment; the restricted filter-shape gate keeps
+    # the warmed set bounded to canonical shapes.
+    if is_background_warming_request():
+        return True
     return is_org_feature_flag_enabled(team)
 
 

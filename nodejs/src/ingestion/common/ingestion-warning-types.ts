@@ -61,6 +61,7 @@ export const INGESTION_WARNING_TYPES = {
     schema_validation_failed: { category: 'event', severity: 'error' },
     skipping_event_invalid_distinct_id: { category: 'event', severity: 'error' },
     invalid_ai_token_property: { category: 'event', severity: 'warning' },
+    invalid_group_set: { category: 'event', severity: 'error' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
