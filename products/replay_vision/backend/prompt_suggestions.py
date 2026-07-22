@@ -15,6 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -620,7 +621,16 @@ def generate_prompt_suggestion(
     # The change list is the source of truth for "did anything meaningful change": dict equality trips on
     # keys a proposer always injects (e.g. a defaulted allow_inconclusive) that the stored config never had.
     status = SuggestionStatus.NO_CHANGE if not changes else SuggestionStatus.PENDING
-    up = len([o for o in observations if _label(o).is_correct])
+    # Count the full rated set, not the capped briefing slice: the agent can page through every rated
+    # session via its tools, and the UI shows these next to chart totals computed over all ratings.
+    label_counts = ReplayObservation.objects.filter(
+        team_id=scanner.team_id,
+        scanner_id=scanner.id,
+        status=ObservationStatus.SUCCEEDED,
+        label__isnull=False,
+    ).aggregate(up=Count("id", filter=Q(label__is_correct=True)), total=Count("id"))
+    up = label_counts["up"] or 0
+    down = (label_counts["total"] or 0) - up
     with transaction.atomic():
         # Serialize per scanner: a manual generate racing the sweep refresh must not leave two pending rows.
         ReplayScanner.objects.select_for_update().filter(team_id=scanner.team_id, pk=scanner.pk).first()
@@ -639,7 +649,7 @@ def generate_prompt_suggestion(
             rationale=str(llm_output.get("rationale", "")).strip(),
             status=status,
             based_on_up=up,
-            based_on_down=len(observations) - up,
+            based_on_down=down,
             labels_fingerprint=labels_fingerprint(scanner),
             scanner_version=scanner.scanner_version,
             created_by=user,
