@@ -27082,6 +27082,22 @@ export namespace Schemas {
     }
 
     /**
+     * One experiment metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricHit {
+      /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+      metric_uuid: string;
+      /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+      metric_name: string;
+      /** Total number of events in the session matching any of the metric's event/action sources. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching the metric. */
+      first_timestamp: string;
+      /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+      timestamps: string[];
+    }
+
+    /**
      * One experiment whose feature flag a session recording saw.
      */
     export interface ExperimentSessionContextItem {
@@ -27112,6 +27128,8 @@ export namespace Schemas {
          * @nullable
          */
       experiment_end_date: string | null;
+      /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+      metrics_in_session: ExperimentSessionMetricHit[];
     }
 
     /**
