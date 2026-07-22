@@ -427,12 +427,17 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
     )
 }
 
-/**
- * In-house draft icon for SQL insights: curly brackets wrapping an ascending bar chart.
- * Brackets match `IconBrackets` from `@posthog/icons` and follow `currentColor`; the bars are
- * solid pills (the `IconGraph` shape language) in fixed PostHog brand colors (yellow, red, blue),
- * so this icon is intentionally not monochrome.
+/*
+ * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
+ * (~1.5-1.75 unit strokes, slim bars) and colored the way each insight's chart actually renders:
+ * series blue `--data-color-1` (#1d4aff) for most, the real lifecycle status colors for Lifecycle,
+ * and the PostHog brand trio for SQL. Colors are fixed hex on purpose (the glyphs stay chart-true
+ * rather than following `currentColor`); structural parts (SQL brackets, lifecycle axis) still
+ * follow `currentColor` so they theme.
  */
+const INSIGHT_BLUE = '#1d4aff' // --data-color-1, the default series color
+
+/** SQL insights: curly brackets (matching `IconBrackets` from `@posthog/icons`) wrapping a bar chart. */
 export function IconBracketsChart(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
@@ -442,9 +447,100 @@ export function IconBracketsChart(props: LemonIconProps): JSX.Element {
                 d="M4 4.75C4 3.784 4.784 3 5.75 3h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25V11c0 .372-.116.716-.314 1 .198.284.314.628.314 1v6.25c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 4 19.25V13a.25.25 0 0 0-.25-.25h-1a.75.75 0 0 1 0-1.5h1A.25.25 0 0 0 4 11V4.75Zm11-1a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75V11c0 .138.112.25.25.25h1a.75.75 0 0 1 0 1.5h-1A.25.25 0 0 0 20 13v6.25A1.75 1.75 0 0 1 18.25 21h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25V13c0-.372.116-.716.314-1a1.742 1.742 0 0 1-.314-1V4.75a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"
                 fill="currentColor"
             />
-            <rect x="6.75" y="13.5" width="3" height="4" rx="1.5" fill="#f9bd2b" />
-            <rect x="10.5" y="10.5" width="3" height="7" rx="1.5" fill="#f54e00" />
-            <rect x="14.25" y="7.5" width="3" height="10" rx="1.5" fill="#1d4aff" />
+            <rect x="6.75" y="13.5" width="3" height="4" rx="0.5" fill="#f9bd2b" />
+            <rect x="10.5" y="10.5" width="3" height="7" rx="0.5" fill="#f54e00" />
+            <rect x="14.25" y="7.5" width="3" height="10" rx="0.5" fill={INSIGHT_BLUE} />
+        </LemonIconBase>
+    )
+}
+
+/** Trends insights: a rising series line. */
+export function IconInsightTrends(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke={INSIGHT_BLUE} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M3.75 17 8.75 10.75l4.25 3 7.25-7.75" />
+            <path d="M16.75 6h3.5v3.5" />
+        </LemonIconBase>
+    )
+}
+
+/** Funnel insights: steps narrowing as users drop off. */
+export function IconInsightFunnels(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="4.25" width="16.5" height="4.25" rx="0.75" fill={INSIGHT_BLUE} />
+            <rect x="3.75" y="9.9" width="11" height="4.25" rx="0.75" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="3.75" y="15.55" width="5.75" height="4.25" rx="0.75" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+        </LemonIconBase>
+    )
+}
+
+/** Retention insights: the cohort triangle, fading as periods pass. */
+export function IconInsightRetention(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="3.75" width="4.4" height="4.4" rx="1" fill={INSIGHT_BLUE} />
+            <rect x="9.3" y="3.75" width="4.4" height="4.4" rx="1" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="14.85" y="3.75" width="4.4" height="4.4" rx="1" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+            <rect x="3.75" y="9.3" width="4.4" height="4.4" rx="1" fill={INSIGHT_BLUE} />
+            <rect x="9.3" y="9.3" width="4.4" height="4.4" rx="1" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="3.75" y="14.85" width="4.4" height="4.4" rx="1" fill={INSIGHT_BLUE} />
+        </LemonIconBase>
+    )
+}
+
+/** User paths insights: a flow branching off, some of it dropping off. */
+export function IconInsightUserPaths(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke={INSIGHT_BLUE} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M3.75 12h3.5c3.8 0 3.2-6.25 7-6.25h6" />
+            <path d="M7.25 12h5.5" opacity="0.6" />
+            <path d="M3.75 12h3.5c3.8 0 3.2 6.25 7 6.25h6" opacity="0.4" />
+        </LemonIconBase>
+    )
+}
+
+/** Stickiness insights: the "n days or more" histogram tailing off. */
+export function IconInsightStickiness(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="4.5" width="2.9" height="15" rx="0.7" fill={INSIGHT_BLUE} />
+            <rect x="8.4" y="9" width="2.9" height="10.5" rx="0.7" fill={INSIGHT_BLUE} />
+            <rect x="13.05" y="12.5" width="2.9" height="7" rx="0.7" fill={INSIGHT_BLUE} />
+            <rect x="17.7" y="15.5" width="2.9" height="4" rx="0.7" fill={INSIGHT_BLUE} />
+        </LemonIconBase>
+    )
+}
+
+/** Lifecycle insights: new/returning/resurrecting above the axis, dormant below, in the chart's real status colors. */
+export function IconInsightLifecycle(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path d="M3.75 12.1h16.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <rect x="3.9" y="5" width="2.6" height="6.25" rx="0.65" fill="#1d4aff" />
+            <rect x="8.3" y="6.75" width="2.6" height="4.5" rx="0.65" fill="#388600" />
+            <rect x="12.7" y="13" width="2.6" height="4.5" rx="0.65" fill="#db3707" />
+            <rect x="17.1" y="5.75" width="2.6" height="5.5" rx="0.65" fill="#a56eff" />
+        </LemonIconBase>
+    )
+}
+
+/** Calendar heatmap insights: a day-by-hour intensity matrix. */
+export function IconInsightCalendarHeatmap(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.55" y="5.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+            <rect x="8.05" y="5.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="12.55" y="5.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} />
+            <rect x="17.05" y="5.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="3.55" y="9.85" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="8.05" y="9.85" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} />
+            <rect x="12.55" y="9.85" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="17.05" y="9.85" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+            <rect x="3.55" y="14.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} />
+            <rect x="8.05" y="14.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.6" />
+            <rect x="12.55" y="14.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.35" />
+            <rect x="17.05" y="14.35" width="3.4" height="3.4" rx="0.9" fill={INSIGHT_BLUE} fillOpacity="0.6" />
         </LemonIconBase>
     )
 }
