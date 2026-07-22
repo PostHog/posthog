@@ -185,6 +185,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
+            parent_source="warehouse",
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -199,6 +200,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
+            parent_source="warehouse",
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(

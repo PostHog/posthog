@@ -211,6 +211,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        """Sibling schemas that must be enabled and have completed an initial sync before
+        `schema_name` can sync.
+
+        Non-empty only for fan-out children that read their parent from the warehouse
+        (`DependentEndpointConfig.parent_source == "warehouse"`). Consumed by the schema
+        picker (auto-enable / block-disable) and the run-time gate in
+        `import_data_activity_sync`. Sources built on the shared REST fan-out wire this to
+        `required_parents_from_endpoint_configs`.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 

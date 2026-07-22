@@ -58,6 +58,11 @@ class SourceSchema:
     # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
     # stay separate: their persistence is gated on column-selection/direct-query paths.
     schema_metadata: dict[str, Any] | None = None
+    # Names of sibling schemas that must be enabled and have completed an initial sync before
+    # this one can sync — set for fan-out children that read their parent from the warehouse
+    # (`DependentEndpointConfig.parent_source == "warehouse"`). Surfaced to the schema picker
+    # so enabling a child pulls its parents in.
+    requires: list[str] = field(default_factory=list)
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:

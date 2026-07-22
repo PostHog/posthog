@@ -156,6 +156,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    is_fanout_warehouse_reuse_enabled,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -2297,6 +2298,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # source type. None for non-direct-capable sources.
         direct_engine_adapter = get_direct_query_engine(new_source_model.direct_engine)
 
+        # Fan-out children that read their parent from the warehouse can only sync when the
+        # parent schema syncs too — reject payloads that enable a child without its parent.
+        # (`requires` in the database_schema payload lets the wizard pre-select parents.)
+        if is_fanout_warehouse_reuse_enabled(self.team_id):
+            enabled_schema_names = {
+                schema.get("name") for schema in payload_schemas if schema.get("should_sync", False)
+            }
+            for schema in payload_schemas:
+                if not schema.get("should_sync", False):
+                    continue
+                child_name = schema.get("name")
+                missing_parents = [
+                    parent
+                    for parent in source.get_required_parent_schemas(str(child_name))
+                    if parent not in enabled_schema_names
+                ]
+                if missing_parents:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": (
+                                f"Schema '{child_name}' requires {', '.join(repr(p) for p in missing_parents)} "
+                                "to be enabled as well — it syncs using the parent schema's data."
+                            )
+                        },
+                    )
+
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
@@ -3064,6 +3093,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "detected_primary_keys": schema.detected_primary_keys,
                 "permission_error": endpoint_permissions.get(schema.name),
                 "rls_warning": schema.rls_warning,
+                "requires": schema.requires,
             }
             for schema in schemas
         ]

@@ -1,4 +1,5 @@
 import uuid
+import contextlib
 from datetime import timedelta
 from typing import Any
 
@@ -3583,3 +3584,109 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
             "sunset_at": None,
             "default_version": StripeSource.default_version,
         }
+
+
+class TestFanoutParentEnforcement(APIBaseTest):
+    """Selection-time enforcement for fan-out children that read their parent from the warehouse.
+
+    Deliberately not in TestExternalDataSchema: its autouse fixture needs a live Temporal
+    server, while every Temporal touchpoint here is behind a mock.
+    """
+
+    def _create_sentry_fanout_pair(self, parent_sync_type, child_should_sync=False, parent_should_sync=False):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.SENTRY,
+            job_inputs={"auth_token": "token", "organization_slug": "acme"},
+        )
+        parent = ExternalDataSchema.objects.create(
+            name="issues",
+            team=self.team,
+            source=source,
+            should_sync=parent_should_sync,
+            sync_type=parent_sync_type,
+        )
+        child = ExternalDataSchema.objects.create(
+            name="issue_events",
+            team=self.team,
+            source=source,
+            should_sync=child_should_sync,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        return source, parent, child
+
+    def _enforcement_patches(self, flag_enabled=True):
+        return (
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.is_fanout_warehouse_reuse_enabled",
+                return_value=flag_enabled,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+            mock.patch("products.data_warehouse.backend.facade.api.external_data_workflow_exists", return_value=False),
+            mock.patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.pause_external_data_schedule"
+            ),
+            mock.patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
+        )
+
+    def _patch_schema(self, schema_id, data, flag_enabled=True):
+        with contextlib.ExitStack() as stack:
+            for p in self._enforcement_patches(flag_enabled=flag_enabled):
+                stack.enter_context(p)
+            return self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema_id}",
+                data=data,
+            )
+
+    def test_enabling_fanout_child_auto_enables_configured_parent(self):
+        _, parent, child = self._create_sentry_fanout_pair(parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
+
+        response = self._patch_schema(child.id, {"should_sync": True})
+
+        assert response.status_code == 200, response.json()
+        parent.refresh_from_db()
+        assert parent.should_sync is True
+
+    def test_enabling_fanout_child_with_unconfigured_parent_errors(self):
+        _, parent, child = self._create_sentry_fanout_pair(parent_sync_type=None)
+
+        response = self._patch_schema(child.id, {"should_sync": True})
+
+        assert response.status_code == 400
+        assert "Set up and enable 'issues' first" in response.json()["detail"]
+        parent.refresh_from_db()
+        assert parent.should_sync is False
+
+    def test_disabling_parent_with_enabled_fanout_child_errors(self):
+        _, parent, _child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            parent_should_sync=True,
+            child_should_sync=True,
+        )
+
+        response = self._patch_schema(parent.id, {"should_sync": False})
+
+        assert response.status_code == 400
+        assert "can't be disabled while" in response.json()["detail"]
+        parent.refresh_from_db()
+        assert parent.should_sync is True
+
+    def test_fanout_enforcement_inert_when_flag_disabled(self):
+        _, parent, _child = self._create_sentry_fanout_pair(
+            parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            parent_should_sync=True,
+            child_should_sync=True,
+        )
+
+        response = self._patch_schema(parent.id, {"should_sync": False}, flag_enabled=False)
+
+        assert response.status_code == 200, response.json()
+        parent.refresh_from_db()
+        assert parent.should_sync is False

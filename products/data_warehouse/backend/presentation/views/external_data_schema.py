@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
+    update_should_sync,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
@@ -58,6 +59,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    is_fanout_warehouse_reuse_enabled,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -519,6 +521,58 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     )
         return attrs
 
+    def _enforce_fanout_parent_dependencies(
+        self, instance: ExternalDataSchema, source: ExternalDataSource, should_sync: bool | None
+    ) -> None:
+        """Hard parent→child dependency for fan-out schemas that read their parent from the warehouse.
+
+        Enabling a child auto-enables its already-configured parents (a parent with no sync type
+        yet can't be silently enabled — the caller is told to set it up). Disabling a parent that
+        an enabled child depends on is refused.
+        """
+        if should_sync is None or bool(should_sync) == instance.should_sync:
+            return
+        if not is_fanout_warehouse_reuse_enabled(instance.team_id):
+            return
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        except Exception:
+            return
+
+        siblings = ExternalDataSchema.objects.exclude(deleted=True).filter(
+            team_id=instance.team_id, source_id=instance.source_id
+        )
+
+        if should_sync:
+            for parent_name in source_impl.get_required_parent_schemas(instance.name):
+                parent = next((s for s in siblings if s.name == parent_name), None)
+                if parent is None:
+                    raise ValidationError(
+                        f"'{instance.name}' syncs using the '{parent_name}' schema's data, "
+                        f"but this source has no '{parent_name}' schema."
+                    )
+                if parent.should_sync:
+                    continue
+                if parent.sync_type is None and source.supports_scheduled_sync:
+                    raise ValidationError(
+                        f"'{instance.name}' syncs using the '{parent_name}' schema's data. "
+                        f"Set up and enable '{parent_name}' first."
+                    )
+                update_should_sync(schema_id=str(parent.id), team_id=instance.team_id, should_sync=True)
+        else:
+            dependent_children = [
+                sibling.name
+                for sibling in siblings
+                if sibling.should_sync
+                and sibling.id != instance.id
+                and instance.name in source_impl.get_required_parent_schemas(sibling.name)
+            ]
+            if dependent_children:
+                raise ValidationError(
+                    f"'{instance.name}' can't be disabled while {', '.join(repr(c) for c in sorted(dependent_children))} "
+                    f"sync using its data. Disable those schemas first."
+                )
+
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
@@ -908,6 +962,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
+
+        self._enforce_fanout_parent_dependencies(instance, source, should_sync)
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")

@@ -274,7 +274,9 @@ def create_resources(
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))
 
-        resource_kwargs = exclude_keys(endpoint_resource, {"endpoint", "include_from_parent", "data_map"})
+        resource_kwargs = exclude_keys(
+            endpoint_resource, {"endpoint", "include_from_parent", "data_map", "data_iterator"}
+        )
 
         columns_config = endpoint_resource.get("columns")
 
@@ -292,7 +294,18 @@ def create_resources(
             )
         }
 
-        if resolved_params is None:
+        data_iterator = endpoint_resource.get("data_iterator")
+        if data_iterator is not None:
+            # Iterator-backed resource: pages come from the callable (e.g. an already-synced
+            # warehouse parent table) instead of HTTP pagination. Downstream dependents consume
+            # it via ``data_from`` exactly like an HTTP-backed parent.
+            resources[resource_name] = Resource(
+                data_iterator,
+                name=resource_name,
+                hints=hints,
+            )
+
+        elif resolved_params is None:
 
             def paginate_resource(
                 method: HTTPMethodBasic,

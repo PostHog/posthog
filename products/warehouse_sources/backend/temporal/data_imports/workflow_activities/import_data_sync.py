@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    get_schema_if_exists,
     process_incremental_value,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -42,10 +43,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    ResumableSource,
+    SimpleSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    is_fanout_warehouse_reuse_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -53,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -91,6 +100,37 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+async def _ensure_required_parents_synced(
+    source: AnySource, schema: ExternalDataSchema, source_id: uuid.UUID, team_id: int
+) -> None:
+    """Hard gate for fan-out children that read their parent from the warehouse.
+
+    The child streams parent rows from the parent schema's Delta table, so the parent must be
+    enabled and have completed an initial sync. Failing with NonRetryableException marks the
+    job failed with an actionable message without burning activity retries; the next scheduled
+    sync re-evaluates. The gate messages intentionally match no schema-pausing error patterns —
+    the child stays enabled and recovers on its own once the parent has synced.
+    """
+    required_parents = source.get_required_parent_schemas(schema.name)
+    if not required_parents:
+        return
+    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
+        return
+
+    for parent_name in required_parents:
+        parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
+        if parent is None or not parent.should_sync:
+            raise NonRetryableException(
+                f"Parent schema '{parent_name}' must be enabled before '{schema.name}' can sync. "
+                f"Enable '{parent_name}' in the source's schema settings."
+            )
+        if not parent.initial_sync_complete:
+            raise NonRetryableException(
+                f"Parent schema '{parent_name}' must complete an initial sync before '{schema.name}' can sync. "
+                f"This schema will sync automatically on its next schedule once '{parent_name}' has synced."
+            )
 
 
 @activity.defn
@@ -197,6 +237,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
         if SourceRegistry.is_registered(source_type):
             new_source = SourceRegistry.get_source(source_type)
+
+            await _ensure_required_parents_synced(new_source, schema, inputs.source_id, inputs.team_id)
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,

@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
     IncrementalConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    iter_parent_pages_from_warehouse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
@@ -289,12 +292,27 @@ def _parse_datetime_value(value: Any) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 
+def _skip_rows_on_stale_issue_404(rows: Iterator[dict[str, Any]], issue_id: str) -> Iterator[dict[str, Any]]:
+    """Swallow a 404 raised while iterating a warehouse-snapshot issue's sub-resource."""
+    try:
+        yield from rows
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 404:
+            logger.info("sentry_source.stale_warehouse_issue_skipped", issue_id=issue_id)
+            return
+        raise
+
+
 def _iter_issue_tag_values_rows(
     base_api_url: str,
     headers: dict[str, str],
     organization_slug: str,
     resumable_source_manager: Optional[ResumableSourceManager[SentryResumeConfig]] = None,
     incremental_last_seen_max: Any = None,
+    team_id: int | None = None,
+    source_id: str | None = None,
+    use_warehouse_parent: bool = False,
 ) -> Iterator[dict[str, Any]]:
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
 
@@ -313,12 +331,31 @@ def _iter_issue_tag_values_rows(
             resume_tag_key = loaded.tag_key
             resume_values_next_url = loaded.values_next_url
 
-    issues = _iter_endpoint_rows(
-        base_api_url=base_api_url,
-        path=f"/organizations/{organization_slug}/issues/",
-        headers=headers,
-        params={"limit": 100, "query": "", "sort": "date"},
-    )
+    issues: Iterator[dict[str, Any]]
+    if use_warehouse_parent:
+        if team_id is None or source_id is None:
+            raise ValueError("team_id and source_id are required when reading the issues parent from the warehouse")
+        # Ordered by lastSeen desc to mirror the API's sort=date ordering — both the
+        # incremental early-break and the resume fast-forward below depend on it.
+        issues = (
+            row
+            for page in iter_parent_pages_from_warehouse(
+                team_id=team_id,
+                source_id=source_id,
+                parent_name="issues",
+                columns=["id", "lastSeen"],
+                page_size=100,
+                order_by=("lastSeen", "descending"),
+            )
+            for row in page
+        )
+    else:
+        issues = _iter_endpoint_rows(
+            base_api_url=base_api_url,
+            path=f"/organizations/{organization_slug}/issues/",
+            headers=headers,
+            params={"limit": 100, "query": "", "sort": "date"},
+        )
 
     skipped_for_resume = 0
 
@@ -362,6 +399,11 @@ def _iter_issue_tag_values_rows(
             params={"limit": 100},
             max_pages=_MAX_PAGES_PER_PARENT,
         )
+        if use_warehouse_parent:
+            # The warehouse snapshot can contain issues deleted upstream since the issues
+            # schema last synced; their tags endpoint 404s. A fresh API parent pull would
+            # simply not list them, so skip instead of failing the sync.
+            tags = _skip_rows_on_stale_issue_404(tags, issue_id)
         for tag in tags:
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:
@@ -426,6 +468,16 @@ def _iter_issue_tag_values_rows(
                             issue_id=issue_id,
                             tag_key=tag_key,
                             status_code=response.status_code,
+                        )
+                        break
+                    # Warehouse-snapshot parents can be deleted upstream mid-list; their
+                    # values endpoint 404s. Skip the tag, same as the stale-issue skip above.
+                    if use_warehouse_parent and response.status_code == 404:
+                        logger.info(
+                            "sentry_source.stale_warehouse_issue_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
                         )
                         break
                     # Other client errors (401, etc.) still propagate to the job-level handler.
@@ -638,6 +690,8 @@ def sentry_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    source_id: str | None = None,
+    use_warehouse_parent: bool = False,
 ) -> SourceResponse:
     endpoint_config = SENTRY_ENDPOINTS[endpoint]
     normalized_base_url = _validated_api_base_url(api_base_url)
@@ -655,6 +709,9 @@ def sentry_source(
                 organization_slug=organization_slug,
                 resumable_source_manager=resumable_source_manager,
                 incremental_last_seen_max=db_incremental_field_last_value if should_use_incremental_field else None,
+                team_id=team_id,
+                source_id=source_id,
+                use_warehouse_parent=use_warehouse_parent,
             ),
         )
 
@@ -676,6 +733,8 @@ def sentry_source(
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
                 incremental_config_factory=_sentry_incremental_window,
+                source_id=source_id,
+                use_warehouse_parent=use_warehouse_parent,
             ),
         )
         # Sentry gates the service hooks API at the org level, so it 403s even

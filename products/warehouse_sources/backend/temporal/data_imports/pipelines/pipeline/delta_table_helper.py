@@ -18,10 +18,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
+from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_storage import (
+    get_delta_storage_options,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     conditional_lru_cache_async,
     normalize_column_name,
@@ -186,40 +189,7 @@ class DeltaTableHelper:
         return self._is_first_sync
 
     def _get_credentials(self):
-        if settings.USE_LOCAL_SETUP:
-            if (
-                not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
-                or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
-                or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
-            ):
-                raise KeyError(
-                    "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
-                )
-
-            ensure_bucket_exists(
-                settings.BUCKET_URL,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                settings.OBJECT_STORAGE_ENDPOINT,
-            )
-
-            options = {
-                "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-            }
-        else:
-            options = {}
-
-        # Conditional puts make a clashing concurrent commit fail loudly instead of
-        # clobbering _delta_log; set explicitly so a library default change can't undo it.
-        options["conditional_put"] = "etag"
-        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
-            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
-        return options
+        return get_delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
