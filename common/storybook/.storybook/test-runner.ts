@@ -196,11 +196,14 @@ export default {
                     },
                     { storyId: context.id, failureEvents: REMOUNT_FAILURE_EVENTS }
                 )
-                .catch(() => undefined)
+                // page.evaluate() itself can reject (e.g. the page navigated or its execution context
+                // was destroyed mid-remount) — treat that as a failure too instead of letting `undefined`
+                // pass the check below as if the remount had finished cleanly.
+                .catch((error) => ({ event: 'evaluationFailed', message: (error as Error).message }))
             if (
-                remountResult &&
                 [
                     ...REMOUNT_FAILURE_EVENTS,
+                    'evaluationFailed',
                     // A remount that's still running when the wait times out must not be treated as
                     // a clean success — the snapshot flow below would then race unfinished play logic.
                     'timeout',
