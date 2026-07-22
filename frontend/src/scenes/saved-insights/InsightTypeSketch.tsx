@@ -5,6 +5,8 @@ import { WORLD_MAP_BASE_D, WORLD_MAP_HIGHLIGHTS } from './worldMapSketchData'
 // Hand-drawn-style previews for the new insight picker. Colors come from theme
 // CSS variables so the sketches adapt to light/dark mode automatically.
 const AXIS = 'var(--color-border-primary)'
+const TEXT = 'var(--color-text-primary)'
+const TEXT_MUTED = 'var(--color-text-secondary)'
 const INK = 'var(--data-color-1)'
 const INK_ALT = 'var(--data-color-14)'
 const INK_UP = 'var(--data-color-7)'
@@ -285,32 +287,20 @@ export function TableSketch(): JSX.Element {
 export function NumberSketch(): JSX.Element {
     return (
         <SketchSvg>
-            {/* Card title */}
-            <rect x="16" y="13" width="34" height="5" rx="2.5" fill={AXIS} />
-            {/* Change pill: up arrow + percentage, top-right on its own row */}
-            <rect x="100" y="10" width="44" height="16" rx="8" fill={INK_UP} opacity="0.15" />
+            {/* Mirrors BoldNumber: one huge centered value, comparison row below */}
+            <text x="80" y="50" textAnchor="middle" fill={TEXT} fontSize="38" fontWeight="700" letterSpacing="-0.95">
+                1,024
+            </text>
+            {/* "Up 12% from previous period" — trending icon + text bars, link in accent */}
             <path
-                d="M108 21 L112.5 14.5 L117 21"
-                stroke={INK_UP}
+                d="M41 68 L46 63 L49.5 66 L55 60.5 M51.5 60.5 H55 V64"
+                stroke={TEXT_MUTED}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
             />
-            <text x="120" y="22" fill={INK_UP} fontSize="10" fontWeight="700">
-                12%
-            </text>
-            {/* Big number */}
-            <text x="14" y="58" fill={INK} fontSize="27" fontWeight="700">
-                1,024
-            </text>
-            {/* Sparkline */}
-            <path
-                d="M16 76 C 32 74, 42 72, 56 71 C 70 70, 82 68, 96 66 C 112 63.5, 128 63, 144 68"
-                stroke={INK}
-                strokeWidth="2"
-                strokeLinecap="round"
-                opacity="0.35"
-            />
+            <rect x="60" y="62" width="34" height="5" rx="2.5" fill={TEXT_MUTED} opacity="0.45" />
+            <rect x="97" y="62" width="22" height="5" rx="2.5" fill={INK} opacity="0.8" />
         </SketchSvg>
     )
 }
