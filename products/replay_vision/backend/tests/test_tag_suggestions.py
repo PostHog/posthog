@@ -127,6 +127,17 @@ class TestSuggestTagsEndpoint(_VisionAPITestCase):
         # The raw error must not leak to the client.
         assert "model down" not in resp.content.decode()
 
+    @patch(
+        "products.replay_vision.backend.tag_suggestions.genai.Client",
+        side_effect=ValueError("Missing key inputs argument!"),
+    )
+    def test_client_construction_failure_is_a_clean_503(self, _mock):
+        # A missing/malformed Gemini key raises at construction, before any model call.
+        # It must wrap into SuggestionError so the endpoint 503s instead of 500ing.
+        resp = self.client.post(self.suggest_url, data={"prompt": "categorize by intent"}, format="json")
+
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
     def test_unknown_scanner_id_is_not_found(self):
         resp = self.client.post(
             self.suggest_url,
