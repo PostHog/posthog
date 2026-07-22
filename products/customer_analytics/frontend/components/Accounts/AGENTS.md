@@ -76,7 +76,7 @@ How that sort is applied depends on whether the whole matching set is already lo
 
 - **Fully loaded (the common case — one page, no "Load more"):** `canSortClientSide` is true.
   The list query carries **no** `orderBy`, so toggling a header does not change the query and never refetches.
-  Instead `AccountsHogQLTable` reorders the loaded rows in the browser via the DataTable's `dataTableRowsTransformer` context seam, calling `sortAccountRows` (in `accountsSort.ts`) — sorting is instant.
+  Instead the loaded rows are reordered in the browser: the `accountsLogic.sortedRowsTransformer` selector (wrapping `sortAccountRows` from `accountsSort.ts`) is passed by `AccountsHogQLTable` into the DataTable's `dataTableRowsTransformer` context seam — sorting is instant.
   `sortAccountRows` reads each cell by its position in the row's result array (the name tuple sorts by `.name`, relationship/tag arrays join to a string, numbers sort numerically), is stable, and always sinks empty cells to the bottom in both directions.
 - **Paginated (more rows than one page):** `canSortClientSide` is false, so the query carries an `orderBy` and ClickHouse sorts the **entire** set and returns the globally-correct top page; the transformer is inactive (rows are shown in server order). Toggling a header refetches, as before.
 
