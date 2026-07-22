@@ -613,8 +613,10 @@ def append_partition_key_to_table(
         are_incrementing_ints = False
         if is_partition_key_int:
             partition_column = table.column(normalized_partition_keys[0])
-            # check if the column has any non-null values before calculating min max
-            if partition_column.null_count < table.num_rows:
+            # Only consider numerical mode when the key has no NULLs — a NULL can't be bucketed
+            # arithmetically, and numerical mode is persisted and reused on later batches where the
+            # detection guard is skipped entirely.
+            if partition_column.null_count == 0 and table.num_rows > 0:
                 bounds: dict[str, int | None] = cast(dict[str, int | None], pc.min_max(partition_column).as_py())
                 _min, _max = bounds["min"], bounds["max"]
                 if _min is not None and _max is not None:
@@ -665,9 +667,14 @@ def append_partition_key_to_table(
                 assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
 
                 key = normalized_partition_keys[0]
-                partition = row[key] // partition_size
+                value = row[key]
 
-                partition_array.append(str(partition))
+                if value is None:
+                    # NULL partition key — bucket into a dedicated partition instead of crashing
+                    partition_array.append("null")
+                else:
+                    partition = value // partition_size
+                    partition_array.append(str(partition))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]

@@ -1289,3 +1289,25 @@ def test_append_partition_key_datetime_string_column(value, expected):
     partitioned_table, mode, _, _ = result
     assert mode == "datetime"
     assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]
+
+
+def test_append_partition_key_numerical_null_value_buckets_into_null_partition():
+    # Numerical mode is persisted per source and passed back in on later batches, skipping the
+    # detection guard. A NULL in the key column used to crash the batch on `None // partition_size`;
+    # it must instead land in a dedicated "null" partition.
+    table = pa.table({"id": pa.array([10, None, 250], type=pa.int64())})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=100,
+        partition_keys=["id"],
+        partition_mode="numerical",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    partitioned_table, mode, _, _ = result
+    assert mode == "numerical"
+    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["0", "null", "2"]
