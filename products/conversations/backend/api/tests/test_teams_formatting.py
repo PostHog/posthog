@@ -270,7 +270,7 @@ class TestRichContentToTeamsHtml(SimpleTestCase):
 
 class TestAppendTeamsAttribution(SimpleTestCase):
     def test_appends_italic_footer(self):
-        assert append_teams_attribution("<p>Hello</p>", "Xander Jones") == (
+        assert append_teams_attribution("<p>Hello</p>", "Max Hedgehog") == (
             "<p>Hello</p><p><i>Max Hedgehog via SupportHog</i></p>"
         )
 
