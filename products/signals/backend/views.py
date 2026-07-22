@@ -119,13 +119,12 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
-from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
-from products.signals.backend.tasks import sync_signals_refund_credit
+from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -2344,42 +2343,19 @@ class SignalReportArtefactViewSet(
     ) -> None:
         """After commit, Slack-notify reviewers a human just added to this report.
 
-        Scheduled on commit so nothing is sent if the write rolls back, and so the Slack calls
-        don't run while the report row lock (held for the read-merge-append above) is open.
-        Best-effort — a Slack failure must never break the reviewer edit.
+        Enqueued on commit so nothing is sent if the write rolls back, and so delivery's
+        network calls (metadata lookups, Slack) run on a worker instead of holding up the
+        request. Best-effort — a Slack failure must never break the reviewer edit.
         """
-        team = self.team
-
-        def _notify() -> None:
-            # Source products are cosmetic (one metadata line in the Slack message), so a failure
-            # fetching them must not suppress the ping itself — resolve them separately, best-effort.
-            source_products: list[str] | None = None
-            try:
-                meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
-                source_products = meta.source_products if meta else None
-            except Exception:
-                logger.exception(
-                    "Failed to fetch source products for reviewer-added notification",
-                    report_id=report_id,
-                    team_id=team.id,
-                )
-
-            try:
-                dispatch_reviewer_added_notifications(
-                    report_id=report_id,
-                    team_id=team.id,
-                    added_github_logins=added_logins,
-                    source_products=source_products,
-                    exclude_user_id=actor_user_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to dispatch reviewer-added Slack notifications",
-                    report_id=report_id,
-                    team_id=team.id,
-                )
-
-        transaction.on_commit(_notify)
+        team_id = self.team.id
+        transaction.on_commit(
+            lambda: send_reviewer_added_slack_notifications.delay(
+                report_id=report_id,
+                team_id=team_id,
+                added_github_logins=list(added_logins),
+                exclude_user_id=actor_user_id,
+            )
+        )
 
     @staticmethod
     def _write_response_data(artefact: SignalReportArtefact) -> dict:

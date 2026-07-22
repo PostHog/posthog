@@ -31,6 +31,7 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
 )
+from products.signals.backend.tasks import send_reviewer_added_slack_notifications
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -1167,3 +1168,24 @@ def test_reviewer_added_excludes_actor(org_and_team):
 
     assert sent == 0
     assert slack_cls.call_count == 0
+
+
+@pytest.mark.django_db
+def test_reviewer_added_task_still_dispatches_when_source_product_lookup_fails(org_and_team):
+    # Source products are cosmetic; a failure fetching them must not suppress the ping.
+    org, team = org_and_team
+    with (
+        patch(
+            "products.signals.backend.tasks.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse unavailable"),
+        ),
+        patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch,
+    ):
+        send_reviewer_added_slack_notifications(
+            report_id="019f0000-0000-7000-8000-000000000000",
+            team_id=team.id,
+            added_github_logins=["someone"],
+        )
+
+    mock_dispatch.assert_called_once()
+    assert mock_dispatch.call_args.kwargs["source_products"] is None
