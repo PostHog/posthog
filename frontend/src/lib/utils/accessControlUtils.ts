@@ -82,6 +82,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'metrics'
     } else if (resource === AccessControlResourceType.Tracing) {
         return 'tracing'
+    } else if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'sharing'
     } else if (resource === AccessControlResourceType.Toolbar) {
         return 'toolbar'
     } else if (resource === AccessControlResourceType.Workflow) {
@@ -303,6 +305,9 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
         return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
+    }
+    if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'Controls whether users can share resources like dashboards, insights, etc. with anyone via a public link.'
     }
     if (resource === AccessControlResourceType.Metrics) {
         return 'Controls access to the metrics product and its API. It does not restrict querying the underlying metrics tables with SQL.'

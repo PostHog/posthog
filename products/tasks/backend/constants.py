@@ -80,6 +80,10 @@ POSTHOG_EXEC_DESTRUCTIVE_VERB_REGEX = r"(^|-)(partial-update|update|patch|delete
 # destructive verb segment (publish, ship, merge, archive, …). Kept complete against those
 # annotations by `test_exec_permission_regex_covers_destructive_annotated_tools`.
 POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
+    # confirmed_action tools register only `<name>-execute` (and `-prepare`); the bare name is
+    # never a runtime tool, so the destructive `-execute` variant is what must be gated.
+    "change-requests-approve-execute",
+    "change-requests-reject-execute",
     "error-tracking-bypass-rules-create",
     "error-tracking-issues-merge-create",
     "error-tracking-issues-split-create",
@@ -92,6 +96,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "inbox-reports-set-state",
     "llma-prompt-label-set",
     "organization-enforce-2fa",
+    "organization-enforce-2fa-execute",
     "scout-scratchpad-forget",
     "signals-scout-scratchpad-forget",
     "skill-archive",
