@@ -127,8 +127,8 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after "
-            "comparison) over the window and its equal-length prior twin. Signal = failed + error + "
-            "pass-on-retry spans on the team's owned tests. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "comparison) over the window and its equal-length prior twin. Signal = runs where an owned "
+            "test failed, errored, or a retry recovered it. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

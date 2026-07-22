@@ -67930,11 +67930,11 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest selector; exact when the CI reporter emitted it. */
       selector: string;
-      /** Failed + error + pass-on-retry spans in the current window (xfail excluded). */
+      /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent signal span for this test, either window. */
+      /** Most recent failure, recovery, or xfail run for this test, either window. */
       last_seen_at: string;
     }
 

@@ -616,8 +616,8 @@ class TeamCIHealthList:
 @dataclass(frozen=True)
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
-    window, the pair behind a before-vs-after slope reading. Signal = failed + error +
-    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    window, the pair behind a before-vs-after slope reading. Signal = runs where the test
+    failed, errored, or a retry recovered it (xfail excluded: already-quarantined noise).
     """
 
     nodeid: str

@@ -674,7 +674,7 @@ export const getEngineeringAnalyticsTeamCiActivityUrl = (
 }
 
 /**
- * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = failed + error + pass-on-retry spans on the team's owned tests. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = runs where an owned test failed, errored, or a retry recovered it. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const engineeringAnalyticsTeamCiActivity = async (
     projectId: string,
