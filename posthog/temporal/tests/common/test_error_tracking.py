@@ -116,6 +116,27 @@ class EgressBackpressureActivityWorkflow:
         )
 
 
+@activity.defn
+async def user_query_error_activity(inputs: OptionallyFailingInputs) -> None:
+    # Mirrors how export_asset_activity wraps a failed export: the original error class name is
+    # preserved in ApplicationError.type so retry-policy and failure classification can read it.
+    # "SyntaxError" is HogQLSyntaxError.__name__, which classifies as a user query error.
+    raise ApplicationError("expected ), got EqDouble", type="SyntaxError", non_retryable=True)
+
+
+@workflow.defn
+class UserQueryErrorActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            user_query_error_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
 @workflow.defn
 class DirectlyFailingWorkflow:
     @workflow.run
@@ -245,6 +266,36 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "EgressBackpressureActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_user_query_error_is_not_captured(temporal_client: Client):
+    """A user-fault query error (invalid HogQL that correctly fails a non-retryable export) is the
+    expected outcome of running a bad query, not a defect, so the interceptor must re-raise it
+    without reporting it to error tracking — even though the export activity wraps it in an
+    ApplicationError, the underlying class name in `type` classifies it as a user error."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[UserQueryErrorActivityWorkflow],
+            activities=[user_query_error_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "UserQueryErrorActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,
