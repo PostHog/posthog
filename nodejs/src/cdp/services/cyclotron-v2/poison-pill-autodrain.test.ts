@@ -112,19 +112,14 @@ describe('CyclotronPoisonPillAutodrain', () => {
         expect(enqueueMock).toHaveBeenCalledWith(2, 'hog_flow', 'fn-b', expect.anything())
     })
 
-    it('scopes discovery to the not-deleted failed poison-pill predicate under the attempts cap', async () => {
+    // The discovery SQL itself is proven end-to-end in poison-pill-autodrain-e2e —
+    // this only guards the bound params (window bounds serialized to the CH DateTime
+    // format, attempts cap, batch) that the query is templated with.
+    it('binds discovery to the window, attempts cap and batch from config', async () => {
         mockDiscovered([])
 
         await worker.runOnce()
 
-        const query: string = queryMock.mock.calls[0][0].query
-        expect(query).toContain("argMax(status, version) = 'failed'")
-        expect(query).toContain('argMax(error_kind, version) = {error_kind:String}')
-        expect(query).toContain('argMax(attempts, version) < {max_attempts:UInt8}')
-        // The aggregation is narrowed to invocations that recorded a poison pill,
-        // rather than scanning every invocation in the window fleet-wide.
-        expect(query).toContain('invocation_id IN (')
-        expect(query).toContain('AND error_kind = {error_kind:String}')
         expect(queryMock.mock.calls[0][0].query_params).toMatchObject({
             error_kind: JANITOR_POISON_PILL_ERROR_KIND,
             max_attempts: 3,
