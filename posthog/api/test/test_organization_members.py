@@ -107,6 +107,35 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             admin.email,
         }
 
+    def test_open_project_keeps_all_members_visible_when_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)
+        AccessControl.objects.create(team=self.team, resource="project", access_level="member")
+        # An explicit "none" override can't lower access below an open default today (max-wins);
+        # this pins the open-team visibility path — expectations flip if more-specific-wins lands.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=demoted.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            other.email,
+            demoted.email,
+        }
+
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
         user = User.objects.create(email="another_user@posthog.com")
