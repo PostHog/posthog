@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MistralAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mistralai import (
+    MistralAISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import (
     MistralAIResumeConfig,
     mistral_ai_source,
@@ -36,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.mistral.ai/api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +54,6 @@ class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mistral AI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Mistral AI API key to sync your Mistral AI platform data into the PostHog Data warehouse.
 
 You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys).""",

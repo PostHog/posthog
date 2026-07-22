@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -7,6 +8,10 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+    batch_consumer as batch_consumer_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
 )
@@ -14,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
+    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -23,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -107,12 +114,13 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, **kwargs):
             states.append(job_state)
+            return True
 
         consumer._process_batch = AsyncMock()
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             side_effect=track_status,
         ):
             await consumer._process_single(batch)
@@ -125,12 +133,13 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, **kwargs):
             states.append(job_state)
+            return True
 
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             side_effect=track_status,
         ):
             await consumer._process_single(batch)
@@ -142,6 +151,7 @@ class TestProcessSingle:
         [
             "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
             "Primary key required for incremental syncs",
+            "Source column type changed: 'price' has values that no longer fit its stored type int64",
         ],
     )
     @pytest.mark.asyncio
@@ -154,7 +164,7 @@ class TestProcessSingle:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ) as mock_status,
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
@@ -185,7 +195,7 @@ class TestProcessSingle:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
@@ -210,7 +220,7 @@ class TestProcessGroup:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -238,7 +248,7 @@ class TestProcessGroup:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -273,7 +283,7 @@ class TestProcessGroup:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -308,7 +318,7 @@ class TestProcessGroup:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -356,7 +366,8 @@ class TestRecoverySweep:
     @pytest.mark.asyncio
     async def test_retries_stale_below_max(self):
         consumer = _make_consumer(max_attempts=3)
-        stale_batch = _make_batch(latest_attempt=1)
+        # The observed state clock must ride into the re-queue as its CAS guard.
+        stale_batch = _make_batch(latest_attempt=1, state_changed_at=datetime(2026, 1, 1, tzinfo=UTC))
 
         with (
             patch(
@@ -365,7 +376,7 @@ class TestRecoverySweep:
                 return_value=[stale_batch],
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ) as mock_status,
             patch(
@@ -382,6 +393,8 @@ class TestRecoverySweep:
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
             batch_created_at=stale_batch.created_at,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+            expected_state_changed_at=stale_batch.state_changed_at,
         )
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
@@ -411,6 +424,35 @@ class TestRecoverySweep:
         mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_sweep_continues_past_terminally_retired_batch(self):
+        # A batch failed between the stale scan and the requeue must be skipped,
+        # not abort recovery for the rest of the stale list.
+        consumer = _make_consumer(max_attempts=3)
+        stale_a = _make_batch(id="00000000-0000-0000-0000-00000000000a", latest_attempt=1)
+        stale_b = _make_batch(id="00000000-0000-0000-0000-00000000000b", schema_id="schema-2", latest_attempt=1)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_a, stale_b],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+                side_effect=[False, True],  # first batch was retired mid-sweep
+            ) as mock_status,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+        ):
+            await consumer._recovery_sweep()
+
+        assert mock_status.await_count == 2  # the second batch still gets requeued
+        mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_recovery_sweep_unlocks_on_error(self):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
@@ -422,7 +464,7 @@ class TestRecoverySweep:
                 return_value=[stale_batch],
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
                 side_effect=Exception("db gone"),
             ),
@@ -734,6 +776,166 @@ class TestFailRun:
         mock_status.assert_called_once()
 
 
+class TestShouldProcessBatch:
+    @pytest.mark.parametrize("job_status", ["Failed", "BillingLimitReached"], ids=["failed", "billing_limited"])
+    @pytest.mark.asyncio
+    async def test_dead_job_fails_run_and_skips(self, job_status):
+        # Cancel (or any failure) marks the job terminal while batches are still queued:
+        # the loader must not load them, and must clear the run + release the pipeline lock.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch(metadata={"workflow_run_id": "wf-run-1"})
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=(job_status, "connection lost"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is False
+        mock_queue_fail.assert_awaited_once()
+        assert mock_queue_fail.call_args.kwargs["run_uuid"] == batch.run_uuid
+        mock_release.assert_called_once_with(team_id=batch.team_id, schema_id=batch.schema_id, token="wf-run-1")
+
+    @pytest.mark.parametrize(
+        "status_row",
+        [
+            ("Running", None),
+            ("Completed", None),
+            None,
+            # A takeover-failed job stays loadable: the sentinel unseals Failed -> Completed
+            # in update_external_job_status, so skipping its batches here would close that
+            # deliberate in-flight recovery window.
+            ("Failed", LOCK_TAKEOVER_LATEST_ERROR),
+        ],
+        ids=["running", "completed", "missing", "takeover_failed"],
+    )
+    @pytest.mark.asyncio
+    async def test_loadable_job_is_processed(self, status_row):
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=status_row,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_status_check_db_error_fails_open(self):
+        # An app-DB hiccup must not wedge the loader: process the batch as if the job were alive.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                side_effect=Exception("db down"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_called()
+
+
+class TestDeadJobSkip:
+    @pytest.mark.asyncio
+    async def test_dead_job_claim_writes_no_status_and_halts_group(self):
+        # Regression: the engine wrote 'executing' + 'succeeded' after a dead-job skip,
+        # superseding fail_run's 'failed' rows — un-failing a cancelled run.
+        consumer = _make_consumer()
+        process_mock = AsyncMock()
+        consumer._process_batch = process_mock
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=("Failed", "connection lost"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_fail_run,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), [batch])
+
+        mock_fail_run.assert_awaited_once()
+        process_mock.assert_not_awaited()  # no delta write for a dead job
+        mock_status.assert_not_called()  # never 'executing', never 'succeeded'
+        mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refused_status_write_abandons_batch_instead_of_reporting_success(self):
+        # A fail_run landing mid-apply must surface as an abandoned batch,
+        # never as succeeded.
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=("Running", None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+                side_effect=[True, False],  # executing lands, succeeded is refused
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            await consumer._process_single(batch)
+
+
 class TestReconcileFailedRuns:
     @pytest.mark.asyncio
     async def test_reconcile_reports_queue_freshness_gauge(self):
@@ -804,6 +1006,7 @@ class TestReconcileFailedRuns:
         consumer = _make_consumer()
         ref = _make_failed_run_ref()
 
+        reconciled_before = RUNS_RECONCILED_TOTAL._value.get()
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
@@ -822,6 +1025,7 @@ class TestReconcileFailedRuns:
 
         mock_mark.assert_called_once_with(job_id=ref.job_id, team_id=ref.team_id, error=ref.reason)
         mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
+        assert RUNS_RECONCILED_TOTAL._value.get() == reconciled_before + 1
 
     @pytest.mark.asyncio
     async def test_sweeps_stragglers_even_for_already_terminal_run(self):
@@ -858,10 +1062,43 @@ class TestReconcileFailedRuns:
         assert mock_fail_run.call_args.kwargs["team_id"] == ref.team_id
         assert mock_fail_run.call_args.kwargs["schema_id"] == ref.schema_id
 
+    @pytest.mark.parametrize(
+        "mark_outcome",
+        [False, Exception("db down")],
+        ids=["already_terminal", "status_update_raises"],
+    )
     @pytest.mark.asyncio
-    async def test_skips_already_terminal_run(self):
+    async def test_releases_lock_even_when_job_not_reconciled(self, mark_outcome):
+        # The sweep is the retry for a fail_run whose own lock release failed silently,
+        # so the release must be attempted regardless of the reconcile outcome.
         consumer = _make_consumer()
         ref = _make_failed_run_ref()
+
+        reconciled_before = RUNS_RECONCILED_TOTAL._value.get()
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
+                side_effect=[mark_outcome],
+            ) as mock_mark,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_mark.assert_called_once()
+        mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
+        assert RUNS_RECONCILED_TOTAL._value.get() == reconciled_before  # nothing reconciled
+
+    @pytest.mark.asyncio
+    async def test_no_release_attempt_without_workflow_run_id(self):
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref(workflow_run_id=None)
 
         with (
             patch(
@@ -871,16 +1108,15 @@ class TestReconcileFailedRuns:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.mark_job_failed_if_not_terminal",
-                return_value=False,
-            ) as mock_mark,
+                return_value=True,
+            ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
             ) as mock_release,
         ):
             await consumer._reconcile_failed_runs()
 
-        mock_mark.assert_called_once()  # no-op for an already-terminal job, no error
-        mock_release.assert_not_called()  # don't release the lock for a job we didn't reconcile
+        mock_release.assert_not_called()  # no token means nothing to release
 
     @pytest.mark.asyncio
     async def test_continues_after_error_on_one_ref(self):
@@ -969,7 +1205,7 @@ class TestConnectionRecovery:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -1044,7 +1280,7 @@ class TestPerGroupConnectionIsolation:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -1084,7 +1320,7 @@ class TestPerGroupConnectionIsolation:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -1120,7 +1356,7 @@ class TestPerGroupConnectionIsolation:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -1194,7 +1430,7 @@ class TestLogContextBinding:
         consumer._process_batch = capture_context
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             new_callable=AsyncMock,
         ):
             await consumer._process_single(batch)
@@ -1229,7 +1465,7 @@ class TestLogContextBinding:
         consumer._process_batch = capture_context
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             new_callable=AsyncMock,
         ):
             await consumer._process_single(batch)
@@ -1243,7 +1479,7 @@ class TestLogContextBinding:
         consumer._process_batch = AsyncMock()
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             new_callable=AsyncMock,
         ):
             await consumer._process_single(_make_batch(latest_attempt=0, metadata={}))
@@ -1256,7 +1492,7 @@ class TestLogContextBinding:
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             new_callable=AsyncMock,
         ):
             await consumer._process_single(_make_batch(latest_attempt=0))
@@ -1320,7 +1556,7 @@ class TestOwnershipVerification:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -1350,7 +1586,7 @@ class TestOwnershipVerification:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             pytest.raises(OwnershipLostError),
@@ -1365,7 +1601,7 @@ class TestOwnershipVerification:
 
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -1435,7 +1671,7 @@ class TestOwnershipVerification:
                 return_value=False,
             ) as mock_renew,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
             ) as mock_status,
             patch("asyncio.sleep", new_callable=AsyncMock),  # don't wait the real interval
@@ -1449,7 +1685,8 @@ class TestOwnershipVerification:
     @pytest.mark.asyncio
     async def test_heartbeat_renews_lease_then_restamps_executing(self):
         # The success path: a held lease is renewed and the executing-status grace
-        # window is refreshed on the same beat. update_status raising ends the loop.
+        # window is refreshed on the same beat. The lease returning False on the
+        # second iteration terminates the loop so we can assert the first cycle ran.
         consumer = _make_consumer()
         consumer._config.recovery_grace_seconds = 30
         batch = _make_batch()
@@ -1459,24 +1696,19 @@ class TestOwnershipVerification:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
                 new_callable=AsyncMock,
-                return_value=True,
+                side_effect=[True, False],
             ) as mock_renew,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
                 new_callable=AsyncMock,
-                side_effect=Exception("stop the loop"),
             ) as mock_status,
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             await consumer._batch_heartbeat(lock_conn, batch, attempt=2)
 
-        mock_renew.assert_awaited_once_with(
-            lock_conn,
-            team_id=batch.team_id,
-            schema_id=batch.schema_id,
-            owner_token=consumer._owner_token,
-            lease_ttl_seconds=consumer._lease_ttl_seconds,
-        )
+        mock_renew.assert_awaited()
+        assert mock_renew.await_count == 2
+        # First iteration: lease renewed -> status refreshed; second: lease lost -> exit.
         mock_status.assert_awaited_once()
 
 
@@ -1557,3 +1789,53 @@ class TestDispatchGroups:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+class TestBatchHeartbeat:
+    @pytest.mark.asyncio
+    async def test_transient_renewal_failure_does_not_end_heartbeat(self):
+        # A single pgbouncer/network blip previously killed the heartbeat
+        # silently for the rest of the batch: renewals stopped, the lease
+        # expired under a healthy owner, and another pod could re-claim the
+        # batch mid-apply. The loop must survive transient errors and only
+        # stop when the lease is genuinely lost.
+        consumer = _make_consumer()
+        renew = AsyncMock(side_effect=[ConnectionError("blip"), True, False])
+        refresh = AsyncMock()
+
+        sleep_count = 0
+
+        async def fast_sleep(_seconds):
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count > 10:
+                raise AssertionError("heartbeat loop did not exit after lease loss")
+
+        with (
+            patch.object(consumer._adapter, "renew_lease", renew),
+            patch.object(consumer._adapter, "update_status", refresh),
+            patch.object(batch_consumer_module.asyncio, "sleep", fast_sleep),
+        ):
+            await consumer._batch_heartbeat(AsyncMock(), _make_batch(), attempt=1)
+
+        # blip -> continue; renewed -> status refresh; lease lost -> stop
+        assert renew.await_count == 3
+        refresh.assert_awaited_once()
+
+
+class TestIsRetryableError:
+    # A dropped pattern silently reverts a permanent error (deleted schema/job,
+    # data that can never fit) to burning all retry attempts before failing.
+
+    @pytest.mark.parametrize(
+        ("message", "retryable"),
+        [
+            ("value is too large to store in a Decimal128 of precision 24", False),
+            ("Primary key required for incremental syncs", False),
+            ("ExternalDataSchema matching query does not exist.", False),
+            ("ExternalDataJob matching query does not exist.", False),
+            ("connection reset by peer", True),
+        ],
+    )
+    def test_pattern_classification(self, message: str, retryable: bool):
+        assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable

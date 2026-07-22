@@ -236,12 +236,21 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounced_hard'
+        | 'email_bounced_transient'
+        | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'email_suppressed'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
+        | 'push_sent'
+        | 'push_failed'
+        | 'push_skipped'
         | 'quota_limited'
         | 'conversion'
+        | 'exited_workflow_changed'
+        | 'redirected_workflow_changed'
     count: number
 }
 
@@ -400,12 +409,14 @@ export type HogFunctionInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
+        | 'push_subscription'
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
@@ -423,6 +434,7 @@ export type HogFunctionInputSchemaType = {
     integration_key?: string
     requires_field?: string
     integration_field?: string
+    platform?: 'android' | 'ios'
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively
@@ -511,7 +523,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

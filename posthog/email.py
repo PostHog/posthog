@@ -149,6 +149,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "integration_access_requested": "70",
     "posthog_ai_access_requested": "72",
     "wizard_pr_ready": "74",
+    "loop_run_summary": "73",  # placeholder id, needs creating in Customer.io
 }
 
 

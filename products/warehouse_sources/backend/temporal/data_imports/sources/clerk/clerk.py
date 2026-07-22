@@ -75,6 +75,13 @@ class ClerkPaginator(BasePaginator):
             request.params["offset"] = self._offset
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        # A successful response with an empty body means there are no more rows.
+        # rest_client already treats this as an empty page (body=None); mirror
+        # that here instead of re-parsing and raising JSONDecodeError.
+        if not response.content or not response.content.strip():
+            self._has_next_page = False
+            return
+
         res = response.json()
 
         if not res:

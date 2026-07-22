@@ -15,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PgAnalyzeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pganalyze import (
+    PgAnalyzeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
     pganalyze_source,
     validate_credentials as validate_pganalyze_credentials,
@@ -29,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
+    api_docs_url = "https://pganalyze.com/docs/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYP
 
 logger = structlog.get_logger(__name__)
 
+MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
+SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+
 
 class ExternalDataSourceManager(models.Manager):
     def get_queryset(self):
@@ -30,6 +33,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         API = "api", "api"
         MCP = "mcp", "mcp"
         WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -56,6 +60,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
     source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    # Pinned vendor API version (opaque vendor label, e.g. a Stripe date version). NULL resolves
+    # to the source's `default_version` at sync time. A dedicated column (not `job_inputs`) so the
+    # pin is queryable via the `data_warehouse_sources` HogQL system table — `job_inputs` is
+    # encrypted at rest.
+    api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
@@ -66,7 +75,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
     access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
-    direct_query_enabled = models.BooleanField(default=True)
+    # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
+    direct_query_enabled = models.BooleanField(default=False)
+    # Auto-enable syncing for schemas discovered after source creation (both the scheduled
+    # discovery pass and manual "Pull new schemas"). Off by default — per-source opt-in.
+    auto_sync_new_schemas = models.BooleanField(default=False)
+    # Optional list of fnmatch-style globs (e.g. ["raw_*"]) restricting which newly discovered
+    # schema names auto-sync; matched case-insensitively against both the qualified and bare
+    # table name. Null/empty means every new schema qualifies.
+    auto_sync_schema_patterns = models.JSONField(null=True, blank=True)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -97,6 +114,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_redshift(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.REDSHIFT
+
+    @property
+    def is_system_managed(self) -> bool:
+        metadata = self.connection_metadata
+        return isinstance(metadata, dict) and metadata.get("system_managed") is True
+
+    @classmethod
+    def is_system_managed_prefix(cls, prefix: str | None) -> bool:
+        return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
 
     @property
     def direct_engine(self) -> str | None:
@@ -186,12 +212,17 @@ def get_direct_external_data_source_for_connection(
     except ValueError:
         return None
 
-    return (
+    # Function-local: capability imports this module (circular); also keeps direct-SQL drivers off django.setup().
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    source = (
         ExternalDataSource.objects.filter(
             team_id=team_id,
             id=source_uuid,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
         .exclude(deleted=True)
         .first()
     )
+    if source is None or not is_direct_capable(source):
+        return None
+    return source

@@ -1,270 +1,395 @@
+import hashlib
 import dataclasses
-from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
     ANTHROPIC_ENDPOINTS,
-    AnthropicEndpointConfig,
+    PaginationType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ApiKeyAuthConfig,
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
-# Entity list endpoints accept limit 1-1000.
-ENTITY_PAGE_SIZE = 500
-# Report endpoints cap buckets per page; at 1d width the max is 31.
-REPORT_BUCKET_LIMIT = 31
-# Earliest window start when there is no incremental watermark yet (the Anthropic API launched
-# in 2023, so no usage or cost data can predate this).
+# Entity list endpoints allow up to 1000 per page.
+ENTITY_PAGE_SIZE = 1000
+# Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
+# cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
+# buckets while still pulling all available history.
 DEFAULT_STARTING_AT = datetime(2023, 1, 1, tzinfo=UTC)
-# Usage/cost data lands up to ~5 minutes after a request completes, and the current day's bucket
-# is always partial, so incremental syncs re-fetch a trailing window and rely on merge dedupe.
-INCREMENTAL_LOOKBACK = timedelta(days=1)
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-
-
-class AnthropicRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class AnthropicResumeConfig:
-    # Cursor (last_id) into an after_id-paginated entity list.
-    after_id: Optional[str] = None
-    # Report endpoints: the window start of the in-flight request chain plus the opaque
-    # next_page token to continue from.
-    starting_at: Optional[str] = None
-    page: Optional[str] = None
+    # Opaque pagination cursor: an `after_id` for CURSOR endpoints or a `next_page` token for PAGE
+    # endpoints. None means "start at the first page".
+    cursor: str | None = None
+    # Legacy workspace_members resume field (pre-framework): the workspace whose members we were
+    # paging when we saved state. Kept so previously-saved state still parses; the framework's
+    # fan-out checkpoint below supersedes it, and an old-shape state restarts the fan-out fresh.
+    workspace_id: str | None = None
+    # workspace_members fan-out checkpoint from the framework:
+    # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
+    fanout_state: dict | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "x-api-key": api_key,
-        "anthropic-version": ANTHROPIC_VERSION,
-        "accept": "application/json",
-    }
+class AnthropicCursorPaginator(BasePaginator):
+    """Token-plus-flag pagination shared by every Anthropic endpoint.
 
+    Entity lists page with `after_id` and echo `last_id`; the report endpoints page with `page` and
+    echo `next_page`. Both signal continuation via `has_more`. The built-in cursor paginator stops
+    only on a missing token, but the entity endpoints return `last_id` on the final page too —
+    `has_more` is the authoritative stop signal, so both are honored here.
+    """
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    clean_params = {key: value for key, value in params.items() if value is not None}
-    if not clean_params:
-        return f"{ANTHROPIC_BASE_URL}{path}"
-    # doseq expands the group_by[] list into repeated params.
-    return f"{ANTHROPIC_BASE_URL}{path}?{urlencode(clean_params, doseq=True)}"
+    def __init__(self, cursor_path: str, cursor_param: str) -> None:
+        super().__init__()
+        self.cursor_path = cursor_path
+        self.cursor_param = cursor_param
+        self._cursor_value: Optional[str] = None
 
+    def _apply(self, request: Request) -> None:
+        if self._cursor_value is not None:
+            if request.params is None:
+                request.params = {}
+            request.params[self.cursor_param] = self._cursor_value
 
-def _to_start_datetime(value: Any) -> Optional[datetime]:
-    """Coerce a persisted incremental watermark into an aware UTC datetime."""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
-    if isinstance(value, str):
+    def init_request(self, request: Request) -> None:
+        # Apply a seeded resume cursor to the first request.
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
-    return None
+            body = response.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            self._has_next_page = False
+            return
+        token = body.get(self.cursor_path)
+        if body.get("has_more") and token:
+            self._cursor_value = token
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor_value} if self._has_next_page and self._cursor_value is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor_value = cursor
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"AnthropicCursorPaginator(cursor_path={self.cursor_path}, cursor_param={self.cursor_param})"
 
 
-def _format_rfc3339(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _version_headers() -> dict[str, str]:
+    # Auth (x-api-key) is supplied via the framework auth config so its value is redacted from
+    # logs; only the non-secret version/accept headers are set here.
+    return {"anthropic-version": ANTHROPIC_VERSION, "accept": "application/json"}
 
 
-def _compute_starting_at(db_incremental_field_last_value: Any) -> str:
-    """Window start for a report request: the watermark minus a lookback, floored to midnight UTC
-    (buckets snap to day boundaries), or the default backfill start on the first sync."""
-    last_value = _to_start_datetime(db_incremental_field_last_value)
-    if last_value is None:
-        return _format_rfc3339(DEFAULT_STARTING_AT)
-    start = (last_value - INCREMENTAL_LOOKBACK).replace(hour=0, minute=0, second=0, microsecond=0)
-    return _format_rfc3339(max(start, DEFAULT_STARTING_AT))
+def _auth_config(api_key: str) -> ApiKeyAuthConfig:
+    return {"type": "api_key", "name": "x-api-key", "api_key": api_key, "location": "header"}
 
 
-def _flatten_report_buckets(buckets: list[dict[str, Any]], config: AnthropicEndpointConfig) -> list[dict[str, Any]]:
-    """Flatten time buckets into one row per (bucket, group-by combination) with a synthetic
-    primary key, so re-fetched windows merge instead of duplicating."""
-    rows: list[dict[str, Any]] = []
-    for bucket in buckets:
-        # Direct access: a missing bucket boundary must fail loudly rather than seed rows with a
-        # None primary key, watermark, and partition key.
-        bucket_starting_at = bucket["starting_at"]
-        bucket_ending_at = bucket["ending_at"]
-        for result in bucket.get("results") or []:
-            row = dict(result)
-            row["bucket_starting_at"] = bucket_starting_at
-            row["bucket_ending_at"] = bucket_ending_at
-            row["id"] = "|".join([str(bucket_starting_at), *(str(result.get(key)) for key in config.key_fields)])
-            rows.append(row)
-    return rows
+def _format_rfc3339(value: Any) -> str:
+    """Format a datetime/date as an RFC 3339 UTC timestamp with a Z suffix (Anthropic's format)."""
+    if isinstance(value, datetime):
+        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    elif isinstance(value, date):
+        dt = datetime.combine(value, datetime.min.time(), tzinfo=UTC)
+    else:
+        return str(value)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def validate_credentials(api_key: str) -> bool:
-    """Confirm the Admin API key works. Listing one organization user is the cheapest
-    authenticated probe every admin key can perform."""
-    try:
-        response = make_tracked_session().get(
-            _build_url("/v1/organizations/users", {"limit": 1}),
-            headers=_get_headers(api_key),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def _make_fetch_page(headers: dict[str, str], logger: FilteringBoundLogger) -> Callable[[str], dict[str, Any]]:
-    @retry(
-        retry=retry_if_exception_type((AnthropicRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
+    # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
+    # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
+    # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{ANTHROPIC_BASE_URL}/v1/organizations/users?limit=1",
+        headers={"x-api-key": api_key, **_version_headers()},
+        ok_statuses=(200, 403),
     )
-    def fetch_page(url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # The Admin API rate limit is sustained-per-minute with burst allowance; exponential
-        # backoff on 429 is sufficient.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AnthropicRetryableError(f"Anthropic API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"Anthropic API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    return fetch_page
+    return ok
 
 
-def _entity_pages(
-    fetch_page: Callable[[str], dict[str, Any]],
-    config: AnthropicEndpointConfig,
-    after_id: Optional[str],
-    on_page_complete: Optional[Callable[[str], None]] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    """Iterate an after_id-cursor list endpoint, yielding each page's items."""
-    while True:
-        params: dict[str, Any] = {**config.params, "limit": ENTITY_PAGE_SIZE}
-        if after_id:
-            params["after_id"] = after_id
-
-        data = fetch_page(_build_url(config.path, params))
-        items = data.get("data") or []
-
-        if items:
-            yield items
-
-        after_id = data.get("last_id")
-        if not data.get("has_more") or not after_id:
-            break
-
-        if on_page_complete is not None:
-            on_page_complete(after_id)
+def _flatten_created_by(item: dict[str, Any]) -> dict[str, Any]:
+    """api_keys carry a nested `created_by: {id, type}`; surface it as flat columns."""
+    created_by = item.get("created_by")
+    if isinstance(created_by, dict):
+        item = {**item}
+        item.pop("created_by")
+        item["created_by_id"] = created_by.get("id")
+        item["created_by_type"] = created_by.get("type")
+    return item
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = ANTHROPIC_ENDPOINTS[endpoint]
-    fetch_page = _make_fetch_page(_get_headers(api_key), logger)
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        logger.debug(f"Anthropic: resuming {endpoint} from saved state: {resume_config}")
+def _row_id(*parts: Any) -> str:
+    """Deterministic surrogate id for a report row.
 
-    if config.kind == "entity":
-        after_id = resume_config.after_id if resume_config else None
-        yield from _entity_pages(
-            fetch_page,
-            config,
-            after_id,
-            on_page_complete=lambda last_id: resumable_source_manager.save_state(
-                AnthropicResumeConfig(after_id=last_id)
-            ),
-        )
-    elif config.kind == "workspace_members":
-        # Fan-out over the (small) workspace list. Rows merge on (workspace_id, user_id), so no
-        # intermediate resume state is saved — a resumed sync restarts the fan-out cleanly.
-        workspaces_config = ANTHROPIC_ENDPOINTS["workspaces"]
-        for workspace_page in _entity_pages(fetch_page, workspaces_config, None):
-            for workspace in workspace_page:
-                member_config = dataclasses.replace(config, path=config.path.format(workspace_id=workspace["id"]))
-                yield from _entity_pages(fetch_page, member_config, None)
-    else:
-        if resume_config is not None and resume_config.starting_at is not None:
-            starting_at = resume_config.starting_at
-            page = resume_config.page
-        else:
-            starting_at = _compute_starting_at(
-                db_incremental_field_last_value if should_use_incremental_field else None
-            )
-            page = None
+    Hashes only the identity/dimension fields (never the metric values), so a bucket whose metrics
+    get restated between runs keeps the same id and merge updates it in place rather than inserting a
+    duplicate.
+    """
+    # Use a sentinel for None so a missing dimension can never collide with an empty-string value.
+    joined = "|".join("\x00" if p is None else str(p) for p in parts)
+    return hashlib.sha256(joined.encode()).hexdigest()
 
-        while True:
-            params: dict[str, Any] = {
-                "starting_at": starting_at,
-                "limit": REPORT_BUCKET_LIMIT,
-                "bucket_width": config.bucket_width,
-                "group_by[]": config.group_by or None,
-                "page": page,
-            }
-            data = fetch_page(_build_url(config.path, params))
 
-            rows = _flatten_report_buckets(data.get("data") or [], config)
-            if rows:
-                yield rows
+def _flatten_usage_result(bucket: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    starting_at = bucket.get("starting_at")
+    cache_creation = result.get("cache_creation") or {}
+    server_tool_use = result.get("server_tool_use") or {}
+    row = {
+        "id": _row_id(
+            starting_at,
+            result.get("account_id"),
+            result.get("api_key_id"),
+            result.get("service_account_id"),
+            result.get("workspace_id"),
+            result.get("model"),
+            result.get("service_tier"),
+            result.get("context_window"),
+            result.get("inference_geo"),
+        ),
+        "starting_at": starting_at,
+        "ending_at": bucket.get("ending_at"),
+        "account_id": result.get("account_id"),
+        "api_key_id": result.get("api_key_id"),
+        "service_account_id": result.get("service_account_id"),
+        "workspace_id": result.get("workspace_id"),
+        "model": result.get("model"),
+        "service_tier": result.get("service_tier"),
+        "context_window": result.get("context_window"),
+        "inference_geo": result.get("inference_geo"),
+        "uncached_input_tokens": result.get("uncached_input_tokens"),
+        "cache_read_input_tokens": result.get("cache_read_input_tokens"),
+        "cache_creation_ephemeral_1h_input_tokens": cache_creation.get("ephemeral_1h_input_tokens"),
+        "cache_creation_ephemeral_5m_input_tokens": cache_creation.get("ephemeral_5m_input_tokens"),
+        "output_tokens": result.get("output_tokens"),
+        "web_search_requests": server_tool_use.get("web_search_requests"),
+    }
+    return row
 
-            page = data.get("next_page")
-            if not data.get("has_more") or not page:
-                break
 
-            resumable_source_manager.save_state(AnthropicResumeConfig(starting_at=starting_at, page=page))
+def _flatten_cost_result(bucket: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    starting_at = bucket.get("starting_at")
+    return {
+        "id": _row_id(
+            starting_at,
+            result.get("workspace_id"),
+            result.get("description"),
+            result.get("cost_type"),
+            result.get("model"),
+            result.get("service_tier"),
+            result.get("token_type"),
+            result.get("context_window"),
+        ),
+        "starting_at": starting_at,
+        "ending_at": bucket.get("ending_at"),
+        "workspace_id": result.get("workspace_id"),
+        "description": result.get("description"),
+        "cost_type": result.get("cost_type"),
+        "model": result.get("model"),
+        "service_tier": result.get("service_tier"),
+        "token_type": result.get("token_type"),
+        "context_window": result.get("context_window"),
+        "currency": result.get("currency"),
+        "amount": result.get("amount"),
+    }
+
+
+def _explode_usage_bucket(bucket: dict[str, Any]) -> list[dict[str, Any]]:
+    # One report page is a list of time buckets, each carrying grouped results — flatten to one row
+    # per result with the bucket window merged in. An empty bucket yields no rows.
+    return [_flatten_usage_result(bucket, result) for result in bucket.get("results") or []]
+
+
+def _explode_cost_bucket(bucket: dict[str, Any]) -> list[dict[str, Any]]:
+    return [_flatten_cost_result(bucket, result) for result in bucket.get("results") or []]
+
+
+def _stamp_workspace_id(row: dict[str, Any]) -> dict[str, Any]:
+    # The member object already carries workspace_id, but fall back to the parent workspace's id
+    # (injected by the fan-out as `_workspaces_id`) so the composite primary key is always populated.
+    parent_id = row.pop("_workspaces_id", None)
+    row["workspace_id"] = row.get("workspace_id") or parent_id
+    return row
+
+
+def _entity_paginator() -> AnthropicCursorPaginator:
+    return AnthropicCursorPaginator(cursor_path="last_id", cursor_param="after_id")
 
 
 def anthropic_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ANTHROPIC_ENDPOINTS[endpoint]
 
+    client_config: ClientConfig = {
+        "base_url": ANTHROPIC_BASE_URL,
+        "headers": _version_headers(),
+        "auth": _auth_config(api_key),
+    }
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.fan_out_over_workspaces:
+        # No org-wide member list exists; enumerate every workspace (archived included, since they
+        # are still referenced by historical usage/cost rows) and fetch its /members per workspace.
+        workspaces_config = ANTHROPIC_ENDPOINTS["workspaces"]
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [
+                {
+                    "name": "workspaces",
+                    "endpoint": {
+                        "path": workspaces_config.path,
+                        "params": {"limit": ENTITY_PAGE_SIZE, **workspaces_config.extra_params},
+                        "data_selector": "data",
+                        "paginator": _entity_paginator(),
+                    },
+                },
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": {
+                            "limit": ENTITY_PAGE_SIZE,
+                            "workspace_id": {"type": "resolve", "resource": "workspaces", "field": "id"},
+                        },
+                        "data_selector": "data",
+                        "paginator": _entity_paginator(),
+                    },
+                    "include_from_parent": ["id"],
+                    "data_map": _stamp_workspace_id,
+                },
+            ],
+        }
+
+        # Only a framework-shaped checkpoint can seed the fan-out; a legacy (cursor, workspace_id)
+        # state restarts the fan-out fresh — the overlap merge dedupes on the composite key.
+        initial_fanout_state = resume.fanout_state if resume is not None else None
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(AnthropicResumeConfig(fanout_state=state))
+
+        resources = rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
+        )
+        resource = next(r for r in resources if r.name == endpoint)
+    else:
+        data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
+        if config.pagination == PaginationType.PAGE:
+            # Report endpoints: `starting_at` is required. On an incremental run start from the
+            # watermark (already shifted back by the pipeline's lookback); otherwise fall back to
+            # the Anthropic launch date to pull all history.
+            params: dict[str, Any] = {"bucket_width": config.bucket_width}
+            if config.limit is not None:
+                params["limit"] = config.limit
+            if config.group_by:
+                # requests encodes a list value as one repeated query param per element.
+                params["group_by[]"] = config.group_by
+            params["starting_at"] = {
+                "type": "incremental",
+                "cursor_path": "starting_at",
+                "initial_value": DEFAULT_STARTING_AT,
+                "convert": _format_rfc3339,
+            }
+            paginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
+            data_map = _explode_usage_bucket if endpoint == "usage_report" else _explode_cost_bucket
+        else:
+            params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
+            paginator = _entity_paginator()
+            data_map = _flatten_created_by if endpoint == "api_keys" else None
+
+        endpoint_resource: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {
+                "path": config.path,
+                "params": params,
+                "data_selector": "data",
+                "paginator": paginator,
+            },
+            "data_map": data_map,
+        }
+
+        rest_config = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [endpoint_resource],
+        }
+
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.cursor:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only while a next page remains; the checkpoint is saved AFTER a page is
+            # yielded, pointing at the next page, so a crash resumes from a page whose predecessors
+            # were all yielded — the overlap merge dedupes on the primary key.
+            if state and state.get("cursor"):
+                resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
-        # Report time buckets are returned in chronological order; entity lists are full refresh
-        # where ordering does not affect the watermark.
+        # Report buckets return oldest-first from `starting_at`, and entity cursors page forward, so
+        # rows arrive in ascending order — the pipeline checkpoints the watermark after each batch.
         sort_mode="asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

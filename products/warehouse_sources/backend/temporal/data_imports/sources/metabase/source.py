@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetabaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
+    MetabaseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     HOST_NOT_ALLOWED_ERROR,
@@ -37,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetabaseSource(SimpleSource[MetabaseSourceConfig]):
+    api_docs_url = "https://www.metabase.com/docs/latest/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METABASE
@@ -175,6 +179,7 @@ The API key (or user) needs read access to the data you want to sync.""",
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

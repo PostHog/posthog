@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InstatusSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instatus import (
+    InstatusSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.instatus import (
     InstatusResumeConfig,
     instatus_source,
@@ -38,6 +40,7 @@ class InstatusSource(ResumableSource[InstatusSourceConfig, InstatusResumeConfig]
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in the public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://instatus.com/help/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -57,7 +60,6 @@ class InstatusSource(ResumableSource[InstatusSourceConfig, InstatusResumeConfig]
             iconPath="/static/services/instatus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/instatus",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -127,6 +129,7 @@ class InstatusSource(ResumableSource[InstatusSourceConfig, InstatusResumeConfig]
         return instatus_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

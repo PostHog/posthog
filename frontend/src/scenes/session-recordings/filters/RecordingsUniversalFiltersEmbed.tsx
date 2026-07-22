@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useId, useRef, useState } from 'react'
 
@@ -64,6 +64,9 @@ import {
     SessionRecordingPlaylistType,
     UniversalFiltersGroup,
 } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -139,6 +142,13 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+
+    useAttachedContext([
+        { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
+        ...(currentSessionRecordingId
+            ? [{ type: 'session_recording', key: currentSessionRecordingId, label: 'Current session' } as const]
+            : []),
+    ] as AttachedContextItem[])
 
     return (
         <>
@@ -699,8 +709,8 @@ export const ReplayFiltersTab = ({
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             <ProductAnalyticsOverLimitBanner />
             {appliedSavedFilter && (
-                <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">
+                <div className="border-b px-2 py-2 flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                         <span className="font-medium whitespace-nowrap shrink-0">Loaded saved filter:</span>
                         <SavedFilterNameEditor
                             appliedSavedFilter={appliedSavedFilter}
@@ -747,7 +757,7 @@ export const ReplayFiltersTab = ({
                     )}
                 </div>
             )}
-            <div className="flex items-center py-2 justify-between">
+            <div className="flex items-center py-2 justify-between px-2">
                 <AndOrFilterSelect
                     // Reflect the effective operand, not just the outer group: legacy saved filters can
                     // carry the match-any on the inner group while the outer stays AND. Toggling syncs
@@ -781,7 +791,7 @@ export const ReplayFiltersTab = ({
                     suffix={['filter', 'filters']}
                     size="small"
                 />
-                <div className="mr-2">
+                <div>
                     {compactActions ? (
                         resetButton
                     ) : (
@@ -880,7 +890,7 @@ export const ReplayFiltersTab = ({
                 <>
                     <LemonDivider className="mt-4" />
 
-                    <div className="flex items-center py-2 justify-between px-1 gap-2">
+                    <div className="flex items-center py-2 justify-between px-2 gap-2">
                         {showFeedbackButton && (
                             <LemonButton
                                 id="replay-filters-feedback-button"

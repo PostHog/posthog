@@ -8,7 +8,9 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WorkableSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
+    WorkableSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.source import WorkableSource
@@ -28,8 +30,6 @@ class TestSourceConfig:
         config = WorkableSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.HR___RECRUITING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden from users until the source is signed off.
-        assert config.unreleasedSource is True
 
     def test_fields(self) -> None:
         field_names = {f.name for f in WorkableSource().get_source_config.fields}

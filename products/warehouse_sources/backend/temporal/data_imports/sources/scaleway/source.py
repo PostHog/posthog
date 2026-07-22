@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ScalewaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleway import (
+    ScalewaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.scaleway import (
     ScalewayResumeConfig,
     probe_endpoint,
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://www.scaleway.com/en/developers/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -50,7 +53,6 @@ class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Scaleway",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Scaleway API secret key and Organization ID to pull your Scaleway data into the PostHog Data warehouse.
 
 Create an API key from the [IAM > API keys](https://console.scaleway.com/iam/api-keys) page in the Scaleway console, and find your Organization ID under [Organization settings](https://console.scaleway.com/organization/settings).

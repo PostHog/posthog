@@ -60,6 +60,8 @@ export interface FacetConfig {
     searchable?: boolean
     searchPlaceholder?: string
     emptyLabel?: string
+    /** Max pixel height before the value list virtualizes and scrolls. */
+    maxHeight?: number
 }
 
 interface SpanFacetFilter {
@@ -100,9 +102,29 @@ export function facetFilterValues(group: UniversalFiltersGroup | undefined, sour
     const existing = innerFilters(group).find((f) => isFacetFilter(f, source))
     const value = existing?.value
     if (Array.isArray(value)) {
-        return value.map(String)
+        // Empty strings from external state (URL, saved view) would select a value with no visible row.
+        return value.map(String).filter((v) => v !== '')
     }
     return value != null && value !== '' ? [String(value)] : []
+}
+
+/**
+ * Values currently selected for any facet — routes the service facet to the dedicated
+ * serviceNames field and everything else to its filterGroup property filter.
+ */
+export function facetSelectedValues(
+    group: UniversalFiltersGroup | undefined,
+    serviceNames: string[] | undefined | null,
+    source: FacetSource
+): string[] {
+    if (source.type === 'column') {
+        if (source.column === 'service_name') {
+            // Empty strings from external state (URL, saved view) would select a value with no visible row.
+            return (serviceNames ?? []).filter((v) => v !== '')
+        }
+        return facetFilterValues(group, { type: 'column', column: source.column })
+    }
+    return facetFilterValues(group, source)
 }
 
 /**
@@ -151,6 +173,7 @@ const SERVICE_FACET: FacetConfig = {
     searchable: true,
     searchPlaceholder: 'Search services…',
     emptyLabel: 'No services',
+    maxHeight: 300,
 }
 
 const STATUS_FACET: FacetConfig = {
@@ -174,6 +197,7 @@ function resourceAttributeFacet(key: string, slug: string, title: string, group:
         searchable: true,
         searchPlaceholder: `Search ${title.toLowerCase()}…`,
         emptyLabel: `No ${title.toLowerCase()} values`,
+        maxHeight: 300,
     }
 }
 
@@ -203,5 +227,54 @@ export const FACETS: FacetConfig[] = [
     HOST_FACET,
 ]
 
-// List-shaping helpers for rendering the rail (grouping, name search, merging selected values
-// into fetched options) land with their consumer, the Facet/FacetRail components.
+/**
+ * Filter facets by a free-text query matching the field name or its group (case-insensitive
+ * substring) — powers the rail's "search facets" box. A blank query returns everything, so
+ * `facetsByGroup` then drops any group left with no matching facets for free.
+ */
+export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
+    const needle = query.trim().toLowerCase()
+    if (!needle) {
+        return facets
+    }
+    return facets.filter(
+        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
+    )
+}
+
+/**
+ * Ensure every selected value of a dynamic facet renders even when absent from the fetched list —
+ * a filter from a URL or saved view can reference a value with no matches in the current scope
+ * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
+ * Missing values are prepended with a zero count. An active type-ahead search still applies to
+ * injected rows, matching the server-side substring semantics of the fetched ones.
+ */
+export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[], search?: string): FacetOption[] {
+    const needle = (search ?? '').trim().toLowerCase()
+    const seen = new Set(fetched.map((option) => option.value))
+    // Dedupe as we go: a URL or saved view can carry the same value twice, and two rows sharing a
+    // value would collide on their React key and toggle target.
+    const missing: FacetOption[] = []
+    for (const value of selected) {
+        if (seen.has(value) || (needle && !value.toLowerCase().includes(needle))) {
+            continue
+        }
+        seen.add(value)
+        missing.push({ value, label: value, count: 0 })
+    }
+    return missing.length > 0 ? [...missing, ...fetched] : fetched
+}
+
+/** Group facets by `group`, preserving first-appearance order of both groups and facets. */
+export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
+    const groups: [string, FacetConfig[]][] = []
+    for (const facet of facets) {
+        const existing = groups.find(([group]) => group === facet.group)
+        if (existing) {
+            existing[1].push(facet)
+        } else {
+            groups.push([facet.group, [facet]])
+        }
+    }
+    return groups
+}

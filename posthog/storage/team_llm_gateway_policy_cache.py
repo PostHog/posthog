@@ -132,6 +132,10 @@ LLM_GATEWAY_POLICY_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=team_llm_gateway_policy_hypercache,
     update_fn=update_team_llm_gateway_policy_cache,
     cache_name="llm_gateway_policy",
+    # The refresh only projects these columns; narrowing the SELECT keeps it resilient
+    # to newly added Team columns the read replica may not have applied yet. The FK ids
+    # are included so the (unused) organization/project select_related join stays valid.
+    refresh_only_fields=[*LLM_GATEWAY_POLICY_FIELDS, "project_id", "organization_id"],
 )
 
 

@@ -127,6 +127,9 @@ class BatchConsumerAdapter(Protocol):
     # Advisory-lock-based adapters set False (lock is session-scoped, must stay
     # on the poll connection that acquired it).
     per_group_connections: bool
+    # True: a should_process_batch skip means "already done" — still record succeeded.
+    # False: the adapter already wrote a terminal state; the engine must write nothing.
+    record_skip_as_success: bool
 
     async def fetch_and_lock(
         self,
@@ -164,7 +167,11 @@ class BatchConsumerAdapter(Protocol):
         attempt: int,
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,
-    ) -> None: ...
+        expected_state_changed_at: datetime | None = None,
+    ) -> None:
+        """Write the batch's status. ``expected_state_changed_at`` arms a compare-and-swap
+        where supported; a sink may signal a lost race by raising ``OwnershipLostError``."""
+        ...
 
     async def fail_run(
         self,
@@ -192,6 +199,17 @@ class BatchConsumerAdapter(Protocol):
         owner_token: str,
         lease_ttl_seconds: int,
     ) -> bool: ...
+
+    async def delete_expired_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        """Remove the group's lease iff already expired, fencing a resurrecting owner
+        before the recovery sweep re-queues its batches. No-op for non-lease sinks."""
+        ...
 
     async def get_stale_executing(
         self,
@@ -624,8 +642,10 @@ class BatchConsumer:
         Renewing the lease and refreshing the executing-status grace window on
         the same cadence keeps the two reclaim signals consistent: a pod that
         stops heartbeating loses its lease and ages out of the grace window at
-        the same time. ``renew_lease`` returning False means another pod
-        reclaimed the group, so we stop heartbeating immediately.
+        the same time. ``renew_lease`` returning False means ownership is gone
+        for good (reclaimed, sweep-deleted, or expired — expiry is terminal), so
+        we stop heartbeating immediately; the pre-success ownership check then
+        abandons the in-flight batch instead of writing ``succeeded``.
         """
         interval = max((self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS) / 3, 10.0)
         while True:
@@ -638,8 +658,33 @@ class BatchConsumer:
                     owner_token=self._owner_token,
                     lease_ttl_seconds=self._lease_ttl_seconds,
                 )
-                if not renewed:
-                    raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
+            except Exception as e:
+                # A transient blip (pgbouncer bounce, network hiccup) must not
+                # end the heartbeat for the rest of a long batch: with renewals
+                # stopped, the lease expires and the executing row ages past
+                # grace while the owner is still healthily applying — inviting
+                # a concurrent re-claim of a batch that is mid-write. Log and
+                # try again next tick; a genuinely dead connection keeps
+                # failing and the lease-expiry backstop still applies.
+                logger.warning(
+                    self._event("batch_heartbeat_renewal_failed"),
+                    batch_id=batch.id,
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                    error=str(e),
+                )
+                continue
+            if not renewed:
+                # Ownership is gone (reclaimed or expired) — never transient: stop
+                # heartbeating so the per-batch ownership checks fence the apply.
+                logger.warning(
+                    self._event("batch_heartbeat_lease_lost"),
+                    batch_id=batch.id,
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                )
+                return
+            try:
                 await self._adapter.update_status(
                     lock_conn,
                     batch_id=batch.id,
@@ -647,8 +692,14 @@ class BatchConsumer:
                     attempt=attempt,
                     batch_created_at=batch.created_at,
                 )
-            except Exception:
-                return
+            except Exception as e:
+                logger.warning(
+                    self._event("batch_heartbeat_status_refresh_failed"),
+                    batch_id=batch.id,
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                    error=str(e),
+                )
 
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:
         """Bind per-batch log context, then process. Returns True only on success.
@@ -737,6 +788,19 @@ class BatchConsumer:
             # status here, and our own 'executing' row would mask a terminal
             # status written while the batch waited in this claim.
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
+
+            if not should_process and not self._adapter.record_skip_as_success:
+                # The adapter already wrote a terminal state (e.g. fail_run); an
+                # executing/succeeded write here would supersede it as the newer row.
+                logger.info(
+                    self._event("batch_skipped_no_status_written"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                )
+                self._metrics.batches_processed_total.labels(
+                    team_id=team_id, schema_id=schema_id, status="skipped"
+                ).inc()
+                return False
 
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
             # and knows this attempt was consumed.
@@ -1036,21 +1100,33 @@ class BatchConsumer:
                     attempt=batch.latest_attempt,
                 )
                 try:
+                    # Claim the corpse first: once the expired lease is gone, a resurrecting
+                    # owner's renew matches nothing, so it can't finish over the re-queue.
+                    await self._adapter.delete_expired_lease(conn, team_id=batch.team_id, schema_id=batch.schema_id)
                     if batch.latest_attempt >= self._config.max_attempts:
                         logger.warning(
                             self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
                         )
+                        # fail_run's bulk write re-reads each batch's latest status in-statement and
+                        # targets only non-terminal ones, so it can't flip a meanwhile-succeeded batch.
                         await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
                     else:
-                        logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
-                        await self._adapter.update_status(
-                            conn,
-                            batch_id=batch.id,
-                            job_state=self._adapter.waiting_retry_state,
-                            attempt=batch.latest_attempt,
-                            error_response={"error": "executing timed out - pod restart or OOM"},
-                            batch_created_at=batch.created_at,
-                        )
+                        try:
+                            await self._adapter.update_status(
+                                conn,
+                                batch_id=batch.id,
+                                job_state=self._adapter.waiting_retry_state,
+                                attempt=batch.latest_attempt,
+                                error_response={"error": "executing timed out - pod restart or OOM"},
+                                batch_created_at=batch.created_at,
+                                expected_state_changed_at=batch.state_changed_at,
+                            )
+                        except OwnershipLostError:
+                            # The state moved after the stale scan (owner finished, or the batch
+                            # went terminal): leave it, without aborting the rest of the sweep.
+                            logger.info(self._event("batch_recovery_skipped_state_moved"), batch_id=batch.id)
+                        else:
+                            logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:

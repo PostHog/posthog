@@ -119,6 +119,8 @@ mod tests {
                 person_id: person.to_string(),
                 last_updated: TS.to_string(),
                 status: MembershipStatus::Entered,
+                origin: None,
+                run_id: None,
             },
             777,
         )

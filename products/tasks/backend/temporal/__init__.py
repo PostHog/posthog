@@ -16,11 +16,13 @@ from .create_snapshot.activities import (
     setup_repository as snapshot_setup_repository,
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
+from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
+    complete_run_stream,
     create_resume_snapshot,
     create_sandbox_for_repository,
     emit_progress_activity,
@@ -39,6 +41,7 @@ from .process_task.activities import (
     refresh_sandbox_credentials,
     relay_agent_design_signals,
     relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
     run_wizard,
     send_followup_to_sandbox,
     send_permission_denial_guidance,
@@ -64,6 +67,7 @@ WORKFLOWS = [
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
     RunTaskAutomationWorkflow,
+    RunLoopWorkflow,
     EvaluateCodeWorkstreamsWorkflow,
     EvaluateTeamCodeWorkstreamsWorkflow,
     BuildSandboxImageWorkflow,
@@ -85,6 +89,7 @@ ACTIVITIES = [
     forward_pending_user_message,
     relay_agent_design_signals,
     relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
     create_resume_snapshot,
     post_permission_delivery_failure_notice,
     send_permission_denial_guidance,
@@ -96,6 +101,7 @@ ACTIVITIES = [
     mark_repo_ready,
     read_sandbox_logs,
     cleanup_sandbox,
+    complete_run_stream,
     emit_progress_activity,
     track_workflow_event,
     post_slack_update,
@@ -107,6 +113,7 @@ ACTIVITIES = [
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
     run_task_automation_activity,
+    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

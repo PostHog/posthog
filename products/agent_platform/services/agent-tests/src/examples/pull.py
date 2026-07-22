@@ -34,20 +34,20 @@ Usage:
     python services/agent-tests/src/examples/pull.py
 
     # One bundle (selector matches slug exactly or as a substring):
-    python services/agent-tests/src/examples/pull.py kudos-bot
+    python services/agent-tests/src/examples/pull.py wake-me-up
 
     # Comma-separated, or show what would change without writing:
-    python services/agent-tests/src/examples/pull.py --only kudos-bot,wake-me-up
-    DRY_RUN=1 python services/agent-tests/src/examples/pull.py kudos-bot
+    python services/agent-tests/src/examples/pull.py --only agent-builder,wake-me-up
+    DRY_RUN=1 python services/agent-tests/src/examples/pull.py wake-me-up
 
     # Also pull spec.json (triggers / tools / limits), not just content:
-    python services/agent-tests/src/examples/pull.py --spec kudos-bot
+    python services/agent-tests/src/examples/pull.py --spec wake-me-up
 
     # Pull the newest revision even if it isn't promoted to live:
-    python services/agent-tests/src/examples/pull.py --latest kudos-bot
+    python services/agent-tests/src/examples/pull.py --latest wake-me-up
 
     # Also delete on-disk skills/tools that no longer exist on the platform:
-    python services/agent-tests/src/examples/pull.py --prune kudos-bot
+    python services/agent-tests/src/examples/pull.py --prune wake-me-up
 
 Env vars: the same as `seed.py` — PAT (optional in a flox dev env; otherwise
 auto-minted via `manage.py setup_local_api_key`), POSTHOG_API, PROJECT_ID,
@@ -314,7 +314,7 @@ def parse_args(argv: list[str]) -> tuple[bool, bool, bool, bool, list[str]]:
         elif arg.startswith("--only="):
             selectors.extend(s for s in arg.split("=", 1)[1].split(",") if s)
         elif arg == "--only":
-            seed.die("--only needs a value, e.g. --only=kudos-bot")
+            seed.die("--only needs a value, e.g. --only=wake-me-up")
         elif arg.startswith("--"):
             seed.die(f"unknown flag {arg!r}")
         else:

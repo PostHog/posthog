@@ -1,9 +1,11 @@
+import json
 from typing import Any, Optional
 
 import pytest
 from unittest import mock
 
 import requests
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase import metabase as metabase_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
@@ -13,13 +15,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     MetabaseAuth,
     MetabaseAuthError,
     MetabaseHostNotAllowedError,
-    _extract_items,
     _redact_values_for_data_requests,
     _resolve_auth_headers,
     get_rows,
     metabase_source,
     normalize_host,
     validate_credentials,
+)
+
+# The RESTClient reuses the session passed in the client config; metabase builds that session via
+# make_tracked_session in the metabase module (the same helper mints the session-auth token), so a
+# single patch drives both the mint POST and the framework's data requests.
+METABASE_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase.make_tracked_session"
 )
 
 
@@ -33,6 +41,17 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.json.return_value = json_data
     response.headers = {}
     return response
+
+
+def _real_response(*, status_code: int = 200, json_data: Any = None) -> Response:
+    """A real requests.Response the framework can parse — send() returns these to the RESTClient."""
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = b"" if json_data is None else json.dumps(json_data).encode()
+    resp.url = "https://x.metabaseapp.com/api/card"
+    if status_code in (301, 302, 303, 307, 308):
+        resp.headers["Location"] = "https://internal.example/redirected"
+    return resp
 
 
 def _api_key_auth() -> MetabaseAuth:
@@ -61,22 +80,6 @@ class TestNormalizeHost:
     )
     def test_normalize_host(self, raw, expected):
         assert normalize_host(raw) == expected
-
-
-class TestExtractItems:
-    @pytest.mark.parametrize(
-        "data, expected",
-        [
-            ([{"id": 1}, {"id": 2}], [{"id": 1}, {"id": 2}]),
-            ({"data": [{"id": 1}], "total": 1}, [{"id": 1}]),
-            ({"total": 0}, []),
-            (None, []),
-            ("nonsense", []),
-            ([{"id": 1}, "skip-me", 5], [{"id": 1}]),
-        ],
-    )
-    def test_extract_items(self, data, expected):
-        assert _extract_items(data) == expected
 
 
 class TestResolveAuthHeaders:
@@ -189,13 +192,29 @@ class TestValidateCredentials:
         assert valid is False
         assert msg == "Invalid Metabase host"
 
-    def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+    def test_connection_error_does_not_leak_raw_exception(self):
+        # requests connection errors embed the customer's host/IP and give the user nothing to act
+        # on. The (fictional-range) IP and the raw blob must never reach the user; a friendly,
+        # actionable message must.
+        raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): Max retries exceeded"
+        with self._patch_session(raises=requests.exceptions.ConnectionError(raw)):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
-            assert "boom" in (msg or "")
+            assert msg is not None
+            assert "203.0.113.10" not in msg
+            assert "HTTPSConnectionPool" not in msg
+            assert "Instance URL" in msg
+
+    def test_wrong_version_number_points_at_https(self):
+        # HTTPS forced onto a plaintext port surfaces as SSL WRONG_VERSION_NUMBER; the guidance
+        # should tell the user the instance must be served over HTTPS, without leaking the host.
+        raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): SSLError([SSL: WRONG_VERSION_NUMBER])"
+        with self._patch_session(raises=requests.exceptions.SSLError(raw)):
+            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
+            assert valid is False
+            assert msg is not None
+            assert "203.0.113.10" not in msg
+            assert "HTTPS" in msg
 
     def test_rejects_redirect_response(self):
         with self._patch_session(_response(status_code=302)) as patched:
@@ -278,10 +297,34 @@ class TestMetabaseSourceResponse:
 
 
 class TestGetRows:
-    def _run(self, responses: list[Any], auth: Optional[MetabaseAuth] = None, endpoint: str = "cards"):
+    """Drives the new rest_source transport: a single unpaginated GET per endpoint, with the auth
+    header, host guard, and redirect refusal preserved from the hand-rolled implementation."""
+
+    def _wire(self, session: mock.MagicMock, responses: list[Response]) -> list[Any]:
+        """Wire a mock session and capture the framework Request prepared for each send."""
+        session.headers = {}
+        requests_seen: list[Any] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            requests_seen.append(request)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return requests_seen
+
+    def _run(
+        self,
+        responses: list[Response],
+        auth: Optional[MetabaseAuth] = None,
+        endpoint: str = "cards",
+        mint_response: Optional[Any] = None,
+    ) -> tuple[list[Any], mock.MagicMock, list[Any]]:
         session = mock.MagicMock()
-        session.get.side_effect = responses
-        with mock.patch.object(metabase_module, "make_tracked_session", return_value=session):
+        if mint_response is not None:
+            session.post.return_value = mint_response
+        requests_seen = self._wire(session, responses)
+        with mock.patch(METABASE_SESSION_PATCH, return_value=session):
             rows: list[Any] = []
             for table in get_rows(
                 host="https://x.metabaseapp.com",
@@ -291,49 +334,51 @@ class TestGetRows:
                 team_id=1,
             ):
                 rows.extend(table)
-        return rows, session
+        return rows, session, requests_seen
 
     def test_yields_bare_array(self):
-        rows, session = self._run([_response(json_data=[{"id": 1}, {"id": 2}])])
+        rows, session, requests_seen = self._run([_real_response(json_data=[{"id": 1}, {"id": 2}])])
         assert [r["id"] for r in rows] == [1, 2]
-        assert session.get.call_count == 1
-        assert session.get.call_args.args[0] == "https://x.metabaseapp.com/api/card"
+        assert session.send.call_count == 1
+        assert requests_seen[0].url == "https://x.metabaseapp.com/api/card"
 
     def test_yields_wrapped_array(self):
-        rows, _ = self._run([_response(json_data={"data": [{"id": 7}], "total": 1})], endpoint="databases")
+        rows, _, _ = self._run([_real_response(json_data={"data": [{"id": 7}], "total": 1})], endpoint="databases")
         assert [r["id"] for r in rows] == [7]
 
     def test_empty_collection_yields_nothing(self):
-        rows, _ = self._run([_response(json_data=[])])
+        rows, _, _ = self._run([_real_response(json_data=[])])
         assert rows == []
 
     def test_passes_allow_redirects_false(self):
-        _rows, session = self._run([_response(json_data=[{"id": 1}])])
-        assert session.get.call_args.kwargs["allow_redirects"] is False
+        _rows, session, _ = self._run([_real_response(json_data=[{"id": 1}])])
+        assert session.send.call_args.kwargs["allow_redirects"] is False
 
     def test_rejects_redirect(self):
-        with pytest.raises(MetabaseHostNotAllowedError):
-            self._run([_response(status_code=302)])
+        # allow_redirects=False makes the client refuse any 3xx rather than following it off-host.
+        with pytest.raises(ValueError, match="[Rr]edirect"):
+            self._run([_real_response(status_code=302)])
 
     def test_blocks_unsafe_host_at_runtime(self):
         with mock.patch.object(metabase_module, "_is_host_safe", return_value=(False, "internal address")):
             with pytest.raises(MetabaseHostNotAllowedError):
-                self._run([_response(json_data=[{"id": 1}])])
+                self._run([_real_response(json_data=[{"id": 1}])])
+
+    def test_api_key_auth_header_sent(self):
+        _rows, _, requests_seen = self._run([_real_response(json_data=[{"id": 1}])])
+        auth = requests_seen[0].auth
+        assert auth.name == "x-api-key"
+        assert auth.api_key == "mb_secret"
 
     def test_session_auth_mints_token_then_lists(self):
-        session = mock.MagicMock()
-        session.post.return_value = _response(json_data={"id": "tok-123"})
-        session.get.return_value = _response(json_data=[{"id": 1}])
-        with mock.patch.object(metabase_module, "make_tracked_session", return_value=session):
-            rows = list(
-                get_rows(
-                    host="https://x.metabaseapp.com",
-                    auth=_session_auth(),
-                    endpoint="cards",
-                    logger=mock.MagicMock(),
-                    team_id=1,
-                )
-            )
+        rows, session, requests_seen = self._run(
+            [_real_response(json_data=[{"id": 1}])],
+            auth=_session_auth(),
+            mint_response=_response(json_data={"id": "tok-123"}),
+        )
         assert session.post.called
-        assert session.get.call_args.kwargs["headers"]["X-Metabase-Session"] == "tok-123"
-        assert [r["id"] for batch in rows for r in batch] == [1]
+        # The minted token — not the username/password — is what the data request carries.
+        auth = requests_seen[0].auth
+        assert auth.name == "X-Metabase-Session"
+        assert auth.api_key == "tok-123"
+        assert [r["id"] for r in rows] == [1]

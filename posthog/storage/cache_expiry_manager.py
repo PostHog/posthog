@@ -67,7 +67,9 @@ def get_teams_with_expiring_caches(
 
         # Build query filter dynamically based on token_based setting
         filter_kwargs = {f"{query_field}__in": decoded_identifiers}
-        teams = list(Team.objects.filter(**filter_kwargs).select_related("organization", "project"))
+        query = config.narrow_team_queryset(Team.objects.filter(**filter_kwargs))
+
+        teams = list(query)
 
         logger.info(
             f"Found teams with expiring {config.log_prefix}",
