@@ -69,7 +69,6 @@ class TestTicketAPI(APIBaseTest):
         # The reporter used a ticket:write personal API key, so cover that path too: with
         # "create" kept in scope_object_write_actions the token clears the scope gate and
         # reaches the 405 rather than a misleading "not supported" 403.
-        extra = {}
         if auth == "personal_api_key":
             raw_key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
@@ -78,13 +77,12 @@ class TestTicketAPI(APIBaseTest):
                 secure_value=hash_key_value(raw_key),
                 scopes=["ticket:write"],
             )
-            extra["HTTP_AUTHORIZATION"] = f"Bearer {raw_key}"
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/conversations/tickets/",
             data={"status": "new"},
             format="json",
-            **extra,
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
