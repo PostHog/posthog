@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     validate_credentials as validate_convex_credentials,
     validate_deploy_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConvexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convex import ConvexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 

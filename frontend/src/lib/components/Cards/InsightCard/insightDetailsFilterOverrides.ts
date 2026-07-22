@@ -1,5 +1,5 @@
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, InsightFilterOverrideContext, PropertyGroupFilter } from '~/types'
+import { AnyPropertyFilter, InsightFilterOverrideContext, IntervalType, PropertyGroupFilter } from '~/types'
 
 export type OverrideSource = 'dashboard' | 'tile'
 
@@ -7,6 +7,20 @@ export interface EffectiveFilterOverrides {
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
     overriddenByTile: AnyPropertyFilter[]
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
+    interval: { value: IntervalType; source: OverrideSource } | null
+    filterTestAccounts: { value: boolean; source: OverrideSource } | null
+}
+
+// Tile beats dashboard; `!= null` (not truthiness) so a force-off `filterTestAccounts: false` still counts.
+function resolveScalarOverride<T>(
+    tileValue: T | null | undefined,
+    dashboardValue: T | null | undefined
+): { value: T; source: OverrideSource } | null {
+    return tileValue != null
+        ? { value: tileValue, source: 'tile' }
+        : dashboardValue != null
+          ? { value: dashboardValue, source: 'dashboard' }
+          : null
 }
 
 export function getEffectiveFilterOverrides(
@@ -35,7 +49,13 @@ export function getEffectiveFilterOverrides(
           ? { breakdownFilter: dashboardBreakdown, source: 'dashboard' as const }
           : null
 
-    return { propertyGroups, overriddenByTile, breakdown }
+    const interval = resolveScalarOverride(tileFilters?.interval, dashboardFilters?.interval)
+    const filterTestAccounts = resolveScalarOverride(
+        tileFilters?.filterTestAccounts,
+        dashboardFilters?.filterTestAccounts
+    )
+
+    return { propertyGroups, overriddenByTile, breakdown, interval, filterTestAccounts }
 }
 
 interface DateRangeSource {

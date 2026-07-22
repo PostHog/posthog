@@ -13,7 +13,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
-import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
+import { isValidOrderBy, issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
 function updateFilterGroup(
     removedFilterIndexes: number[] | undefined,
@@ -80,7 +80,7 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     useAttachedContext([{ type: 'error_tracking_query', value: JSON.stringify(query), label: 'Current filters' }])
 
     const callback = (update: ErrorTrackingIssueFilteringToolOutput): void => {
-        if (update.orderBy) {
+        if (update.orderBy && isValidOrderBy(update.orderBy)) {
             setOrderBy(update.orderBy)
         }
         if (update.orderDirection) {

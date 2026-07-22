@@ -1,4 +1,5 @@
 import { parseExecCall, parseExecCommand, POSTHOG_EXEC_TOOL_RE } from '../components/tool/posthogExecDisplay'
+import type { PermissionRequestRecord } from '../types/streamTypes'
 
 export interface ResolvedToolKey {
     resolvedKey: string
@@ -89,4 +90,21 @@ export function resolveToolCall(toolCall: ResolvableToolCall): ResolvedToolCall 
         ...resolveToolKey(toolCall.rawServerName, toolCall.rawToolName, toolCall.input, claudeToolName),
         claudeToolName,
     }
+}
+
+/**
+ * The proposed inner tool input for a permission request — the args a tool renderer or a
+ * `renderPermissionPreview` needs to preview what an approval will do. For a PostHog exec call this is
+ * the command-embedded JSON args (`call <sub-tool> {…}`), falling back to the explicit `input` field
+ * when the agent sends args out of band. Returns an empty object when neither is present.
+ */
+export function getPermissionRequestToolInput(record: PermissionRequestRecord): Record<string, unknown> {
+    const resolved = resolveToolCall(record.rawToolCall)
+    if (resolved.innerInput && Object.keys(resolved.innerInput).length > 0) {
+        return resolved.innerInput
+    }
+    const explicit = (record.rawToolCall.input as { input?: unknown }).input
+    return explicit && typeof explicit === 'object' && !Array.isArray(explicit)
+        ? (explicit as Record<string, unknown>)
+        : {}
 }
