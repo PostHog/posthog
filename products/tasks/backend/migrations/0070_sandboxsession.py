@@ -48,6 +48,7 @@ class Migration(migrations.Migration):
                             ("hogdesk", "HogDesk"),
                             ("review_hog", "ReviewHog"),
                             ("image_builder", "Image Builder"),
+                            ("loop", "Loop"),
                         ],
                         help_text="Task origin at provision time, denormalized for per-origin aggregation",
                         max_length=20,
