@@ -11,7 +11,7 @@ export const fractionToPercentInput = (fraction: number | undefined): number | u
     typeof fraction === 'number' ? roundPercent(fraction * 100) : undefined
 
 export const inputToStoredBound = (value: number | undefined, type: InsightThresholdType): number | undefined => {
-    if (value === undefined) {
+    if (value === undefined || Number.isNaN(value)) {
         return undefined
     }
     return type === InsightThresholdType.PERCENTAGE ? value / 100 : value
