@@ -73,6 +73,25 @@ def _slack_get(url: str, **kwargs: Any) -> requests.Response:
     return response
 
 
+@retry(
+    retry=retry_if_exception_type(
+        (SlackRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ),
+    stop=stop_after_attempt(5),
+    wait=_wait_with_retry_after,
+    reraise=True,
+)
+def _slack_post(url: str, **kwargs: Any) -> requests.Response:
+    response = make_tracked_session().post(url, **kwargs)
+    if response.status_code == 429:
+        retry_after = int(response.headers.get("Retry-After", 1))
+        logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
+        raise SlackRetryableError("Slack: rate limited", retry_after=retry_after)
+    if response.status_code >= 500:
+        raise SlackRetryableError(f"Slack: server error {response.status_code}")
+    return response
+
+
 class SlackCursorPaginator(BasePaginator):
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
@@ -337,6 +356,46 @@ def get_channels(
         {"id": ch["id"], "name": ch["name"]}
         for ch in _fetch_all_channels_cached(cache_id, access_token, authed_user, force_refresh=force_refresh)
     ]
+
+
+# conversations.join errors that mean "nothing to do for this channel" rather than a real failure.
+_SKIP_JOIN_ERRORS = {"already_in_channel", "is_archived", "method_not_supported_for_channel_type"}
+
+
+def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> int:
+    """Join every public channel the bot isn't already in, so their message events reach the webhook.
+
+    ``conversations.join`` only works for public channels — private channels must be invited manually.
+    Joins are idempotent (``already_in_channel`` is a no-op) and archived channels are skipped. A
+    missing ``channels:join`` scope is surfaced immediately, since it means auto-join can never work.
+    Returns the number of channels newly joined.
+    """
+    url = "https://slack.com/api/conversations.join"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    joined = 0
+    for ch in channels:
+        if ch.get("is_private") or ch.get("is_archived") or ch.get("is_member"):
+            continue
+        response = _slack_post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("ok"):
+            joined += 1
+            continue
+        error = data.get("error", "unknown_error")
+        if error == "missing_scope":
+            raise Exception("missing_scope: your Slack app needs the channels:join scope to auto-join public channels.")
+        if error not in _SKIP_JOIN_ERRORS:
+            logger.warning("Slack conversations.join failed", channel_id=ch.get("id"), error=error)
+    if joined:
+        logger.info("Slack auto-joined public channels", joined=joined)
+    return joined
+
+
+def join_public_channels(access_token: str, cache_id: str, authed_user: str | None = None) -> int:
+    """Auto-join all public channels the bot isn't in yet (see ``_join_public_channels``)."""
+    channels = _fetch_all_channels_cached(cache_id, access_token, authed_user)
+    return _join_public_channels(access_token, channels)
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:

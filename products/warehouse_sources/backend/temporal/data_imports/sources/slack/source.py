@@ -11,6 +11,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSwitchGroupConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     SlackResumeConfig,
     auth_test_user_id,
     get_channels,
+    join_public_channels,
     manual_cache_id,
     slack_source,
     validate_credentials as validate_slack_credentials,
@@ -136,6 +138,7 @@ Open [Slack apps](https://api.slack.com/apps?new_app=1), click **From a manifest
         "scopes": {
             "bot": [
                 "channels:read",
+                "channels:join",
                 "groups:read",
                 "channels:history",
                 "groups:history",
@@ -175,6 +178,13 @@ Invite the bot to any channel whose messages you want to sync (`/invite @PostHog
                         caption="Found under **Settings > Install App** in the Slack app you created from the manifest above.",
                         secret=True,
                     ),
+                    SourceFieldSwitchGroupConfig(
+                        name="join_public_channels",
+                        label="Automatically join public channels",
+                        caption="When on, the bot joins every public channel so their new messages sync without inviting it to each one. Private channels still need a manual invite. Requires the `channels:join` scope, which the manifest above already includes.",
+                        default=False,
+                        fields=cast(list[FieldType], []),
+                    ),
                 ],
             ),
             webhookManualOnly=True,
@@ -199,6 +209,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         "scopes": {
             "bot": [
                 "channels:read",
+                "channels:join",
                 "groups:read",
                 "channels:history",
                 "groups:history",
@@ -275,6 +286,11 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         ]
 
         access_token, authed_user, cache_id = self._resolve_access_token(config, team_id)
+        # Only the bring-your-own path can auto-join — the legacy shared app lacks channels:join.
+        # Joining is idempotent and only touches public channels the bot isn't in, so running it on
+        # each discovery/refresh also picks up channels created since the last pass.
+        if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
+            join_public_channels(access_token, cache_id, authed_user)
         channels = get_channels(cache_id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:

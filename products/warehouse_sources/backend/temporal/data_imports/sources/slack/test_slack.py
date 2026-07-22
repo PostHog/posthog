@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     _fetch_all_channels,
     _fetch_all_channels_cached,
     _fetch_channels_by_type,
+    _join_public_channels,
     auth_test_user_id,
     manual_cache_id,
     slack_source,
@@ -616,3 +617,80 @@ class TestAuthTestUserId:
             side_effect=RuntimeError("boom"),
         ):
             assert auth_test_user_id("token") is None
+
+
+class TestJoinPublicChannels:
+    _POST = "products.warehouse_sources.backend.temporal.data_imports.sources.slack.slack._slack_post"
+
+    def test_only_public_non_member_channels_are_joined(self) -> None:
+        channels = [
+            {"id": "C_PUB_NEW"},  # public, not a member -> join
+            {"id": "C_PUB_MEMBER", "is_member": True},  # already in -> skip
+            {"id": "C_PRIVATE", "is_private": True},  # private -> skip (can't self-join)
+            {"id": "C_ARCHIVED", "is_archived": True},  # archived -> skip
+        ]
+        with patch(self._POST, return_value=_make_response({"ok": True})) as mock_post:
+            joined = _join_public_channels("xoxb", channels)
+
+        assert joined == 1
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.kwargs["data"] == {"channel": "C_PUB_NEW"}
+
+    def test_already_in_channel_is_not_counted_or_raised(self) -> None:
+        # A race where the bot joined between listing and the join call must be a silent no-op.
+        channels = [{"id": "C1"}]
+        with patch(self._POST, return_value=_make_response({"ok": False, "error": "already_in_channel"})):
+            assert _join_public_channels("xoxb", channels) == 0
+
+    def test_missing_scope_raises(self) -> None:
+        # Auto-join silently doing nothing would be worse than failing — surface the missing scope.
+        channels = [{"id": "C1"}]
+        with patch(self._POST, return_value=_make_response({"ok": False, "error": "missing_scope"})):
+            try:
+                _join_public_channels("xoxb", channels)
+                raise AssertionError("expected an error for missing channels:join scope")
+            except Exception as e:
+                assert "channels:join" in str(e)
+
+
+class TestGetSchemasAutoJoin:
+    _SRC = "products.warehouse_sources.backend.temporal.data_imports.sources.slack.source"
+
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
+    @parameterized.expand(
+        [
+            ("toggle_on_joins", True, "xoxb-token", True),
+            ("toggle_off_skips", False, "xoxb-token", False),
+            ("legacy_source_never_joins", True, None, False),
+        ]
+    )
+    def test_join_is_gated_on_toggle_and_byo_token(
+        self, _name: str, enabled: bool, token: str | None, expect_join: bool
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = MagicMock()
+        config.slack_access_token = token
+        config.slack_integration_id = 42 if token is None else None
+        config.join_public_channels.enabled = enabled
+
+        integration = MagicMock()
+        integration.id = 42
+        integration.access_token = "legacy-token"
+        integration.config = {"authed_user": {"id": "U_INSTALLER"}}
+
+        source = SlackSource()
+        with (
+            patch(f"{self._SRC}.auth_test_user_id", return_value="UBOT"),
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch(f"{self._SRC}.join_public_channels") as mock_join,
+            patch(f"{self._SRC}.get_channels", return_value=[]),
+        ):
+            source.get_schemas(config, team_id=1)
+
+        assert mock_join.called == expect_join
