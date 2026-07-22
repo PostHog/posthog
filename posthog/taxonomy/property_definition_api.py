@@ -126,6 +126,18 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=None,
     )
 
+    def validate_event_names(self, value: str) -> str:
+        # `event_names` is a JSON-encoded list (sent this way to work with the frontend's combineUrl).
+        # It's consumed downstream via json.loads, so reject anything that isn't a valid JSON list here
+        # rather than letting a JSONDecodeError escape as a 500.
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            raise ValidationError("`event_names` must be a JSON-encoded list of event names")
+        if not isinstance(parsed, list):
+            raise ValidationError("`event_names` must be a JSON-encoded list of event names")
+        return value
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
