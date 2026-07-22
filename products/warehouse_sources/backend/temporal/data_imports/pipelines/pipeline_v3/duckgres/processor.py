@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import time
+import atexit
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from time import sleep as _real_sleep  # captured before any test patches this module's `time`
 from typing import Any, Literal
 
 from django.conf import settings
@@ -102,31 +104,37 @@ class _DuckgresSessionCache:
     transaction's first-write metadata touch on the target table (~12-19s).
     All are warm on a reused session, taking a live batch from ~30-40s to ~2s.
 
-    Keyed by (team_id, schema_id): the sink's group lease serializes each key to
-    one pod task at a time, so entries are never used concurrently — the lock
-    guards only the dict. Entries are dropped on any processing error (the
-    connection may hold aborted-transaction state), after IDLE_TTL without
-    reuse, and past MAX_AGE outright (the extract-read secret embeds session
-    credentials that expire; a fresh session re-mints them). Note a cached
-    session pins the group's worker (one session per worker) for up to
-    IDLE_TTL after the group drains — bounded, and the next claim of the
-    group needs that worker warm anyway.
+    Keyed by (org_id, team_id, schema_id): the sink's group lease serializes
+    each (team, schema) to one pod task at a time, so entries are never used
+    concurrently — the lock guards only the dict. The org is part of the key
+    so a team transferred between organizations can never keep writing through
+    the previous org's authenticated connection. Entries are dropped on any
+    processing error (the connection may hold aborted-transaction state), after
+    IDLE_TTL without reuse, and past MAX_AGE outright (the extract-read secret
+    embeds session credentials that expire; a fresh session re-mints them).
+    A daemon sweeper enforces both bounds independently of traffic — without
+    it, a drained group's session would pin its duckgres worker (one session
+    per worker) indefinitely, outside the sink's org connection budget; with
+    it, the pin is bounded by IDLE_TTL + SWEEP_INTERVAL. atexit clears the
+    cache on graceful shutdown.
     """
 
     IDLE_TTL_SECONDS = 90.0
     MAX_AGE_SECONDS = 600.0
+    SWEEP_INTERVAL_SECONDS = 30.0
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._entries: dict[tuple[int, str], tuple[psycopg.Connection[Any], float, float]] = {}
+        self._entries: dict[tuple[str, int, str], tuple[psycopg.Connection[Any], float, float]] = {}
+        self._sweeper_started = False
 
-    def acquire(self, team_id: int, schema_id: str) -> tuple[psycopg.Connection[Any] | None, float]:
+    def acquire(self, org_id: str, team_id: int, schema_id: str) -> tuple[psycopg.Connection[Any] | None, float]:
         """Return (connection, session_created_at); (None, now) means connect fresh.
 
         created_at is threaded back through store() so the MAX_AGE credential
         cap tracks the ORIGINAL session creation across any number of reuses.
         """
-        key = (team_id, schema_id)
+        key = (org_id, team_id, schema_id)
         now = time.monotonic()
         with self._lock:
             entry = self._entries.pop(key, None)
@@ -138,21 +146,46 @@ class _DuckgresSessionCache:
             return None, now
         return conn, created_at
 
-    def store(self, team_id: int, schema_id: str, conn: psycopg.Connection[Any], created_at: float) -> None:
-        key = (team_id, schema_id)
+    def store(
+        self, org_id: str, team_id: int, schema_id: str, conn: psycopg.Connection[Any], created_at: float
+    ) -> None:
+        self._ensure_sweeper()
+        key = (org_id, team_id, schema_id)
         with self._lock:
             previous = self._entries.get(key)
             self._entries[key] = (conn, created_at, time.monotonic())
-            stale = [
-                k
-                for k, (_, _, used) in self._entries.items()
-                if k != key and time.monotonic() - used > self.IDLE_TTL_SECONDS
-            ]
-            evicted = [self._entries.pop(k) for k in stale]
         if previous is not None and previous[0] is not conn:
             self._close_quietly(previous[0])
-        for other_conn, _, _ in evicted:
-            self._close_quietly(other_conn)
+
+    def _ensure_sweeper(self) -> None:
+        # Lazy start: this module is imported by processes that never run the
+        # sink; only a process that actually caches a session gets the thread.
+        with self._lock:
+            if self._sweeper_started:
+                return
+            self._sweeper_started = True
+        threading.Thread(target=self._sweep_loop, daemon=True, name="duckgres-session-cache-sweeper").start()
+
+    def _sweep_loop(self) -> None:
+        while True:
+            _real_sleep(self.SWEEP_INTERVAL_SECONDS)
+            try:
+                self._evict_stale()
+            except Exception:
+                pass
+
+    def _evict_stale(self) -> None:
+        """Close entries past either bound — runs on the sweeper, not on traffic."""
+        now = time.monotonic()
+        with self._lock:
+            stale = [
+                k
+                for k, (_, created_at, used) in self._entries.items()
+                if now - used > self.IDLE_TTL_SECONDS or now - created_at > self.MAX_AGE_SECONDS
+            ]
+            evicted = [self._entries.pop(k) for k in stale]
+        for conn, _, _ in evicted:
+            self._close_quietly(conn)
 
     def clear(self) -> None:
         with self._lock:
@@ -170,6 +203,7 @@ class _DuckgresSessionCache:
 
 
 _session_cache = _DuckgresSessionCache()
+atexit.register(_session_cache.clear)
 
 
 def process_batch(batch: PendingBatch) -> None:
@@ -222,7 +256,11 @@ def process_batch(batch: PendingBatch) -> None:
                 _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)
         return
 
-    conn, session_created_at = _session_cache.acquire(batch.team_id, batch.schema_id)
+    # Resolve the CURRENT org on every batch: it is part of the cache key, so
+    # a team moved between organizations gets a fresh connection to the new
+    # org's warehouse and the old entry ages out via the sweeper.
+    org_id = str(Team.objects.only("organization_id").get(id=batch.team_id).organization_id)
+    conn, session_created_at = _session_cache.acquire(org_id, batch.team_id, batch.schema_id)
     try:
         if conn is None:
             conn = _connect_to_duckgres(batch.team_id)
@@ -240,7 +278,7 @@ def process_batch(batch: PendingBatch) -> None:
             _DuckgresSessionCache._close_quietly(conn)
         raise
     else:
-        _session_cache.store(batch.team_id, batch.schema_id, conn, created_at=session_created_at)
+        _session_cache.store(org_id, batch.team_id, batch.schema_id, conn, created_at=session_created_at)
     finally:
         if "connect_setup" not in timings:
             _record_phase("connect_setup", kind, time.monotonic() - connect_start, timings)

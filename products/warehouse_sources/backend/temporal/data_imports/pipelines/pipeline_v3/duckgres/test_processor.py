@@ -576,6 +576,9 @@ class TestLiveSessionReuse:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.ExternalDataJob"
             ),
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.Team"
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor._process_batch"
             ),
             patch(
@@ -586,7 +589,8 @@ class TestLiveSessionReuse:
             ),
         ]
         self.mocks = [p.start() for p in patches]
-        (_, self.mock_job, self.mock_inner, self.mock_setup, self.mock_secret) = self.mocks
+        (_, self.mock_job, self.mock_team, self.mock_inner, self.mock_setup, self.mock_secret) = self.mocks
+        self.mock_team.objects.only.return_value.get.return_value.organization_id = "org-a"
         yield
         for p in patches:
             p.stop()
@@ -660,4 +664,45 @@ class TestLiveSessionReuse:
                 clock["now"] += 61.0
 
         conn1.close.assert_called_once()
+        assert mock_connect.call_count == 2
+
+    def test_evict_stale_closes_idle_sessions_without_new_traffic(self, monkeypatch):
+        # Review finding (Greptile P1 / hex-security): eviction must not depend
+        # on a later acquire()/store() — a drained group's session would pin a
+        # duckgres worker indefinitely. The sweeper calls _evict_stale on a
+        # timer; this exercises it directly with a controlled clock.
+        conn1 = MagicMock()
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.time",
+            MagicMock(monotonic=lambda: clock["now"]),
+        )
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = conn1
+            process_batch(_make_batch(batch_index=1))
+
+        clock["now"] += 91.0
+        _session_cache._evict_stale()
+
+        conn1.close.assert_called_once()
+
+    def test_store_starts_the_sweeper_thread_once(self):
+        with self._connect_patch() as mock_connect:
+            mock_connect.return_value = MagicMock()
+            process_batch(_make_batch(batch_index=1))
+            process_batch(_make_batch(batch_index=2))
+
+        assert _session_cache._sweeper_started is True
+
+    def test_org_change_invalidates_the_cached_session(self):
+        # Review finding (veria): the cache key must include the org so a team
+        # transferred between organizations can never keep writing through the
+        # previous org's authenticated connection.
+        conn1, conn2 = MagicMock(), MagicMock()
+        with self._connect_patch() as mock_connect:
+            mock_connect.side_effect = [conn1, conn2]
+            process_batch(_make_batch(batch_index=1))
+            self.mock_team.objects.only.return_value.get.return_value.organization_id = "org-b"
+            process_batch(_make_batch(batch_index=2))
+
         assert mock_connect.call_count == 2
