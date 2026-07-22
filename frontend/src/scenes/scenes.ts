@@ -612,6 +612,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'web_analytics',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
+    [Scene.RevealSecret]: { personal: true, name: 'Reveal secret', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {
         projectBased: false,
         organizationBased: true,
@@ -937,6 +938,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.revealSecret(':token')]: [Scene.RevealSecret, 'revealSecret'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],

@@ -47,6 +47,7 @@ from . import (
     integration,
     materialized_column_slot,
     object_media_preview,
+    one_time_secret,
     organization,
     organization_domain,
     organization_integration,
@@ -433,6 +434,7 @@ router.register(
     "user_home_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"one_time_secrets", one_time_secret.OneTimeSecretViewSet, "one_time_secrets")
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")

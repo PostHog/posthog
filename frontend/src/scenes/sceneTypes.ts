@@ -133,6 +133,7 @@ export enum Scene {
     QueryPerformance = 'QueryPerformance',
     Quickstart = 'Quickstart',
     Replay = 'Replay',
+    RevealSecret = 'RevealSecret',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
     ReplaySettings = 'ReplaySettings',

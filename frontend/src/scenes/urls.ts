@@ -286,6 +286,7 @@ export const urls = {
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     wizard: (): string => `/wizard`,
+    revealSecret: (token: string): string => `/reveal/${token}`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     agenticAuthorize: (): string => '/agentic/authorize',
