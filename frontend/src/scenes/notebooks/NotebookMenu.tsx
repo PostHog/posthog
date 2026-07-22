@@ -22,7 +22,8 @@ import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
-        notebookLogic({ shortId }))
+        notebookLogic({ shortId })
+    )
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
