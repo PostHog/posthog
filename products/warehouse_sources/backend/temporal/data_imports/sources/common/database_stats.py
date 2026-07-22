@@ -127,6 +127,20 @@ def is_database_stats_schema(schema_name: str) -> bool:
     return schema_name in DATABASE_STATS_SCHEMA_NAMES
 
 
+def is_database_stats_schema_row(schema_name: str, schema_metadata: dict[str, Any] | None) -> bool:
+    """Whether a concrete schema row is an injected stats schema, not a user's table.
+
+    The name alone can't decide: a user's own table named ``database_stats_*`` (bare,
+    on a legacy single-schema source) collides with the injected names. Discovered
+    tables get ``source_table_name`` persisted into their reconciled ``schema_metadata``;
+    injected stats rows never do — so a row that names a real source table always wins
+    the normal table-sync path.
+    """
+    if not is_database_stats_schema(schema_name):
+        return False
+    return not (schema_metadata or {}).get("source_table_name")
+
+
 def database_stats_enabled(config: Any) -> bool:
     """Whether a source config opts into database statistics.
 

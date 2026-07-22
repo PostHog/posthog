@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     database_stats_enabled,
-    is_database_stats_schema,
+    is_database_stats_schema_row,
     maybe_append_database_stats_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -1137,12 +1137,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             PostHogDatabaseConnectionError,
         )
 
-        # Same gates as the SQLSource base (which this override replaces wholesale):
-        # toggle + name, so a user's own table named database_stats_* can't be hijacked
-        # on sources that haven't opted in.
-        if database_stats_enabled(config) and is_database_stats_schema(inputs.schema_name):
-            return self.database_stats_source(config, inputs)
-
         ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
@@ -1170,6 +1164,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
+
+        # Same gates as the SQLSource base (which this override replaces wholesale). The
+        # row's metadata settles the collision case: a user's own table named
+        # database_stats_* keeps syncing as a table.
+        if database_stats_enabled(config) and is_database_stats_schema_row(inputs.schema_name, schema_metadata):
+            return self.database_stats_source(config, inputs)
 
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":

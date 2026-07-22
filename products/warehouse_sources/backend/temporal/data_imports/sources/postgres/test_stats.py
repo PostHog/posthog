@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from typing import Any, cast
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection as django_connection
 
@@ -202,6 +202,129 @@ def _snapshot_base():
     return datetime.now(UTC), uuid.uuid4().hex
 
 
+class _ScriptedCursor:
+    """Minimal psycopg cursor stand-in: routes execute() by SQL substring.
+
+    Lets tests drive the collector paths the CI database can't produce — an installed
+    pg_stat_statements (with modern or legacy columns, masked text), failing probes, a
+    standby server — without a network connection.
+    """
+
+    def __init__(self, script: list[tuple[str, Any]]):
+        self._script = script
+        self._rows: list[tuple] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, query, params=None):
+        text = query.as_string(None) if hasattr(query, "as_string") else str(query)
+        for fragment, outcome in self._script:
+            if fragment in text:
+                if isinstance(outcome, Exception):
+                    raise outcome
+                self._rows = list(outcome)
+                return
+        raise AssertionError(f"unexpected query in scripted cursor: {text}")
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _ScriptedConnection:
+    def __init__(self, script: list[tuple[str, Any]]):
+        self._script = script
+
+    def cursor(self):
+        return _ScriptedCursor(self._script)
+
+
+class TestCollectQueriesScripted:
+    _EXTENSION = ("FROM pg_extension e", [("public",)])
+
+    def test_modern_columns_with_masked_text(self):
+        script = [
+            self._EXTENSION,
+            (
+                "total_exec_time",
+                [
+                    ("123", "SELECT * FROM users WHERE id = $1", 10, 250.0, 25.0, 10, 5, 1, 0),
+                    ("456", "<insufficient privilege>", 3, 90.0, None, 3, None, None, None),
+                ],
+            ),
+        ]
+        rows = _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
+
+        assert [r["query_fingerprint"] for r in rows] == ["123", "456"]
+        assert rows[0]["query_text"] == "SELECT * FROM users WHERE id = $1"
+        assert rows[0]["total_exec_time_ms"] == 250.0
+        # Masked text becomes NULL; counters stay usable.
+        assert rows[1]["query_text"] is None
+        assert rows[1]["mean_exec_time_ms"] is None
+        assert rows[1]["calls"] == 3
+
+    def test_legacy_column_names_fall_back(self):
+        script = [
+            self._EXTENSION,
+            ("total_exec_time", psycopg.errors.UndefinedColumn("no such column")),
+            ("total_time", [("789", "SELECT 1", 1, 5.0, 5.0, 1, 0, 0, 0)]),
+        ]
+        rows = _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
+        assert len(rows) == 1
+        assert rows[0]["query_fingerprint"] == "789"
+        assert rows[0]["total_exec_time_ms"] == 5.0
+
+    def test_unexpected_column_set_skips_family(self):
+        script = [
+            self._EXTENSION,
+            ("total_exec_time", psycopg.errors.UndefinedColumn("no such column")),
+            ("total_time", psycopg.errors.UndefinedColumn("still no such column")),
+        ]
+        assert _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base()) == []
+
+
+class TestCollectServerScripted:
+    def test_failing_probe_is_isolated_and_standby_skips_slots(self):
+        script = [
+            ("SHOW server_version", RuntimeError("probe exploded")),
+            ("FROM pg_stat_database", []),  # no row for current_database() → probe returns nothing
+            ("FROM pg_stat_activity", [(7,)]),
+            ("FROM pg_settings", [("max_connections", "100", None)]),
+            ("FROM pg_extension", [(1,)]),
+            ("pg_is_in_recovery", [(True,)]),  # standby: replication-slot lag not measurable
+        ]
+        rows = _collect_server(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
+        metrics = {r["metric_name"] for r in rows}
+
+        assert "server_version" not in metrics  # failed probe skipped, others survived
+        assert "numbackends" not in metrics  # empty pg_stat_database row
+        assert "connections_total" in metrics
+        assert "setting_max_connections" in metrics
+        assert "extension_pg_stat_statements" in metrics
+        assert "replication_slot_lag_bytes" not in metrics
+
+    def test_replication_slot_lag_on_primary(self):
+        script = [
+            ("SHOW server_version", [("16.4",)]),
+            ("FROM pg_stat_database", [(1, 2, 3, 4, 5, 6, 7, 8)]),
+            ("FROM pg_stat_activity", [(1,)]),
+            ("FROM pg_settings", []),
+            ("FROM pg_extension", [(0,)]),
+            ("pg_is_in_recovery", [(False,)]),
+            ("FROM pg_replication_slots", [("cdc_slot", True, 12345.0), ("stale_slot", False, None)]),
+        ]
+        rows = _collect_server(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
+        slots = {r["metric_text"]: r["metric_value"] for r in rows if r["metric_name"] == "replication_slot_lag_bytes"}
+
+        assert slots == {"cdc_slot": 12345.0, "stale_slot": None}
+
+
 @contextmanager
 def _fake_tunnel_to(settings_dict):
     yield (settings_dict["HOST"] or "localhost", int(settings_dict["PORT"] or 5432))
@@ -262,3 +385,59 @@ class TestStatsSourceRouting:
         assert rows, "expected server metrics from the test database"
         assert {r["metric_name"] for r in rows} >= {"server_version", "connections_total"}
         assert all(set(r.keys()) == _column_names(DATABASE_STATS_SERVER) for r in rows)
+
+    @pytest.mark.django_db
+    def test_colliding_real_table_syncs_as_a_table_despite_toggle(self, team):
+        # Greptile finding on #72975: a user's own bare table named database_stats_server
+        # must keep the normal table-sync path. Its row carries source_table_name in the
+        # reconciled schema_metadata; injected stats rows never do.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs={},
+        )
+        schema_row = ExternalDataSchema.objects.create(
+            name=DATABASE_STATS_SERVER,
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="full_refresh",
+            sync_type_config={
+                "schema_metadata": {"source_schema": "public", "source_table_name": "database_stats_server"}
+            },
+        )
+        config = PostgresSourceConfig(
+            host="localhost",
+            database="db",
+            user="user",
+            password="password",
+            port=5432,
+            database_stats=PostgresDatabaseStatsConfig(enabled=True),
+        )
+        inputs = SourceInputs(
+            schema_name=DATABASE_STATS_SERVER,
+            schema_id=str(schema_row.id),
+            source_id=str(source.id),
+            team_id=team.pk,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            job_id=str(uuid.uuid4()),
+            logger=logger,
+            reset_pipeline=False,
+        )
+        sentinel = object()
+        base = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
+        with (
+            patch(f"{base}.postgres_source", return_value=MagicMock(name="table_response")) as table_source,
+            patch(f"{base}.postgres_database_stats_source", return_value=sentinel) as stats_source,
+        ):
+            PostgresSource().source_for_pipeline(config, inputs)
+
+        table_source.assert_called_once()
+        stats_source.assert_not_called()

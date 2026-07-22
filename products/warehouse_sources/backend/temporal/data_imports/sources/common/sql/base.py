@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     database_stats_enabled,
     is_database_stats_schema,
+    is_database_stats_schema_row,
     maybe_append_database_stats_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -166,10 +167,13 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         return maybe_append_database_stats_schemas(config, schemas, names)
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        # Both gates matter: the name alone must never hijack a user's own table that
-        # happens to be called database_stats_* on a source that hasn't opted in.
+        # Toggle and name are cheap pre-filters; the schema row's metadata then settles
+        # the collision case — a user's own table named database_stats_* keeps syncing
+        # as a table (see is_database_stats_schema_row).
         if database_stats_enabled(config) and is_database_stats_schema(inputs.schema_name):
-            return self.database_stats_source(config, inputs)
+            schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
+            if is_database_stats_schema_row(inputs.schema_name, schema_row.schema_metadata):
+                return self.database_stats_source(config, inputs)
         return self.get_implementation.build_pipeline(config, inputs)
 
     def database_stats_source(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:

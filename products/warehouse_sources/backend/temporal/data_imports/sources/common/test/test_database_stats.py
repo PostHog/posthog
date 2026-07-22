@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 import structlog
 
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     DATABASE_STATS_COLUMNS,
@@ -15,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     build_database_stats_source_schemas,
     database_stats_enabled,
     is_database_stats_schema,
+    is_database_stats_schema_row,
     maybe_append_database_stats_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -145,16 +148,72 @@ class TestSQLSourceGetSchemasStatsInjection:
         assert schemas == []
 
 
+class TestIsDatabaseStatsSchemaRow:
+    def test_non_stats_name_is_never_a_stats_row(self):
+        assert is_database_stats_schema_row("users", None) is False
+
+    @pytest.mark.parametrize("schema_metadata", [None, {}, {"source_table_name": None}])
+    def test_stats_name_without_source_table_is_a_stats_row(self, schema_metadata):
+        assert is_database_stats_schema_row(DATABASE_STATS_SERVER, schema_metadata) is True
+
+    def test_stats_name_backed_by_a_real_table_is_not_a_stats_row(self):
+        metadata = {"source_table_name": "database_stats_server", "source_schema": "public"}
+        assert is_database_stats_schema_row(DATABASE_STATS_SERVER, metadata) is False
+
+
+def _schema_row(team, name: str, schema_metadata: dict | None) -> ExternalDataSchema:
+    import uuid as _uuid
+
+    source = ExternalDataSource.objects.create(
+        source_id=str(_uuid.uuid4()),
+        connection_id=str(_uuid.uuid4()),
+        destination_id=str(_uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+        job_inputs={},
+    )
+    return ExternalDataSchema.objects.create(
+        name=name,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="append",
+        sync_type_config={"schema_metadata": schema_metadata} if schema_metadata is not None else {},
+    )
+
+
 class TestSQLSourceStatsRouting:
-    def test_stats_schema_with_toggle_enabled_requires_override(self):
+    @pytest.mark.django_db
+    def test_stats_schema_with_toggle_enabled_requires_override(self, team):
+        row = _schema_row(team, DATABASE_STATS_SERVER, None)
         source = _StubSQLSource(MagicMock())
         config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
+        inputs = _inputs(DATABASE_STATS_SERVER)
+        inputs.schema_id = str(row.id)
         with pytest.raises(NotImplementedError):
-            source.source_for_pipeline(cast(Any, config), _inputs(DATABASE_STATS_SERVER))
+            source.source_for_pipeline(cast(Any, config), inputs)
+
+    @pytest.mark.django_db
+    def test_colliding_real_table_goes_to_build_pipeline_despite_toggle(self, team):
+        # A user's own table named database_stats_* (its row carries source_table_name)
+        # must keep syncing as a table even with statistics enabled.
+        row = _schema_row(
+            team,
+            DATABASE_STATS_SERVER,
+            {"source_table_name": "database_stats_server", "source_schema": "public"},
+        )
+        implementation = MagicMock()
+        source = _StubSQLSource(implementation)
+        config = SimpleNamespace(database_stats=SimpleNamespace(enabled=True))
+        inputs = _inputs(DATABASE_STATS_SERVER)
+        inputs.schema_id = str(row.id)
+
+        source.source_for_pipeline(cast(Any, config), inputs)
+
+        implementation.build_pipeline.assert_called_once_with(config, inputs)
 
     def test_stats_named_schema_without_toggle_goes_to_build_pipeline(self):
-        # A user's own table that happens to be named database_stats_* must sync normally
-        # on sources that haven't opted in.
+        # No opt-in: short-circuits before any row lookup, so no database needed.
         implementation = MagicMock()
         source = _StubSQLSource(implementation)
         config = SimpleNamespace()
