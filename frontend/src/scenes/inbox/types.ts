@@ -294,8 +294,10 @@ export interface SignalRun {
 /** Status from the linked TaskRun behind a scout run. */
 export type SignalScoutRunStatus = SignalScoutRunSummaryApi['status']
 
-/** Lightweight projection of a scout run row (newest-first list response). */
-export type SignalScoutRunSummary = SignalScoutRunSummaryApi
+/** Lightweight projection of a scout run row (newest-first list response).
+ * An interface extension (not a type alias) so kea-typegen keeps the domain name
+ * instead of inlining `import(...)` references to the generated type. */
+export interface SignalScoutRunSummary extends SignalScoutRunSummaryApi {}
 
 /** One finding a scout run emitted to the inbox. */
 export interface SignalScoutEmission {
