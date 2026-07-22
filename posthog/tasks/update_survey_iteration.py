@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from django.utils import timezone
@@ -12,7 +12,7 @@ def _update_survey_iteration(survey: Survey) -> None:
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
 
-    if _has_final_iteration_ended(survey):
+    if survey.has_final_iteration_ended():
         survey.end_date = timezone.now()
         survey.save(update_fields=["end_date"])
         return
@@ -28,22 +28,6 @@ def _update_survey_iteration(survey: Survey) -> None:
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
-
-
-def _has_final_iteration_ended(survey: Survey) -> bool:
-    if not survey.iteration_start_dates or not survey.iteration_frequency_days:
-        return False
-
-    last_iteration_start = survey.iteration_start_dates[-1]
-    if last_iteration_start is None:
-        return False
-
-    try:
-        final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
-    except OverflowError:
-        # iteration_frequency_days is not capped by the API; a huge value must not crash the task
-        return False
-    return date.today() > final_iteration_end
 
 
 def _get_targeting_flag(survey: Survey) -> FeatureFlag | Any:

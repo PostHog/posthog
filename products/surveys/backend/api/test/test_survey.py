@@ -25,6 +25,7 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.tasks.update_survey_iteration import update_survey_iteration
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
@@ -5014,6 +5015,43 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_start_dates"] is not None
         assert len(response_data["iteration_start_dates"]) == 2
         assert response_data["current_iteration"] == 1
+
+    def test_resuming_recurring_survey_past_final_iteration_reanchors_and_stays_open(self):
+        # A recurring survey whose full schedule has already elapsed, once reopened, must keep
+        # collecting: the periodic update_survey_iteration task should not re-close it within ~12h.
+        survey = self._create_recurring_survey()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now(UTC) - timedelta(days=100),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        survey.refresh_from_db()
+        assert survey.has_final_iteration_ended()
+
+        # Stop, then resume by clearing the end date.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now(UTC)},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        survey.refresh_from_db()
+        assert survey.end_date is None
+        # The iteration window was re-anchored to the resume moment, so the schedule no longer
+        # sits entirely in the past.
+        assert not survey.has_final_iteration_ended()
+        assert survey.current_iteration == 1
+
+        update_survey_iteration()
+        survey.refresh_from_db()
+        assert survey.end_date is None
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
