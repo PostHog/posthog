@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
 import { appendTicketMetadata, composeTicketBody } from './ticketUtils'
@@ -43,42 +44,31 @@ export function TicketPrompt({
     const [hasSubmitted, setHasSubmitted] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
-    const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
-    const { resetSendSupportRequest, setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
+    const { resetSendSupportRequest, closeSupportForm } = useActions(supportLogic)
     const { appendMessageToConversation } = useActions(maxThreadLogic)
+    const { user } = useValues(userLogic)
 
-    const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
-    const [ticketIdBeforeSubmission, setTicketIdBeforeSubmission] = useState<string | null>(null)
     const submitInFlightRef = useRef(false)
 
-    const handleTicketCreated = useCallback(
-        (ticketId: string): void => {
-            posthog.capture('posthog_ai_support_ticket_created', {
-                $ai_conversation_id: conversationId,
-                $ai_session_id: conversationId,
-                $ai_trace_id: traceId,
-                $ai_support_ticket_id: ticketId,
-            })
+    function handleTicketCreated(ticketId: string): void {
+        posthog.capture('posthog_ai_support_ticket_created', {
+            $ai_conversation_id: conversationId,
+            $ai_session_id: conversationId,
+            $ai_trace_id: traceId,
+            $ai_support_ticket_id: ticketId,
+        })
 
-            // Persist the confirmation message and add it to the thread
-            const confirmationMessage = formatConfirmationMessage(ticketId)
-            appendMessageToConversation(confirmationMessage)
+        // Persist the confirmation message and add it to the thread
+        const confirmationMessage = formatConfirmationMessage(ticketId)
+        appendMessageToConversation(confirmationMessage)
 
-            submitInFlightRef.current = false
-            setHasSubmitted(true)
-            setIsSupportModalOpen(false)
-            setIsSubmitting(false)
-            closeSupportForm()
-        },
-        [conversationId, traceId, appendMessageToConversation, closeSupportForm]
-    )
-
-    useEffect(() => {
-        if (pendingTicketSubmission && lastSubmittedTicketId && lastSubmittedTicketId !== ticketIdBeforeSubmission) {
-            handleTicketCreated(lastSubmittedTicketId)
-            setPendingTicketSubmission(false)
-        }
-    }, [lastSubmittedTicketId, pendingTicketSubmission, ticketIdBeforeSubmission, handleTicketCreated])
+        submitInFlightRef.current = false
+        setHasSubmitted(true)
+        setIsSupportModalOpen(false)
+        setIsSubmitting(false)
+        closeSupportForm()
+    }
 
     function openSupportModal(): void {
         resetSendSupportRequest({
@@ -107,27 +97,30 @@ export function TicketPrompt({
 
         submitInFlightRef.current = true
         setIsSubmitting(true)
-        setSendSupportRequestValue('message', finalMessage)
         const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
-        setTicketIdBeforeSubmission(ticketIdBefore)
-        setPendingTicketSubmission(true)
         try {
-            await supportLogic.asyncActions.submitSendSupportRequest()
+            await supportLogic.asyncActions.submitSupportTicket({
+                ...sendSupportRequest,
+                name: user?.first_name ?? sendSupportRequest.name ?? 'name not set',
+                email: user?.email ?? sendSupportRequest.email ?? '',
+                message: finalMessage,
+            })
         } catch {
             // Failure is detected below via the unchanged ticket id
         }
-        // Success is handled by the effect watching lastSubmittedTicketId. If no ticket was created,
-        // the submit failed — stop the spinner so the user can retry (the error toast already showed).
-        if (supportLogic.values.lastSubmittedTicketId === ticketIdBefore) {
+        const ticketIdAfter = supportLogic.values.lastSubmittedTicketId
+        if (ticketIdAfter && ticketIdAfter !== ticketIdBefore) {
+            handleTicketCreated(ticketIdAfter)
+        } else {
+            // Submit failed (the error toast already showed) — allow a retry with the note untouched
             submitInFlightRef.current = false
             setIsSubmitting(false)
-            setPendingTicketSubmission(false)
         }
     }
 
     function handleSupportModalCancel(): void {
         setIsSupportModalOpen(false)
-        setPendingTicketSubmission(false)
+        submitInFlightRef.current = false
         setIsSubmitting(false)
         closeSupportForm()
     }
