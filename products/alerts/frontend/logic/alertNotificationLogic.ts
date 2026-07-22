@@ -41,8 +41,9 @@ export interface alertNotificationLogicValues {
     currentProjectId: number | null // projectLogic
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
-    firstSlackIntegration: IntegrationType | undefined
     pendingNotifications: PendingAlertNotification[]
+    selectedSlackIntegration: IntegrationType | undefined
+    selectedSlackIntegrationId: number | null
     selectedType: AlertNotificationType
     slackChannelValue: string | null
     webhookUrl: string
@@ -188,6 +189,9 @@ export interface alertNotificationLogicActions {
     setPendingNotifications: (notifications: PendingAlertNotification[]) => {
         notifications: PendingAlertNotification[]
     }
+    setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => {
+        selectedSlackIntegrationId: number | null
+    }
     setSelectedType: (selectedType: AlertNotificationType) => {
         selectedType: AlertNotificationType
     }
@@ -203,7 +207,10 @@ export interface alertNotificationLogicActions {
 export interface alertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
+        selectedSlackIntegration: (
+            slackIntegrations: IntegrationType[] | undefined,
+            selectedSlackIntegrationId: number | null
+        ) => IntegrationType | undefined
     }
 }
 
@@ -232,6 +239,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         deleteExistingHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         createPendingHogFunctions: (alertId: string, alertName?: string) => ({ alertId, alertName }),
         setSelectedType: (selectedType: AlertNotificationType) => ({ selectedType }),
+        setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => ({
+            selectedSlackIntegrationId,
+        }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
     }),
@@ -252,6 +262,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue,
                 // Reset the input when switching destination type so stale values don't carry over.
                 setSelectedType: () => null,
+                setSelectedSlackIntegrationId: () => null,
+            },
+        ],
+        selectedSlackIntegrationId: [
+            null as number | null,
+            {
+                setSelectedSlackIntegrationId: (_, { selectedSlackIntegrationId }) => selectedSlackIntegrationId,
             },
         ],
         webhookUrl: [
@@ -277,10 +294,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     }),
 
     selectors({
-        // Use first available Slack integration to determine if Slack should be the default notification type
-        firstSlackIntegration: [
-            (s) => [s.slackIntegrations],
-            (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
+        selectedSlackIntegration: [
+            (s) => [s.slackIntegrations, s.selectedSlackIntegrationId],
+            (
+                slackIntegrations: IntegrationType[] | undefined,
+                selectedSlackIntegrationId: number | null
+            ): IntegrationType | undefined =>
+                slackIntegrations?.find((integration) => integration.id === selectedSlackIntegrationId),
         ],
     }),
 
@@ -304,9 +324,29 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
-        loadIntegrationsSuccess: () => {
-            if (!values.firstSlackIntegration) {
+        loadIntegrationsSuccess: ({ integrations }) => {
+            const availableSlackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
+            const selectedIntegrationIsAvailable = availableSlackIntegrations.some(
+                (integration) => integration.id === values.selectedSlackIntegrationId
+            )
+
+            if (!selectedIntegrationIsAvailable) {
+                actions.setSelectedSlackIntegrationId(availableSlackIntegrations[0]?.id ?? null)
+            }
+            if (availableSlackIntegrations.length === 0) {
                 actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
+            }
+
+            // Drop any staged Slack notifications pointing at a workspace that's no longer
+            // connected — saving them would create a destination referencing a dead integration.
+            const availableIds = new Set(availableSlackIntegrations.map((integration) => integration.id))
+            const stillValidPending = values.pendingNotifications.filter(
+                (notification) =>
+                    notification.type !== ALERT_NOTIFICATION_TYPE_SLACK ||
+                    availableIds.has(notification.slackWorkspaceId)
+            )
+            if (stillValidPending.length !== values.pendingNotifications.length) {
+                actions.setPendingNotifications(stillValidPending)
             }
         },
         deleteExistingHogFunction: async ({ hogFunction }) => {
@@ -324,11 +364,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                         actions.loadExistingHogFunctions()
                         return
                     }
-                    // Capture only a delete that actually landed: the callback runs after the API
-                    // call resolves and not at all on failure, and we skip it on undo. Mirrors the
-                    // create event, which always carries a known type — so skip an unrecognized
-                    // template rather than emit a null type that can't be classified. A
-                    // delete-then-undo still counts once — acceptable for optimistic-undo analytics.
+                    // Skip on undo and on unrecognized templates so this only counts confirmed deletes with a known type.
                     if (type) {
                         posthog.capture('insight alert destination deleted', {
                             alert_id: props.alertId,
@@ -352,10 +388,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 })
             )
 
-            // Capture one event per destination that was actually created, tagged with its type,
-            // so adoption of each destination (Slack/Discord/Teams/webhook) is measurable. The
-            // destination is a separate HogFunction, so no `alert created`/`alert updated` event
-            // records it — this is the only signal that ties a destination type to an alert.
+            // No `alert created`/`alert updated` event captures destination type, so this is emitted per created destination instead.
             results.forEach((result, i) => {
                 if (result.status === 'fulfilled') {
                     posthog.capture('insight alert destination created', {
@@ -375,7 +408,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             if (failures.length > 0) {
                 const labelForType = (type: AlertNotificationType): string =>
                     ALERT_NOTIFICATION_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
-                // Log each failure with its destination type + API error so the cause is diagnosable later.
                 failures.forEach(({ result, notification }) => {
                     console.error(
                         `Failed to create ${labelForType(notification.type)} alert notification`,
