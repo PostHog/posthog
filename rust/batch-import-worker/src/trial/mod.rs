@@ -17,6 +17,13 @@ pub use job::TrialJob;
 const EVENT_NAME_COUNT_CAP: usize = 500;
 /// Same guard for distinct error messages.
 const ERROR_COUNT_CAP: usize = 100;
+/// Byte cap on each summary key (event name or error message). Keys come from
+/// user data and a single one can be nearly a whole source line, so without
+/// this the count caps alone still let the persisted state grow unbounded.
+const SUMMARY_KEY_MAX_BYTES: usize = 200;
+/// Timestamps longer than this cannot be the RFC 3339 strings the transforms
+/// produce; ignore them instead of cloning arbitrary payload data into state.
+const TIMESTAMP_MAX_BYTES: usize = 64;
 
 /// One source line paired with the event(s) it would produce on a real import.
 /// Empty `outputs` with an `error` means the line would be dropped; empty
@@ -147,6 +154,9 @@ impl TrialSummary {
                 self.other_event_names += 1;
             }
             if let Some(ts) = &output.timestamp {
+                if ts.len() > TIMESTAMP_MAX_BYTES {
+                    continue;
+                }
                 if self.first_timestamp.as_ref().is_none_or(|f| ts < f) {
                     self.first_timestamp = Some(ts.clone());
                 }
@@ -158,9 +168,12 @@ impl TrialSummary {
     }
 }
 
-/// Increment `key` in `counts`, refusing to add new keys past `cap`. Returns
-/// whether the count was recorded.
+/// Increment `key` in `counts`, refusing to add new keys past `cap`. Keys are
+/// truncated to [`SUMMARY_KEY_MAX_BYTES`] first, so oversized names share one
+/// truncated entry instead of each growing the state. Returns whether the
+/// count was recorded.
 fn bounded_count(counts: &mut HashMap<String, u64>, key: &str, cap: usize) -> bool {
+    let key = truncate_at_char_boundary(key, SUMMARY_KEY_MAX_BYTES);
     if let Some(count) = counts.get_mut(key) {
         *count += 1;
         return true;
@@ -170,6 +183,17 @@ fn bounded_count(counts: &mut HashMap<String, u64>, key: &str, cap: usize) -> bo
     }
     counts.insert(key.to_string(), 1);
     true
+}
+
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 #[cfg(test)]
@@ -222,6 +246,41 @@ mod tests {
         assert_eq!(
             summary.last_timestamp.as_deref(),
             Some("2024-01-02T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn summary_bounds_key_bytes_and_ignores_oversized_timestamps() {
+        let mut summary = TrialSummary::default();
+        let long_a = format!("{}_a", "x".repeat(SUMMARY_KEY_MAX_BYTES));
+        let long_b = format!("{}_b", "x".repeat(SUMMARY_KEY_MAX_BYTES));
+        let huge_ts = "9".repeat(TIMESTAMP_MAX_BYTES + 1);
+        summary.record(&record(
+            vec![
+                output(&long_a, Some(&huge_ts)),
+                output(&long_b, Some("2024-01-01T00:00:00Z")),
+            ],
+            None,
+        ));
+        summary.record(&record(vec![], Some(&long_a)));
+
+        // Distinct oversized names merge into one truncated key
+        assert_eq!(summary.event_name_counts.len(), 1);
+        let (key, count) = summary.event_name_counts.iter().next().unwrap();
+        assert_eq!(key.len(), SUMMARY_KEY_MAX_BYTES);
+        assert_eq!(*count, 2);
+
+        let error_key = summary.error_counts.keys().next().unwrap();
+        assert_eq!(error_key.len(), SUMMARY_KEY_MAX_BYTES);
+
+        // The oversized timestamp is ignored; the valid one still tracks
+        assert_eq!(
+            summary.first_timestamp.as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            summary.last_timestamp.as_deref(),
+            Some("2024-01-01T00:00:00Z")
         );
     }
 
