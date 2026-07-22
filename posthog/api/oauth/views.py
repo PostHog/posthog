@@ -4,13 +4,13 @@ import hashlib
 import calendar
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import OperationalError
-from django.http import JsonResponse, QueryDict
-from django.shortcuts import render
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -93,22 +93,6 @@ CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
 # Sentinel for the per-request impersonator_id cache so None (no impersonator) is
 # distinguishable from "not resolved yet".
 _IMPERSONATOR_CACHE_UNSET: object = object()
-
-
-def _apply_query_params(request, params: dict) -> None:
-    """Replace the request's query parameters with `params`.
-
-    Rewrites both the parsed GET QueryDict and the raw QUERY_STRING, because
-    django-oauth-toolkit rebuilds its oauthlib request from
-    `request.get_full_path()` rather than from the parsed query dict.
-    """
-    query_dict = QueryDict(mutable=True)
-    for key, value in params.items():
-        query_dict[key] = value
-
-    django_request = getattr(request, "_request", request)
-    django_request.GET = query_dict
-    django_request.META["QUERY_STRING"] = query_dict.urlencode()
 
 
 def get_region_info() -> dict | None:
@@ -914,9 +898,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
-        # Rehydrate a pushed authorization request (RFC 9126). When the client
-        # started the flow with a `request_uri`, swap in the parameters it pushed
-        # earlier so the rest of this method validates them as a normal request.
+        # Expand a pushed authorization request (RFC 9126). When the client
+        # started the flow with a `request_uri`, redirect to the same endpoint
+        # with the parameters it pushed earlier. Redirecting (rather than
+        # rehydrating in place) puts the full parameter set in the browser URL,
+        # which the consent SPA reads to build its approve/deny POST — an
+        # in-place swap would leave that POST missing redirect_uri/scope/PKCE.
         request_uri = request.query_params.get("request_uri")
         if request_uri:
             par_params = consume_pushed_authorization_request(request_uri, request.query_params.get("client_id"))
@@ -928,7 +915,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            _apply_query_params(request, par_params)
+            return redirect(f"/oauth/authorize/?{urlencode(par_params)}")
 
         # Rate-limit new CIMD application creation by IP.
         # Must happen here (not in the OAuthValidator) because the validator

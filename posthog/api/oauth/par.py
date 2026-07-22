@@ -14,6 +14,7 @@ which then validates them exactly as it would a normal query-string request.
 """
 
 import secrets
+from urllib.parse import urlencode
 
 from django.core.cache import cache
 
@@ -42,27 +43,23 @@ PAR_REQUEST_URI_PREFIX = "urn:ietf:params:oauth:request_uri:"
 # The reference is short-lived: a client pushes then immediately redirects the
 # browser. RFC 9126 recommends a short lifetime; the authorization code + PKCE
 # remain the real anti-replay guards, so this only bounds how long the pushed
-# parameters sit in the cache.
-PAR_REQUEST_URI_LIFETIME_SECONDS = 90
+# parameters sit in the cache. Long enough to comfortably cover a login/SSO/2FA
+# round trip, since `/oauth/authorize/` is `login_required` and the reference is
+# only read once the user lands back on it.
+PAR_REQUEST_URI_LIFETIME_SECONDS = 60 * 5
 
-# Authorization-request parameters we persist from a pushed request. This mirrors
-# every parameter the authorization endpoint reads (directly or via oauthlib).
-# Client-authentication parameters (`client_secret`) are deliberately excluded —
-# they authenticate the push, they are not part of the authorization request.
-PAR_STORED_PARAMS = (
-    "client_id",
-    "redirect_uri",
-    "response_type",
-    "scope",
-    "state",
-    "code_challenge",
-    "code_challenge_method",
-    "nonce",
-    "claims",
-    "resource",
-    "prompt",
-    "approval_prompt",
-)
+# Parameters we do NOT persist from a pushed request: client-authentication
+# parameters (they authenticate the push, they are not part of the authorization
+# request) and a nested request_uri (rejected outright, see below). Everything
+# else the client sends is stored verbatim and replayed at the authorization
+# endpoint, so any authorize parameter — including PostHog's access-level hints —
+# round-trips through PAR unchanged.
+PAR_EXCLUDED_PARAMS = frozenset({"client_secret", "request_uri"})
+
+# Upper bound on the stored (urlencoded) parameter set. Comfortably fits the full
+# advertised scope list plus the other parameters, while bounding how much a
+# public client can write into the shared cache per pushed request.
+PAR_MAX_STORED_BYTES = 32 * 1024
 
 
 def _cache_key(reference: str) -> str:
@@ -114,47 +111,18 @@ class PushedAuthorizationRequestSerializer(serializers.Serializer):
     """Validates an RFC 9126 pushed authorization request. Fields mirror the
     query parameters of a normal OAuth authorization request."""
 
-    # max_length bounds each field so a public client cannot fill the shared
-    # cache with oversized pushed requests. The limits are generous relative to
-    # legitimate values (PostHog has ~90 scopes) but keep any single entry small.
+    # Only the fields needed to authenticate the push and enforce RFC 9126 are
+    # declared/validated here; the rest of the authorization parameters (scope,
+    # state, PKCE, nonce, claims, resource, access-level hints, ...) are stored
+    # verbatim from the request body and validated later at /oauth/authorize/.
+    # The whole stored set is bounded by PAR_MAX_STORED_BYTES, so no per-field
+    # length cap is needed (a small cap on `scope` would wrongly reject a client
+    # requesting the full advertised scope list).
     client_id = serializers.CharField(max_length=512, help_text="OAuth client identifier issued to the application.")
     client_secret = serializers.CharField(
         required=False,
         max_length=512,
         help_text="Client secret, required only for confidential clients (token_endpoint_auth_method=client_secret_post).",
-    )
-    redirect_uri = serializers.CharField(
-        required=False, max_length=2048, help_text="Redirect URI the authorization response is sent to."
-    )
-    response_type = serializers.CharField(
-        required=False, max_length=64, help_text="OAuth response type; must be 'code'."
-    )
-    scope = serializers.CharField(
-        required=False, allow_blank=True, max_length=4096, help_text="Space-delimited OAuth scopes being requested."
-    )
-    state = serializers.CharField(
-        required=False,
-        max_length=2048,
-        help_text="Opaque value used by the client to maintain state between request and callback.",
-    )
-    code_challenge = serializers.CharField(required=False, max_length=256, help_text="PKCE code challenge (RFC 7636).")
-    code_challenge_method = serializers.CharField(
-        required=False, max_length=16, help_text="PKCE code challenge method; 'S256'."
-    )
-    nonce = serializers.CharField(required=False, max_length=512, help_text="OpenID Connect nonce.")
-    claims = serializers.CharField(
-        required=False, max_length=4096, help_text="OpenID Connect claims request parameter (JSON string)."
-    )
-    resource = serializers.CharField(
-        required=False, max_length=2048, help_text="Resource indicator (RFC 8707) identifying the protected resource."
-    )
-    prompt = serializers.CharField(
-        required=False, max_length=64, help_text="OpenID Connect prompt parameter, e.g. 'login'."
-    )
-    approval_prompt = serializers.CharField(
-        required=False,
-        max_length=16,
-        help_text="Whether to force the consent screen ('force') or allow auto-approval ('auto').",
     )
     request_uri = serializers.CharField(
         required=False,
@@ -223,10 +191,18 @@ class OAuthPushedAuthorizationRequestView(APIView):
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
 
-        stored = {key: data[key] for key in PAR_STORED_PARAMS if data.get(key) is not None}
-        # client_id is required, so it is always present; keep it explicit for the
-        # binding check in consume_pushed_authorization_request.
+        # Store every submitted authorization parameter verbatim (minus the
+        # client-auth and nested-request_uri params) so the request replays at
+        # /oauth/authorize/ exactly as pushed. client_id is required, so it is
+        # always present for the binding check in consume_pushed_authorization_request.
+        stored = {key: value for key, value in request.data.items() if key not in PAR_EXCLUDED_PARAMS}
         stored["client_id"] = client_id
+
+        if len(urlencode(stored)) > PAR_MAX_STORED_BYTES:
+            return Response(
+                {"error": "invalid_request", "error_description": "The authorization request is too large."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         reference = secrets.token_urlsafe(32)
         cache.set(_cache_key(reference), stored, timeout=PAR_REQUEST_URI_LIFETIME_SECONDS)
