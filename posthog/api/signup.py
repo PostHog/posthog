@@ -39,7 +39,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
 from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
-from posthog.utils import get_can_create_org, is_relative_url
+from posthog.utils import get_can_create_org, get_ip_address, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
@@ -311,6 +311,7 @@ class SignupSerializer(serializers.Serializer):
             distinct_id=user.distinct_id,
             email=user.email,
             role_at_organization=role_at_organization,
+            ip_address=get_ip_address(request),
         )
 
         verify_email_or_login(request, user)
