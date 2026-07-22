@@ -72,7 +72,13 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
+from posthog.ducklake.common import (
+    DUCKGRES_BUCKET_REGION,
+    NO_HISTORY_SENTINEL,
+    _get_org_id_for_team,
+    get_duckgres_server_for_organization,
+    resolve_team_earliest_event_date,
+)
 from posthog.ducklake.models import DuckgresServerTeam
 
 from products.data_warehouse.backend.facade.backfill_status import (
@@ -913,46 +919,6 @@ def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str
     policy explicitly allows the ClickHouse EC2 role, so no credentials needed.
     """
     return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
-
-
-def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
-    """Query ClickHouse to find the earliest event date for a team.
-
-    This is used by the full backfill sensor to determine the historical range
-    of data to backfill.
-
-    Returns:
-        The date of the earliest event, or None if no events exist for this team.
-    """
-    cluster = _get_cluster()
-    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
-
-    def query_earliest(client: Client) -> datetime | None:
-        # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
-        # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
-        # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
-        result = client.execute(
-            """
-            SELECT toDate(min(timestamp)) as earliest_date
-            FROM events
-            WHERE team_id = %(team_id)s
-              AND timestamp >= '1970-01-01'
-            """,
-            {"team_id": team_id},
-        )
-        if result and result[0][0]:
-            # ClickHouse returns a date object, convert to datetime
-            date_val = result[0][0]
-            if isinstance(date_val, datetime):
-                return date_val
-            return datetime.combine(date_val, datetime.min.time())
-        return None
-
-    return cluster.any_host_by_role(
-        fn=query_earliest,
-        workload=workload,
-        node_role=NodeRole.DATA,
-    ).result()
 
 
 def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
@@ -2982,9 +2948,6 @@ def duckling_events_daily_backfill_sensor(
 # Still used by the persons full-backfill sensor below.
 BACKFILL_MONTHS_PER_TICK = 3
 
-# Ignore events before this date — pre-2015 data is typically junk timestamps
-EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
-
 # Full EVENTS-backfill sensor (round-robin, bounded top-up). Execution is throttled
 # separately by the duckling_events_v1 managed concurrency limit (charts) — kept small so
 # ClickHouse only ever sees a few concurrent exports. These knobs govern how the sensor
@@ -3004,14 +2967,65 @@ EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
 # Existing installations predate the durable UI projection. Reconcile a bounded
 # number of historical partitions per tick so the sensor stays within its budget.
 EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
-# Stored in DuckgresServerTeam.earliest_event_date for a team with no events, so the sensor
-# caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
-# that the generated months range is always empty.
-_NO_HISTORY_SENTINEL = date(9999, 12, 31)
 # Run tag stamped on full-backfill runs only. The full and daily events sensors share one
 # job (duckling_events_backfill_job), so the top-up's in-flight count filters on this tag to
 # count its OWN queued runs — otherwise a burst of daily runs could zero out its slots.
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
+
+
+def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam) -> None:
+    """Mirror a freshly resolved earliest_event_date onto the team's duckgres control-plane row.
+
+    Dual-write while per-team backfill state moves into the control plane: the Django row
+    stays the sensor's read source. Best-effort — any failure (resolving the org, the CP
+    call itself) is logged and swallowed so it can never fail the sensor tick.
+    """
+    try:
+        # Deferred like the other control-plane touchpoints: keeps the DRF-importing
+        # adapter off this module's import path.
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+
+        managed_warehouse.push_team_earliest_event_date(bf.server.organization_id, bf.team_id, bf.earliest_event_date)
+    except Exception:
+        logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
+
+
+def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam]) -> None:
+    """Re-push resolved earliest_event_dates whose control-plane mirror is missing or stale.
+
+    The per-row pushes (the provisioning Celery task, the sensor's resolve loop) are
+    best-effort one-shots: a transient control-plane failure would otherwise diverge the
+    two stores forever, because a row with a resolved date is never revisited. One
+    list-teams call per org per tick keeps this bounded; only teams the control plane
+    already knows are pushed (a missing row is the lazy grandfather's job, not this one's).
+    Best-effort in every direction — nothing here may fail the sensor tick.
+    """
+    try:
+        # Deferred like the other control-plane touchpoints: keeps the DRF-importing
+        # adapter off this module's import path.
+        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+    except Exception:
+        logger.exception("duckling_earliest_event_date_cp_reconcile_import_failed")
+        return
+
+    by_org: dict = {}
+    for bf in backfills:
+        if bf.earliest_event_date is not None:
+            by_org.setdefault(bf.server.organization_id, []).append(bf)
+
+    for org_id, rows in by_org.items():
+        try:
+            teams = managed_warehouse._teams_from_response(managed_warehouse.list_teams(org_id, require_enabled=False))
+            if teams is None:
+                continue
+            cp_dates = {row.get("team_id"): row.get("earliest_event_date") for row in teams}
+            for bf in rows:
+                if bf.team_id not in cp_dates:
+                    continue
+                if cp_dates[bf.team_id] != bf.earliest_event_date.isoformat():
+                    _push_earliest_event_date_to_cp(bf)
+        except Exception:
+            logger.exception("duckling_earliest_event_date_cp_reconcile_failed", organization_id=str(org_id))
 
 
 def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
@@ -3119,7 +3133,9 @@ def duckling_events_full_backfill_sensor(
     today = timezone.now().date()
     last_month_end = today.replace(day=1) - timedelta(days=1)
 
-    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
+    backfills = list(
+        DuckgresServerTeam.objects.filter(backfill_enabled=True).select_related("server").order_by("team_id")
+    )
     if not backfills:
         context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
@@ -3133,13 +3149,15 @@ def duckling_events_full_backfill_sensor(
         if lookups >= EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK:
             break
         lookups += 1
-        earliest_dt = get_earliest_event_date_for_team(bf.team_id)
-        if earliest_dt is None:
-            bf.earliest_event_date = _NO_HISTORY_SENTINEL
+        bf.earliest_event_date = resolve_team_earliest_event_date(bf.team_id)
+        if bf.earliest_event_date == NO_HISTORY_SENTINEL:
             context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
-        else:
-            bf.earliest_event_date = max(earliest_dt, EARLIEST_BACKFILL_DATE).date()
         bf.save(update_fields=["earliest_event_date"])
+        _push_earliest_event_date_to_cp(bf)
+
+    # Heal one-shot pushes that failed: re-mirror any resolved date the control plane
+    # is missing or has stale. Never fails the tick.
+    _reconcile_earliest_event_dates_with_cp(backfills)
 
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
@@ -3344,7 +3362,9 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
+    backfills = list(
+        DuckgresServerTeam.objects.filter(backfill_enabled=True).select_related("server").order_by("team_id")
+    )
     if not backfills:
         context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])

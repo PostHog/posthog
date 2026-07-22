@@ -11,9 +11,10 @@
  * * `schedule` - Schedule
  * * `threshold` - Threshold
  */
-export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
+export type VisionActionTriggerTypeEnumApi =
+    (typeof VisionActionTriggerTypeEnumApi)[keyof typeof VisionActionTriggerTypeEnumApi]
 
-export const TriggerTypeEnumApi = {
+export const VisionActionTriggerTypeEnumApi = {
     Schedule: 'schedule',
     Threshold: 'threshold',
 } as const
@@ -243,6 +244,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface VisionActionApi {
     readonly id: string
     /**
@@ -260,7 +264,7 @@ export interface VisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -307,6 +311,9 @@ export interface PaginatedVisionActionListApi {
     results: VisionActionApi[]
 }
 
+/**
+ * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+ */
 export interface PatchedVisionActionApi {
     readonly id?: string
     /**
@@ -324,7 +331,7 @@ export interface PatchedVisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -738,6 +745,9 @@ export interface FeedbackThemesApi {
     generated_at: string
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -810,6 +820,11 @@ export interface ReplayScannerApi {
     readonly updated_at: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedReplayScannerListApi {
@@ -821,6 +836,9 @@ export interface PaginatedReplayScannerListApi {
     results: ReplayScannerApi[]
 }
 
+/**
+ * A Replay Vision scanner: its type, targeting query, and AI configuration.
+ */
 export interface PatchedReplayScannerApi {
     readonly id?: string
     /**
@@ -893,6 +911,11 @@ export interface PatchedReplayScannerApi {
     readonly updated_at?: string
     /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
     readonly feedback_themes?: FeedbackThemesApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**

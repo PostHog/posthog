@@ -21,7 +21,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from openai import APIConnectionError
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -166,6 +166,7 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
+RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -1000,6 +1001,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
+            if ExternalDataSource.is_system_managed_prefix(normalized_prefix):
+                raise ValidationError(RESERVED_SOURCE_NAME_MESSAGE)
             validated_data["prefix"] = normalized_prefix
         else:
             validated_data["prefix"] = instance.prefix
@@ -1738,6 +1741,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSource):
+            if obj.is_system_managed:
+                raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
+
     def dangerously_get_permissions(self):
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
@@ -2042,6 +2051,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
 
+        if ExternalDataSource.is_system_managed_prefix(prefix):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": RESERVED_SOURCE_NAME_MESSAGE},
+            )
+
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2139,9 +2154,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             payload.get("cdc_enabled", False) and cdc_adapter is not None and is_cdc_enabled_for_team(self.team)
         )
 
-        source_schemas = source.get_schemas(
-            source_config, self.team_id, api_version=source.resolve_api_version(new_source_model.api_version)
-        )
+        try:
+            source_schemas = source.get_schemas(
+                source_config, self.team_id, api_version=source.resolve_api_version(new_source_model.api_version)
+            )
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased scaffold the UI hides).
+            # Roll back the row just created so a caller can't accumulate orphaned sources, and return
+            # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
@@ -4190,6 +4215,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+
+        if ExternalDataSource.is_system_managed_prefix(prefix):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": RESERVED_SOURCE_NAME_MESSAGE},
+            )
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
             if source_type not in direct_capable_source_types():

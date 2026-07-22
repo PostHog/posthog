@@ -1149,7 +1149,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not self.team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1243,7 +1243,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
