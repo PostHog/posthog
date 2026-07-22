@@ -95,8 +95,16 @@ function SupportTicketsBulkActions(): JSX.Element {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds, searchQuery, hasActiveFilters } =
-        useValues(logic)
+    const {
+        tickets,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+        sorting,
+        selectedTicketIds,
+        searchQuery,
+        hasActiveFilters,
+    } = useValues(logic)
     const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)

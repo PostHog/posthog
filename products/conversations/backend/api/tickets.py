@@ -440,8 +440,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if search and len(search) <= 200:
             # A leading "#" is how ticket numbers are shown in the UI (e.g. "#1234"), so
             # treat "#1234" the same as "1234" and match the ticket number exactly.
+            # Restrict to ASCII digits: str.isdigit() also accepts characters like "²"
+            # that int() then rejects, which would 500 the request.
             ticket_number_search = search[1:] if search.startswith("#") else search
-            if ticket_number_search.isdigit():
+            if ticket_number_search.isascii() and ticket_number_search.isdigit():
                 queryset = queryset.filter(ticket_number=int(ticket_number_search))
             else:
                 # EXISTS subquery: matches any comment in the ticket's conversation.
