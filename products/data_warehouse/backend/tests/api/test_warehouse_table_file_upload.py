@@ -121,6 +121,37 @@ class TestWarehouseTableUploadFile(APIBaseTest):
         assert "File size exceeds the maximum" in response.json()["message"]
         assert self.s3.written == {}
 
+    def test_rejects_an_oversized_request_body_before_storing_anything(self) -> None:
+        # Guards the Content-Length pre-check that bounds the whole body before the multipart parser
+        # spools parts to disk — dropping it would let a large body through to be written.
+        with patch(f"{VIEW_MODULE}.MAX_UPLOAD_REQUEST_BODY_BYTES", 4):
+            response = self._upload(
+                file=SimpleUploadedFile("data.csv", b"a\n1\n", content_type="text/csv"),
+                file_format="csv",
+            )
+
+        assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        assert "Upload exceeds the maximum" in response.json()["message"]
+        assert self.s3.written == {}
+
+    def test_rejects_more_than_one_file_part(self) -> None:
+        with patch(f"{VIEW_MODULE}.get_s3_client", return_value=self.s3):
+            response = self.client.post(
+                self.url,
+                {
+                    "file": [
+                        SimpleUploadedFile("a.csv", b"a\n1\n", content_type="text/csv"),
+                        SimpleUploadedFile("b.csv", b"b\n2\n", content_type="text/csv"),
+                    ],
+                    "file_format": "csv",
+                },
+                format="multipart",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Upload one file per request."
+        assert self.s3.written == {}
+
     @override_settings(DATAWAREHOUSE_BUCKET=None)
     def test_rejects_when_object_storage_is_unavailable(self) -> None:
         response = self._upload(
@@ -163,7 +194,11 @@ class TestCreateTableFromUpload(APIBaseTest):
     def _create(self, *, exists: bool = True, **payload):
         with (
             patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3(exists_result=exists)),
-            patch(f"{MODEL_MODULE}.DataWarehouseTable.get_columns", return_value=FAKE_COLUMNS),
+            patch(f"{MODEL_MODULE}.DataWarehouseTable.get_columns", return_value=dict(FAKE_COLUMNS)),
+            # Background column validation runs eagerly under test and would re-query the (faked) S3
+            # table, stamping `valid` onto each column. It's out of scope for these wiring tests, so
+            # keep it from mutating the columns the create endpoint just persisted.
+            patch(f"{VIEW_MODULE}.validate_data_warehouse_table_columns.delay"),
         ):
             return self.client.post(f"{self.create_url}?include_columns=false", data=payload, format="json")
 

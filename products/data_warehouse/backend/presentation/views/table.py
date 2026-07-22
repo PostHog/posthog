@@ -45,6 +45,13 @@ from products.warehouse_sources.backend.facade.models import (
     validate_warehouse_table_url_pattern,
 )
 
+# Whole-request-body ceiling for the upload endpoint, checked from Content-Length before the
+# multipart parser spools anything to disk. The per-file check only sees request.FILES["file"], so
+# without this an authenticated caller could push many large parts through the parser and fill temp
+# storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
+# the small form fields sent alongside the file.
+MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
 
 class CredentialSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -495,8 +502,32 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": "Object storage must be available to upload files."},
             )
 
+        # Reject an oversized body up front, before accessing request.FILES triggers multipart parsing
+        # and spools every part to disk. Reading only Content-Length here keeps the guard cheap.
+        content_length = request.META.get("CONTENT_LENGTH")
+        try:
+            declared_body_size = int(content_length) if content_length else 0
+        except (TypeError, ValueError):
+            declared_body_size = 0
+        if declared_body_size > MAX_UPLOAD_REQUEST_BODY_BYTES:
+            return response.Response(
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                data={
+                    "message": f"Upload exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
+                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                },
+            )
+
         if "file" not in request.FILES:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        # One upload per request: additional parts would already be spooled by the parser, but bounded
+        # by the body cap above; rejecting keeps the endpoint's contract single-file and unambiguous.
+        if len(request.FILES.getlist("file")) > 1 or len(request.FILES) > 1:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Upload one file per request."},
+            )
 
         file = request.FILES["file"]
 
@@ -561,7 +592,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
         fall back to the node role, never a user-supplied key).
         """
-        if not settings.DATAWAREHOUSE_BUCKET:
+        # Both settings back the table: the bucket resolves the S3 read path, the domain builds the
+        # queryable url_pattern. Missing either would create a table whose every query fails.
+        if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Object storage must be available to create a table from a file."},

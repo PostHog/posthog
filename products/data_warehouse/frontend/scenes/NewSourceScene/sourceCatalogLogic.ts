@@ -23,7 +23,12 @@ import { HogFunctionTemplateStatus } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ManualLinkSourceType, UserType } from '../../../../../frontend/src/types'
 import { availableSourcesLogic } from './availableSourcesLogic'
-import { FILE_UPLOAD_FORMATS, FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME, fileUploadSourceUrl } from './fileUploadSource'
+import {
+    FILE_UPLOAD_FORMATS,
+    FILE_UPLOAD_SOURCE_CONFIG,
+    FILE_UPLOAD_SOURCE_NAME,
+    fileUploadSourceUrl,
+} from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 // Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
