@@ -1,21 +1,21 @@
 from unittest.mock import MagicMock, patch
 
-from products.ai_observability.backend.llm.types import CompletionResponse
-from products.tasks.backend.temporal.build_image.activities import ScanVerdict, _judge_spec_safety
+from products.tasks.backend.temporal.build_image.activities import SCAN_JUDGE_MODEL, _judge_spec_safety
 
 
-@patch("products.ai_observability.backend.llm.client.Client")
-def test_security_scan_uses_structured_output(mock_client_class: MagicMock) -> None:
-    verdict = ScanVerdict.model_validate(
-        {"passed": True, "findings": [{"severity": "low", "detail": "Pinned development tool"}]}
-    )
-    mock_client_class.return_value.complete.return_value = CompletionResponse(
-        content="free-form text that is not JSON", model="claude-sonnet-4-6", parsed=verdict
-    )
+@patch("posthog.llm.gateway_client.get_llm_client")
+def test_security_scan_uses_glm_json_output(mock_get_llm_client: MagicMock) -> None:
+    response = mock_get_llm_client.return_value.chat.completions.create.return_value
+    response.choices = [MagicMock()]
+    response.choices[
+        0
+    ].message.content = '{"passed":true,"findings":[{"severity":"low","detail":"Pinned development tool"}]}'
 
-    result = _judge_spec_safety("apt_packages:\n  - git", repository="posthog/posthog")
+    result = _judge_spec_safety("apt_packages:\n  - git", team_id=42, repository="posthog/posthog")
 
     assert result.passed is True
     assert result.findings == [{"severity": "low", "detail": "Pinned development tool"}]
-    request = mock_client_class.return_value.complete.call_args.args[0]
-    assert request.response_format is ScanVerdict
+    mock_get_llm_client.assert_called_once_with(product="posthog_code", team_id=42)
+    request = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
+    assert request["model"] == SCAN_JUDGE_MODEL
+    assert request["response_format"] == {"type": "json_object"}
