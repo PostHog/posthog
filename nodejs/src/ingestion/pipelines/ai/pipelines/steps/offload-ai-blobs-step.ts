@@ -177,10 +177,10 @@ export function createUploadAiBlobStep(store: BlobStore | null): ProcessingStep<
 export function mergeAiBlobPointersFanIn<T extends WithAiBlobOffloadPlan<OffloadAiBlobsInput>>(
     original: T,
     uploads: UploadedAiBlob[]
-): Omit<T, 'aiBlobOffloadPlan'> {
-    const { aiBlobOffloadPlan: plan, ...rest } = original
+): Omit<T, 'aiBlobOffloadPlan' | 'normalizedEvent'> & { normalizedEvent: PluginEvent } {
+    const { aiBlobOffloadPlan: plan, normalizedEvent, ...rest } = original
     if (!plan) {
-        return rest
+        return { ...rest, normalizedEvent }
     }
 
     if (plan.belowFloorCount > 0) {
@@ -190,7 +190,7 @@ export function mergeAiBlobPointersFanIn<T extends WithAiBlobOffloadPlan<Offload
 
     if (plan.skipReason) {
         aiBlobOffloadEventsCounter.labels(plan.skipReason).inc()
-        return rest
+        return { ...rest, normalizedEvent }
     }
 
     for (const { blob, outcome } of uploads) {
@@ -201,14 +201,12 @@ export function mergeAiBlobPointersFanIn<T extends WithAiBlobOffloadPlan<Offload
     aiBlobOffloadEventBytesSaved.observe(plan.savedChars)
     aiBlobOffloadEventsCounter.labels('offloaded').inc()
 
-    const properties = original.normalizedEvent.properties ?? {}
+    const properties = normalizedEvent.properties ?? {}
     return {
         ...rest,
         normalizedEvent: {
-            ...original.normalizedEvent,
+            ...normalizedEvent,
             properties: { ...properties, ...plan.rewrittenProps },
         },
-        // Overriding one property of an Omit'd generic isn't provable for TS,
-        // but normalizedEvent keeps its exact declared type.
-    } as Omit<T, 'aiBlobOffloadPlan'>
+    }
 }
