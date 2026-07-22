@@ -107,6 +107,9 @@ fn lib_rules() -> &'static [LibRule] {
                     // but each module reports its own version stream.
                     "posthog-android" => Some(Version::new(3, 56, 0)),
                     "posthog-server" => Some(Version::new(2, 9, 0)),
+                    // posthog-flutter ships its Dart flip in 5.33.0 and raises
+                    // its Android SDK floor to the canonical 3.56.0 release.
+                    "posthog-flutter" => Some(Version::new(5, 33, 0)),
                     // `posthog-java` is the tombstoned legacy SDK: it will
                     // never ship the flip, so no cutoff, ever.
                     _ => None,
@@ -327,12 +330,13 @@ mod test {
     }
 
     #[test]
-    fn android_and_server_cutoffs_gate_normalization_by_version() {
-        // Both modules flip in one release train but carry separate version
-        // streams; each gate keys on its own module's version.
+    fn android_server_and_flutter_cutoffs_gate_normalization_by_version() {
+        // Android and server flip in one release train; Flutter follows with
+        // its own wrapper release. Each gate keys on its reported version.
         for (lib, below, at) in [
             ("posthog-android", "3.55.2", "3.56.0"),
             ("posthog-server", "2.8.1", "2.9.0"),
+            ("posthog-flutter", "5.32.1", "5.33.0"),
         ] {
             for version in [Some(below), Some("1.0.0"), Some("garbage"), None] {
                 let mut list: ExceptionList =
