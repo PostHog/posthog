@@ -9,10 +9,10 @@ export interface OverflowEventKey {
     distinctId: string
 }
 
-export interface OverflowEventBatch {
+export interface OverflowEventGroup {
     key: OverflowEventKey
     /** Headers of each event for this key in the batch; strategies count their tokens from these. */
-    eventHeaders: EventHeaders[]
+    headersPerEvent: EventHeaders[]
     firstTimestamp: number
 }
 
@@ -32,7 +32,7 @@ export interface OverflowRedirectService {
      *
      * @returns Set of keys (token:distinctId) that should be redirected to overflow
      */
-    handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>>
+    handleEventBatch(batch: OverflowEventGroup[]): Promise<Set<string>>
 
     /**
      * Health check for the service
