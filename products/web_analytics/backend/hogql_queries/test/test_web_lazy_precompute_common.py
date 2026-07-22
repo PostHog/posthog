@@ -541,3 +541,50 @@ class TestStaleRevalidationEnqueue(BaseTest):
             delay.side_effect = Exception("broker down")
             handle_stale_served(runner=runner, family="web_overview")
         assert get_query_tag_value("precompute_stale") is True
+
+
+class TestServeLiveWarmBehind(BaseTest):
+    """User-facing ensures are check-only (never insert inline); a miss enqueues
+    a background warm. Background warming triggers keep computing inline —
+    without that split, either dashboards pay for their own backfill again
+    (the inline self-DoS) or the warmers stop producing jobs entirely."""
+
+    def _runner(self):
+        runner = mock.Mock()
+        runner.team = self.team
+        runner.query = mock.Mock()
+        return runner
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_facing_is_check_only_and_warms_on_miss(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        runner = self._runner()
+        web_ensure_precomputed(
+            team=self.team, runner=runner, family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is False
+        assert "runner" not in mock_ensure.call_args.kwargs
+        assert "family" not in mock_ensure.call_args.kwargs
+        mock_enqueue.assert_called_once_with(team=self.team, query=runner.query, family="web_overview")
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_user_facing_hit_does_not_enqueue(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(
+            team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+        )
+        mock_enqueue.assert_not_called()
+
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_background_warming_still_inserts_inline(self, mock_ensure, mock_enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+            web_ensure_precomputed(
+                team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
+            )
+        assert mock_ensure.call_args.kwargs["run_inserts"] is True
+        # The warmer IS the refresh mechanism; a miss must not re-enqueue itself.
+        mock_enqueue.assert_not_called()
