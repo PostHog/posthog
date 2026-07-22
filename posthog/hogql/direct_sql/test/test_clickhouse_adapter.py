@@ -56,10 +56,31 @@ class TestClickHouseReadOnlyGuard(SimpleTestCase):
             ("with_cte", "WITH x AS (SELECT 1) SELECT * FROM x"),
             ("lowercase", "select count() from events"),
             ("leading_comment", "-- hi\nSELECT 1"),
+            # A column named like a blocked table function is an identifier, not a call — allowed.
+            ("column_named_url", "SELECT url FROM events"),
+            ("column_named_file", "SELECT file, count() FROM events"),
         ]
     )
     def test_allows_read_only(self, _name, sql):
         self.assertEqual(ensure_read_only_raw_clickhouse_statement(sql), sql)
+
+    @parameterized.expand(
+        [
+            ("url_ssrf", "SELECT * FROM url('http://169.254.169.254/latest/meta-data/', RawBLOB)"),
+            ("s3", "SELECT * FROM s3('http://x/f.csv')"),
+            ("remote", "SELECT * FROM remote('other-host', db.t)"),
+            ("mysql", "SELECT * FROM mysql('h:3306', 'db', 't', 'u', 'p')"),
+            ("postgresql", "SELECT * FROM postgresql('h:5432', 'db', 't', 'u', 'p')"),
+            ("file", "SELECT * FROM file('/etc/passwd', 'LineAsString')"),
+            ("executable", "SELECT * FROM executable('script.sh', 'TabSeparated', 'x String')"),
+            # Nested inside a subquery — the whole tree is walked.
+            ("nested", "SELECT * FROM (SELECT * FROM url('http://x'))"),
+            ("uppercase", "SELECT * FROM URL('http://x')"),
+        ]
+    )
+    def test_rejects_dangerous_table_functions(self, _name, sql):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_read_only_raw_clickhouse_statement(sql)
 
     @parameterized.expand(
         [

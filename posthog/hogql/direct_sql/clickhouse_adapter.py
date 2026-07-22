@@ -1,8 +1,10 @@
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
+from sqlparse.sql import Function, TokenList
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
@@ -31,6 +33,45 @@ DIRECT_CLICKHOUSE_ROW_CAP_ERROR = (
     f"ClickHouse query returned more than {DIRECT_CLICKHOUSE_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
 RAW_CLICKHOUSE_READ_ONLY_ERROR = "Raw ClickHouse queries must be read-only SELECT statements."
+RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR = "This ClickHouse table function is not allowed in direct queries."
+
+# Table functions that read over the network, from the local filesystem, or spawn a process.
+# They parse as a plain SELECT (`SELECT * FROM url(...)`), so the read-only DML/DDL gate doesn't
+# stop them — a raw query could otherwise reach the connected server's metadata endpoint (SSRF),
+# federate in data from other databases the server can see, or read local files / run programs.
+# HogQL-authored queries never emit these; only the raw passthrough path can, so block them by
+# name there. Matched case-insensitively and only when the name is a function call (a column
+# literally named e.g. `url` tokenizes as an identifier, not a Function, so it's unaffected).
+_RAW_CLICKHOUSE_BLOCKED_TABLE_FUNCTIONS = frozenset(
+    {
+        "URL",
+        "URLCLUSTER",
+        "S3",
+        "S3CLUSTER",
+        "GCS",
+        "REMOTE",
+        "REMOTESECURE",
+        "CLUSTER",
+        "CLUSTERALLREPLICAS",
+        "MYSQL",
+        "POSTGRESQL",
+        "MONGODB",
+        "REDIS",
+        "SQLITE",
+        "JDBC",
+        "ODBC",
+        "HDFS",
+        "HDFSCLUSTER",
+        "FILE",
+        "INPUT",
+        "AZUREBLOBSTORAGE",
+        "AZUREBLOBSTORAGECLUSTER",
+        "DELTALAKE",
+        "HUDI",
+        "ICEBERG",
+        "EXECUTABLE",
+    }
+)
 
 
 def clickhouse_error_to_message(error: Exception) -> str:
@@ -40,6 +81,21 @@ def clickhouse_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
+def _iter_function_names(token: TokenList) -> "Iterator[str]":
+    """Yield the name of every function call in the statement, recursing into groups.
+
+    Table functions in a FROM clause (``url(...)``, ``s3(...)``) and scalar calls both parse as
+    ``sqlparse.sql.Function``; a bare identifier of the same spelling (``SELECT url``) does not.
+    """
+    for child in token.tokens:
+        if isinstance(child, Function):
+            name = child.get_name()
+            if name:
+                yield name
+        if child.is_group:
+            yield from _iter_function_names(child)
+
+
 def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     """Enforce read-only for raw ClickHouse SQL.
 
@@ -47,19 +103,27 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     enforced our side (as with Snowflake/Redshift): the statement must be a single ``SELECT`` and
     any DDL — or any DML keyword other than ``SELECT`` anywhere in the statement — is rejected.
     A first-keyword check is not enough: ClickHouse accepts ``WITH 1 AS x INSERT INTO t SELECT x``,
-    which starts with ``WITH`` but writes, so the whole statement is inspected. HogQL-authored
-    queries only ever emit SELECT. String values and quoted identifiers aren't tagged DML/DDL, so
-    a literal or alias like ``'DELETE'`` is unaffected.
+    which starts with ``WITH`` but writes, so the whole statement is inspected. Network/file/exec
+    table functions (``url``, ``s3``, ``remote``, ``file``, …) are rejected too: they run from a
+    plain SELECT and would otherwise let a raw query reach the connected server's metadata endpoint
+    (SSRF), read local files, or federate in other databases. HogQL-authored queries only ever emit
+    a plain SELECT over the source's own tables. String values and quoted identifiers aren't tagged
+    DML/DDL and a same-named column isn't a function call, so a literal, alias, or column like
+    ``'DELETE'`` / ``url`` is unaffected.
     """
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
-    for token in statements[0].flatten():
+    statement = statements[0]
+    for token in statement.flatten():
         if token.ttype in sqlparse_tokens.DDL:
             raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
             raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+    for function_name in _iter_function_names(statement):
+        if function_name.upper() in _RAW_CLICKHOUSE_BLOCKED_TABLE_FUNCTIONS:
+            raise ExposedHogQLError(RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR)
     return sql
 
 
