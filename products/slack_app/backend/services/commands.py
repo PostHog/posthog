@@ -261,6 +261,7 @@ def _handle_project_set(
 
     from products.slack_app.backend.models import SlackSettings
     from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
+    from products.slack_app.backend.slack_link_unfurl import _escape_mrkdwn
 
     user = User.objects.get(id=user_id)
     if not user.teams.filter(id=target_team_id).exists():
@@ -324,9 +325,11 @@ def _handle_project_set(
     )
 
     if routing_unchanged:
+        # Org/team names are user-controlled; escape them so a name like
+        # ``<!channel>`` can't inject mentions into the channel-visible reply.
         text = (
-            f"You're already connected to *{target.team.organization.name} · {target.team.name}* "
-            f"(id `{target.team_id}`) in this workspace."
+            f"You're already connected to *{_escape_mrkdwn(target.team.organization.name)} · "
+            f"{_escape_mrkdwn(target.team.name)}* (id `{target.team_id}`) in this workspace."
         )
         if command_prefix == "@PostHog":
             # The mention (and its project id) is already public, so a visible reply

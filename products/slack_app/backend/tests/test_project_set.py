@@ -87,6 +87,16 @@ class TestHandleProjectSet:
         row = SlackSettings.objects.get(slack_workspace_id="T_WS", slack_user_id="U1")
         assert row.default_integration_id == self.integration.id
 
+    def test_confirmation_escapes_mrkdwn_in_names(self):
+        self.organization.name = "<!channel> & Co"
+        self.organization.save()
+
+        self._run(self.team.id, [self.integration])
+
+        text = self.slack.client.chat_postMessage.call_args.kwargs["text"]
+        assert "<!channel>" not in text
+        assert "&lt;!channel&gt; &amp; Co" in text
+
     def test_slash_surface_confirmation_is_ephemeral_without_mention_invite(self):
         self._run(self.team.id, [self.integration], command_prefix="/posthog")
 
