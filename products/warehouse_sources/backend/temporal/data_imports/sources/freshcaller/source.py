@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
     validate_credentials as validate_freshcaller_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import FRESHCALLER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshcallerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
+    FreshcallerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, Calls, Call

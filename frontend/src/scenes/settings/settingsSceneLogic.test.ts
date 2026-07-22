@@ -95,6 +95,31 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).not.toHaveProperty('llm-analytics-byok')
     })
 
+    it('redirects internal-user-filtering deep links to its new section', async () => {
+        // The setting moved from the product analytics section to Customization; links in docs,
+        // CDP filter warnings, and bookmarks still point at the old section.
+        router.actions.push('/settings/project-product-analytics', {}, { 'internal-user-filtering': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-customization',
+        })
+
+        expect(router.values.location.pathname).toContain('/settings/project-customization')
+        expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
+
+        // Level-only URLs (as emitted by CDP filter warnings) redirect too.
+        router.actions.push('/settings/project', {}, { 'internal-user-filtering': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-customization',
+        })
+
+        expect(router.values.location.pathname).toContain('/settings/project-customization')
+        expect(router.values.hashParams).toHaveProperty('internal-user-filtering')
+    })
+
     it('redirects level-only URLs to first section', async () => {
         // Each push switches to a different level, so no section at the target level is
         // selected yet and the redirect to the first section runs.
@@ -117,11 +142,14 @@ describe('settingsSceneLogic', () => {
         })
         expect(router.values.location.pathname).toContain('/settings/user-profile')
 
-        router.actions.push('/settings/project')
+        // The redirect keeps hash params, so `/settings/project#variables`-style links
+        // still scroll to their setting.
+        router.actions.push('/settings/project', {}, { variables: true })
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
         })
         expect(router.values.location.pathname).toContain('/settings/project-details')
+        expect(router.values.hashParams).toHaveProperty('variables')
     })
 
     it('does not bounce a level-only URL when already on a section at that level', async () => {

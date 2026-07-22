@@ -578,8 +578,67 @@ def validate_table_suffix(name: str | None) -> str | None:
     return None
 
 
+def validate_schema_name(name: str | None) -> str | None:
+    """Return a human-readable error if `name` isn't a valid duckgres schema name, else None.
+
+    A team's schema name shares the table-suffix constraints (it doubles as the
+    table suffix on the Django side): lowercase letters, numbers, and underscores,
+    at most 63 characters.
+    """
+    if not name:
+        return "schema_name is required"
+    if len(name) > TABLE_SUFFIX_MAX_LENGTH:
+        return f"Schema name must be at most {TABLE_SUFFIX_MAX_LENGTH} characters"
+    if not TABLE_SUFFIX_PATTERN.match(name):
+        return "Schema name must use only lowercase letters, numbers, and underscores"
+    return None
+
+
 class DucklingBackfillEnableError(Exception):
     """Raised when a team's warehouse backfill cannot be enabled (no server, name collision)."""
+
+
+def check_team_backfill_enable(*, team_id: int, organization_id: str | UUID, table_name: str) -> bool:
+    """Run every ``enable_team_backfill`` guard without writing anything.
+
+    Returns True when the team already has a row with this exact suffix (an idempotent
+    no-op for the caller), False when a new row would be created. Raises
+    DucklingBackfillEnableError with a user-facing message otherwise. Lets dual-write
+    callers reject bad input before touching the duckgres control plane.
+    """
+    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
+
+    error = validate_table_suffix(table_name)
+    if error:
+        raise DucklingBackfillEnableError(error)
+    suffix = table_name
+
+    if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
+        raise DucklingBackfillEnableError(
+            "No managed warehouse is provisioned for this organization. Provision one first."
+        )
+
+    existing = DuckgresServerTeam.objects.filter(team_id=team_id).first()
+    if existing is not None:
+        if existing.table_suffix == suffix:
+            # Same name — already set up; idempotent no-op.
+            return True
+        current = f"events_{existing.table_suffix}" if existing.table_suffix else "the shared tables"
+        raise DucklingBackfillEnableError(
+            f"This project already writes to {current}, and its warehouse table can't be changed — "
+            "that would split its existing data across two tables."
+        )
+
+    collision = (
+        DuckgresServerTeam.objects.filter(team__organization_id=organization_id, table_suffix=suffix)
+        .exclude(team_id=team_id)
+        .exists()
+    )
+    if collision:
+        raise DucklingBackfillEnableError(
+            f"The name '{suffix}' is already used by another environment in this organization."
+        )
+    return False
 
 
 def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_name: str) -> str:
@@ -601,41 +660,40 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
     """
     from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 
-    error = validate_table_suffix(table_name)
-    if error:
-        raise DucklingBackfillEnableError(error)
-    suffix = table_name
-
-    try:
-        server = DuckgresServer.objects.get(organization_id=organization_id)
-    except DuckgresServer.DoesNotExist:
-        raise DucklingBackfillEnableError(
-            "No managed warehouse is provisioned for this organization. Provision one first."
-        )
-
-    existing = DuckgresServerTeam.objects.filter(team_id=team_id).first()
-    if existing is not None:
-        if existing.table_suffix == suffix:
-            # Same name — already set up; idempotent no-op.
-            return suffix
-        current = f"events_{existing.table_suffix}" if existing.table_suffix else "the shared tables"
-        raise DucklingBackfillEnableError(
-            f"This project already writes to {current}, and its warehouse table can't be changed — "
-            "that would split its existing data across two tables."
-        )
-
-    collision = (
-        DuckgresServerTeam.objects.filter(team__organization_id=organization_id, table_suffix=suffix)
-        .exclude(team_id=team_id)
-        .exists()
+    already_enabled = check_team_backfill_enable(
+        team_id=team_id, organization_id=organization_id, table_name=table_name
     )
-    if collision:
-        raise DucklingBackfillEnableError(
-            f"The table name '{suffix}' is already used by another environment in this organization."
-        )
+    suffix = table_name
+    if already_enabled:
+        existing = DuckgresServerTeam.objects.get(team_id=team_id)
+        if not existing.backfill_enabled:
+            existing.backfill_enabled = True
+            existing.save(update_fields=["backfill_enabled", "updated_at"])
+        _ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
+        return suffix
 
+    server = DuckgresServer.objects.get(organization_id=organization_id)
     DuckgresServerTeam.objects.create(server=server, team_id=team_id, backfill_enabled=True, table_suffix=suffix)
+    _ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
     return suffix
+
+
+def _ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> None:
+    """Best-effort: register the org's managed warehouse as a restricted query connection.
+
+    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
+    ExternalDataSource pointed at the org server. Duckgres scopes its credential to the project
+    and enforces read-only SQL. Isolated from backfill enablement: a failure here must never block
+    a team from joining the warehouse.
+    """
+    try:
+        # Lazy import: keep the data_warehouse/warehouse_sources stack off this module's import
+        # path (it's loaded by the API and by Dagster, which don't need it).
+        from products.data_warehouse.backend.facade.api import ensure_managed_warehouse_direct_source  # noqa: PLC0415
+
+        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
+    except Exception:
+        logger.exception("Failed to register managed warehouse query source for team %s", team_id)
 
 
 def get_team_backfill_state(team_id: int) -> dict[str, object]:
@@ -656,6 +714,7 @@ def get_team_backfill_state(team_id: int) -> dict[str, object]:
 __all__ = [
     "DucklingBackfillEnableError",
     "attach_catalog",
+    "check_team_backfill_enable",
     "default_bucket_region",
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
@@ -680,5 +739,6 @@ __all__ = [
     "run_smoke_check",
     "sanitize_ducklake_identifier",
     "validate_duckgres_identifier",
+    "validate_schema_name",
     "validate_table_suffix",
 ]

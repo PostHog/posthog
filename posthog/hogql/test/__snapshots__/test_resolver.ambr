@@ -907,17 +907,17 @@
                         nullable: False
                       },
                       {
-                        data_type: "str"
+                        data_type: "uuid"
                         nullable: False
                       },
                       {
-                        data_type: "str"
+                        data_type: "uuid"
                         nullable: False
                       }
                     ]
                     name: "if"
                     return_type: {
-                      data_type: "str"
+                      data_type: "uuid"
                       nullable: False
                     }
                   }
@@ -3014,17 +3014,17 @@
             arg_types: [
               <recursion ...>,
               {
-                data_type: "str"
+                data_type: "uuid"
                 nullable: False
               },
               {
-                data_type: "str"
+                data_type: "uuid"
                 nullable: False
               }
             ]
             name: "if"
             return_type: {
-              data_type: "str"
+              data_type: "uuid"
               nullable: False
             }
           }
@@ -5467,15 +5467,15 @@
                   nullable: False
                 },
                 event_issue_id: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: True
                 },
                 event_person_id: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: False
                 },
                 issue_assigned_role_id: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: True
                 },
                 issue_assigned_user_id: {
@@ -5507,7 +5507,7 @@
                   nullable: True
                 },
                 person_id: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: False
                 },
                 person_mode: {
@@ -5523,7 +5523,7 @@
                   nullable: False
                 },
                 uuid: {
-                  data_type: "str"
+                  data_type: "uuid"
                   nullable: False
                 }
               }
@@ -6423,17 +6423,17 @@
                             nullable: False
                           },
                           {
-                            data_type: "str"
+                            data_type: "uuid"
                             nullable: False
                           },
                           {
-                            data_type: "str"
+                            data_type: "uuid"
                             nullable: False
                           }
                         ]
                         name: "if"
                         return_type: {
-                          data_type: "str"
+                          data_type: "uuid"
                           nullable: False
                         }
                       }
@@ -7368,17 +7368,17 @@
                             nullable: False
                           },
                           {
-                            data_type: "str"
+                            data_type: "uuid"
                             nullable: False
                           },
                           {
-                            data_type: "str"
+                            data_type: "uuid"
                             nullable: False
                           }
                         ]
                         name: "if"
                         return_type: {
-                          data_type: "str"
+                          data_type: "uuid"
                           nullable: False
                         }
                       }
@@ -10555,17 +10555,17 @@
             arg_types: [
               <recursion ...>,
               {
-                data_type: "str"
+                data_type: "uuid"
                 nullable: False
               },
               {
-                data_type: "str"
+                data_type: "uuid"
                 nullable: False
               }
             ]
             name: "if"
             return_type: {
-              data_type: "str"
+              data_type: "uuid"
               nullable: False
             }
           }
@@ -12350,17 +12350,17 @@
             arg_types: [
               <recursion ...>,
               {
-                data_type: "str"
+                data_type: "uuid"
                 nullable: False
               },
               {
-                data_type: "str"
+                data_type: "uuid"
                 nullable: False
               }
             ]
             name: "if"
             return_type: {
-              data_type: "str"
+              data_type: "uuid"
               nullable: False
             }
           }

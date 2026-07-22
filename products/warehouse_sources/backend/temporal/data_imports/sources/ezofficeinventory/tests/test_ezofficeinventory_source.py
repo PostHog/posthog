@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficein
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source import (
     EZOfficeInventorySource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
     EZOfficeInventorySourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

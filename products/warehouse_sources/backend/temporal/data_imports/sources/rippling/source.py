@@ -23,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RipplingSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
+    RipplingSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import (
     RipplingResumeConfig,
     rippling_source,

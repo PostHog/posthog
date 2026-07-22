@@ -29,3 +29,49 @@ export const castStringToInt = (v: unknown): unknown => {
     }
     return v
 }
+
+/**
+ * Normalize alternate key spellings to a canonical param name before validation.
+ *
+ * Agents composing calls from scratch guess the identifier key from context —
+ * production traces show `insight-get` receiving `insightId` / `short_id` /
+ * `insight_id` / `shortId` where the schema requires `id`, and `insight-query`
+ * receiving the reverse. Same failure mode the `orgId` aliases in
+ * `OrganizationSetActiveSchema` exist for (see src/schema/tool-inputs.ts), but
+ * for schemas with additional fields where a union of per-alias branches
+ * doesn't scale.
+ *
+ * Compose via `z.preprocess(normalizeParamAliases({ id: ['insightId', ...] }), schema)`.
+ * The canonical key wins when present; otherwise the first-listed alias with a
+ * value wins. Alias keys are always removed so they never reach handlers or
+ * `.strict()` validation. In zod 4's JSON Schema output (`io: 'input'`) a
+ * preprocess renders as the wrapped schema, so the advertised schema still
+ * shows only the canonical, required param.
+ *
+ * Wired up declaratively via `param_overrides: { id: { aliases: [...] } }` in
+ * product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
+ */
+export const normalizeParamAliases =
+    (aliasMap: Record<string, readonly string[]>) =>
+    (input: unknown): unknown => {
+        if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+            return input
+        }
+        const record = input as Record<string, unknown>
+        const hasAlias = Object.values(aliasMap).some((aliases) => aliases.some((alias) => alias in record))
+        if (!hasAlias) {
+            return input
+        }
+        const result = { ...record }
+        for (const [canonical, aliases] of Object.entries(aliasMap)) {
+            for (const alias of aliases) {
+                if (alias in result) {
+                    if (result[canonical] === undefined) {
+                        result[canonical] = result[alias]
+                    }
+                    delete result[alias]
+                }
+            }
+        }
+        return result
+    }

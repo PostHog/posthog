@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla
     EVENTZILLA_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventzillaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
+    EventzillaSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WufooSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,

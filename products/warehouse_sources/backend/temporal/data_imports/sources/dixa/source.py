@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa 
     validate_credentials as validate_dixa_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DixaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dixa import DixaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
