@@ -7,12 +7,15 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { parseScopes, labelsForTitle, loadRules } = require('./label-pr-from-title')
+const { parseScopes, parseType, docsLabelApplies, labelsForTitle, loadRules } = require('./label-pr-from-title')
 
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
 // exercised against the real structure without reading the file.
 const RULES = [
-    { scopes: ['flags', 'feature-flags'], labels: ['feature/feature-flags', 'team/feature-flags'] },
+    {
+        scopes: ['flags', 'flag', 'feature-flags', 'feature-flag', 'feature_flags', 'feature_flag'],
+        labels: ['feature/feature-flags', 'team/feature-flags'],
+    },
     { scopes: ['cohort', 'cohorts'], labels: ['team/feature-flags', 'feature/cohorts'] },
 ]
 
@@ -44,6 +47,11 @@ const LABELS_FOR_TITLE_CASES = [
         expected: ['feature/feature-flags', 'team/feature-flags'],
         description: 'feature-flags alias',
     },
+    {
+        title: 'feat(feature_flags): x',
+        expected: ['feature/feature-flags', 'team/feature-flags'],
+        description: 'underscore feature_flags alias',
+    },
     { title: 'fix(cohort): x', expected: ['team/feature-flags', 'feature/cohorts'], description: 'cohort scope' },
     {
         title: 'feat(cohorts)!: x',
@@ -67,6 +75,39 @@ test('labelsForTitle', async (t) => {
     }
 })
 
+const PARSE_TYPE_CASES = [
+    { title: 'docs: add guide', expected: 'docs', description: 'type with no scope' },
+    { title: 'docs(internal): x', expected: 'docs', description: 'type with scope' },
+    { title: 'feat(flags): x', expected: 'feat', description: 'non-docs type' },
+    { title: 'chore!: drop thing', expected: 'chore', description: 'breaking-change bang' },
+    { title: 'update the docs please', expected: null, description: 'prose without a CC type -> null' },
+    { title: '', expected: null, description: 'empty title -> null' },
+]
+
+test('parseType', async (t) => {
+    for (const { title, expected, description } of PARSE_TYPE_CASES) {
+        await t.test(description, () => {
+            assert.equal(parseType(title), expected)
+        })
+    }
+})
+
+const DOCS_LABEL_CASES = [
+    { title: 'docs: x', author: 'someuser', expected: true, description: 'docs type applies' },
+    { title: 'docs(cdp): x', author: 'someuser', expected: true, description: 'docs type with scope applies' },
+    { title: 'feat(flags): x', author: 'inkeep[bot]', expected: true, description: 'inkeep author applies on any title' },
+    { title: 'feat(flags): x', author: 'someuser', expected: false, description: 'neither type nor author -> no docs label' },
+    { title: 'chore: tidy up docs', author: 'someuser', expected: false, description: 'docs only in prose does not apply' },
+]
+
+test('docsLabelApplies', async (t) => {
+    for (const { title, author, expected, description } of DOCS_LABEL_CASES) {
+        await t.test(description, () => {
+            assert.equal(docsLabelApplies(title, author), expected)
+        })
+    }
+})
+
 // Catches a malformed or empty .github/auto-assign-labels.json in this PR's
 // ci-scripts run, rather than letting it silently disable labeling on master.
 test('the shipped config loads into well-formed rules', () => {
@@ -85,3 +126,13 @@ test('the shipped config loads into well-formed rules', () => {
 test('the shipped config still maps the flags scope to labels', () => {
     assert.ok(labelsForTitle('feat(flags): x', loadRules()).length > 0, 'flags scope maps to no labels')
 })
+
+// Contributors write the flags scope several ways; these aliases were silently
+// unlabeled until they were added to the config. Bind each to the shipped
+// config (not just the RULES mirror) so a future edit that drops one regresses
+// loudly here.
+for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
+    test(`the shipped config maps the ${scope} scope to labels`, () => {
+        assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
+    })
+}
