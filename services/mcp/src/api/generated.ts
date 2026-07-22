@@ -15186,6 +15186,11 @@ export namespace Schemas {
       email_subject: string | null;
     }
 
+    /**
+     * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
+     */
+    export type ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3;
+
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
       id: string;
@@ -15236,6 +15241,23 @@ export namespace Schemas {
          * @nullable
          */
       approximation_reason: string | null;
+    }
+
+    export interface ConversionGoalWrite {
+      /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value sent is ignored. On update, only the fields you send are changed. */
+      goal: ConversionGoal;
+    }
+
+    /**
+     * List wrapper for OpenAPI schema generation - the response carries every configured goal.
+     */
+    export type ConversionGoalWrittenList = (ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)[];
+
+    export interface ConversionGoalWriteResponse {
+      /** The goal as stored after the write */
+      goal: ConversionGoal;
+      /** Every configured goal after the write, in display order */
+      conversion_goals: ConversionGoalWrittenList;
     }
 
     export interface ConversionGoalsListResponse {
@@ -43179,6 +43201,11 @@ export namespace Schemas {
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
       readonly task?: ConversationTask | null;
+    }
+
+    export interface PatchedConversionGoalWrite {
+      /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. On create, conversion_goal_id is assigned by the server and any value sent is ignored. On update, only the fields you send are changed. */
+      goal?: ConversionGoal;
     }
 
     export interface PatchedCoreEvent {
