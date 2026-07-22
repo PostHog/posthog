@@ -1763,7 +1763,10 @@ describe('Cyclotron V2', () => {
             const defaults = {
                 team_id: 1,
                 function_id: null,
-                queue_name: QUEUE,
+                // Default to a real invocation queue so a poisoned genuine invocation is recorded.
+                // The janitor only records give-ups on invocation queues; anything else is a
+                // wrapper/meta job that's dropped without a record (see WRAPPER drop tests below).
+                queue_name: 'hogflow',
                 status: 'available',
                 priority: 0,
                 scheduled: new Date(),
@@ -1982,7 +1985,11 @@ describe('Cyclotron V2', () => {
         // Both meta/wrapper queues share cyclotron_jobs with real invocations and
         // stamp function_id to a target function, so both must be dropped without a
         // record — else the autodrain replays a real flow with fabricated globals.
-        it.each(['rerun', 'hogflow_batch_resolve'])(
+        // 'some_future_meta_queue' is an unknown, non-invocation queue: it guards the allow-list's
+        // fail-safe. Under the old deny-list a queue nobody listed would be RECORDED as a replayable
+        // hog_flow (the autodrain would then replay a phantom flow) — with the allow-list any queue
+        // not in CYCLOTRON_INVOCATION_JOB_QUEUES is dropped without a record by default.
+        it.each(['rerun', 'hogflow_batch_resolve', 'some_future_meta_queue'])(
             'drops a poisoned %s wrapper without recording it, still records real invocations',
             async (wrapperQueue) => {
                 const staleHeartbeat = new Date(Date.now() - 60_000)

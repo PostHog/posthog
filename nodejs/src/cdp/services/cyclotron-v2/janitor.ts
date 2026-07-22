@@ -4,9 +4,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
-import { RERUN_QUEUE_NAME } from '../../rerun/rerun-job.types'
-import { CyclotronJobInvocationHogFlow } from '../../types'
-import { HOGFLOW_BATCH_RESOLVE_QUEUE } from '../hogflows/batch-resolver.types'
+import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorConfig } from './types'
@@ -16,13 +14,16 @@ import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorCon
 // exactly these give-ups from the rerun tooling (rerun filter `error_kind`).
 export const JANITOR_POISON_PILL_ERROR_KIND = 'janitor_poison_pill'
 
-// Queues that carry non-invocation "wrapper" / meta jobs — they share the
-// cyclotron_jobs table with real invocations, but their `function_id` points at a
-// target function and their `state` is not an invocation. The janitor must NOT
-// record their give-ups as replayable invocation results (that would let the
-// autodrain replay a real flow with fabricated globals — see recordAndDeletePoisonPills);
-// it gives up on them without a record instead. Add any new wrapper queue here.
-const WRAPPER_QUEUE_NAMES: string[] = [RERUN_QUEUE_NAME, HOGFLOW_BATCH_RESOLVE_QUEUE]
+// Only jobs on a real invocation queue carry a replayable invocation. Everything else on this
+// shared cyclotron_jobs table (the rerun + batch-resolve wrappers, and any future meta queue) has a
+// `function_id` pointing at a target function and a `state` that is not an invocation — recording
+// one as a give-up would tag it `function_kind='hog_flow'` and let the autodrain replay a real flow
+// with fabricated globals (see recordAndDeletePoisonPills). So the janitor records give-ups only for
+// this allow-list and drops everything else without a record. Keying off the canonical allow-list
+// (it *is* the `CyclotronJobQueueKind` type) is deliberately fail-safe: a new meta queue is dropped
+// by default, and a new invocation queue has to be added to this list to compile — no hand-kept
+// deny-list to fall out of sync (which is how the batch-resolve queue was missed originally).
+const INVOCATION_QUEUE_NAMES: string[] = [...CYCLOTRON_INVOCATION_JOB_QUEUES]
 
 // The first stall gets only this small jittered delay (not the full exponential
 // base), so a transient stall — a worker restart/deploy, where a healthy worker
@@ -256,13 +257,12 @@ export class CyclotronV2Janitor {
     private async recordAndDeletePoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
-        // Wrapper/meta jobs (rerun, batch-resolve) share this table. A wrapper is
-        // not a replayable invocation — recording one as a `failed` result would give
-        // it `function_kind='hog_flow'` with the target's `function_id`
-        // (poisonRowToInvocation always tags hogFlow), making it indistinguishable
-        // from a genuine poisoned flow. The autodrain would then rediscover and replay
-        // a real flow with fabricated globals. So give up on poisoned wrappers
-        // separately: delete them with NO record. This is self-healing — the work a
+        // Wrapper/meta jobs (rerun, batch-resolve, any future non-invocation queue) share this table.
+        // A wrapper is not a replayable invocation — recording one as a `failed` result would give it
+        // `function_kind='hog_flow'` with the target's `function_id` (poisonRowToInvocation always tags
+        // hogFlow), making it indistinguishable from a genuine poisoned flow, and the autodrain would
+        // then rediscover and replay a real flow with fabricated globals. So give up on anything not on
+        // an invocation queue separately: delete it with NO record. This is self-healing — the work a
         // wrapper was driving is re-derived on its next run.
         await this.dropWrapperPoisonPills(heartbeatCutoff)
 
@@ -274,11 +274,11 @@ export class CyclotronV2Janitor {
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
                AND janitor_touch_count >= $2
-               AND queue_name <> ALL($4::text[])
+               AND queue_name = ANY($4::text[])
              ORDER BY last_transition ASC
              LIMIT $3
              FOR UPDATE SKIP LOCKED`,
-            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize, WRAPPER_QUEUE_NAMES]
+            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize, INVOCATION_QUEUE_NAMES]
         )
 
         if (result.rows.length === 0) {
@@ -349,11 +349,11 @@ export class CyclotronV2Janitor {
     }
 
     /**
-     * Give up on poisoned wrapper/meta jobs (rerun, batch-resolve) by deleting them
-     * with no replay record — see the rationale in recordAndDeletePoisonPills. A
-     * wrapper is not a replayable invocation, so there is nothing meaningful to
-     * record; dropping it is safe and self-healing (its work is re-derived on the
-     * next run).
+     * Give up on poisoned wrapper/meta jobs — anything not on an invocation queue (rerun,
+     * batch-resolve, any future meta queue) — by deleting them with no replay record. See the
+     * rationale in recordAndDeletePoisonPills. A wrapper is not a replayable invocation, so there is
+     * nothing meaningful to record; dropping it is safe and self-healing (its work is re-derived on
+     * the next run).
      */
     private async dropWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
         // Bound the delete to cleanupBatchSize and pick rows via FOR UPDATE SKIP
@@ -367,7 +367,7 @@ export class CyclotronV2Janitor {
              WHERE id IN (
                  SELECT id FROM cyclotron_jobs
                  WHERE status = 'running'
-                   AND queue_name = ANY($1::text[])
+                   AND queue_name <> ALL($1::text[])
                    AND COALESCE(last_heartbeat, $2) <= $2
                    AND janitor_touch_count >= $3
                  ORDER BY last_transition ASC
@@ -375,7 +375,7 @@ export class CyclotronV2Janitor {
                  FOR UPDATE SKIP LOCKED
              )
              RETURNING id`,
-            [WRAPPER_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+            [INVOCATION_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
         )
         const count = deleted.rows.length
         if (count > 0) {
