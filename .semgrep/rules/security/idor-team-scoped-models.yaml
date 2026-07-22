@@ -84,9 +84,6 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
-                              |CodePrSnapshot
-                              |CodeWorkflowConfig
-                              |CodeWorkstream
                               |Cohort
                               |CohortBackfillChunk
                               |CohortBackfillRun
@@ -397,9 +394,6 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
-                        |CodePrSnapshot
-                        |CodeWorkflowConfig
-                        |CodeWorkstream
                         |Cohort
                         |CohortBackfillChunk
                         |CohortBackfillRun
