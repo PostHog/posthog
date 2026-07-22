@@ -437,7 +437,13 @@ function _stagedFanOutApiMustBeClosed(): void {
     const _noEarlyFanIn = staged.fanIn
     // @ts-expect-error an unclosed stage cannot be built
     const _noFanOutBuild = staged.build
-    const routed = staged.via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+    const routed = staged.via((sub) => {
+        // @ts-expect-error sub-pipelines are context-agnostic — team-gated surface is uncallable
+        sub.teamAware((b) => b)
+        // @ts-expect-error sub-pipelines are context-agnostic — message-gated surface is uncallable
+        sub.messageAware((b) => b)
+        return sub.concurrently((b) => b.pipe(doubleStep))
+    })
     // @ts-expect-error only fanIn can close the stage
     const _noFanInBuild = routed.build
     // @ts-expect-error the subpipeline surface is not available on the stage

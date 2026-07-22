@@ -90,7 +90,7 @@ export class FanOutBuilder<
     // positions, keeping ChunkPipelineBuilder covariant in TOutput.
     constructor(
         private readonly buildFannedOutPipeline: <TSubOut, U, RSub extends string>(
-            subPipeline: ChunkPipeline<TSub, TSubOut, COutput, COutput, RSub>,
+            subPipeline: ChunkPipeline<TSub, TSubOut, Record<string, never>, Record<string, never>, RSub>,
             fanInFn: FanInFunction<TOutput, TSubOut, U>
         ) => ChunkPipeline<TInput, U, CInput, COutput, R>
     ) {}
@@ -108,11 +108,11 @@ export class FanOutBuilder<
      */
     via<TSubOut, RSub extends string = never>(
         subpipelineCallback: (
-            builder: ChunkPipelineBuilder<TSub, TSub, COutput, COutput>
-        ) => ChunkPipelineBuilder<TSub, TSubOut, COutput, COutput, RSub>
+            builder: ChunkPipelineBuilder<TSub, TSub, Record<string, never>, Record<string, never>>
+        ) => ChunkPipelineBuilder<TSub, TSubOut, Record<string, never>, Record<string, never>, RSub>
     ): FanInBuilder<TInput, TOutput, TSubOut, CInput, COutput, R> {
-        const startBuilder = new ChunkPipelineBuilder<TSub, TSub, COutput, COutput>(
-            new BufferingChunkPipeline<TSub, COutput>()
+        const startBuilder = new ChunkPipelineBuilder<TSub, TSub, Record<string, never>, Record<string, never>>(
+            new BufferingChunkPipeline<TSub, Record<string, never>>()
         )
         const subPipeline = subpipelineCallback(startBuilder).build()
         return new FanInBuilder(<U>(fanInFn: FanInFunction<TOutput, TSubOut, U>) =>
@@ -246,7 +246,7 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     fanOut<TSub>(fanOutFn: FanOutFunction<TOutput, TSub>): FanOutBuilder<TInput, TOutput, TSub, CInput, COutput, R> {
         return new FanOutBuilder(
             <TSubOut, U, RSub extends string>(
-                subPipeline: ChunkPipeline<TSub, TSubOut, COutput, COutput, RSub>,
+                subPipeline: ChunkPipeline<TSub, TSubOut, Record<string, never>, Record<string, never>, RSub>,
                 fanInFn: FanInFunction<TOutput, TSubOut, U>
             ) =>
                 new FanOutFanInChunkPipeline<TInput, TOutput, TSub, TSubOut, U, CInput, COutput, R, RSub>(

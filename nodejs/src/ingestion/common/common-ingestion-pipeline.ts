@@ -326,10 +326,17 @@ export class CommonPreTeamStage<
     }
 }
 
-/** Subpipeline callback of a fan-out stage: builds the per-sub-element pipeline under the team-aware context. */
-type FanOutViaCallback<TSub, TSubOut, TContext, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TSub, TSub, TeamAwareContext<TContext>, TeamAwareContext<TContext>>
-) => ChunkPipelineBuilder<TSub, TSubOut, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
+/**
+ * Subpipeline callback of a fan-out stage. Sub-pipelines are context-agnostic
+ * (typed over the minimal base context, not the team-aware context): context
+ * gated surface like `teamAware` or `handleIngestionWarnings` is uncallable
+ * inside — sub warnings/side effects merge into the parent and are handled
+ * once by the skeleton. Fan-out functions put any team/message data sub-steps
+ * need into the sub-element value.
+ */
+type FanOutViaCallback<TSub, TSubOut, ROut extends string> = (
+    builder: ChunkPipelineBuilder<TSub, TSub, Record<string, never>, Record<string, never>>
+) => ChunkPipelineBuilder<TSub, TSubOut, Record<string, never>, Record<string, never>, ROut>
 
 export class CommonTeamStage<
     TInput extends { message: Message },
@@ -416,7 +423,7 @@ export class CommonTeamStage<
         const committed = this.chain.build()
         return new CommonFanOutStage(
             <TSubOut, U>(
-                subpipelineCallback: FanOutViaCallback<TSub, TSubOut, TContext, ROut>,
+                subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>,
                 fanInFn: FanInFunction<TCurrent, TSubOut, U>
             ) =>
                 new CommonTeamStage(
@@ -485,7 +492,7 @@ export class CommonFanOutStage<
     // only appears in variance-neutral positions.
     constructor(
         private readonly completeStage: <TSubOut, U>(
-            subpipelineCallback: FanOutViaCallback<TSub, TSubOut, TContext, ROut>,
+            subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>,
             fanInFn: FanInFunction<TCurrent, TSubOut, U>
         ) => CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U>
     ) {}
@@ -496,7 +503,7 @@ export class CommonFanOutStage<
      * would provide).
      */
     via<TSubOut>(
-        subpipelineCallback: FanOutViaCallback<TSub, TSubOut, TContext, ROut>
+        subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>
     ): CommonFanInStage<TInput, TContext, ROut, CBatch, TPost, TCurrent, TSubOut> {
         return new CommonFanInStage(<U>(fanInFn: FanInFunction<TCurrent, TSubOut, U>) =>
             this.completeStage(subpipelineCallback, fanInFn)

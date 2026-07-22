@@ -40,6 +40,13 @@
  *   Side effects and warnings from every sub-result still merge into the
  *   parent. Because no sub-result can escape as the parent's result, the
  *   subpipeline's redirect names don't propagate to the stage's result type.
+ * - **Sub-pipelines are context-agnostic**: the `via` builder is typed over
+ *   the minimal base context, not the parent's context type, so context-gated
+ *   surface (`teamAware`, `messageAware`, `handleIngestionWarnings`,
+ *   `handleResults`) is uncallable inside — sub warnings and side effects
+ *   merge into the parent and are handled once by the outer pipeline. If
+ *   sub-steps need team or message data, the fan-out function puts it in the
+ *   sub-element value.
  * - **Thrown errors** (fan-out, fan-in, or subpipeline) poison the stage
  *   permanently after in-flight work drains, like every other chunk stage.
  *

@@ -25,9 +25,19 @@ export type FanInFunction<TElement, TSubOut, TMerged> = (original: TElement, res
  * property survives the `{ ...context }` spreads steps perform, and keeps
  * working when the subpipeline reorders elements (e.g. via
  * `concurrentlyPerGroup`) — index-based correlation would not. The key is
- * module-private; sub contexts are typed as plain `COutput` outwardly.
+ * module-private; sub contexts are typed as the minimal base context outwardly.
  */
 const FAN_OUT_PARENT = Symbol('fanOutParent')
+
+/**
+ * Sub-pipelines are context-agnostic: they are typed over the minimal base
+ * context, decoupled from the parent pipeline's context type. At runtime each
+ * sub-element still carries a copy of the parent context (plus the correlation
+ * tag) — the narrower type just doesn't expose it, which makes context-gated
+ * builder surface (`teamAware`, `messageAware`, `handleIngestionWarnings`,
+ * `handleResults`) uncallable inside a sub-pipeline.
+ */
+type SubPipelineContext = Record<string, never>
 
 interface PendingParent<TElement, TSubOut, C> {
     original: TElement
@@ -73,6 +83,13 @@ type SubContext<TElement, TSubOut, C> = PipelineContext<C> & {
  * Ordering: parents emit as their sub-results complete (unordered), the same
  * contract as `concurrentlyPerGroup`. Non-OK parents pass through untouched.
  *
+ * Sub-pipelines are context-agnostic (typed over the minimal base context, not
+ * the parent's context type): context-gated surface like `teamAware`,
+ * `messageAware`, `handleIngestionWarnings`, and `handleResults` is uncallable
+ * inside them — sub warnings and side effects merge into the parent and are
+ * handled once by the outer pipeline. If sub-steps need team or message data,
+ * the fan-out function should put it in the sub-element value.
+ *
  * Failures poison the stage: if the upstream, `fanOutFn`, `fanInFn`, or the
  * subpipeline throws, results already in flight still drain, then next()
  * rejects with that error permanently (standard {@link InterleavingChunkPipeline}
@@ -101,7 +118,7 @@ export class FanOutFanInChunkPipeline<
     constructor(
         private previousPipeline: ChunkPipeline<TInput, TElement, CInput, COutput, RPrev>,
         private fanOutFn: FanOutFunction<TElement, TSub>,
-        private subPipeline: ChunkPipeline<TSub, TSubOut, COutput, COutput, RSub>,
+        private subPipeline: ChunkPipeline<TSub, TSubOut, SubPipelineContext, SubPipelineContext, RSub>,
         private fanInFn: FanInFunction<TElement, TSubOut, TMerged>
     ) {
         this.fanOutName = fanOutFn.name || 'anonymousFanOut'
@@ -133,7 +150,7 @@ export class FanOutFanInChunkPipeline<
         }
 
         const settled: PipelineResultWithContext<TMerged, COutput, RPrev>[] = []
-        const subElements: OkResultWithContext<TSub, COutput>[] = []
+        const subElements: OkResultWithContext<TSub, SubPipelineContext>[] = []
 
         for (const element of previousResults) {
             if (!isOkResult(element.result)) {
@@ -166,7 +183,13 @@ export class FanOutFanInChunkPipeline<
                     warnings: [],
                     [FAN_OUT_PARENT]: parent,
                 }
-                subElements.push({ result: ok(sub), context: subContext })
+                subElements.push({
+                    result: ok(sub),
+                    // The sub-pipeline's static context is the minimal base
+                    // type; the full parent context (with the correlation tag)
+                    // rides along at runtime.
+                    context: subContext as unknown as PipelineContext<SubPipelineContext>,
+                })
             }
         }
 
@@ -215,8 +238,8 @@ export class FanOutFanInChunkPipeline<
         return chunk
     }
 
-    private settleSubResult(subResult: PipelineResultWithContext<TSubOut, COutput, RSub>): void {
-        const subContext = subResult.context as SubContext<TElement, TSubOut, COutput>
+    private settleSubResult(subResult: PipelineResultWithContext<TSubOut, SubPipelineContext, RSub>): void {
+        const subContext = subResult.context as unknown as SubContext<TElement, TSubOut, COutput>
         const parent = subContext[FAN_OUT_PARENT]
         if (!parent) {
             throw new Error(
