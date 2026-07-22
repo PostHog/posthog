@@ -1,10 +1,12 @@
 import datetime
+from typing import Any
 
 from django.contrib import admin, messages
+from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.core.exceptions import ValidationError
-from django.http import HttpResponseRedirect
+from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
@@ -55,6 +57,14 @@ class UserChangeForm(DjangoUserChangeForm):
         if value and not WebauthnCredential.objects.filter(user=self.instance, verified=True).exists():
             raise ValidationError("Cannot enable passkeys for 2FA — this user has no verified passkey.")
         return value
+
+
+class UserChangeList(ChangeList):
+    def get_filters_params(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        # `ticket` feeds the change form's login-as reason prefill; as a field lookup it would 302 to ?e=1
+        lookup_params = super().get_filters_params(params)
+        lookup_params.pop("ticket", None)
+        return lookup_params
 
 
 @admin.register(User)
@@ -127,6 +137,9 @@ class UserAdmin(DjangoUserAdmin):
         "date_joined",
     ]
     ordering = ("email",)
+
+    def get_changelist(self, request: HttpRequest, **kwargs: Any) -> type[ChangeList]:
+        return UserChangeList
 
     @admin.display(description="Current Team")
     def current_team_link(self, user: User):

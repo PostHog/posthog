@@ -212,9 +212,12 @@ def loginas_user_from_ticket(request):
     current_region = (settings.CLOUD_DEPLOYMENT or "").upper()
     if ticket_region in REGION_DOMAINS and current_region in REGION_DOMAINS and ticket_region != current_region:
         email = (ticket.anonymous_traits or {}).get("email", "")
-        redirect_url = f"https://{REGION_DOMAINS[ticket_region]}/admin/posthog/user/"
+        params: dict[str, str] = {}
         if email:
-            redirect_url += f"?{urlencode({'q': email})}"
+            params["q"] = email
+        # The other region's admin pre-fills the login-as reason from this ticket URL.
+        params["ticket"] = f"{settings.SITE_URL}/support/tickets/{ticket.ticket_number}"
+        redirect_url = f"https://{REGION_DOMAINS[ticket_region]}/admin/posthog/user/?{urlencode(params)}"
         return JsonResponse({"redirect_region": ticket_region, "redirect_url": redirect_url})
 
     if ticket.identity_verified and ticket.channel_source == "widget":
