@@ -39,46 +39,64 @@ export interface InsightTypeMetadata {
     tooltipDocLink?: string
 }
 
+/**
+ * Wraps an insight type glyph so it always renders in that insight's color (adapting to dark mode
+ * via `light-dark()`), regardless of the text color it would otherwise inherit.
+ */
+function withIconColor(
+    Icon: React.ComponentType<any>,
+    lightVar: string,
+    darkVar: string = lightVar
+): React.ComponentType<any> {
+    return function ColoredInsightIcon({ style, ...props }: { style?: React.CSSProperties }): JSX.Element {
+        return <Icon {...props} style={{ color: `light-dark(var(${lightVar}), var(${darkVar}))`, ...style }} />
+    }
+}
+
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
         name: 'Calendar heatmap (BETA)',
         description: 'Visualize total or unique users broken down by day and hour.',
-        icon: IconRetentionHeatmap,
+        icon: withIconColor(
+            IconRetentionHeatmap,
+            '--color-insight-calendar-heatmap-light',
+            '--color-insight-calendar-heatmap-dark'
+        ),
         inMenu: true,
         // tooltipDescription TODO: Add tooltip description
     },
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
         description: 'Visualize and break down how actions or events vary over time.',
-        icon: IconTrends,
+        icon: withIconColor(IconTrends, '--color-insight-trends-light'),
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/trends/overview',
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
-        icon: IconFunnels,
+        icon: withIconColor(IconFunnels, '--color-insight-funnel-light'),
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/funnels',
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an initial action.',
-        icon: IconRetention,
+        icon: withIconColor(IconRetention, '--color-insight-retention-light'),
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/retention',
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
-        icon: IconUserPaths,
+        icon: withIconColor(IconUserPaths, '--color-insight-user-paths-light', '--color-user-paths-dark'),
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
-        icon: IconStickiness,
+        icon: withIconColor(IconStickiness, '--color-insight-stickiness-light'),
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/stickiness',
     },
@@ -86,7 +104,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         tooltipDescription: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
-        icon: IconLifecycle,
+        icon: withIconColor(IconLifecycle, '--color-insight-lifecycle-light'),
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },

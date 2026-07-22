@@ -429,8 +429,9 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
 
 /**
  * In-house draft icon for SQL insights: curly brackets wrapping an ascending bar chart.
- * Brackets match `IconBrackets` from `@posthog/icons` and follow `currentColor`; the bars
- * are fixed PostHog brand colors (yellow, red, blue), so this icon is intentionally not monochrome.
+ * Brackets match `IconBrackets` from `@posthog/icons` and follow `currentColor`; the bars are
+ * solid pills (the `IconGraph` shape language) in fixed PostHog brand colors (yellow, red, blue),
+ * so this icon is intentionally not monochrome.
  */
 export function IconBracketsChart(props: LemonIconProps): JSX.Element {
     return (
@@ -441,39 +442,9 @@ export function IconBracketsChart(props: LemonIconProps): JSX.Element {
                 d="M4 4.75C4 3.784 4.784 3 5.75 3h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25V11c0 .372-.116.716-.314 1 .198.284.314.628.314 1v6.25c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 4 19.25V13a.25.25 0 0 0-.25-.25h-1a.75.75 0 0 1 0-1.5h1A.25.25 0 0 0 4 11V4.75Zm11-1a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75V11c0 .138.112.25.25.25h1a.75.75 0 0 1 0 1.5h-1A.25.25 0 0 0 20 13v6.25A1.75 1.75 0 0 1 18.25 21h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25V13c0-.372.116-.716.314-1a1.742 1.742 0 0 1-.314-1V4.75a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"
                 fill="currentColor"
             />
-            <rect
-                x="7"
-                y="14"
-                width="2.8"
-                height="3.5"
-                rx="0.75"
-                fill="#f9bd2b"
-                fillOpacity="0.25"
-                stroke="#f9bd2b"
-                strokeWidth="1.5"
-            />
-            <rect
-                x="10.5"
-                y="11"
-                width="2.8"
-                height="6.5"
-                rx="0.75"
-                fill="#f54e00"
-                fillOpacity="0.25"
-                stroke="#f54e00"
-                strokeWidth="1.5"
-            />
-            <rect
-                x="14"
-                y="7.75"
-                width="2.8"
-                height="9.75"
-                rx="0.75"
-                fill="#1d4aff"
-                fillOpacity="0.25"
-                stroke="#1d4aff"
-                strokeWidth="1.5"
-            />
+            <rect x="6.75" y="13.5" width="3" height="4" rx="1.5" fill="#f9bd2b" />
+            <rect x="10.5" y="10.5" width="3" height="7" rx="1.5" fill="#f54e00" />
+            <rect x="14.25" y="7.5" width="3" height="10" rx="1.5" fill="#1d4aff" />
         </LemonIconBase>
     )
 }
