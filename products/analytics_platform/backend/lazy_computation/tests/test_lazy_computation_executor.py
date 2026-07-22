@@ -3074,12 +3074,12 @@ class TestCheckOnlyMode(BaseTest):
         )
 
     def _ready_job(self, start: datetime, end: datetime) -> PreaggregationJob:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
         return PreaggregationJob.objects.create(
             team=self.team,
             query_hash=compute_query_hash(
-                QueryInfo(
-                    query=parse_select("SELECT 1"), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
-                )
+                QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
             ),
             time_range_start=start,
             time_range_end=end,

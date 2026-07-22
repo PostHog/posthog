@@ -877,7 +877,11 @@ class LazyComputationExecutor:
         had_ready_at_start: bool | None = None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            if jobs_created == 0 and not waited_job_ids:
+            if outcome == "check_miss":
+                # Check-only misses return before any job is created or waited on,
+                # which the branch below would misread as a cache hit.
+                cache_state = "partial_hit" if had_ready_at_start else "miss"
+            elif jobs_created == 0 and not waited_job_ids:
                 cache_state = "hit"
             elif had_ready_at_start:
                 cache_state = "partial_hit"
