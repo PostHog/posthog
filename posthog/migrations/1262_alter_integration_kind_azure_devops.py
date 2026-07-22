@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
                     ("apns", "Apple Push"),
                     ("aws-s3", "Aws S3"),
                     ("azure-blob", "Azure Blob"),
-                    ("azure_devops", "Azure Devops"),
+                    ("azure-devops", "Azure DevOps"),
                     ("bing-ads", "Bing Ads"),
                     ("clickup", "Clickup"),
                     ("customerio-app", "Customerio App"),

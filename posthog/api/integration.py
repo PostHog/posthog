@@ -42,6 +42,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
+from posthog.models.code_host_integration import UnsupportedCodeHostIntegrationError, code_host_integration_for
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
@@ -189,6 +190,23 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
         return value.lower()
 
 
+class AzureDevOpsIntegrationConfigSerializer(serializers.Serializer):
+    organization = serializers.CharField(
+        max_length=255,
+        help_text="Azure DevOps organization name, or a dev.azure.com organization URL.",
+    )
+    project = serializers.CharField(
+        max_length=255,
+        help_text="Azure DevOps project name containing the repositories PostHog should access.",
+    )
+    personal_access_token = serializers.CharField(
+        trim_whitespace=True,
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="Azure DevOps personal access token with Code read and write access.",
+    )
+
+
 class GitHubRepoSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="GitHub repository numeric identifier.")
     name = serializers.CharField(help_text="Repository short name (without the owner prefix).")
@@ -240,6 +258,43 @@ class GitHubReposResponseSerializer(serializers.Serializer):
 
 class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+
+
+class CodeHostRepositorySerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Provider-specific repository identifier.")
+    name = serializers.CharField(help_text="Repository short name.")
+    full_name = serializers.CharField(
+        help_text="Canonical repository path, such as 'owner/repo' or 'organization/project/repo'."
+    )
+    provider = serializers.ChoiceField(
+        choices=[
+            (Integration.IntegrationKind.GITHUB.value, "GitHub"),
+            (Integration.IntegrationKind.AZURE_DEVOPS.value, "Azure DevOps"),
+        ],
+        help_text="Code-host integration kind backing this repository.",
+    )
+    default_branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Repository default branch, when the provider reports one.",
+    )
+    can_push = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether the integration can push to the repository, when the provider reports it.",
+    )
+
+
+class CodeHostRepositoriesResponseSerializer(serializers.Serializer):
+    repositories = CodeHostRepositorySerializer(
+        many=True,
+        help_text="Repositories accessible through the selected code-host integration.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether more repositories are available after this page.")
+
+
+class CodeHostRepositoriesQuerySerializer(GitHubReposQuerySerializer):
+    """Provider-neutral repository search and pagination parameters."""
 
 
 class JiraProjectSerializer(serializers.Serializer):
@@ -504,22 +559,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             )
             return instance
 
-        elif validated_data["kind"] == "azure_devops":
-            config = validated_data.get("config", {})
-            organization = config.get("organization")
-            project = config.get("project")
-            personal_access_token = config.get("personal_access_token")
-
-            if not all(isinstance(v, str) and v.strip() for v in (organization, project, personal_access_token)):
-                raise ValidationError(
-                    "Azure DevOps requires 'organization', 'project', and 'personal_access_token'"
-                )
+        elif validated_data["kind"] == Integration.IntegrationKind.AZURE_DEVOPS:
+            config_serializer = AzureDevOpsIntegrationConfigSerializer(data=validated_data.get("config", {}))
+            config_serializer.is_valid(raise_exception=True)
 
             try:
                 return AzureDevOpsIntegration.create_integration(
-                    organization.strip(),
-                    project.strip(),
-                    personal_access_token.strip(),
+                    config_serializer.validated_data["organization"],
+                    config_serializer.validated_data["project"],
+                    config_serializer.validated_data["personal_access_token"],
                     team_id,
                     request.user,
                 )
@@ -940,6 +988,7 @@ class IntegrationViewSet(
         "retrieve",
         "channels",
         "github_repos",
+        "code_host_repositories",
         "github_branches",
         "github_teams",
         "jira_projects",
@@ -1499,6 +1548,30 @@ class IntegrationViewSet(
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(
+        parameters=[CodeHostRepositoriesQuerySerializer],
+        responses={200: CodeHostRepositoriesResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="code_host_repositories")
+    def code_host_repositories(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = CodeHostRepositoriesQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        try:
+            code_host = code_host_integration_for(self.get_object())
+        except UnsupportedCodeHostIntegrationError as error:
+            raise ValidationError(str(error)) from error
+
+        try:
+            page = code_host.list_repositories(
+                search=query_serializer.validated_data["search"],
+                limit=query_serializer.validated_data["limit"],
+                offset=query_serializer.validated_data["offset"],
+            )
+        except AzureDevOpsIntegrationError as error:
+            raise ValidationError(str(error)) from error
+        return Response(page.as_dict())
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")

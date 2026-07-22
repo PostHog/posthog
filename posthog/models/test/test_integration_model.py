@@ -3775,45 +3775,14 @@ class TestGitLabIntegrationSSRFProtection:
 
 
 class TestAzureDevOpsIntegration:
-    """Unit tests for the PAT-based Azure DevOps code integration."""
-
     def _integration(self):
         from posthog.models.integration import Integration
 
         return Integration(
-            kind="azure_devops",
+            kind=Integration.IntegrationKind.AZURE_DEVOPS,
             config={"organization": "my-org", "project": "my-project"},
             sensitive_config={"access_token": "pat-token"},
         )
-
-    @patch("posthog.models.integration.requests.request")
-    @patch("posthog.models.integration.is_url_allowed")
-    def test_request_uses_empty_username_basic_auth_and_api_version(self, mock_is_url_allowed, mock_request):
-        # Azure DevOps PAT auth is HTTP Basic with an EMPTY username; the wrong scheme
-        # silently 203s instead of 401ing, so guard the exact auth shape + api-version.
-        from posthog.models.integration import AzureDevOpsIntegration
-
-        mock_is_url_allowed.return_value = (True, None)
-
-        AzureDevOpsIntegration._request("GET", "https://dev.azure.com/my-org/_apis/projects/p", "pat-token")
-
-        kwargs = mock_request.call_args.kwargs
-        assert kwargs["auth"].username == ""
-        assert kwargs["auth"].password == "pat-token"
-        assert kwargs["allow_redirects"] is False
-        assert kwargs["params"]["api-version"] == AzureDevOpsIntegration.API_VERSION
-
-    @patch("posthog.models.integration.requests.request")
-    @patch("posthog.models.integration.is_url_allowed")
-    def test_request_validates_url_before_calling(self, mock_is_url_allowed, mock_request):
-        from posthog.models.integration import AzureDevOpsIntegration, AzureDevOpsIntegrationError
-
-        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
-
-        with pytest.raises(AzureDevOpsIntegrationError, match="Invalid Azure DevOps URL"):
-            AzureDevOpsIntegration._request("GET", "http://169.254.169.254/latest", "pat-token")
-
-        mock_request.assert_not_called()
 
     @parameterized.expand([("slash", "a/b"), ("backslash", "a\\b"), ("dotdot", ".."), ("empty", "")])
     def test_validate_identifier_rejects_path_injection(self, _name, value):
@@ -3823,16 +3792,10 @@ class TestAzureDevOpsIntegration:
             AzureDevOpsIntegration._validate_identifier(value, "organization")
 
     @patch("posthog.models.integration.AzureDevOpsIntegration.list_repositories")
-    @patch("posthog.models.integration.requests.request")
-    @patch("posthog.models.integration.is_url_allowed")
-    def test_create_pull_request_targets_right_branches_and_url(
-        self, mock_is_url_allowed, mock_request, mock_list_repos
-    ):
-        # A flipped source/target or a dropped refs/heads/ prefix would open the PR
-        # against the wrong branch — assert the exact request body and returned URL.
+    @patch("posthog.models.integration.AzureDevOpsClient.request")
+    def test_create_pull_request_targets_right_branches_and_url(self, mock_request, mock_list_repos):
         from posthog.models.integration import AzureDevOpsIntegration
 
-        mock_is_url_allowed.return_value = (True, None)
         mock_list_repos.return_value = [{"id": "repo-id-1", "name": "my-repo", "default_branch": "main"}]
         mock_request.return_value = MagicMock(
             status_code=201,
@@ -3843,9 +3806,9 @@ class TestAzureDevOpsIntegration:
             repository="my-repo", title="t", body="b", head_branch="feature/x"
         )
 
-        called_url = mock_request.call_args.args[1]
+        called_path = mock_request.call_args.args[1]
         body = mock_request.call_args.kwargs["json"]
-        assert called_url.endswith("/my-org/my-project/_apis/git/repositories/repo-id-1/pullrequests")
+        assert called_path == "/my-project/_apis/git/repositories/repo-id-1/pullrequests"
         assert body["sourceRefName"] == "refs/heads/feature/x"
         assert body["targetRefName"] == "refs/heads/main"
         assert result == {

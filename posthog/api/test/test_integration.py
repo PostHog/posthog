@@ -32,6 +32,7 @@ from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
+    AzureDevOpsIntegrationError,
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
@@ -2009,6 +2010,137 @@ class TestGithubAccountTypeHelper:
         from posthog.api.integration import _github_account_type
 
         assert _github_account_type(owner_type) == expected
+
+
+class TestAzureDevOpsIntegrationAPI:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.models.integration.AzureDevOpsClient.request")
+    def test_create_stores_pat_only_in_sensitive_config(self, mock_request: MagicMock, client: HttpClient):
+        mock_request.return_value = MagicMock(status_code=200)
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {
+                "kind": "azure-devops",
+                "config": {
+                    "organization": "my-org",
+                    "project": "my-project",
+                    "personal_access_token": "pat-token",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        integration = Integration.objects.get(team=self.team, kind=Integration.IntegrationKind.AZURE_DEVOPS)
+        assert integration.config == {"organization": "my-org", "project": "my-project"}
+        assert integration.sensitive_config == {"access_token": "pat-token"}
+        assert "personal_access_token" not in response.json()["config"]
+
+    @patch("posthog.models.integration.AzureDevOpsIntegration.list_repositories")
+    def test_code_host_repositories_normalizes_azure_devops_repositories(
+        self, mock_list_repositories: MagicMock, client: HttpClient
+    ):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.AZURE_DEVOPS,
+            integration_id="my-org/my-project",
+            config={"organization": "my-org", "project": "my-project"},
+            sensitive_config={"access_token": "pat-token"},
+        )
+        mock_list_repositories.return_value = [
+            {"id": "repo-1", "name": "alpha", "default_branch": "main"},
+            {"id": "repo-2", "name": "beta", "default_branch": "trunk"},
+        ]
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/code_host_repositories/"
+            "?search=bet&limit=1",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "repositories": [
+                {
+                    "id": "repo-2",
+                    "name": "beta",
+                    "full_name": "my-org/my-project/beta",
+                    "provider": "azure-devops",
+                    "default_branch": "trunk",
+                    "can_push": None,
+                }
+            ],
+            "has_more": False,
+        }
+
+    @patch("posthog.models.code_host_integration.GitHubIntegration.list_cached_repositories")
+    def test_code_host_repositories_keeps_github_on_the_shared_contract(
+        self, mock_list_repositories: MagicMock, client: HttpClient
+    ):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB,
+            integration_id="12345",
+            config={"organization": "my-org"},
+        )
+        mock_list_repositories.return_value = (
+            [
+                {
+                    "id": 123,
+                    "name": "repo",
+                    "full_name": "my-org/repo",
+                    "default_branch": "main",
+                    "can_push": True,
+                }
+            ],
+            False,
+        )
+        client.force_login(self.user)
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/{integration.id}/code_host_repositories/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "repositories": [
+                {
+                    "id": "123",
+                    "name": "repo",
+                    "full_name": "my-org/repo",
+                    "provider": "github",
+                    "default_branch": "main",
+                    "can_push": True,
+                }
+            ],
+            "has_more": False,
+        }
+
+    @patch("posthog.models.integration.AzureDevOpsIntegration.list_repositories")
+    def test_code_host_repositories_returns_a_validation_error_for_azure_failures(
+        self, mock_list_repositories: MagicMock, client: HttpClient
+    ):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.AZURE_DEVOPS,
+            integration_id="my-org/my-project",
+            config={"organization": "my-org", "project": "my-project"},
+            sensitive_config={"access_token": "pat-token"},
+        )
+        mock_list_repositories.side_effect = AzureDevOpsIntegrationError("Azure DevOps request failed")
+        client.force_login(self.user)
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/{integration.id}/code_host_repositories/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Azure DevOps request failed"
 
 
 class TestGitHubIntegrationStateValidation:

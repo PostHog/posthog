@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CodeHostRepositoriesResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
     GitHubOAuthAuthorizeRequestApi,
@@ -21,6 +22,7 @@ import type {
     IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsCodeHostRepositoriesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
@@ -366,6 +368,41 @@ export const integrationsClickupWorkspacesRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getIntegrationsCodeHostRepositoriesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsCodeHostRepositoriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/code_host_repositories/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/code_host_repositories/`
+}
+
+export const integrationsCodeHostRepositoriesRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsCodeHostRepositoriesRetrieveParams,
+    options?: RequestInit
+): Promise<CodeHostRepositoriesResponseApi> => {
+    return apiMutator<CodeHostRepositoriesResponseApi>(
+        getIntegrationsCodeHostRepositoriesRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: number) => {

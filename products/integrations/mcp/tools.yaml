@@ -82,6 +82,20 @@ tools:
     integrations-clickup-workspaces-retrieve:
         operation: integrations_clickup_workspaces_retrieve
         enabled: false
+    integrations-code-host-repositories-retrieve:
+        operation: integrations_code_host_repositories_retrieve
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List code-host repositories
+        description: >
+            List repositories accessible through a connected GitHub or Azure DevOps integration. Use integrations-list
+            first to find the integration id. Supports case-insensitive search, limit, and offset, and returns the
+            provider-specific canonical repository path plus its default branch when available.
     integrations-create:
         operation: integrations_create
         enabled: false

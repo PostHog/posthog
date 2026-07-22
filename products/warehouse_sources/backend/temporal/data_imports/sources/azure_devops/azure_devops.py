@@ -1,13 +1,17 @@
-import re
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.egress.azure_devops import (
+    AzureDevOpsAuthenticationError,
+    AzureDevOpsClient,
+    normalize_azure_devops_organization,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
@@ -16,21 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
-AZURE_DEVOPS_BASE_URL = "https://dev.azure.com"
-API_VERSION = "7.1"
 PAGE_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 60
-# Rate limiting is 200 TSTUs per identity per sliding 5-minute window; 429s
-# carry Retry-After but exponential backoff is sufficient.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class AzureDevOpsRetryableError(Exception):
-    pass
-
-
-class AzureDevOpsAuthError(Exception):
-    pass
+AzureDevOpsAuthError = AzureDevOpsAuthenticationError
 
 
 @dataclasses.dataclass
@@ -49,11 +41,7 @@ def _get_session(personal_access_token: str) -> requests.Session:
 
 
 def _validate_organization(organization: str) -> str:
-    org = organization.strip().removeprefix("https://").removeprefix("http://")
-    org = org.removeprefix("dev.azure.com/").split("/")[0]
-    if not re.fullmatch(r"[a-zA-Z0-9._-]+", org):
-        raise ValueError(f"Invalid Azure DevOps organization: {organization}")
-    return org
+    return normalize_azure_devops_organization(organization)
 
 
 def _format_datetime(value: Any) -> str:
@@ -82,10 +70,13 @@ def validate_credentials(organization: str, personal_access_token: str) -> bool:
     than a 401, so only an exact 200 counts."""
     try:
         org = _validate_organization(organization)
-        response = _get_session(personal_access_token).get(
-            f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}/_apis/projects?{urlencode({'$top': 1, 'api-version': API_VERSION})}",
+        response = AzureDevOpsClient(
+            org,
+            personal_access_token,
+            source="warehouse_source",
+            session=_get_session(personal_access_token),
             timeout=10,
-        )
+        ).request("GET", "/_apis/projects", endpoint="/_apis/projects", params={"$top": 1})
         return response.status_code == 200
     except Exception:
         return False
@@ -104,29 +95,19 @@ def get_rows(
     session = _get_session(personal_access_token)
     org = _validate_organization(organization)
 
-    @retry(
-        retry=retry_if_exception_type((AzureDevOpsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=2, max=120),
-        reraise=True,
+    client = AzureDevOpsClient(
+        org,
+        personal_access_token,
+        source="warehouse_source",
+        session=session,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
+
     def fetch(path: str, params: dict[str, Any]) -> requests.Response:
-        url = f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}{path}?{urlencode({**params, 'api-version': API_VERSION})}"
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AzureDevOpsRetryableError(
-                f"Azure DevOps API error (retryable): status={response.status_code}, url={url}"
-            )
-
-        # An invalid/expired PAT yields a 203 with an HTML sign-in page.
-        if response.status_code == 203:
-            raise AzureDevOpsAuthError(
-                "Azure DevOps returned a sign-in page (203) — the personal access token is invalid or expired."
-            )
+        response = client.request("GET", path, endpoint=config.path, params=params)
 
         if not response.ok:
-            logger.error(f"Azure DevOps API error: status={response.status_code}, body={response.text}, url={url}")
+            logger.error(f"Azure DevOps API error: status={response.status_code}, body={response.text}, path={path}")
             response.raise_for_status()
 
         return response

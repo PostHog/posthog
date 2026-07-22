@@ -42,6 +42,14 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
+from posthog.egress.azure_devops import (
+    AZURE_DEVOPS_BASE_URL,
+    AzureDevOpsAuthenticationError,
+    AzureDevOpsClient,
+    AzureDevOpsRetryableError,
+    normalize_azure_devops_identifier,
+    normalize_azure_devops_organization,
+)
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -321,7 +329,7 @@ class Integration(models.Model):
         APPLE_PUSH = "apns"
         AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
-        AZURE_DEVOPS = "azure_devops"
+        AZURE_DEVOPS = "azure-devops", "Azure DevOps"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
         CUSTOMERIO_APP = "customerio-app"
@@ -438,7 +446,7 @@ class Integration(models.Model):
             return f"{name} (account: {account}, {auth_type} auth)"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
-        if self.kind == "azure_devops":
+        if self.kind == Integration.IntegrationKind.AZURE_DEVOPS:
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
@@ -3412,16 +3420,14 @@ class AzureDevOpsIntegration:
 
     integration: Integration
 
-    BASE_URL = "https://dev.azure.com"
-    API_VERSION = "7.1"
+    BASE_URL = AZURE_DEVOPS_BASE_URL
 
     @staticmethod
     def _validate_identifier(value: str, name: str) -> str:
-        # Organization/project/repository names sit in the URL path; reject anything
-        # that could break out of the intended path segment.
-        if not value or "/" in value or "\\" in value or ".." in value:
-            raise AzureDevOpsIntegrationError(f"Invalid Azure DevOps {name}: {value!r}")
-        return value
+        try:
+            return normalize_azure_devops_identifier(value, name)
+        except ValueError as error:
+            raise AzureDevOpsIntegrationError(str(error)) from error
 
     @staticmethod
     def _strip_ref(ref: str | None) -> str | None:
@@ -3431,40 +3437,37 @@ class AzureDevOpsIntegration:
         return ref
 
     @classmethod
-    def _request(
+    def create_integration(
         cls,
-        method: str,
-        url: str,
-        access_token: str,
-        json_body: dict | list | None = None,
-        params: dict | None = None,
-    ) -> requests.Response:
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise AzureDevOpsIntegrationError(f"Invalid Azure DevOps URL: {error}")
-
-        query = {"api-version": cls.API_VERSION, **(params or {})}
-        return requests.request(
-            method,
-            url,
-            params=query,
-            json=json_body,
-            # PAT auth uses HTTP Basic with an empty username.
-            auth=HTTPBasicAuth("", access_token),
-            # disallow redirects to prevent SSRF on a redirected host
-            allow_redirects=False,
-            timeout=10,
-        )
-
-    @classmethod
-    def create_integration(cls, organization, project, personal_access_token, team_id, user) -> Integration:
-        organization = cls._validate_identifier(organization, "organization")
+        organization: str,
+        project: str,
+        personal_access_token: str,
+        team_id: int,
+        user: User,
+    ) -> Integration:
+        try:
+            organization = normalize_azure_devops_organization(organization)
+        except ValueError as error:
+            raise AzureDevOpsIntegrationError(str(error)) from error
         project = cls._validate_identifier(project, "project")
 
-        # Validate the token + project by fetching the project. A bad PAT returns 203
-        # (Azure redirects unauthenticated calls to a login page) or 401/404.
-        url = f"{cls.BASE_URL}/{quote(organization)}/_apis/projects/{quote(project)}"
-        response = cls._request("GET", url, personal_access_token)
+        client = AzureDevOpsClient(
+            organization,
+            personal_access_token,
+            source="integration",
+            timeout=10,
+        )
+        try:
+            response = client.request(
+                "GET",
+                f"/_apis/projects/{quote(project)}",
+                endpoint="/_apis/projects/{project}",
+            )
+        except (AzureDevOpsAuthenticationError, AzureDevOpsRetryableError, requests.RequestException) as error:
+            raise AzureDevOpsIntegrationError(
+                f"Could not access Azure DevOps project '{organization}/{project}'. "
+                "Check the organization, project, and token, then try again."
+            ) from error
         if response.status_code != 200:
             raise AzureDevOpsIntegrationError(
                 f"Could not access Azure DevOps project '{organization}/{project}' "
@@ -3484,9 +3487,15 @@ class AzureDevOpsIntegration:
         return integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "azure_devops":
+        if integration.kind != Integration.IntegrationKind.AZURE_DEVOPS:
             raise Exception("AzureDevOpsIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+        self._client = AzureDevOpsClient(
+            self.organization,
+            self._access_token,
+            source="integration",
+            timeout=10,
+        )
 
     @property
     def organization(self) -> str:
@@ -3500,15 +3509,33 @@ class AzureDevOpsIntegration:
     def _access_token(self) -> str:
         return self.integration.sensitive_config.get("access_token")
 
-    def _git_url(self, *segments: str) -> str:
-        url = f"{self.BASE_URL}/{quote(self.organization)}/{quote(self.project)}/_apis/git"
-        for segment in segments:
-            url += f"/{segment}"
-        return url
+    def _git_path(self, *segments: str) -> str:
+        path = f"/{quote(self.project)}/_apis/git"
+        return "/".join([path, *[quote(segment, safe="") for segment in segments]])
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | list[dict[str, Any]] | None = None,
+    ) -> requests.Response:
+        try:
+            return self._client.request(method, path, endpoint=endpoint, params=params, json=json)
+        except (AzureDevOpsAuthenticationError, AzureDevOpsRetryableError, requests.RequestException) as error:
+            raise AzureDevOpsIntegrationError(
+                "Azure DevOps request failed. Check the connection and try again."
+            ) from error
 
     def list_repositories(self) -> list[dict[str, Any]]:
         """List the repositories in the configured organization/project."""
-        response = self._request("GET", self._git_url("repositories"), self._access_token)
+        response = self._request(
+            "GET",
+            self._git_path("repositories"),
+            endpoint="/{project}/_apis/git/repositories",
+        )
         if response.status_code != 200:
             raise AzureDevOpsIntegrationError(
                 f"Failed to list Azure DevOps repositories (status {response.status_code})"
@@ -3527,9 +3554,7 @@ class AzureDevOpsIntegration:
         for repo in self.list_repositories():
             if repository in (repo["id"], repo["name"]):
                 return repo["id"]
-        raise AzureDevOpsIntegrationError(
-            f"Repository '{repository}' not found in {self.organization}/{self.project}"
-        )
+        raise AzureDevOpsIntegrationError(f"Repository '{repository}' not found in {self.organization}/{self.project}")
 
     def get_default_branch(self, repository: str) -> str | None:
         for repo in self.list_repositories():
@@ -3540,8 +3565,8 @@ class AzureDevOpsIntegration:
     def _get_branch_sha(self, repository_id: str, branch: str) -> str | None:
         response = self._request(
             "GET",
-            self._git_url("repositories", repository_id, "refs"),
-            self._access_token,
+            self._git_path("repositories", repository_id, "refs"),
+            endpoint="/{project}/_apis/git/repositories/{repository}/refs",
             params={"filter": f"heads/{branch}"},
         )
         if response.status_code != 200:
@@ -3567,9 +3592,9 @@ class AzureDevOpsIntegration:
         # Azure creates a branch by updating refs: an all-zero oldObjectId means "create".
         response = self._request(
             "POST",
-            self._git_url("repositories", repository_id, "refs"),
-            self._access_token,
-            json_body=[
+            self._git_path("repositories", repository_id, "refs"),
+            endpoint="/{project}/_apis/git/repositories/{repository}/refs",
+            json=[
                 {
                     "name": f"refs/heads/{branch_name}",
                     "oldObjectId": "0000000000000000000000000000000000000000",
@@ -3602,9 +3627,9 @@ class AzureDevOpsIntegration:
 
         response = self._request(
             "POST",
-            self._git_url("repositories", repository_id, "pullrequests"),
-            self._access_token,
-            json_body={
+            self._git_path("repositories", repository_id, "pullrequests"),
+            endpoint="/{project}/_apis/git/repositories/{repository}/pullrequests",
+            json={
                 "sourceRefName": f"refs/heads/{head_branch}",
                 "targetRefName": f"refs/heads/{base_branch}",
                 "title": title,

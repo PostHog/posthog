@@ -5264,6 +5264,20 @@
             "readOnlyHint": true
         }
     },
+    "integrations-code-host-repositories-retrieve": {
+        "description": "List repositories accessible through a connected GitHub or Azure DevOps integration. Use integrations-list first to find the integration id. Supports case-insensitive search, limit, and offset, and returns the provider-specific canonical repository path plus its default branch when available.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List code-host repositories",
+        "title": "List code-host repositories",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-github-repos-retrieve": {
         "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a has_more flag. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
         "category": "Integrations",

@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { AzureDevOpsSetupModal } from 'scenes/integrations/azure-devops/AzureDevOpsSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,18 @@ export function GitLabIntegration(): JSX.Element {
                 Connect project
             </LemonButton>
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
+        </Integration>
+    )
+}
+
+export function AzureDevOpsIntegration(): JSX.Element {
+    const [isOpen, setIsOpen] = useState<boolean>(false)
+    return (
+        <Integration kind="azure-devops">
+            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
+                Connect project
+            </LemonButton>
+            <AzureDevOpsSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
         </Integration>
     )
 }

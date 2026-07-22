@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 import pytest
 from unittest import mock
@@ -98,7 +98,7 @@ class TestValidateCredentials:
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
         response = mock.MagicMock()
         response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+        mock_session.return_value.request.return_value = response
 
         assert validate_credentials("myorg", "pat") is expected
 
@@ -107,7 +107,7 @@ class TestValidateCredentials:
     )
     def test_validate_credentials_rejects_bad_org_without_request(self, mock_session):
         assert validate_credentials("my org!", "pat") is False
-        mock_session.return_value.get.assert_not_called()
+        mock_session.return_value.request.assert_not_called()
 
 
 class TestGetRows:
@@ -115,7 +115,7 @@ class TestGetRows:
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_projects_paginate_via_header_token(self, mock_session):
-        mock_session.return_value.get.side_effect = [
+        mock_session.return_value.request.side_effect = [
             _response({"value": [{"id": "p1", "name": "Alpha"}]}, continuation_header="tok1"),
             _response({"value": [{"id": "p2", "name": "Beta"}]}),
         ]
@@ -124,14 +124,14 @@ class TestGetRows:
         batches = list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager))
 
         assert [item["id"] for batch in batches for item in batch] == ["p1", "p2"]
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert parse_qs(urlparse(second_url).query)["continuationToken"] == ["tok1"]
+        second_call = mock_session.return_value.request.call_args_list[1]
+        assert second_call.kwargs["params"]["continuationToken"] == "tok1"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_builds_fan_out_per_project_with_ascending_order(self, mock_session):
-        mock_session.return_value.get.side_effect = [
+        mock_session.return_value.request.side_effect = [
             _response({"value": [{"id": "p1", "name": "Alpha"}]}),
             _response({"value": [{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]}),
         ]
@@ -140,16 +140,17 @@ class TestGetRows:
         batches = list(get_rows("myorg", "pat", "builds", mock.MagicMock(), manager))
 
         assert batches == [[{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]]
-        build_url = mock_session.return_value.get.call_args_list[1].args[0]
+        build_call = mock_session.return_value.request.call_args_list[1]
+        build_url = build_call.args[1]
         parsed = urlparse(build_url)
         assert parsed.path == "/myorg/Alpha/_apis/build/builds"
-        assert parse_qs(parsed.query)["queryOrder"] == ["queueTimeAscending"]
+        assert build_call.kwargs["params"]["queryOrder"] == "queueTimeAscending"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_builds_incremental_includes_min_time(self, mock_session):
-        mock_session.return_value.get.side_effect = [
+        mock_session.return_value.request.side_effect = [
             _response({"value": [{"id": "p1", "name": "Alpha"}]}),
             _response({"value": []}),
         ]
@@ -167,15 +168,15 @@ class TestGetRows:
             )
         )
 
-        build_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert parse_qs(urlparse(build_url).query)["minTime"] == ["2024-01-02T00:00:00Z"]
+        build_call = mock_session.return_value.request.call_args_list[1]
+        assert build_call.kwargs["params"]["minTime"] == "2024-01-02T00:00:00Z"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_pull_requests_use_skip_pagination_and_status_all(self, mock_session):
         full_page = {"value": [{"pullRequestId": i} for i in range(200)]}
-        mock_session.return_value.get.side_effect = [
+        mock_session.return_value.request.side_effect = [
             _response({"value": [{"id": "p1", "name": "Alpha"}]}),
             _response(full_page),
             _response({"value": [{"pullRequestId": 999}]}),
@@ -185,16 +186,16 @@ class TestGetRows:
         batches = list(get_rows("myorg", "pat", "pull_requests", mock.MagicMock(), manager))
 
         assert len(batches) == 2
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]]
-        assert parse_qs(urlparse(urls[0]).query)["searchCriteria.status"] == ["all"]
-        assert parse_qs(urlparse(urls[0]).query)["$skip"] == ["0"]
-        assert parse_qs(urlparse(urls[1]).query)["$skip"] == ["200"]
+        calls = mock_session.return_value.request.call_args_list[1:]
+        assert calls[0].kwargs["params"]["searchCriteria.status"] == "all"
+        assert calls[0].kwargs["params"]["$skip"] == 0
+        assert calls[1].kwargs["params"]["$skip"] == 200
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_work_item_revisions_walk_batches_and_flatten(self, mock_session):
-        mock_session.return_value.get.side_effect = [
+        mock_session.return_value.request.side_effect = [
             _response(
                 {
                     "values": [{"id": 1, "rev": 1, "fields": {"System.ChangedDate": "2024-01-01T00:00:00Z"}}],
@@ -217,13 +218,12 @@ class TestGetRows:
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_work_item_revisions_resume_from_saved_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"values": [], "isLastBatch": True})
+        mock_session.return_value.request.return_value = _response({"values": [], "isLastBatch": True})
 
         manager = _make_manager(AzureDevOpsResumeConfig(continuation_token="tok_resume"))
         list(get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager))
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["continuationToken"] == ["tok_resume"]
+        assert mock_session.return_value.request.call_args.kwargs["params"]["continuationToken"] == "tok_resume"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
@@ -231,7 +231,7 @@ class TestGetRows:
     def test_work_item_revisions_resume_does_not_send_start_date_time(self, mock_session):
         # A continuationToken fully encodes the stream position; pairing it with
         # startDateTime would reset the stream to the watermark on resume.
-        mock_session.return_value.get.return_value = _response({"values": [], "isLastBatch": True})
+        mock_session.return_value.request.return_value = _response({"values": [], "isLastBatch": True})
 
         manager = _make_manager(AzureDevOpsResumeConfig(continuation_token="tok_resume"))
         list(
@@ -246,9 +246,9 @@ class TestGetRows:
             )
         )
 
-        query = parse_qs(urlparse(mock_session.return_value.get.call_args.args[0]).query)
-        assert query["continuationToken"] == ["tok_resume"]
-        assert "startDateTime" not in query
+        params = mock_session.return_value.request.call_args.kwargs["params"]
+        assert params["continuationToken"] == "tok_resume"
+        assert "startDateTime" not in params
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
@@ -256,7 +256,7 @@ class TestGetRows:
     def test_project_enumeration_does_not_carry_endpoint_incremental_param(self, mock_session):
         # Project enumeration is independent of the data endpoint being synced,
         # so the builds incremental filter must not leak into it.
-        mock_session.return_value.get.side_effect = [
+        mock_session.return_value.request.side_effect = [
             _response({"value": [{"id": "p1", "name": "Alpha"}]}),
             _response({"value": []}),
         ]
@@ -274,9 +274,10 @@ class TestGetRows:
             )
         )
 
-        projects_url = mock_session.return_value.get.call_args_list[0].args[0]
+        projects_call = mock_session.return_value.request.call_args_list[0]
+        projects_url = projects_call.args[1]
         assert urlparse(projects_url).path == "/myorg/_apis/projects"
-        assert "minTime" not in parse_qs(urlparse(projects_url).query)
+        assert "minTime" not in projects_call.kwargs["params"]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
@@ -285,7 +286,7 @@ class TestGetRows:
         response = mock.MagicMock()
         response.status_code = 203
         response.ok = True
-        mock_session.return_value.get.return_value = response
+        mock_session.return_value.request.return_value = response
 
         manager = _make_manager()
         with pytest.raises(AzureDevOpsAuthError):

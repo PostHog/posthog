@@ -5,6 +5,8 @@ import type { Schemas } from '@/api/generated'
 import {
     IntegrationsChannelsRetrieveParams,
     IntegrationsChannelsRetrieveQueryParams,
+    IntegrationsCodeHostRepositoriesRetrieveParams,
+    IntegrationsCodeHostRepositoriesRetrieveQueryParams,
     IntegrationsDestroyParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubReposRetrieveQueryParams,
@@ -69,6 +71,31 @@ const integrationsChannelsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.SlackChannelsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
+const IntegrationsCodeHostRepositoriesRetrieveSchema = IntegrationsCodeHostRepositoriesRetrieveParams.omit({
+    project_id: true,
+}).extend(IntegrationsCodeHostRepositoriesRetrieveQueryParams.shape)
+
+const integrationsCodeHostRepositoriesRetrieve = (): ToolBase<
+    typeof IntegrationsCodeHostRepositoriesRetrieveSchema,
+    Schemas.CodeHostRepositoriesResponse
+> => ({
+    name: 'integrations-code-host-repositories-retrieve',
+    schema: IntegrationsCodeHostRepositoriesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsCodeHostRepositoriesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CodeHostRepositoriesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/code_host_repositories/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -173,6 +200,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-code-host-repositories-retrieve': integrationsCodeHostRepositoriesRetrieve,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,

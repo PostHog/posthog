@@ -14722,6 +14722,49 @@ export namespace Schemas {
       clustering_job_id?: string | null;
     }
 
+    /**
+     * * `github` - GitHub
+     * * `azure-devops` - Azure DevOps
+     */
+    export type CodeHostRepositoryProviderEnum = typeof CodeHostRepositoryProviderEnum[keyof typeof CodeHostRepositoryProviderEnum];
+
+
+    export const CodeHostRepositoryProviderEnum = {
+      Github: 'github',
+      AzureDevops: 'azure-devops',
+    } as const;
+
+    export interface CodeHostRepository {
+      /** Provider-specific repository identifier. */
+      id: string;
+      /** Repository short name. */
+      name: string;
+      /** Canonical repository path, such as 'owner/repo' or 'organization/project/repo'. */
+      full_name: string;
+      /** Code-host integration kind backing this repository.
+       *
+       * * `github` - GitHub
+       * * `azure-devops` - Azure DevOps */
+      provider: CodeHostRepositoryProviderEnum;
+      /**
+         * Repository default branch, when the provider reports one.
+         * @nullable
+         */
+      default_branch?: string | null;
+      /**
+         * Whether the integration can push to the repository, when the provider reports it.
+         * @nullable
+         */
+      can_push?: boolean | null;
+    }
+
+    export interface CodeHostRepositoriesResponse {
+      /** Repositories accessible through the selected code-host integration. */
+      repositories: CodeHostRepository[];
+      /** Whether more repositories are available after this page. */
+      has_more: boolean;
+    }
+
     export interface CodeInviteRedeemRequest {
       /** @maxLength 50 */
       code: string;
@@ -35642,7 +35685,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
-     * * `azure_devops` - Azure Devops
+     * * `azure-devops` - Azure DevOps
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
@@ -35688,7 +35731,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
-      AzureDevops: 'azure_devops',
+      AzureDevops: 'azure-devops',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
       CustomerioApp: 'customerio-app',
@@ -35734,7 +35777,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
-       * * `azure_devops` - Azure Devops
+       * * `azure-devops` - Azure DevOps
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
        * * `customerio-app` - Customerio App
@@ -76517,7 +76560,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
-     * * `azure_devops` - Azure Devops
+     * * `azure-devops` - Azure DevOps
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
      * * `customerio-app` - Customerio App
@@ -76574,7 +76617,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
-      AzureDevops: 'azure_devops',
+      AzureDevops: 'azure-devops',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
       CustomerioApp: 'customerio-app',
@@ -76627,6 +76670,24 @@ export namespace Schemas {
     offset?: number;
     /**
      * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsCodeHostRepositoriesRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
      */
     search?: string;
     };

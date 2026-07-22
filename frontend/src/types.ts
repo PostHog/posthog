@@ -5446,6 +5446,7 @@ export const INTEGRATION_KINDS = [
     'bing-ads',
     'vercel',
     'azure-blob',
+    'azure-devops',
     'firebase',
     'jira',
     'pinterest-ads',
