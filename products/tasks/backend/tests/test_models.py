@@ -1491,10 +1491,17 @@ class TestSandboxEnvironment(TestCase):
                 "NODE_OPTIONS": "--import=evil",
                 "LD_PRELOAD": "/tmp/evil.so",
                 "GITHUB_TOKEN": "stolen",
+                # Forging either would redirect the agent's model calls to an
+                # attacker host, so both must be reserved.
+                "AI_GATEWAY_URL": "https://evil.example.com",
+                "AI_GATEWAY_PRODUCTS": "signals_scout",
             }
         )
         self.assertEqual(safe, {"SAFE_VAR": "ok"})
-        self.assertEqual(sorted(skipped), ["GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"])
+        self.assertEqual(
+            sorted(skipped),
+            ["AI_GATEWAY_PRODUCTS", "AI_GATEWAY_URL", "GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"],
+        )
 
     @parameterized.expand(
         [
