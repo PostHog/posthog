@@ -179,121 +179,125 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const FeedbackSubmitSchema = z.object({
-    summary: z
-        .string()
-        .min(1)
-        .describe(
-            'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
-        ),
-    feedback_type: z
-        .enum(['product', 'mcp', 'docs', 'scout', 'other'])
-        .describe(
-            'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "scout" = a canonical PostHog scout skill\'s content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). "other" = anything that doesn\'t fit the above.'
-        ),
-    sentiment: z
-        .enum(['positive', 'neutral', 'negative', 'mixed'])
-        .describe(
-            'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
-        ),
-    product_area: z
-        .string()
-        .optional()
-        .describe(
-            'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
-        ),
-    category: z
-        .enum([
-            'tool_correctness',
-            'tool_description',
-            'tool_input_schema',
-            'tool_output_format',
-            'missing_tool',
-            'instructions_clarity',
-            'performance',
-            'error_message',
-            'other',
-        ])
-        .optional()
-        .describe(
-            'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
-        ),
-    scout_skill_name: z
-        .string()
-        .optional()
-        .describe(
-            'For scout feedback (`feedback_type: "scout"`) only: the canonical scout skill the feedback is about (e.g. "signals-scout-web-analytics"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.'
-        ),
-    scout_skill_version: z
-        .number()
-        .int()
-        .optional()
-        .describe(
-            'For scout feedback (`feedback_type: "scout"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.'
-        ),
-    scout_category: z
-        .enum([
-            'false_positive',
-            'missed_detection',
-            'discriminator_gap',
-            'wasted_investigation',
-            'instruction_ambiguity',
-            'other',
-        ])
-        .optional()
-        .describe(
-            'For scout feedback (`feedback_type: "scout"`) only: the single category that best describes the skill gap. "false_positive" = the skill\'s detection rules surfaced something that wasn\'t real; "missed_detection" = a real issue the skill\'s instructions steered you past; "discriminator_gap" = the skill\'s signal-vs-baseline discriminator doesn\'t hold for a class of projects; "wasted_investigation" = an investigation pattern the skill mandates burned budget without payoff; "instruction_ambiguity" = an instruction that is ambiguous in practice. Omit for non-scout feedback.'
-        ),
-    task_completed: z
-        .boolean()
-        .optional()
-        .describe(
-            'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
-        ),
-    tools_used: z
-        .array(z.string())
-        .optional()
-        .describe(
-            'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
-        ),
-    friction_points: z
-        .string()
-        .optional()
-        .describe(
-            'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
-        ),
-    suggested_improvement: z
-        .string()
-        .optional()
-        .describe(
-            'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
-        ),
-    user_request: z
-        .string()
-        .optional()
-        .describe(
-            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
-        ),
-    details: z
-        .string()
-        .optional()
-        .describe("Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."),
-}).superRefine((data, ctx) => {
-    // Scout feedback without its join keys can't be aggregated per skill/version downstream,
-    // so reject it at validation time instead of recording an unattributable event.
-    if (data.feedback_type !== 'scout') {
-        return
-    }
-    for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
-        if (data[field] === undefined) {
-            ctx.addIssue({
-                code: 'custom',
-                path: [field],
-                message: `${field} is required when feedback_type is "scout".`,
-            })
+export const FeedbackSubmitSchema = z
+    .object({
+        summary: z
+            .string()
+            .min(1)
+            .describe(
+                'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
+            ),
+        feedback_type: z
+            .enum(['product', 'mcp', 'docs', 'scout', 'other'])
+            .describe(
+                'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "scout" = a canonical PostHog scout skill\'s content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). "other" = anything that doesn\'t fit the above.'
+            ),
+        sentiment: z
+            .enum(['positive', 'neutral', 'negative', 'mixed'])
+            .describe(
+                'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
+            ),
+        product_area: z
+            .string()
+            .optional()
+            .describe(
+                'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
+            ),
+        category: z
+            .enum([
+                'tool_correctness',
+                'tool_description',
+                'tool_input_schema',
+                'tool_output_format',
+                'missing_tool',
+                'instructions_clarity',
+                'performance',
+                'error_message',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
+            ),
+        scout_skill_name: z
+            .string()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the canonical scout skill the feedback is about (e.g. "signals-scout-web-analytics"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.'
+            ),
+        scout_skill_version: z
+            .number()
+            .int()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.'
+            ),
+        scout_category: z
+            .enum([
+                'false_positive',
+                'missed_detection',
+                'discriminator_gap',
+                'wasted_investigation',
+                'instruction_ambiguity',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the single category that best describes the skill gap. "false_positive" = the skill\'s detection rules surfaced something that wasn\'t real; "missed_detection" = a real issue the skill\'s instructions steered you past; "discriminator_gap" = the skill\'s signal-vs-baseline discriminator doesn\'t hold for a class of projects; "wasted_investigation" = an investigation pattern the skill mandates burned budget without payoff; "instruction_ambiguity" = an instruction that is ambiguous in practice. Omit for non-scout feedback.'
+            ),
+        task_completed: z
+            .boolean()
+            .optional()
+            .describe(
+                'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
+            ),
+        tools_used: z
+            .array(z.string())
+            .optional()
+            .describe(
+                'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+            ),
+        friction_points: z
+            .string()
+            .optional()
+            .describe(
+                'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
+            ),
+        suggested_improvement: z
+            .string()
+            .optional()
+            .describe(
+                'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
+            ),
+        user_request: z
+            .string()
+            .optional()
+            .describe(
+                'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+            ),
+        details: z
+            .string()
+            .optional()
+            .describe(
+                "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
+            ),
+    })
+    .superRefine((data, ctx) => {
+        // Scout feedback without its join keys can't be aggregated per skill/version downstream,
+        // so reject it at validation time instead of recording an unattributable event.
+        if (data.feedback_type !== 'scout') {
+            return
         }
-    }
-})
+        for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
+            if (data[field] === undefined) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: [field],
+                    message: `${field} is required when feedback_type is "scout".`,
+                })
+            }
+        }
+    })
 
 const SavedMetricAttachItemSchema = z.object({
     id: z
@@ -371,7 +375,7 @@ export const OrganizationSetActiveSchema = z
                 orgId: z
                     .string()
                     .describe(
-                        'The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.'
+                        'The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id.'
                     ),
             }),
             z.object({ id: z.string().describe(orgIdAliasDescription) }),
@@ -379,7 +383,7 @@ export const OrganizationSetActiveSchema = z
             z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
             z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
         ],
-        { error: () => 'provide the organization id via "orgId" (get it from organizations-list)' }
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-get)' }
     )
     .transform((data) => ({
         orgId:
@@ -393,6 +397,8 @@ export const OrganizationSetActiveSchema = z
                       ? data.organization_id
                       : data.org_id,
     }))
+
+export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 

@@ -11,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -27,7 +27,10 @@ from products.tasks.backend.temporal.metrics import (
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
+from products.tasks.backend.temporal.process_task.sandbox_credentials import (
+    replace_sandbox_credentials,
+    set_git_remote_token,
+)
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_readonly_github_token,
@@ -756,33 +759,13 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        if github_token and input.repository:
-            set_git_remote_token(sandbox, input.repository, github_token)
+        if input.repository:
+            set_git_remote_token(sandbox, input.repository, github_token or None)
 
-        # Pre-seed the agentsh env file so any wrapped command that runs between
-        # resume and start_agent_server (diagnostics, branch checkout) sees the
-        # fresh tokens instead of the stale snapshot values. start_agent_server
-        # re-dumps the full process env over this, so a partial overwrite is fine
-        # here (unlike the mid-run refresh, which must preserve the live env).
-        fresh_env_vars: dict[str, str] = {}
-        if github_token:
-            fresh_env_vars["GITHUB_TOKEN"] = github_token
-            fresh_env_vars["GH_TOKEN"] = github_token
-        if access_token:
-            fresh_env_vars["POSTHOG_PERSONAL_API_KEY"] = access_token
-
-        if fresh_env_vars:
-            env_payload = b"".join(f"{k}={v}\x00".encode() for k, v in fresh_env_vars.items())
-            overwrite_result = sandbox.write_file(ENV_FILE, env_payload)
-            if overwrite_result.exit_code != 0:
-                logger.warning(
-                    "Failed to refresh agentsh env file on resume",
-                    extra={
-                        "sandbox_id": input.sandbox_id,
-                        "env_file": ENV_FILE,
-                        "stderr": overwrite_result.stderr,
-                    },
-                )
+        # Replace both credential domains even when resolution returns no token,
+        # so revoked credentials cannot survive in a resumed filesystem snapshot.
+        if not replace_sandbox_credentials(sandbox, github_token or None, access_token or None):
+            raise RuntimeError("Failed to replace resumed sandbox credentials")
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")
 

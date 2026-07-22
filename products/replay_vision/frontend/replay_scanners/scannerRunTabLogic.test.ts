@@ -14,6 +14,12 @@ describe('scannerRunTabLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
+                // The connected replayScannerLogic loads stats on mount; give it a valid shape so its
+                // status-counts selector doesn't throw when this test awaits the full listener cascade.
+                '/api/projects/:team/vision/scanners/:id/observations/stats/': () => [
+                    200,
+                    { status_counts: { in_flight: 0, succeeded: 0, failed: 0, ineligible: 0 }, total: 0 },
+                ],
                 '/api/projects/:team/vision/scanners/:id/observations/': ({ request }: { request: Request }) => {
                     requestedUrls.push(request.url)
                     return [
@@ -62,5 +68,31 @@ describe('scannerRunTabLogic', () => {
             logic.actions.setVisibleSessionIds(['s1', 's2'])
         }).toDispatchActions(['loadObservationsSuccess'])
         expect(logic.values.pendingId).toBeNull()
+    })
+
+    it('bulk scan posts the selected sessions and clears its loading state', async () => {
+        let postedBody: any
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': async ({ request }: { request: Request }) => {
+                    postedBody = await request.json()
+                    return [
+                        202,
+                        {
+                            started: 2,
+                            results: [
+                                { session_id: 'a', scan_outcome: 'started' },
+                                { session_id: 'b', scan_outcome: 'started' },
+                                { session_id: 'c', scan_outcome: 'skipped_limit' },
+                            ],
+                        },
+                    ]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.startBulkScan(['a', 'b', 'c'])).toFinishAllListeners()
+        // The selected session ids reach the bulk endpoint, and the button's loading state is released.
+        expect(postedBody).toEqual({ session_ids: ['a', 'b', 'c'] })
+        expect(logic.values.bulkScanning).toBe(false)
     })
 })

@@ -228,7 +228,6 @@ class ExternalDataSourceType(models.TextChoices):
     DIXA = "Dixa", "Dixa"
     GLADLY = "Gladly", "Gladly"
     QUALTRICS = "Qualtrics", "Qualtrics"
-    DELIGHTED = "Delighted", "Delighted"
     AZUREDEVOPS = "AzureDevOps", "AzureDevOps"
     ROLLBAR = "Rollbar", "Rollbar"
     OPSGENIE = "Opsgenie", "Opsgenie"
@@ -906,6 +905,10 @@ class ExternalDataSourceType(models.TextChoices):
     PLIVO = "Plivo", "Plivo"
     DATAFORSEO = "DataForSEO", "DataForSEO"
     SLEEKPLAN = "Sleekplan", "Sleekplan"
+    TALLY = "Tally", "Tally"
+    NUNTLY = "Nuntly", "Nuntly"
+    FUSIONAUTH = "FusionAuth", "FusionAuth"
+    VTURB = "Vturb", "Vturb"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

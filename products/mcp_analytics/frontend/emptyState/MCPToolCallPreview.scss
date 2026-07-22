@@ -1,0 +1,289 @@
+.MCPPreview {
+    --mcp-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    overflow: hidden;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    // Hidden filter state. Direct children of .MCPPreview so `:checked ~` can reach the rest.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__chips {
+        display: flex;
+        gap: 0.375rem;
+        padding: 0.625rem 0.75rem;
+    }
+
+    &__chip {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid var(--color-border-primary);
+        border-radius: 999px;
+        transition:
+            color 150ms ease,
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__chip:hover {
+        color: var(--color-text-primary);
+    }
+
+    &__chip img {
+        width: 12px;
+        height: 12px;
+        object-fit: contain;
+    }
+
+    &__listening {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0 0.75rem 0.5rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem 0.625rem;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        border-radius: var(--radius);
+        transition: opacity 200ms ease;
+    }
+
+    &__row:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__logo {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 2px;
+        background: var(--color-bg-surface-secondary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 5px;
+    }
+
+    &__logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    &__tool {
+        flex-shrink: 0;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--color-text-primary);
+    }
+
+    &__time {
+        flex-shrink: 0;
+        margin-left: auto;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__row--error &__time {
+        color: var(--color-red-500);
+    }
+}
+
+// Third-party brand marks (Cursor, OpenAI) are near-black with transparent backgrounds,
+// so on the default dark surface plate they disappear. In dark mode give the plate a light
+// backing — the tooltip surface resolves light-on-dark — so the logos stay legible. Light
+// mode is already a light plate, so it's left as-is.
+[theme='dark'] .MCPPreview__logo {
+    background: var(--color-bg-surface-tooltip);
+    border-color: color-mix(in oklab, var(--color-black) 12%, transparent);
+}
+
+// The radios stay keyboard-focusable even while visually hidden, so the chip they
+// label needs a visible focus indicator (WCAG 2.4.7).
+#mcp-preview-all:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--all,
+#mcp-preview-claude:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--claude,
+#mcp-preview-cursor:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--cursor,
+#mcp-preview-openai:focus-visible ~ .MCPPreview__chips .MCPPreview__chip--openai {
+    outline: 2px solid var(--mcp-preview-accent);
+    outline-offset: 1px;
+}
+
+// Active filter chip, driven purely by the hidden radios.
+#mcp-preview-all:checked ~ .MCPPreview__chips .MCPPreview__chip--all,
+#mcp-preview-claude:checked ~ .MCPPreview__chips .MCPPreview__chip--claude,
+#mcp-preview-cursor:checked ~ .MCPPreview__chips .MCPPreview__chip--cursor,
+#mcp-preview-openai:checked ~ .MCPPreview__chips .MCPPreview__chip--openai {
+    color: var(--mcp-preview-accent);
+    background: color-mix(in oklab, var(--mcp-preview-accent) 12%, transparent);
+    border-color: color-mix(in oklab, var(--mcp-preview-accent) 45%, transparent);
+}
+
+// Picking a client dims the rows that don't belong to it.
+#mcp-preview-claude:checked ~ .MCPPreview__rows .MCPPreview__row:not([data-h='claude']),
+#mcp-preview-cursor:checked ~ .MCPPreview__rows .MCPPreview__row:not([data-h='cursor']),
+#mcp-preview-openai:checked ~ .MCPPreview__rows .MCPPreview__row:not([data-h='openai']) {
+    opacity: 0.25;
+}
+
+.MCPSpark {
+    --mcp-spark-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    padding: 1rem 1.125rem;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+    }
+
+    &__value {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        margin-top: 0.375rem;
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+
+    &__delta {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__chart {
+        margin-top: 0.625rem;
+    }
+
+    &__svg {
+        display: block;
+        width: 100%;
+        height: 56px;
+        overflow: visible;
+    }
+
+    &__area {
+        fill: color-mix(in oklab, var(--mcp-spark-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--mcp-spark-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__trace {
+        fill: none;
+        stroke: var(--mcp-spark-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: MCPSpark__trace 3.2s linear infinite;
+    }
+
+    &__clients {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        margin-top: 0.875rem;
+    }
+
+    &__clients img {
+        width: 16px;
+        height: 16px;
+        object-fit: contain;
+        opacity: 0.85;
+    }
+
+    // The PostHog Code entry is a real link; keep it a plain logo, just with a hover cue.
+    &__code {
+        display: inline-flex;
+        transition: opacity 150ms ease;
+    }
+
+    &__code img {
+        width: 16px;
+        height: 16px;
+        object-fit: contain;
+        opacity: 0.85;
+    }
+
+    &__code:hover img {
+        opacity: 1;
+    }
+
+    &__more {
+        margin-left: 0.125rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes MCPSpark__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .MCPSpark__trace {
+        animation: none;
+    }
+}
+
+.MCPSpark--static .MCPSpark__trace {
+    animation: none;
+}
