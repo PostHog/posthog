@@ -35,7 +35,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models import Filter, Team
+from posthog.models import Filter, Team, User
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
@@ -711,9 +711,11 @@ def recalculate_cohortpeople(
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, cohort_id=cohort.id)
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
+    # A deleted initiator degrades to the background (userless) path.
+    initiating_user = User.objects.filter(pk=initiating_user_id).first() if initiating_user_id else None
     for team in relevant_teams:
         tag_queries(team_id=team.id)
-        _recalculate_cohortpeople_for_team(cohort, pending_version, team)
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team, initiating_user=initiating_user)
         count: Optional[int]
         if cohort.is_static:
             count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
@@ -724,7 +726,9 @@ def recalculate_cohortpeople(
     return count_by_team_id[cohort.team_id]
 
 
-def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
+def _recalculate_cohortpeople_for_team(
+    cohort: Cohort, pending_version: int, team: Team, *, initiating_user: Optional[User] = None
+) -> int:
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, name="recalculate_cohortpeople_for_team_hogql")
 
     history = CohortCalculationHistory.objects.create(
@@ -732,7 +736,9 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
     )
 
     try:
-        result = _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, history)
+        result = _recalculate_cohortpeople_for_team_hogql(
+            cohort, pending_version, team, history, initiating_user=initiating_user
+        )
         return result
 
     except Exception as e:
@@ -743,16 +749,30 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
-def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+def hogql_cohort_subquery_sql(
+    cohort: Cohort,
+    *,
+    team: Team,
+    user: Optional[User] = None,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, HogQLContext]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+    executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(
+        user=user, bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
+    sql, hogql_context = executor.generate_clickhouse_sql()
 
     return _trim_trailing_settings(sql), hogql_context
 
 
 def _recalculate_cohortpeople_for_team_hogql(
-    cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
+    cohort: Cohort,
+    pending_version: int,
+    team: Team,
+    history: CohortCalculationHistory,
+    *,
+    initiating_user: Optional[User] = None,
 ) -> int:
     cohort_params: dict[str, Any]
     if cohort.is_static:
@@ -765,7 +785,16 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+        # SECURITY-SENSITIVE: recalculation is internal maintenance of a team-owned definition.
+        # A background run (no initiating user) has no principal to check, and failing closed
+        # would silently freeze the cohort's membership - so it bypasses warehouse access
+        # control. A user-initiated recalculation runs as that user and stays enforced.
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(
+            cohort,
+            team=team,
+            user=initiating_user,
+            bypass_warehouse_access_control=initiating_user is None,
+        )
         cohort_params = hogql_context.values
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
