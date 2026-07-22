@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { kea, path, useValues } from 'kea'
+import { kea, path, useActions, useValues } from 'kea'
 import { Form, forms } from 'kea-forms'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { LemonSegmentedButtonOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
@@ -312,6 +313,16 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
             },
         },
     })
+
+    // Preselect a workspace + channel so the "add notification" picker opens with real data
+    // instead of an empty "Select a channel..." state.
+    const { setSelectedSlackIntegrationId, setSlackChannelValue } = useActions(
+        alertNotificationLogic({ alertId: 'alert-1' })
+    )
+    useEffect(() => {
+        setSelectedSlackIntegrationId(2)
+        setSlackChannelValue('C201|#acme-eng')
+    }, [setSelectedSlackIntegrationId, setSlackChannelValue])
 
     return (
         <div className="max-w-2xl border rounded bg-surface-primary p-4">
