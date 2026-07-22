@@ -129,6 +129,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             external_data_source_id=inputs.source_id,
             external_data_schema_id=inputs.schema_id,
             external_data_job_id=inputs.run_id,
+            schema_name=model.schema.name if model.schema is not None else None,
+            sync_type=model.schema.sync_type if model.schema is not None else None,
+            pipeline_version=model.pipeline_version,
         )
 
         job_inputs = PipelineInputs(
