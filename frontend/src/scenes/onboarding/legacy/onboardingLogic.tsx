@@ -784,29 +784,26 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
-            // Every completion-time team change rides in ONE PATCH. The team endpoint saves the
-            // full row from the instance it read, so concurrent team PATCHes silently revert each
-            // other's fields — a separately-dispatched enable loses whenever this PATCH commits
-            // last. Keep both completion signals in sync so every bootstrapped team shape prevents
-            // sceneLogic from redirecting a completed user back into onboarding after refresh.
+            // One PATCH for every completion-time team change: concurrent team PATCHes silently
+            // revert each other's fields, and both completion signals must stay in sync so
+            // sceneLogic doesn't redirect a completed user back into onboarding after refresh.
             const completionPatch: Partial<TeamType> = {
                 completed_snippet_onboarding: true,
                 has_completed_onboarding_for: completedMap,
             }
-            // Error Tracking has a side-effect tied to onboarding completion (set up in the
-            // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
             if (primary === ProductKey.ERROR_TRACKING) {
                 completionPatch.autocapture_exceptions_opt_in = true
             }
-            // Support has no onboarding screen; enable the product on completion so it's live
-            // on arrival. Selecting it in either slot is the consent signal: its provider emits
-            // zero steps, so the visited-step crediting above can never cover it and a secondary
-            // selection would otherwise be dropped entirely. The field is project-admin-gated
-            // server-side, so for non-admins this PATCH is rejected (onboarding is effectively
-            // always driven by an owner or an admin-level delegation invite).
+            // Support has no steps of its own, so selection in either slot is the consent signal.
+            // Skipped for non-admins: `conversations_enabled` is an admin-gated field, and sending
+            // it would 403 the entire completion PATCH.
+            const isTeamAdmin =
+                (!!values.currentTeam?.effective_membership_level &&
+                    values.currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
+                values.currentTeam?.user_access_level === 'admin'
             if (
-                primary === ProductKey.CONVERSATIONS ||
-                values.secondaryProductKeys.includes(ProductKey.CONVERSATIONS)
+                isTeamAdmin &&
+                (primary === ProductKey.CONVERSATIONS || values.secondaryProductKeys.includes(ProductKey.CONVERSATIONS))
             ) {
                 completionPatch.conversations_enabled = true
             }
@@ -817,9 +814,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 // The completion update failed, so leave the user's homepage untouched
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
-            // Tick setup tasks only after the completion PATCH settles: the tick issues its own
-            // team PATCH (onboarding_tasks), and firing it concurrently makes it read a stale row
-            // and wipe the fields written above.
+            // Ticking tasks issues its own team PATCH; fired concurrently with the one above it
+            // would read a stale row and wipe the fields just written.
             if (setup && tickedTaskIds.size > 0) {
                 setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
             }

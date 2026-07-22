@@ -10,7 +10,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { OnboardingStepKey, type OrganizationType } from '~/types'
+import { AccessControlLevel, OnboardingStepKey, type OrganizationType } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { INSTALL_DEDUP_KEYS } from './types'
@@ -491,12 +491,9 @@ describe('onboardingLogic — flow composition', () => {
     })
 
     describe('completeOnboarding — conversations enablement', () => {
-        // Conversations has no onboarding steps, so enablement rides on completion. It must
-        // fire for BOTH slots: as primary, and as a secondary (where the visited-step credit
-        // can never cover it because it contributes no steps to visit). The enable must also be
-        // part of the SAME team PATCH as the completion fields: the team endpoint saves the full
-        // row from a possibly-stale instance, so a separately-dispatched enable is silently
-        // reverted whenever the completion PATCH commits after it.
+        // Conversations has no onboarding steps, so enablement rides on completion, for both
+        // slots, and must travel in the SAME team PATCH as the completion fields: a
+        // separately-dispatched enable is silently reverted by the concurrent completion PATCH.
         it.each([
             ['primary', (): void => logic.actions.setProductKey(ProductKey.CONVERSATIONS)],
             [
@@ -539,6 +536,41 @@ describe('onboardingLogic — flow composition', () => {
                     }
                     // The completion PATCH (has_completed_onboarding_for) is the tail of the
                     // synchronous completion path — stop matching there.
+                    return (
+                        action.type === logic.actionTypes.updateCurrentTeam &&
+                        !!(action.payload as Record<string, unknown>)?.has_completed_onboarding_for
+                    )
+                },
+            ])
+            expect(patches.some((patch) => 'conversations_enabled' in (patch ?? {}))).toBe(false)
+        })
+
+        it('omits conversations_enabled for non-admin members so completion still succeeds', async () => {
+            // The field is admin-gated server-side; including it 403s the whole completion PATCH,
+            // which would block the member from completing onboarding at all.
+            logic.unmount()
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    effective_membership_level: OrganizationMembershipLevel.Member,
+                    user_access_level: AccessControlLevel.Member,
+                },
+                MOCK_DEFAULT_PROJECT,
+                MOCK_DEFAULT_ORGANIZATION
+            )
+            logic = onboardingLogic()
+            logic.mount()
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.CONVERSATIONS])
+            const patches: Record<string, unknown>[] = []
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type === logic.actionTypes.updateCurrentTeam) {
+                        patches.push(action.payload as Record<string, unknown>)
+                    }
                     return (
                         action.type === logic.actionTypes.updateCurrentTeam &&
                         !!(action.payload as Record<string, unknown>)?.has_completed_onboarding_for
