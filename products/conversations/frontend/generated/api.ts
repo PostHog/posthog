@@ -18,22 +18,23 @@ import type {
     ComposeTicketResponseApi,
     ConversationApi,
     ConversationsListParams,
-    ConversationsMacrosListParams,
+    ConversationsQuickActionsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
-    MacroApi,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
-    PaginatedMacroListApi,
+    PaginatedQuickActionListApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
-    PatchedMacroApi,
+    PatchedQuickActionApi,
     PatchedTicketApi,
     PatchedTicketViewApi,
+    QuickActionApi,
+    QuickActionRunRequestApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
@@ -295,7 +296,10 @@ export const conversationsQueueClearCreate = async (
     })
 }
 
-export const getConversationsMacrosListUrl = (projectId: string, params?: ConversationsMacrosListParams) => {
+export const getConversationsQuickActionsListUrl = (
+    projectId: string,
+    params?: ConversationsQuickActionsListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -307,101 +311,122 @@ export const getConversationsMacrosListUrl = (projectId: string, params?: Conver
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/conversations/macros/?${stringifiedParams}`
-        : `/api/projects/${projectId}/conversations/macros/`
+        ? `/api/projects/${projectId}/conversations/quick_actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/quick_actions/`
 }
 
-export const conversationsMacrosList = async (
+export const conversationsQuickActionsList = async (
     projectId: string,
-    params?: ConversationsMacrosListParams,
+    params?: ConversationsQuickActionsListParams,
     options?: RequestInit
-): Promise<PaginatedMacroListApi> => {
-    return apiMutator<PaginatedMacroListApi>(getConversationsMacrosListUrl(projectId, params), {
+): Promise<PaginatedQuickActionListApi> => {
+    return apiMutator<PaginatedQuickActionListApi>(getConversationsQuickActionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getConversationsMacrosCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/conversations/macros/`
+export const getConversationsQuickActionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/`
 }
 
-export const conversationsMacrosCreate = async (
+export const conversationsQuickActionsCreate = async (
     projectId: string,
-    macroApi: NonReadonly<MacroApi>,
+    quickActionApi: NonReadonly<QuickActionApi>,
     options?: RequestInit
-): Promise<MacroApi> => {
-    return apiMutator<MacroApi>(getConversationsMacrosCreateUrl(projectId), {
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(macroApi),
+        body: JSON.stringify(quickActionApi),
     })
 }
 
-export const getConversationsMacrosRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+export const getConversationsQuickActionsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
 }
 
-export const conversationsMacrosRetrieve = async (
+export const conversationsQuickActionsRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<MacroApi> => {
-    return apiMutator<MacroApi>(getConversationsMacrosRetrieveUrl(projectId, shortId), {
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getConversationsMacrosUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+export const getConversationsQuickActionsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
 }
 
-export const conversationsMacrosUpdate = async (
+export const conversationsQuickActionsUpdate = async (
     projectId: string,
     shortId: string,
-    macroApi: NonReadonly<MacroApi>,
+    quickActionApi: NonReadonly<QuickActionApi>,
     options?: RequestInit
-): Promise<MacroApi> => {
-    return apiMutator<MacroApi>(getConversationsMacrosUpdateUrl(projectId, shortId), {
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsUpdateUrl(projectId, shortId), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(macroApi),
+        body: JSON.stringify(quickActionApi),
     })
 }
 
-export const getConversationsMacrosPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+export const getConversationsQuickActionsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
 }
 
-export const conversationsMacrosPartialUpdate = async (
+export const conversationsQuickActionsPartialUpdate = async (
     projectId: string,
     shortId: string,
-    patchedMacroApi?: NonReadonly<PatchedMacroApi>,
+    patchedQuickActionApi?: NonReadonly<PatchedQuickActionApi>,
     options?: RequestInit
-): Promise<MacroApi> => {
-    return apiMutator<MacroApi>(getConversationsMacrosPartialUpdateUrl(projectId, shortId), {
+): Promise<QuickActionApi> => {
+    return apiMutator<QuickActionApi>(getConversationsQuickActionsPartialUpdateUrl(projectId, shortId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedMacroApi),
+        body: JSON.stringify(patchedQuickActionApi),
     })
 }
 
-export const getConversationsMacrosDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/conversations/macros/${shortId}/`
+export const getConversationsQuickActionsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/`
 }
 
-export const conversationsMacrosDestroy = async (
+export const conversationsQuickActionsDestroy = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getConversationsMacrosDestroyUrl(projectId, shortId), {
+    return apiMutator<void>(getConversationsQuickActionsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsQuickActionsRunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/quick_actions/${shortId}/run/`
+}
+
+/**
+ * Run a workflow quick action against a ticket, synthesizing the ticket's event context.
+ */
+export const conversationsQuickActionsRunCreate = async (
+    projectId: string,
+    shortId: string,
+    quickActionRunRequestApi: QuickActionRunRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsQuickActionsRunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quickActionRunRequestApi),
     })
 }
 

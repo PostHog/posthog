@@ -8,13 +8,18 @@ from posthog.models.utils import UUIDModel
 from posthog.utils import generate_short_id
 
 
-class MacroVisibility(models.TextChoices):
+class QuickActionVisibility(models.TextChoices):
     TEAM = "team", "Team"
     PERSONAL = "personal", "Personal"
 
 
-class Macro(TeamScopedRootMixin, UUIDModel):
-    """A saved reply that agents insert into the composer, optionally applying ticket actions."""
+class QuickActionKind(models.TextChoices):
+    RESPONSE = "response", "Response"
+    WORKFLOW = "workflow", "Workflow"
+
+
+class QuickAction(TeamScopedRootMixin, UUIDModel):
+    """A saved action an agent triggers from the composer: a canned response or a workflow run."""
 
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.
@@ -30,25 +35,37 @@ class Macro(TeamScopedRootMixin, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=200)
     description = models.CharField(max_length=400, blank=True, default="")
+    # "response" inserts the reply body (and applies `actions`); "workflow" runs `workflow_id`.
+    kind = models.CharField(max_length=20, choices=QuickActionKind.choices, default=QuickActionKind.RESPONSE)
+
+    # --- Response fields (kind="response") ---
     # Reply body: `content` is the markdown/plain-text fallback, `rich_content` the TipTap JSON.
     # Mirrors the dual storage on Ticket messages so the composer can round-trip formatting.
     content = models.TextField(blank=True, default="")
     rich_content = models.JSONField(default=dict, blank=True)
-    # Optional ticket actions applied when the macro is used, e.g.
+    # Optional ticket actions applied when used, e.g.
     # {"status": "closed", "priority": "high", "tags": [...], "assignee": {...}}. Empty = text-only.
     actions = models.JSONField(default=dict, blank=True)
-    # "team" macros are shared with everyone on the team; "personal" macros are only
+
+    # --- Workflow field (kind="workflow") ---
+    # Soft reference to a HogFlow (products/workflows) id — no cross-product FK; the API layer
+    # validates that it resolves to an active workflow for the team.
+    workflow_id = models.UUIDField(null=True, blank=True)
+
+    # "team" quick actions are shared with everyone on the team; "personal" ones are only
     # visible to their creator.
-    visibility = models.CharField(max_length=20, choices=MacroVisibility.choices, default=MacroVisibility.TEAM)
+    visibility = models.CharField(
+        max_length=20, choices=QuickActionVisibility.choices, default=QuickActionVisibility.TEAM
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "posthog_conversations_macro"
+        db_table = "posthog_conversations_quick_action"
         unique_together = ("team", "short_id")
         indexes = [
-            models.Index(fields=["team_id", "-created_at"], name="conv_macro_team_idx"),
+            models.Index(fields=["team_id", "-created_at"], name="conv_quick_action_team_idx"),
         ]
 
     def __str__(self) -> str:

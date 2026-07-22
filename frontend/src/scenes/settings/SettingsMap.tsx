@@ -45,8 +45,8 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
-import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { QuickActionsSection } from 'products/conversations/frontend/scenes/settings/QuickActionsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import { WarehousePersonPropertiesSetting } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
@@ -1186,13 +1186,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
-                id: 'conversations-macros',
-                title: 'Macros',
+                id: 'conversations-quick-actions',
+                title: 'Quick actions',
                 description:
-                    'Reusable replies your team can drop into a conversation with / or the macro button. Macros can also set the ticket status, priority, or tags and fill in customer details automatically.',
-                component: <MacrosSection />,
+                    'Reusable actions your team can trigger in a conversation with / or the quick action button. A quick action can insert a saved reply (and set the ticket status, priority, or tags) or run one of your workflows against the ticket.',
+                component: <QuickActionsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['macro', 'canned', 'saved', 'reply', 'template', 'snippet', 'support', 'conversation'],
+                keywords: [
+                    'quick action',
+                    'macro',
+                    'canned',
+                    'saved',
+                    'reply',
+                    'template',
+                    'snippet',
+                    'workflow',
+                    'support',
+                    'conversation',
+                ],
             },
             {
                 id: 'conversations-imports',

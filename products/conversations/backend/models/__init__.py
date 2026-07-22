@@ -3,7 +3,7 @@ from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
 from .github_comment_mapping import GithubCommentMapping
-from .macro import Macro, MacroVisibility
+from .quick_action import QuickAction, QuickActionKind, QuickActionVisibility
 from .restore_token import ConversationRestoreToken
 from .team_conversations_email_config import EmailChannel
 from .team_conversations_slack_config import TeamConversationsSlackConfig
@@ -22,9 +22,10 @@ __all__ = [
     "EmailMessageMapping",
     "EmailOutboxMessage",
     "GithubCommentMapping",
-    "Macro",
-    "MacroVisibility",
     "Priority",
+    "QuickAction",
+    "QuickActionKind",
+    "QuickActionVisibility",
     "RuleType",
     "Status",
     "TeamConversationsSlackConfig",

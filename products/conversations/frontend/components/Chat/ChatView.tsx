@@ -2,9 +2,9 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { MacroActionsApi } from '../../generated/api.schemas'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketStatus } from '../../types'
-import { MacroVariableValues } from '../Editor/macroVariables'
+import { TemplateVariableValues } from '../Editor/templateVariables'
 import { MessageInput } from './MessageInput'
 import { MessageList } from './MessageList'
 
@@ -58,12 +58,14 @@ export interface ChatViewProps {
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
-    /** Enables the `/` macro slash command and the macro toolbar button in the composer */
-    enableMacros?: boolean
-    /** Values used to fill {{variable}} tokens when a macro is inserted */
-    macroVariables?: MacroVariableValues
-    /** Applies a macro's ticket actions (status/assignee/tags/priority) when inserted */
-    onApplyMacroActions?: (actions: MacroActionsApi) => void
+    /** Enables the `/` quick-action slash command and the quick-action toolbar button */
+    enableQuickActions?: boolean
+    /** Values used to fill {{variable}} tokens when a response quick action is inserted */
+    templateVariables?: TemplateVariableValues
+    /** Applies a response quick action's ticket actions (status/assignee/tags/priority) */
+    onApplyTicketActions?: (actions: QuickActionActionsApi) => void
+    /** Runs a workflow quick action against the ticket */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
 export function ChatView({
@@ -95,9 +97,10 @@ export function ChatView({
     feedbackByMessageId,
     showAiReplyFeedback,
     onSubmitAiReplyFeedback,
-    enableMacros,
-    macroVariables,
-    onApplyMacroActions,
+    enableQuickActions,
+    templateVariables,
+    onApplyTicketActions,
+    onRunWorkflow,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -137,9 +140,10 @@ export function ChatView({
                     sendConfirmationMessage={sendConfirmationMessage}
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
                     unsavedTicketChanges={unsavedTicketChanges}
-                    enableMacros={enableMacros}
-                    macroVariables={macroVariables}
-                    onApplyMacroActions={onApplyMacroActions}
+                    enableQuickActions={enableQuickActions}
+                    templateVariables={templateVariables}
+                    onApplyTicketActions={onApplyTicketActions}
+                    onRunWorkflow={onRunWorkflow}
                 />
             </div>
         </LemonCard>

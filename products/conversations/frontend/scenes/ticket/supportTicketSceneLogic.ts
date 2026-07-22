@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -44,8 +45,9 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
-import { MacroVariableValues } from '../../components/Editor/macroVariables'
-import type { MacroActionsApi } from '../../generated/api.schemas'
+import { TemplateVariableValues } from '../../components/Editor/templateVariables'
+import { conversationsQuickActionsRunCreate } from '../../generated/api'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -192,7 +194,6 @@ export interface supportTicketSceneLogicValues {
     knowledgeGaps: KnowledgeGapSuggestion[]
     knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
-    macroVariables: MacroVariableValues
     messageSending: boolean
     messages: CommentType[]
     messagesLoading: boolean
@@ -206,6 +207,7 @@ export interface supportTicketSceneLogicValues {
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
+    templateVariables: TemplateVariableValues
     ticket: Ticket | null
     ticketLoading: boolean
     ticketUpdating: boolean
@@ -217,8 +219,8 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
-    applyMacroActions: (macroActions: MacroActionsApi) => {
-        macroActions: MacroActionsApi
+    applyTicketActions: (ticketActions: QuickActionActionsApi) => {
+        ticketActions: QuickActionActionsApi
     }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
@@ -304,6 +306,9 @@ export interface supportTicketSceneLogicActions {
     ) => {
         messageId: string
         rating: AiReplyFeedbackRating
+    }
+    runWorkflowQuickAction: (quickAction: QuickActionApi) => {
+        quickAction: QuickActionApi
     }
     sendMessage: (
         content: string,
@@ -393,7 +398,11 @@ export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (id: number | string) => Breadcrumb[]
-        macroVariables: (ticket: Ticket | null, person: PersonType | null, user: UserType | null) => MacroVariableValues
+        templateVariables: (
+            ticket: Ticket | null,
+            person: PersonType | null,
+            user: UserType | null
+        ) => TemplateVariableValues
         emailReplyBlockedReason: (
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
@@ -480,7 +489,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
         setTags: (tags: string[]) => ({ tags }),
-        applyMacroActions: (macroActions: MacroActionsApi) => ({ macroActions }),
+        applyTicketActions: (ticketActions: QuickActionActionsApi) => ({ ticketActions }),
+        runWorkflowQuickAction: (quickAction: QuickActionApi) => ({ quickAction }),
         setSnoozedUntil: (snoozedUntil: string | null) => ({ snoozedUntil }),
 
         // Session context actions
@@ -729,9 +739,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return [{ key: ['SupportTicketDetail', id], name }]
             },
         ],
-        macroVariables: [
+        templateVariables: [
             (s) => [s.ticket, s.person, s.user],
-            (ticket: Ticket | null, person: PersonType | null, user: UserType | null): MacroVariableValues => {
+            (ticket: Ticket | null, person: PersonType | null, user: UserType | null): TemplateVariableValues => {
                 // Mirror the customer-name resolution used for message display: prefer the loaded
                 // person, fall back to the ticket's own person, then anonymous traits, then email.
                 const customerName =
@@ -934,22 +944,22 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
-        applyMacroActions: ({ macroActions }) => {
+        applyTicketActions: ({ ticketActions }) => {
             let changed = false
-            if (macroActions.status) {
-                actions.setStatus(macroActions.status as TicketStatus)
+            if (ticketActions.status) {
+                actions.setStatus(ticketActions.status as TicketStatus)
                 changed = true
             }
-            if (macroActions.priority) {
-                actions.setPriority(macroActions.priority as TicketPriority)
+            if (ticketActions.priority) {
+                actions.setPriority(ticketActions.priority as TicketPriority)
                 changed = true
             }
-            if (macroActions.tags) {
-                actions.setTags(macroActions.tags)
+            if (ticketActions.tags) {
+                actions.setTags(ticketActions.tags)
                 changed = true
             }
-            if (macroActions.assignee !== undefined) {
-                const assignee = macroActions.assignee
+            if (ticketActions.assignee !== undefined) {
+                const assignee = ticketActions.assignee
                 if (assignee && assignee.id != null) {
                     const type = assignee.type === 'role' ? 'role' : 'user'
                     actions.setAssignee({ type, id: type === 'user' ? Number(assignee.id) : assignee.id })
@@ -961,6 +971,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             // Persist the field changes; text insertion into the composer is handled separately.
             if (changed) {
                 actions.updateTicket()
+            }
+        },
+        runWorkflowQuickAction: async ({ quickAction }) => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+            try {
+                await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
+                    ticket_id: ticket.id,
+                })
+                lemonToast.success(`Running "${quickAction.name}"`)
+            } catch (error) {
+                posthog.captureException(error)
+                lemonToast.error('Failed to run workflow')
             }
         },
         loadTicket: async () => {

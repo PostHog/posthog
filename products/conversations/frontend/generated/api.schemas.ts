@@ -573,6 +573,17 @@ export interface SandboxMessageResponseApi {
 }
 
 /**
+ * * `response` - Response
+ * * `workflow` - Workflow
+ */
+export type QuickActionKindEnumApi = (typeof QuickActionKindEnumApi)[keyof typeof QuickActionKindEnumApi]
+
+export const QuickActionKindEnumApi = {
+    Response: 'response',
+    Workflow: 'workflow',
+} as const
+
+/**
  * * `new` - New
  * * `open` - Open
  * * `pending` - Pending
@@ -605,9 +616,9 @@ export const SupportPriorityEnumApi = {
 } as const
 
 /**
- * Who a macro assigns the ticket to when applied.
+ * Who a quick action assigns the ticket to when applied.
  */
-export interface MacroAssigneeApi {
+export interface QuickActionAssigneeApi {
     /** Assignee kind: "user" or "role". */
     type: string
     /**
@@ -618,10 +629,10 @@ export interface MacroAssigneeApi {
 }
 
 /**
- * Optional ticket changes applied when a macro is used. Omit or leave empty for a text-only macro.
+ * Optional ticket changes applied when a response quick action is used. Omit for text-only.
  */
-export interface MacroActionsApi {
-    /** Set the ticket status when the macro is applied.
+export interface QuickActionActionsApi {
+    /** Set the ticket status when the quick action is applied.
      *
      * * `new` - New
      * * `open` - Open
@@ -629,99 +640,125 @@ export interface MacroActionsApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi | null
-    /** Set the ticket priority when the macro is applied.
+    /** Set the ticket priority when the quick action is applied.
      *
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High
      * * `critical` - Critical */
     priority?: SupportPriorityEnumApi | null
-    /** Replace the ticket's tags with this list when the macro is applied. */
+    /** Replace the ticket's tags with this list when the quick action is applied. */
     tags?: string[]
-    /** Assign the ticket to this user or role when the macro is applied. */
-    assignee?: MacroAssigneeApi | null
+    /** Assign the ticket to this user or role when the quick action is applied. */
+    assignee?: QuickActionAssigneeApi | null
 }
 
 /**
  * * `team` - Team
  * * `personal` - Personal
  */
-export type MacroVisibilityEnumApi = (typeof MacroVisibilityEnumApi)[keyof typeof MacroVisibilityEnumApi]
+export type QuickActionVisibilityEnumApi =
+    (typeof QuickActionVisibilityEnumApi)[keyof typeof QuickActionVisibilityEnumApi]
 
-export const MacroVisibilityEnumApi = {
+export const QuickActionVisibilityEnumApi = {
     Team: 'team',
     Personal: 'personal',
 } as const
 
-export interface MacroApi {
+export interface QuickActionApi {
     readonly id: string
     readonly short_id: string
     /**
-     * Display name shown in the macro picker.
+     * Display name shown in the quick action picker.
      * @maxLength 200
      */
     name: string
     /**
-     * Optional short description of when to use this macro.
+     * Optional short description of when to use this quick action.
      * @maxLength 400
      */
     description?: string
+    /** "response" inserts a saved reply; "workflow" runs a workflow against the ticket.
+     *
+     * * `response` - Response
+     * * `workflow` - Workflow */
+    kind?: QuickActionKindEnumApi
     /**
-     * Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket.
+     * Response body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
      * @maxLength 50000
      */
     content?: string
-    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+    /** TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved. */
     rich_content?: unknown
-    /** Optional ticket changes (status, priority, tags, assignee) applied when the macro is used. */
-    actions?: MacroActionsApi
-    /** "team" shares the macro with everyone on the team; "personal" keeps it private to you.
+    /** Ticket changes (status, priority, tags, assignee) applied when a response quick action is used. */
+    actions?: QuickActionActionsApi
+    /**
+     * For kind=workflow: id of the workflow to run against the ticket.
+     * @nullable
+     */
+    workflow_id?: string | null
+    /** "team" shares with everyone on the team; "personal" keeps it private to you.
      *
      * * `team` - Team
      * * `personal` - Personal */
-    visibility?: MacroVisibilityEnumApi
+    visibility?: QuickActionVisibilityEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
 }
 
-export interface PaginatedMacroListApi {
+export interface PaginatedQuickActionListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: MacroApi[]
+    results: QuickActionApi[]
 }
 
-export interface PatchedMacroApi {
+export interface PatchedQuickActionApi {
     readonly id?: string
     readonly short_id?: string
     /**
-     * Display name shown in the macro picker.
+     * Display name shown in the quick action picker.
      * @maxLength 200
      */
     name?: string
     /**
-     * Optional short description of when to use this macro.
+     * Optional short description of when to use this quick action.
      * @maxLength 400
      */
     description?: string
+    /** "response" inserts a saved reply; "workflow" runs a workflow against the ticket.
+     *
+     * * `response` - Response
+     * * `workflow` - Workflow */
+    kind?: QuickActionKindEnumApi
     /**
-     * Plain-text/markdown body of the reply. May contain {{variables}} filled in from the ticket.
+     * Response body (plain-text/markdown). May contain {{variables}} filled in from the ticket.
      * @maxLength 50000
      */
     content?: string
-    /** TipTap rich-content JSON for the reply body. Mirrors `content` with formatting preserved. */
+    /** TipTap rich-content JSON for the response body. Mirrors `content` with formatting preserved. */
     rich_content?: unknown
-    /** Optional ticket changes (status, priority, tags, assignee) applied when the macro is used. */
-    actions?: MacroActionsApi
-    /** "team" shares the macro with everyone on the team; "personal" keeps it private to you.
+    /** Ticket changes (status, priority, tags, assignee) applied when a response quick action is used. */
+    actions?: QuickActionActionsApi
+    /**
+     * For kind=workflow: id of the workflow to run against the ticket.
+     * @nullable
+     */
+    workflow_id?: string | null
+    /** "team" shares with everyone on the team; "personal" keeps it private to you.
      *
      * * `team` - Team
      * * `personal` - Personal */
-    visibility?: MacroVisibilityEnumApi
+    visibility?: QuickActionVisibilityEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+}
+
+export interface QuickActionRunRequestApi {
+    /** Ticket to run the workflow against. */
+    ticket_id: string
 }
 
 /**
@@ -1301,7 +1338,7 @@ export type ConversationsListParams = {
     offset?: number
 }
 
-export type ConversationsMacrosListParams = {
+export type ConversationsQuickActionsListParams = {
     /**
      * Number of results to return per page.
      */

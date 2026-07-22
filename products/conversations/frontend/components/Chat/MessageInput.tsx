@@ -7,10 +7,10 @@ import { LemonButton, LemonCheckbox, LemonSwitch, Tooltip } from '@posthog/lemon
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
-import type { MacroActionsApi } from '../../generated/api.schemas'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import type { TicketStatus } from '../../types'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
-import { MacroVariableValues } from '../Editor/macroVariables'
+import { TemplateVariableValues } from '../Editor/templateVariables'
 
 export interface MessageInputProps {
     onSendMessage: (
@@ -48,12 +48,14 @@ export interface MessageInputProps {
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
-    /** Enables the `/` macro slash command and the macro toolbar button in the composer */
-    enableMacros?: boolean
-    /** Values used to fill {{variable}} tokens when a macro is inserted */
-    macroVariables?: MacroVariableValues
-    /** Applies a macro's ticket actions (status/assignee/tags/priority) when inserted */
-    onApplyMacroActions?: (actions: MacroActionsApi) => void
+    /** Enables the `/` quick-action slash command and the quick-action toolbar button */
+    enableQuickActions?: boolean
+    /** Values used to fill {{variable}} tokens when a response quick action is inserted */
+    templateVariables?: TemplateVariableValues
+    /** Applies a response quick action's ticket actions (status/assignee/tags/priority) */
+    onApplyTicketActions?: (actions: QuickActionActionsApi) => void
+    /** Runs a workflow quick action against the ticket */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
 export function MessageInput({
@@ -74,9 +76,10 @@ export function MessageInput({
     sendConfirmationMessage,
     sendAndSetStatusOptions,
     unsavedTicketChanges,
-    enableMacros,
-    macroVariables,
-    onApplyMacroActions,
+    enableQuickActions,
+    templateVariables,
+    onApplyTicketActions,
+    onRunWorkflow,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -190,9 +193,10 @@ export function MessageInput({
                 onUploadingChange={setIsUploading}
                 disabled={messageSending}
                 minRows={minRows}
-                enableMacros={enableMacros}
-                macroVariables={macroVariables}
-                onApplyMacroActions={onApplyMacroActions}
+                enableQuickActions={enableQuickActions}
+                templateVariables={templateVariables}
+                onApplyTicketActions={onApplyTicketActions}
+                onRunWorkflow={onRunWorkflow}
                 className={
                     isPrivate
                         ? 'bg-warning-highlight border-warning'

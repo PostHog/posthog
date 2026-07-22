@@ -111,6 +111,17 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+def create_hog_flow_manual_invocation(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Run a full HogFlow graph on demand against a caller-synthesized event (any active workflow,
+    regardless of trigger type). `payload` is {globals: {event, person?, groups?}, variables?}."""
+    logger.info(f"Creating manual hog flow invocation for hog flow {hog_flow_id} on workers")
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/manual_invocations",
+        json=payload,
+        headers=get_internal_api_headers(),
+    )
+
+
 def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
     return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/in_flight_count",
