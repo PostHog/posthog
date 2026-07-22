@@ -686,6 +686,9 @@ class TestCohortUtils(BaseTest):
                     "source": {
                         "kind": "TrendsQuery",
                         "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        # Total-value aggregation so the actors query targets all matched people
+                        # rather than a single interval (which would require a `day`).
+                        "trendsFilter": {"display": "BoldNumber"},
                     },
                 },
             },
