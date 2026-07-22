@@ -34,16 +34,11 @@ function announcementStatusTag(status: AnnouncementApi['status']): { type: TagTy
     }
 }
 
-function channelOptionLabel(customerName: string | null, name: string): string {
-    // Surface the customer the channel belongs to so a CSM picks by account, not raw channel name.
-    return customerName ? `${customerName} (#${name})` : `#${name}`
-}
-
 function AnnouncementComposer(): JSX.Element {
     const {
         messageDraft,
         selectedChannelIds,
-        memberChannels,
+        channelOptions,
         memberChannelsLoading,
         submitting,
         submitDisabledReason,
@@ -62,10 +57,7 @@ function AnnouncementComposer(): JSX.Element {
                 <LemonInputSelect
                     mode="multiple"
                     value={selectedChannelIds}
-                    options={memberChannels.map((channel) => ({
-                        key: channel.id,
-                        label: channelOptionLabel(channel.customer_name, channel.name),
-                    }))}
+                    options={channelOptions}
                     onChange={setSelectedChannelIds}
                     loading={memberChannelsLoading}
                     placeholder="Select customer channels"

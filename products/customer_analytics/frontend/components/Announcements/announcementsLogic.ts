@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-// NonReadonly<AnnouncementApi> resolves to just the writable fields ({ message, channels }).
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { announcementsChannelsList, announcementsCreate, announcementsList } from '../../generated/api'
 import type { AnnouncementApi, AnnouncementChannelApi } from '../../generated/api.schemas'
@@ -14,6 +13,10 @@ export interface announcementsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     announcements: AnnouncementApi[]
     announcementsLoading: boolean
+    channelOptions: {
+        key: string
+        label: string
+    }[]
     memberChannels: AnnouncementChannelApi[]
     memberChannelsLoading: boolean
     messageDraft: string
@@ -73,6 +76,10 @@ export interface announcementsLogicActions {
 export interface announcementsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        channelOptions: (memberChannels: AnnouncementChannelApi[]) => {
+            key: string
+            label: string
+        }[]
         submitDisabledReason: (
             messageDraft: string,
             selectedChannelIds: string[],
@@ -133,6 +140,14 @@ export const announcementsLogic = kea<announcementsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
                 !!currentTeam?.conversations_settings?.slack_enabled,
+        ],
+        channelOptions: [
+            (s) => [s.memberChannels],
+            (memberChannels: AnnouncementChannelApi[]): { key: string; label: string }[] =>
+                memberChannels.map((channel) => ({
+                    key: channel.id,
+                    label: channel.customer_name ? `${channel.customer_name} (#${channel.name})` : `#${channel.name}`,
+                })),
         ],
         submitDisabledReason: [
             (s) => [s.messageDraft, s.selectedChannelIds, s.submitting],

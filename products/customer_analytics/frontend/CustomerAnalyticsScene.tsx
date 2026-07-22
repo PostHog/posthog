@@ -79,9 +79,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts and Notes are gated by CUSTOMER_ANALYTICS_CSP; without it the tabs do not
-    // exist, so guessed `/customer_analytics/accounts` / `/customer_analytics/notes` URLs are 404s.
-    if ((activeTab === 'accounts' || activeTab === 'notes') && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    // Accounts, Notes and Announcements are gated by CUSTOMER_ANALYTICS_CSP; without it the tabs do
+    // not exist, so guessed `/customer_analytics/{accounts,notes,announcements}` URLs are 404s.
+    if (
+        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements') &&
+        !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
+    ) {
         return <NotFound object="page" />
     }
 
@@ -117,9 +120,6 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             content: <AccountNotesTabContent />,
             link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
         })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ANNOUNCEMENTS]) {
         tabs.push({
             key: 'announcements',
             label: 'Announcements',

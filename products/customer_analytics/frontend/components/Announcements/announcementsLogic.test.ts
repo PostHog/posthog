@@ -46,7 +46,10 @@ describe('announcementsLogic', () => {
         logic.mount()
         await expectLogic(logic)
             .toDispatchActions(['loadMemberChannels', 'loadMemberChannelsSuccess'])
-            .toMatchValues({ memberChannels: [{ id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' }] })
+            .toMatchValues({
+                memberChannels: [{ id: 'C1', name: 'acme', is_member: true, customer_name: 'Acme' }],
+                channelOptions: [{ key: 'C1', label: 'Acme (#acme)' }],
+            })
     })
 
     it('blocks submit with an empty message', async () => {
@@ -74,7 +77,6 @@ describe('announcementsLogic', () => {
             .toDispatchActions(['submitAnnouncement', 'loadAnnouncements'])
             .toFinishAllListeners()
 
-        // A successful send clears the composer and resets the in-flight guard.
         expect(logic.values.messageDraft).toBe('')
         expect(logic.values.selectedChannelIds).toEqual([])
         expect(logic.values.submitting).toBe(false)
@@ -91,7 +93,6 @@ describe('announcementsLogic', () => {
             logic.actions.submitAnnouncement()
         }).toFinishAllListeners()
 
-        // The guard returned early, so the draft is preserved (not cleared by a successful send).
         expect(logic.values.messageDraft).toBe('Offsite this week')
         expect(logic.values.selectedChannelIds).toEqual(['C1'])
     })
