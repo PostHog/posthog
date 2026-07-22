@@ -435,11 +435,12 @@ def build_initial_research_prompt(
     investigation_instruction = (
         "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a separate "
         "message. For signals with previous findings, validate them lightly first and reuse them if they still "
-        "hold. Investigate genuinely new or stale signals thoroughly, then respond with a `SignalFinding` JSON "
-        "object."
+        "hold. Investigate genuinely new or stale signals thoroughly, then respond with the finding response "
+        "envelope described below."
         if previous_report_id or previous_finding
         else "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a "
-        "separate message. For each one, investigate it thoroughly then respond with a `SignalFinding` JSON object."
+        "separate message. For each one, investigate it thoroughly then respond with the finding response envelope "
+        "described below."
     )
 
     bk_block = f"\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""

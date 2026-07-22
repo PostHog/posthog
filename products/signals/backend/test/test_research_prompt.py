@@ -125,6 +125,7 @@ class TestBuildInitialResearchPrompt:
         for prompt in (initial_prompt, followup_prompt):
             assert '"previous_finding_correct"' in prompt
             assert '"finding"' in prompt
+            assert "respond with a `SignalFinding` JSON object" not in prompt
         if not has_previous_finding:
             assert "There is no previous finding for this signal" in initial_prompt
             assert "There is no previous finding for this signal" in followup_prompt
