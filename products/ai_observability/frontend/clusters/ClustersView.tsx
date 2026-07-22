@@ -110,7 +110,7 @@ export function ClustersView(): JSX.Element {
 
                         {showAdminPanel && (
                             <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                resourceType={AccessControlResourceType.AiObservabilityClusters}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
@@ -250,7 +250,7 @@ export function ClustersView(): JSX.Element {
 
                     {showAdminPanel && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.AiObservabilityClusters}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton

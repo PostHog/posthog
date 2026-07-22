@@ -421,6 +421,15 @@ def list_teams(organization_id: UUID | str, require_enabled: bool = True) -> Res
     return _request("GET", organization_id, "/teams", require_enabled=require_enabled)
 
 
+def list_all_teams() -> Response:
+    """List every duckgres team row across orgs (global internal endpoint).
+
+    Backend-only: feeds the cp-mode sensor enumeration in posthog.ducklake.cp_teams,
+    which is why the feature-flag gate is bypassed.
+    """
+    return _request("GET", "", "teams", require_enabled=False)
+
+
 def create_team(
     organization_id: UUID | str,
     team_id: int,
@@ -776,7 +785,10 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     the deletion is blocked with a retry error rather than silently orphaning the duckgres row.
     """
     # Keep ducklake.models off the core API import path.
-    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam  # noqa: PLC0415
+    # Keep ducklake.team_state (and via it ducklake.common's duckdb dependency) off the
+    # API import path.
+    from posthog.ducklake import team_state  # noqa: PLC0415
+    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
     if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
         return None
@@ -790,9 +802,9 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
             "Deprovision the managed warehouse in Data ops settings, or delete the organization, "
             "before deleting this project."
         )
-    if DuckgresServerTeam.objects.filter(team_id=team_id).exists():
+    if team_state.backfill_row_exists(team_id, str(organization_id)):
         return "Could not remove this project from your organization's managed warehouse. Try again in a few minutes."
-    # Org has a warehouse but this team has no Django backfill row: almost certainly not
+    # Org has a warehouse but this team has no membership row: almost certainly not
     # onboarded, so a control-plane hiccup must not block its deletion. If a duckgres-only
     # row does exist it is orphaned here, which the control plane tolerates.
     logger.warning(
