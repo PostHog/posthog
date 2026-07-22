@@ -61,6 +61,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
+    TaskActivity,
     TaskAutomation,
     TaskRun,
     TaskThreadMessage,
@@ -5252,6 +5253,7 @@ def create_thread_message(
     if _visible_task(task_id, team_id, user_id) is None:
         return None
     message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
+    project_thread_message_activity(message)
     try:
         _index_thread_message_mentions(message)
     except Exception:
@@ -5270,19 +5272,22 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     mentioned_user_ids = resolve_mentioned_user_ids(
         User, message.content, team_id=message.team_id, author_id=message.author_id
     )
+    mentions = [
+        TaskThreadMessageMention(
+            team_id=message.team_id,
+            message_id=message.id,
+            task_id=message.task_id,
+            mentioned_user_id=mentioned_user_id,
+            created_at=message.created_at,
+        )
+        for mentioned_user_id in mentioned_user_ids
+    ]
     TaskThreadMessageMention.objects.for_team(message.team_id).bulk_create(
-        [
-            TaskThreadMessageMention(
-                team_id=message.team_id,
-                message_id=message.id,
-                task_id=message.task_id,
-                mentioned_user_id=mentioned_user_id,
-                created_at=message.created_at,
-            )
-            for mentioned_user_id in mentioned_user_ids
-        ],
+        mentions,
         ignore_conflicts=True,
     )
+    for mention in mentions:
+        _upsert_task_activity(message, mention.mentioned_user_id, TaskActivity.Kind.MENTION)
 
 
 def list_mentions(
@@ -5338,7 +5343,7 @@ def _latest_messages_for_kind(
     return [(message.task_id, message) for message in qs.select_related("author").order_by("created_at", "id")]
 
 
-def list_task_activity(
+def _list_task_activity_legacy(
     team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
 ) -> list[contracts.TaskActivityDTO]:
     """Tasks the requester is involved in, one row per task, most-recent activity first.
@@ -5467,6 +5472,69 @@ def list_task_activity(
     return activity
 
 
+def _upsert_task_activity(message: TaskThreadMessage, user_id: int, kind: str) -> None:
+    row, created = TaskActivity.objects.for_team(message.team_id).get_or_create(
+        team_id=message.team_id,
+        user_id=user_id,
+        task_id=message.task_id,
+        defaults={"message_id": message.id, "kind": kind, "activity_at": message.created_at},
+    )
+    if created or row.activity_at > message.created_at:
+        return
+    row.message_id = message.id
+    row.kind = kind
+    row.activity_at = message.created_at
+    row.read_at = None
+    row.save(update_fields=["message", "kind", "activity_at", "read_at"])
+
+
+def project_thread_message_activity(message: TaskThreadMessage) -> None:
+    if message.author_id is not None:
+        _upsert_task_activity(message, message.author_id, TaskActivity.Kind.MESSAGE)
+    if message.event == "turn_complete":
+        creator_id = (
+            Task.objects.filter(id=message.task_id, team_id=message.team_id)
+            .values_list("created_by_id", flat=True)
+            .first()
+        )
+        if creator_id is not None:
+            _upsert_task_activity(message, creator_id, TaskActivity.Kind.AWAITING_INPUT)
+
+
+def list_task_activity(team_id: int, user_id: int | None, *, limit: int = 100) -> contracts.TaskActivityPageDTO:
+    if user_id is None:
+        return contracts.TaskActivityPageDTO(results=[], unread_count=0)
+    qs = TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+    rows = qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[:limit]
+    return contracts.TaskActivityPageDTO(
+        results=[
+            contracts.TaskActivityDTO(
+                id=row.id,
+                task_id=row.task_id,
+                task_title=row.task.title,
+                channel_id=row.task.channel_id,
+                channel_name=row.task.channel.name if row.task.channel else None,
+                activity_at=row.activity_at,
+                activity_kind=row.kind,
+                snippet=row.message.content if row.message else "",
+                latest_author=_user_basic_info(row.message.author if row.message and row.message.author_id else None),
+                latest_message_id=row.message_id,
+                is_unread=row.read_at is None,
+            )
+            for row in rows
+        ],
+        unread_count=qs.filter(read_at__isnull=True).count(),
+    )
+
+
+def mark_task_activity_read(team_id: int, user_id: int | None) -> int:
+    if user_id is None:
+        return 0
+    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, read_at__isnull=True).update(
+        read_at=django_timezone.now()
+    )
+
+
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:
     """Delete own thread message. Returns ``ok`` / ``not_found`` / ``forbidden``."""
     message = TaskThreadMessage.objects.filter(id=message_id, task_id=task_id, team_id=team_id).first()
@@ -5555,6 +5623,7 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
         payload=payload or {},
         content=content,
     )
+    project_thread_message_activity(message)
     try:
         _index_thread_message_mentions(message)
     except Exception:

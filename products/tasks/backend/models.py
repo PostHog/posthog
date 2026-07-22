@@ -876,14 +876,6 @@ class TaskThreadMessage(TeamScopedRootMixin):
         db_table = "posthog_task_thread_message"
         indexes = [
             models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created"),
-            # Activity feed set C: messages a given user authored across a team's tasks.
-            models.Index(fields=["team", "author", "created_at"], name="task_thread_author_created_idx"),
-            # Activity feed awaiting-input signal: latest turn-complete row per task.
-            models.Index(
-                fields=["team", "task", "created_at"],
-                name="task_thread_turn_complete_idx",
-                condition=models.Q(event="turn_complete"),
-            ),
         ]
 
     def __str__(self):
@@ -916,6 +908,42 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
+
+
+class TaskActivity(TeamScopedRootMixin):
+    class Kind(models.TextChoices):
+        CREATED = "created", "Created"
+        MENTION = "mention", "Mention"
+        MESSAGE = "message", "Message"
+        AWAITING_INPUT = "awaiting_input", "Awaiting input"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    message = models.ForeignKey(
+        TaskThreadMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_rows"
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_activity"
+        constraints = [models.UniqueConstraint(fields=["team", "user", "task"], name="task_activity_user_task_unique")]
+        indexes = [models.Index(fields=["team", "user", "activity_at", "id"], name="task_activity_feed_idx")]
+
+
+@receiver(post_save, sender=Task)
+def project_created_task_activity(sender, instance: Task, created: bool, **kwargs) -> None:
+    if created and instance.created_by_id is not None:
+        TaskActivity.objects.for_team(instance.team_id).create(
+            team_id=instance.team_id,
+            user_id=instance.created_by_id,
+            task_id=instance.id,
+            kind=TaskActivity.Kind.CREATED,
+            activity_at=instance.created_at,
+        )
 
 
 class ChannelFeedMessage(TeamScopedRootMixin):

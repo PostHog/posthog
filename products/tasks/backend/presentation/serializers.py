@@ -28,6 +28,7 @@ from products.tasks.backend.facade.contracts import (
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskActivityDTO,
+    TaskActivityPageDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
@@ -1468,9 +1469,6 @@ class TaskMentionSerializer(DataclassSerializer):
 class TaskActivityQuerySerializer(serializers.Serializer):
     """Query parameters for the task-centric activity feed."""
 
-    since = serializers.DateTimeField(
-        required=False, help_text="Only return tasks whose latest activity is after this ISO 8601 timestamp."
-    )
     limit = serializers.IntegerField(
         required=False,
         default=100,
@@ -1498,6 +1496,7 @@ class TaskActivitySerializer(DataclassSerializer):
     class Meta:
         dataclass = TaskActivityDTO
         fields = [
+            "id",
             "task_id",
             "task_title",
             "channel_id",
@@ -1507,7 +1506,16 @@ class TaskActivitySerializer(DataclassSerializer):
             "snippet",
             "latest_author",
             "latest_message_id",
+            "is_unread",
         ]
+
+
+class TaskActivityPageSerializer(DataclassSerializer):
+    results = TaskActivitySerializer(many=True)
+
+    class Meta:
+        dataclass = TaskActivityPageDTO
+        fields = ["results", "unread_count"]
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):
