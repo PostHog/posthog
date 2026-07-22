@@ -117,9 +117,11 @@ export default meta
 
 type Story = StoryObj
 
-// The scene mounts asynchronously after navigation, so waits inside play functions need far more
-// than @testing-library's 1s default before CI can be trusted to have rendered the install step.
-const WAIT_OPTIONS = { timeout: 8000, interval: 200 }
+// The scene mounts asynchronously after navigation (and only 500ms after mount does the delayed
+// effect even start it), so play-function waits need a load-tolerant budget: on a busy CI shard
+// the install step can take well past the global 15s default to render, and retries genuinely
+// re-run play now — an under-budgeted wait fails all three attempts instead of flaking once.
+const WAIT_OPTIONS = { timeout: 30000, interval: 200 }
 
 // Click a footer/body button by its exact label, waiting for it to mount first.
 async function clickButton(text: string): Promise<void> {
