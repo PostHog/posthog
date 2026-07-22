@@ -11,9 +11,10 @@
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
  */
-export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
+export type ColumnConfigurationVisibilityEnumApi =
+    (typeof ColumnConfigurationVisibilityEnumApi)[keyof typeof ColumnConfigurationVisibilityEnumApi]
 
-export const VisibilityEnumApi = {
+export const ColumnConfigurationVisibilityEnumApi = {
     Private: 'private',
     Shared: 'shared',
 } as const
@@ -34,7 +35,7 @@ export interface ColumnConfigurationApi {
     order_by?: string[] | null
     /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
     properties?: unknown
-    visibility?: VisibilityEnumApi
+    visibility?: ColumnConfigurationVisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
     readonly created_at: string
@@ -66,7 +67,7 @@ export interface PatchedColumnConfigurationApi {
     order_by?: string[] | null
     /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
     properties?: unknown
-    visibility?: VisibilityEnumApi
+    visibility?: ColumnConfigurationVisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
     readonly created_at?: string
@@ -7745,11 +7746,49 @@ export interface DashboardFilterApi {
         | null
 }
 
+export interface TileFiltersApi {
+    breakdown_filter?: BreakdownFilterApi | null
+    date_from?: string | null
+    date_to?: string | null
+    explicitDate?: boolean | null
+    filterTestAccounts?: boolean | null
+    /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+    ignoreDashboardFilters?: boolean | null
+    interval?: IntervalTypeApi | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+}
+
 export interface InsightFilterOverrideContextApi {
     /** Dashboard filters that remain active after applying tile precedence. */
     dashboard?: DashboardFilterApi | null
     /** Tile filters applied above the dashboard filters. */
-    tile?: DashboardFilterApi | null
+    tile?: TileFiltersApi | null
     /** Dashboard filters replaced by the tile filters. */
     overridden_dashboard?: DashboardFilterApi | null
 }

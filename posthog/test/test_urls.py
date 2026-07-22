@@ -71,7 +71,7 @@ class TestUrls(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response["Location"]
-        self.assertIn(f"/api/environments/{self.team.id}/integrations/authorize/", location)
+        self.assertIn(f"/api/projects/{self.team.id}/integrations/authorize/", location)
         self.assertIn("kind=github", location)
         self.assertIn("account-connected", location)
         self.assertIn("connect_from%3Dslack", location)

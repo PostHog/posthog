@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSwitch } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -26,6 +27,7 @@ import { AlertDefinitionSection } from 'products/alerts/frontend/components/Aler
 import {
     AlertEditor,
     AlertEditorFormDetails,
+    AlertEditorLoading,
     AlertEditorSection,
 } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/AlertIntervalRow'
@@ -41,20 +43,68 @@ import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
+import { EditAlertModalV2 } from './EditAlertModalV2'
 
-interface EditAlertModalProps {
+interface AlertModalCommonProps {
     isOpen: boolean | undefined
+    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
+    onClose?: () => void
+    defaultToAnomalyDetection?: boolean
+    insightName?: string | null
+    useAlertCheckPreview?: boolean
+}
+
+export type AlertModalProps = AlertModalCommonProps &
+    (
+        | {
+              alert: AlertType
+              alertId?: never
+              insightId?: never
+              insightShortId?: never
+              insightLogicProps?: never
+          }
+        | {
+              alert?: never
+              alertId?: AlertType['id']
+              insightId: QueryBasedInsightModel['id']
+              insightShortId: InsightShortId
+              insightLogicProps: InsightLogicProps
+          }
+    )
+
+export interface ResolvedAlertModalProps extends AlertModalCommonProps {
+    initialAlert?: AlertType
     alertId?: AlertType['id']
     insightId: QueryBasedInsightModel['id']
     insightShortId: InsightShortId
-    onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
-    onClose?: () => void
     insightLogicProps: InsightLogicProps
-    defaultToAnomalyDetection?: boolean
-    insightName?: string | null
 }
 
-export function EditAlertModal({
+export function EditAlertModal(props: AlertModalProps): JSX.Element {
+    // Redesigned modal (wizard for new alerts, sectioned layout + live preview for edits). The flag
+    // is the single switch: off = legacy modal below, on = V2. Consumers don't change.
+    const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
+    const resolvedProps: ResolvedAlertModalProps = props.alert
+        ? {
+              ...props,
+              initialAlert: props.alert,
+              alertId: props.alert.id,
+              insightId: props.alert.insight.id,
+              insightShortId: props.alert.insight.short_id,
+              insightLogicProps: {
+                  dashboardItemId: props.alert.insight.short_id,
+                  cachedInsight: props.alert.insight,
+              },
+          }
+        : props
+    if (redesigned) {
+        return <EditAlertModalV2 {...resolvedProps} />
+    }
+    return <LegacyEditAlertModal {...resolvedProps} />
+}
+
+function LegacyEditAlertModal({
+    initialAlert,
     isOpen,
     alertId,
     insightId,
@@ -64,9 +114,10 @@ export function EditAlertModal({
     insightLogicProps,
     defaultToAnomalyDetection,
     insightName,
-}: EditAlertModalProps): JSX.Element {
+}: ResolvedAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
-    const { alert, alertLoading } = useValues(_alertLogic)
+    const { alert: loadedAlert, alertLoading } = useValues(_alertLogic)
+    const alert = initialAlert ?? loadedAlert
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
     const _onEditSuccess = useCallback(
@@ -107,6 +158,7 @@ export function EditAlertModal({
         defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
+        uiVersion: 'legacy' as const,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -221,14 +273,37 @@ export function EditAlertModal({
     ])
 
     const leadingActions = (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
             {!creatingNewAlert ? (
-                <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: `Delete "${alertForm.name || 'this alert'}"?`,
+                            description: 'This alert will be permanently deleted. This action cannot be undone.',
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: deleteAlert,
+                                'data-attr': 'alert-delete-confirm',
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }}
+                >
                     Delete alert
                 </LemonButton>
             ) : null}
-            {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
-                <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
+            {!creatingNewAlert ? (
+                <SnoozeButton
+                    onChange={snoozeAlert}
+                    value={alert?.snoozed_until}
+                    disabledReason={
+                        alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
+                    }
+                />
             ) : null}
             {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
                 <LemonButton
@@ -240,13 +315,18 @@ export function EditAlertModal({
                     Clear snooze
                 </LemonButton>
             ) : null}
+            <div className="ml-auto mr-2">
+                <LemonField name="enabled" className="m-0">
+                    <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+                </LemonField>
+            </div>
         </div>
     )
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
-                <SpinnerOverlay />
+                <AlertEditorLoading title="Edit alert" onBack={handleClose} />
             ) : (
                 <Form
                     logic={alertFormLogic}
@@ -264,12 +344,12 @@ export function EditAlertModal({
                         isSubmitting={isAlertFormSubmitting}
                         hasChanges={alertFormChanged}
                         hasPendingChanges={hasPendingNotifications}
+                        showNoChangesLabel
                         onSubmitAttempted={setAlertFormSubmitAttempted}
                         leadingActions={leadingActions}
                     >
                         <div className="deprecated-space-y-6">
                             <AlertEditorFormDetails
-                                enabled={{ checked: alertForm.enabled, dataAttr: 'alertForm-enabled' }}
                                 activity={
                                     alert?.created_by ? (
                                         <UserActivityIndicator
@@ -347,7 +427,11 @@ export function EditAlertModal({
                             />
                         </div>
 
-                        {alertId && alert ? <AlertHistorySection alertId={alert.id} /> : null}
+                        {alertId && alert ? (
+                            <div className="mt-6">
+                                <AlertHistorySection alertId={alert.id} />
+                            </div>
+                        ) : null}
                     </AlertEditor>
                 </Form>
             )}

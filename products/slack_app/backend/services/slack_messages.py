@@ -1,11 +1,12 @@
 """Slack message text processing helpers.
 
 The bot strips its own self-mention and enriches every other `<@U…>` reference
-with a `|displayname` label before handing the text to the agent. Slack accepts
-the labeled form `<@U_ID|displayname>` on both inbound and outbound messages —
-the agent gets a human-readable name to reason about *and* a wire-format token
-it can echo verbatim to ping the user back, so no outbound transformation is
-needed.
+with a `|displayname` label before handing the text to the agent — the agent
+gets a human-readable name to reason about *and* a token it can echo verbatim to
+ping the user back. The labeled form is how Slack delivers mentions inbound, but
+it does not reliably notify when a bot posts it outbound, so the Slack relay
+rewrites echoed `<@U_ID|displayname>` tokens back to the bare `<@U_ID>` on the
+way out (see `products/tasks/backend/temporal/slack_relay/activities.py`).
 
 Also houses ``collect_thread_messages`` (and its cached wrapper) — fetching the
 full thread shape used by the agent context block lives next to the text logic
@@ -48,9 +49,10 @@ def resolve_user_mentions_text(
     Slack delivers events with bare `<@U_ID>` references — opaque to an LLM,
     and easily paraphrased away into plain prose. For real users we enrich to
     Slack's labeled form `<@U_ID|displayname>`: the agent gets both a
-    human-readable handle to reason about *and* the exact wire-format token it
-    can echo verbatim to ping the user back. Slack accepts the labeled form on
-    the way out, so no outbound transformation is needed.
+    human-readable handle to reason about *and* the exact token it can echo
+    verbatim to ping the user back. The labeled form does not reliably notify
+    when a bot posts it outbound, so the Slack relay rewrites echoed tokens back
+    to the bare `<@U_ID>` before posting.
 
     Bot users (our own, plus any other workspace bot — Grafana, GitHub, etc.)
     are stripped entirely. There's nothing useful for the agent to do with a
@@ -116,6 +118,22 @@ def labeled_mentions_to_display_names(text: str) -> str:
     up as literal noise. This unwraps it back to the readable form.
     """
     return re.sub(r"<@[A-Z0-9]+\|([^>]+)>", r"@\1", text)
+
+
+_RE_LABELED_USER_MENTION = re.compile(r"<@([A-Z0-9]+)\|[^>]*>")
+
+
+def normalize_labeled_mentions_to_bare(text: str) -> str:
+    """Rewrite labeled `<@U_ID|display name>` mentions to the bare `<@U_ID>` for outbound posts.
+
+    We feed the agent the labeled form so it can echo a token to ping a participant back, but
+    that form only reliably notifies inbound: when a bot posts it, Slack does not consistently
+    linkify it, so a display name containing a space renders as inert text and the user is never
+    notified. The bare `<@U_ID>` is the canonical outbound mention — Slack resolves the current
+    name itself. Only `<@…>` user mentions are rewritten; channel links (`<#C…|name>`),
+    broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
+    """
+    return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
 
 
 def flatten_block_text(node: Any) -> list[str]:

@@ -726,6 +726,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -939,7 +940,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         return schemas
 
     def validate_credentials(
-        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -958,7 +963,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:
@@ -990,6 +995,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Managed warehouse data is already in PostHog. Importing it through the copy pipeline
         # would duplicate that data and allow the warehouse sink to copy it back again.
@@ -1000,7 +1006,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "instead, or connect this source with direct query access."
             )
 
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
 
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False

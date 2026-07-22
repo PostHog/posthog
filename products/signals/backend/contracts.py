@@ -404,6 +404,72 @@ class HealthCheckSignalInput(SignalInputBase):
     extra: HealthCheckSignalExtra
 
 
+# ── Engineering analytics ───────────────────────────────────────────────────────
+# CI signals; detection lives in products/engineering_analytics/backend/logic/signals.
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalExtra(SignalExtraBase):
+    """One immutable flaky observation: failed then passed on a later attempt of the same run,
+    so only non-determinism can explain the flip."""
+
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    job_name: str
+    run_id: int
+    head_sha: str
+    failed_attempt: int
+    passed_attempt: int
+    # Runs this job flapped on within the window.
+    flaky_count: int
+    window_days: int
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_FLAKY_CHECK]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIFlakyCheckSignalExtra
+
+
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(SignalExtraBase):
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    branch: str
+    # Success rate in [0, 1] over runs that reached a verdict (success / failure / timed_out).
+    # Cancelled and skipped runs are excluded: they decided nothing, and counting them makes any
+    # workflow whose concurrency group cancels superseded trunk runs read as permanently failing.
+    conclusive_success_rate: float
+    conclusive_run_count: int
+    latest_conclusion: str
+    window_hours: int
+
+
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_BROKEN_DEFAULT_BRANCH]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalExtra(SignalExtraBase):
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    current_p95_seconds: float
+    baseline_p95_seconds: float
+    # Fractional increase of current p95 over baseline (0.5 = +50%).
+    pct_increase: float
+    current_p50_seconds: float
+    baseline_p50_seconds: float
+    window_days: int
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_DURATION_REGRESSION]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIDurationRegressionSignalExtra
+
+
 # ── Report reviewer types ───────────────────────────────────────────────────────
 
 
@@ -843,6 +909,35 @@ class JudgemeReviewsReviewSignalInput(SignalInputBase):
     extra: JudgemeReviewsReviewSignalExtra
 
 
+# ── OAuth-connected support sources ───────────────────────────────────────────────
+
+
+class IntercomTicketSignalExtra(SignalExtraBase):
+    state: str | None
+    priority: str | None
+    admin_assignee_id: str | None
+    created_at: str | None
+
+
+class IntercomTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM]
+    extra: IntercomTicketSignalExtra
+
+
+class HubspotTicketSignalExtra(SignalExtraBase):
+    hs_ticket_priority: str | None
+    hs_pipeline_stage: str | None
+    hs_ticket_category: str | None
+    createdate: str | None
+
+
+class HubspotTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.HUBSPOT]
+    extra: HubspotTicketSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -896,7 +991,12 @@ SignalInput = Annotated[
     | RetentlyFeedbackSignalInput
     | AppfiguresReviewSignalInput
     | AppfollowReviewSignalInput
-    | JudgemeReviewsReviewSignalInput,
+    | JudgemeReviewsReviewSignalInput
+    | IntercomTicketSignalInput
+    | HubspotTicketSignalInput
+    | EngineeringAnalyticsCIFlakyCheckSignalInput
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
+    | EngineeringAnalyticsCIDurationRegressionSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -948,6 +1048,11 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AppfiguresReviewSignalInput,
     AppfollowReviewSignalInput,
     JudgemeReviewsReviewSignalInput,
+    IntercomTicketSignalInput,
+    HubspotTicketSignalInput,
+    EngineeringAnalyticsCIFlakyCheckSignalInput,
+    EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
+    EngineeringAnalyticsCIDurationRegressionSignalInput,
 )
 
 

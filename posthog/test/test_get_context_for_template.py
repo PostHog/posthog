@@ -23,14 +23,13 @@ class TestGetContextForTemplate(APIBaseTest):
                 MagicMock(),
             )
 
-        # the current team has an api_token
+        # Under self-capture, posthog-js evaluates PostHog's own flags with the dogfood-flags team's
+        # token (first team by PK), which in this test is self.team — not the PH Cloud key.
         assert self.team.api_token != "sTMFPsFhdP1Ssg"
-        # but we use the posthog cloud api_token for the context
         assert actual == {
             "git_rev": mock.ANY,
             "js_capture_time_to_see_data": False,
-            # NB: we default to the PH Cloud key
-            "js_posthog_api_key": "sTMFPsFhdP1Ssg",
+            "js_posthog_api_key": self.team.api_token,
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
