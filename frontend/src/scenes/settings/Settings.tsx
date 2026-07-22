@@ -165,13 +165,13 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Currently environment and project settings do not require periodic re-authentication,
-    // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
-    // In the meantime, we don't want a needless re-authentication modal:
-    const AuthenticationAreaComponent =
-        selectedLevel !== 'environment' && selectedLevel !== 'project'
-            ? TimeSensitiveAuthenticationArea
-            : React.Fragment
+    // Environment and project settings don't require periodic re-authentication by default,
+    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
+    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
+    // management — which prompt on navigation like user- and organization-level settings do.
+    const requiresReauthentication =
+        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
+    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
