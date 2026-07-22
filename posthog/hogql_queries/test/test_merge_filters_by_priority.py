@@ -3,8 +3,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql_queries.apply_dashboard_filters import (
+    dashboard_filter_from_dict,
+    flatten_property_leaves,
     merge_filters_by_priority,
     remove_query_properties_overridden_by,
+    resolve_effective_dashboard_filters,
     resolve_filter_layers_by_priority,
 )
 
@@ -140,6 +143,73 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
         assert len(merged["properties"]) == 2
 
+    def test_and_property_group_dicts_are_flattened_for_conflict_resolution(self):
+        country_prop = {"key": "$country", "value": "US", "type": "event"}
+        dashboard_browser_prop = {
+            "key": "$browser",
+            "value": ["Chrome"],
+            "type": "event",
+            "operator": "exact",
+        }
+        tile_browser_prop = {
+            "key": "$browser",
+            "value": ["Firefox"],
+            "type": "event",
+            "operator": "exact",
+        }
+
+        merged = merge_filters_by_priority(
+            {"properties": {"type": "AND", "values": [country_prop, dashboard_browser_prop]}},
+            {"properties": {"type": "AND", "values": [tile_browser_prop]}},
+        )
+
+        assert merged["properties"] == [country_prop, tile_browser_prop]
+
+
+class TestDashboardFilterFromDict(SimpleTestCase):
+    def test_property_group_dict_is_flattened_instead_of_raising(self):
+        # `DashboardFilter.properties` is typed as a flat list, so a property-group dict used to raise a
+        # pydantic ValidationError (500) at the construction sites in calculate_results and
+        # apply_dashboard_filters_to_dict. It must be flattened to leaves instead.
+        built = dashboard_filter_from_dict(
+            {
+                "date_from": "-7d",
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "$browser", "value": "Chrome", "type": "event"}]}],
+                },
+            }
+        )
+        assert built.properties is not None
+        assert [p.model_dump(exclude_none=True, mode="json") for p in built.properties] == [
+            {"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}
+        ]
+        assert built.date_from == "-7d"
+
+
+class TestFlattenPropertyLeaves(SimpleTestCase):
+    def test_rejects_or_property_group(self):
+        or_group = {
+            "type": "OR",
+            "values": [
+                {"key": "$country", "value": "US", "type": "event"},
+                {"key": "$country", "value": "CA", "type": "event"},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "Only AND property groups are supported"):
+            flatten_property_leaves(or_group)
+
+
+class TestResolveEffectiveDashboardFilters(SimpleTestCase):
+    def test_normalizes_single_layer_dict_properties_to_flat_list(self):
+        prop = {"key": "$browser", "value": "Chrome", "type": "event"}
+        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        _, effective = resolve_effective_dashboard_filters(
+            query, {"date_from": "-7d", "properties": {"type": "AND", "values": [prop]}}, None
+        )
+        assert effective["properties"] == [prop]
+        assert effective["date_from"] == "-7d"
+
 
 class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
     def _query(self, properties):
@@ -217,6 +287,23 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
         assert stripped["source"]["properties"]["values"][0]["values"] == [
             {"key": "$country", "value": "US", "type": "event"}
         ]
+
+    def test_overriding_properties_as_property_group_dict_does_not_raise(self):
+        # The overriding filters' `properties` can itself be a PropertyGroupFilter dict; it must be
+        # flattened to leaves before contradiction detection rather than iterated as a dict.
+        query = self._query(
+            [
+                {"key": "$browser", "value": "Chrome", "type": "event"},
+                {"key": "$country", "value": "US", "type": "event"},
+            ]
+        )
+        overriding = {
+            "properties": {"type": "AND", "values": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
+        }
+
+        stripped = remove_query_properties_overridden_by(query, overriding)
+
+        assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
 
     def test_prunes_matching_leaf_nested_three_levels_deep(self):
         # AND[OR[AND[leaf]]] — a plain PropertyGroupFilter nesting shape. A shallow, one-level-only

@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 @functools.cache
-def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
+def build_source_configs(*, include_tables: bool = True, include_unreleased: bool = True) -> dict[str, dict]:
     """Build the source-config catalog returned by both the public endpoint and the wizard.
 
     Each entry is the source's ``SourceConfig`` augmented with ``supportsColumnSelection`` and,
@@ -23,6 +23,10 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     in-app wizard skips it because nothing in the app reads it and it is ~40% of the payload.
     Kept in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
 
+    When ``include_unreleased`` is false, sources marked ``unreleasedSource`` are omitted. The
+    authenticated wizard keeps them so the app can render "coming soon" entries; the public,
+    unauthenticated catalog drops them so unreleased connector metadata isn't disclosed early.
+
     The catalog is deploy-static (it only changes when source code ships), so the result is
     memoized per process — callers must treat it as read-only.
     """
@@ -30,7 +34,10 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
 
     results: dict[str, dict] = {}
     for source_type, source in sources.items():
-        config = source.get_source_config.model_dump()
+        source_config = source.get_source_config
+        if not include_unreleased and source_config.unreleasedSource:
+            continue
+        config = source_config.model_dump()
         config["supportsColumnSelection"] = bool(source.supports_column_selection)
         config["versions"] = list(source.supported_versions)
         config["defaultVersion"] = source.default_version
@@ -77,5 +84,6 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
     def list(self, request: Request) -> Response:
         # Results are deploy-static (they only change when source code ships), so this is a
         # safe candidate for caching if the endpoint ever gets hot; today it is fetched only
-        # at posthog.com build time.
-        return Response(status=status.HTTP_200_OK, data=build_source_configs())
+        # at posthog.com build time. Unreleased sources are excluded so their connector
+        # metadata isn't disclosed to unauthenticated callers before release.
+        return Response(status=status.HTTP_200_OK, data=build_source_configs(include_unreleased=False))

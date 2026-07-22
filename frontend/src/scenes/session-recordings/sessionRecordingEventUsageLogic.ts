@@ -89,6 +89,7 @@ export interface sessionRecordingEventUsageLogicActions {
             | 'inactivity'
             | 'inspector-summary'
             | 'logs'
+            | 'metric-event'
             | 'network'
             | 'offline-status'
             | 'performance'

@@ -86,7 +86,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
     { value: 'github', label: 'GitHub', icon: <IconGithub /> },
     { value: 'linear', label: 'Linear', icon: <IconStack /> },
     { value: 'zendesk', label: 'Zendesk', icon: <IconReceipt /> },
-    { value: 'conversations', label: 'Conversations', icon: <IconSupport /> },
+    { value: 'conversations', label: 'Support', icon: <IconSupport /> },
     { value: 'pganalyze', label: 'pganalyze', icon: <IconDatabase /> },
     { value: 'analytics', label: 'Product analytics', icon: <IconGraph /> },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
