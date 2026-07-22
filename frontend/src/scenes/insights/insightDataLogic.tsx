@@ -847,15 +847,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             return
         }
 
-        // While this insight is open in the insight scene for editing, its query belongs to the
-        // scene (loaded clean, then edited via setQuery). A dashboard tile that shares this keyed
-        // logic instance keeps pushing fresh `cachedInsight` props whose query has the dashboard's
-        // date override baked in — re-syncing that here silently overwrites the user's edits and
-        // gets persisted on save. The scene never relies on cachedInsight, so skip the re-sync.
-        if (isInsightSceneInstance(props)) {
-            return
-        }
-
         const cachedQueryChanged =
             !oldProps?.cachedInsight?.query || !objectsEqual(oldProps.cachedInsight.query, props.cachedInsight.query)
 
