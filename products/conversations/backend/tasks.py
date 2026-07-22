@@ -97,7 +97,7 @@ from products.conversations.backend.teams import (
     post_teams_channel_message_via_graph,
 )
 from products.conversations.backend.teams_attachments import extract_teams_graph_images
-from products.conversations.backend.teams_formatting import append_teams_attribution, rich_content_to_teams_html
+from products.conversations.backend.teams_formatting import build_teams_reply_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
 
@@ -1000,8 +1000,7 @@ def post_reply_to_teams(
         logger.warning("teams_reply_no_bot_token", team_id=team_id)
         return
 
-    reply_html = rich_content_to_teams_html(rich_content, content)
-    reply_html = append_teams_attribution(reply_html, author_name)
+    reply_html = build_teams_reply_html(rich_content, content, author_name)
     display_text = f"{author_name}: {content[:200]}" if author_name else content[:200]
 
     payload: dict[str, Any] = {
@@ -1070,8 +1069,7 @@ def post_reply_to_teams_via_graph(
         logger.warning("teams_graph_reply_team_not_found", team_id=team_id)
         return
 
-    reply_html = rich_content_to_teams_html(rich_content, content)
-    reply_html = append_teams_attribution(reply_html, author_name)
+    reply_html = build_teams_reply_html(rich_content, content, author_name)
 
     status, _message_id = post_teams_channel_message_via_graph(
         team=team,

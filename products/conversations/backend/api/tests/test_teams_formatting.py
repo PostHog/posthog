@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.conversations.backend.teams_formatting import (
     append_teams_attribution,
+    build_teams_reply_html,
     rich_content_to_teams_html,
     teams_html_to_content_and_rich_content,
 )
@@ -280,3 +281,19 @@ class TestAppendTeamsAttribution(SimpleTestCase):
         result = append_teams_attribution("<p>Hello</p>", "<script>alert(1)</script>")
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
+
+
+class TestBuildTeamsReplyHtml(SimpleTestCase):
+    def test_renders_rich_content_then_footer(self):
+        rich = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "All fixed now."}]}],
+        }
+        assert build_teams_reply_html(rich, "All fixed now.", "Xander Jones") == (
+            "<p>All fixed now.</p><p><i>Xander Jones via SupportHog</i></p>"
+        )
+
+    def test_falls_back_to_plain_content_with_footer(self):
+        assert build_teams_reply_html(None, "All fixed now.", "Xander Jones") == (
+            "All fixed now.<p><i>Xander Jones via SupportHog</i></p>"
+        )
