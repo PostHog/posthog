@@ -473,9 +473,14 @@ export class HogFlowExecutorService {
                     timestamp: DateTime.now(),
                 })
             }
+            // Deliberately an allowlisted context, not the full action/invocation: an action's
+            // config.inputs can hold decrypted secrets (API keys, auth headers) that the encrypted_inputs
+            // split keeps out of storage, and dumping them here would put them straight into worker logs.
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
-                action: currentAction,
-                invocation,
+                hogFlowId: invocation.hogFlow.id,
+                invocationId: invocation.id,
+                actionId: currentAction.id,
+                actionType: currentAction.type,
             })
 
             const handler = this.actionHandlers[currentAction.type]
