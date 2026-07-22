@@ -90,6 +90,9 @@ def _collect_queries(
             logger.info("database_stats: pg_stat_statements is not installed, queries snapshot will be empty")
             return []
 
+        # pg_stat_statements is cluster-wide (one row per userid/dbid/queryid), so scope it
+        # to the connected database: other databases' query text must never land in this
+        # team's warehouse, and an unscoped top-N would spend its budget on their traffic.
         # Column names changed in pg_stat_statements 1.8 (total_time -> total_exec_time);
         # try the modern names first and fall back for older extension versions.
         for time_cols in ("total_exec_time, mean_exec_time", "total_time, mean_time"):
@@ -100,6 +103,7 @@ def _collect_queries(
                         SELECT queryid::text, query, calls, {time_cols}, rows,
                                shared_blks_hit, shared_blks_read, temp_blks_written
                         FROM {relation}
+                        WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                         ORDER BY 4 DESC
                         LIMIT %s
                         """
@@ -293,6 +297,10 @@ def _collect_server(
             _metric(name, value=float(value) if value is not None else None)
 
     def _connections(cur: psycopg.Cursor) -> None:
+        # Deliberately cluster-wide: `max_connections` is a cluster-wide limit, so only a
+        # cluster-wide backend count answers "how close is this server to saturation?".
+        # It's a bare count — no names, no query text — so it carries nothing about what
+        # other databases are running.
         cur.execute("SELECT count(*) FROM pg_stat_activity")
         row = cur.fetchone()
         if row:
@@ -318,11 +326,16 @@ def _collect_server(
         row = cur.fetchone()
         if row is None or row[0]:
             return
+        # Slots are a cluster-wide catalog: scope to the connected database so another
+        # database's slot names and lag never land here. Logical slots (including our own
+        # CDC slots, the reason this metric exists) carry `database`; physical slots have
+        # it NULL and belong to no database, so they're excluded by the same filter.
         cur.execute(
             """
             SELECT slot_name, active,
                    pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)
             FROM pg_replication_slots
+            WHERE database = current_database()
             """
         )
         for slot_name, active, lag_bytes in cur:

@@ -210,8 +210,9 @@ class _ScriptedCursor:
     standby server — without a network connection.
     """
 
-    def __init__(self, script: list[tuple[str, Any]]):
+    def __init__(self, script: list[tuple[str, Any]], executed: list[str] | None = None):
         self._script = script
+        self._executed = executed if executed is not None else []
         self._rows: list[tuple] = []
 
     def __enter__(self):
@@ -222,6 +223,7 @@ class _ScriptedCursor:
 
     def execute(self, query, params=None):
         text = query.as_string(None) if hasattr(query, "as_string") else str(query)
+        self._executed.append(text)
         for fragment, outcome in self._script:
             if fragment in text:
                 if isinstance(outcome, Exception):
@@ -240,9 +242,10 @@ class _ScriptedCursor:
 class _ScriptedConnection:
     def __init__(self, script: list[tuple[str, Any]]):
         self._script = script
+        self.executed: list[str] = []
 
     def cursor(self):
-        return _ScriptedCursor(self._script)
+        return _ScriptedCursor(self._script, self.executed)
 
 
 class TestCollectQueriesScripted:
@@ -288,6 +291,16 @@ class TestCollectQueriesScripted:
         ]
         assert _collect_queries(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base()) == []
 
+    def test_statements_are_scoped_to_the_connected_database(self):
+        # pg_stat_statements is cluster-wide; without the dbid filter another database's
+        # query text would land in this team's warehouse table.
+        script = [self._EXTENSION, ("total_exec_time", [])]
+        conn = _ScriptedConnection(script)
+        _collect_queries(cast(Any, conn), logger, *_snapshot_base())
+
+        statements_query = next(q for q in conn.executed if "shared_blks_hit" in q)
+        assert "dbid = (SELECT oid FROM pg_database WHERE datname = current_database())" in statements_query
+
 
 class TestCollectServerScripted:
     def test_failing_probe_is_isolated_and_standby_skips_slots(self):
@@ -319,10 +332,14 @@ class TestCollectServerScripted:
             ("pg_is_in_recovery", [(False,)]),
             ("FROM pg_replication_slots", [("cdc_slot", True, 12345.0), ("stale_slot", False, None)]),
         ]
-        rows = _collect_server(cast(Any, _ScriptedConnection(script)), logger, *_snapshot_base())
+        conn = _ScriptedConnection(script)
+        rows = _collect_server(cast(Any, conn), logger, *_snapshot_base())
         slots = {r["metric_text"]: r["metric_value"] for r in rows if r["metric_name"] == "replication_slot_lag_bytes"}
 
         assert slots == {"cdc_slot": 12345.0, "stale_slot": None}
+        # Slots are a cluster-wide catalog — another database's slot names must not leak.
+        slots_query = next(q for q in conn.executed if "pg_replication_slots" in q)
+        assert "WHERE database = current_database()" in slots_query
 
 
 @contextmanager
