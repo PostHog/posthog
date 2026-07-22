@@ -23,7 +23,7 @@ Use this skill when a vendor has released a new API version and an existing sour
 
 ## First: does the version need to exist at all?
 
-Spotting a new vendor label is not a reason to support it. Before touching any source file, diff the new version against the currently supported one(s) from the vendor's docs and changelog, area by area:
+Spotting a new vendor label is not a reason to support it. Before touching any source file, diff the new version against the one it supersedes — the source's current `default_version`, not every entry in `supported_versions` — from the vendor's docs and changelog, area by area:
 
 - authentication — credential fields, token/header scheme, scopes, permission probes
 - base URL, version header, and the paths actually served per resource
@@ -33,12 +33,12 @@ Spotting a new vendor label is not a reason to support it. Before touching any s
 - webhook payloads and subscription registration, for a `WebhookSource`
 - rate limits, error signatures, and anything else the source's request layer touches
 
-**If none of that differs for what this source reads, don't add the version.** Leave `supported_versions` and `default_version` untouched and close the task with the per-area, changelog-cited evidence that the versions are indistinguishable here. An extra label buys nothing and costs: a pin users can select, a version the tests, API, and UI carry forever, and the implied claim that the framework dispatches on it.
+**If none of that differs for what this source reads, don't add the version.** Leave `supported_versions` and `default_version` untouched and close the task with the per-area, changelog-cited evidence that the new label is indistinguishable from the default here. An extra label buys nothing and costs: a pin users can select, a version the tests, API, and UI carry forever, and the implied claim that the framework dispatches on it.
 
 Add it when any of these hold:
 
-- **any** area above diverges, however cosmetic it looks for our reads — then branch it (step 3);
-- the vendor is retiring the currently supported version, so the old label stops working — adopting the new one is the point even if the wire is identical, and the old version moves to `deprecated_versions` in the same PR;
+- **any** area above diverges from that baseline, however cosmetic it looks for our reads — then branch it (step 3). Divergence from an older still-supported label doesn't count: those pins keep serving their own request path either way (step 4), so a new label that matches the default is redundant no matter how far it sits from the legacy one;
+- the vendor is retiring a version rows are still pinned to, so that label stops working — adopting the new one is the point even if the wire is identical, and the retired version moves to `deprecated_versions` in the same PR;
 - the source must send the label to get the behavior it already wants (a required header or URL segment), i.e. the version is a request input, not just a name.
 
 "Nothing changed" needs the same docs evidence as a divergence. An unread changelog is not a clean diff.
