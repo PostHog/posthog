@@ -298,7 +298,9 @@ class HogQLCohortQuery:
             source=source,
             select=["id"],
         )
-        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+        query = ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+        assert isinstance(query, ast.SelectQuery)  # constant id select never yields a set query here
+        return query
 
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         math = None
@@ -543,7 +545,9 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        query = query_runner.to_query()
+        assert isinstance(query, ast.SelectQuery)  # constant id select never yields a set query here
+        return query
 
     def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
         # type = "person_metadata"
@@ -557,7 +561,9 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        query = query_runner.to_query()
+        assert isinstance(query, ast.SelectQuery)  # constant id select never yields a set query here
+        return query
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
@@ -709,7 +715,9 @@ class HogQLCohortQuery:
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
+            query = query_runner.to_query()
+            assert isinstance(query, ast.SelectQuery)  # constant id select never yields a set query here
+            return query
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],

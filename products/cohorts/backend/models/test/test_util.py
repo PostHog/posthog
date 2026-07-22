@@ -668,6 +668,51 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
+    @parameterized.expand(
+        [
+            ("events_source", "SELECT count() AS cnt FROM events", "actor_id"),
+            ("persons_source", "SELECT properties.email AS email FROM persons", "actor_id"),
+        ]
+    )
+    def test_print_cohort_hogql_query_source_without_id_column_uses_table_fallback(self, _name, source_sql, expected):
+        # A stored ActorsQuery whose source selects no id-named column used to crash in
+        # ActorsQueryRunner.to_query with "Source query must have an id column" before
+        # print_cohort_hogql_query could apply its events→person.id / persons→id fallback.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Source Without ID Column",
+            query={
+                "kind": "ActorsQuery",
+                "source": {"kind": "HogQLQuery", "query": source_sql},
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn(expected, sql)
+
+    def test_print_cohort_hogql_query_source_without_id_column_still_raises_when_unresolvable(self):
+        # When the source has no id column and its table isn't events/persons, the fallback
+        # can't resolve an actor id — surface the clear "Could not find" error, not a crash
+        # deep inside to_query.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Unresolvable Source",
+            query={
+                "kind": "ActorsQuery",
+                "source": {"kind": "HogQLQuery", "query": "SELECT count() AS cnt FROM sessions"},
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        with self.assertRaises(ValueError) as cm:
+            print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
+
 
 class TestGetNestedCohortIds(BaseTest):
     def test_no_cohort_references(self):
