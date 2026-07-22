@@ -1,7 +1,21 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-import { textLoader } from './tests/vitest-text-loader'
+// The Hono and worker entry points import `*.md` and `*.html` template files
+// directly. Vitest's default loader rejects those as JS, so we register a tiny
+// transform that stringifies their contents. Mirrors the loader in the other
+// vitest configs.
+const textLoader = {
+    name: 'text-loader',
+    transform(code: string, id: string) {
+        if (id.endsWith('.md') || id.endsWith('.html')) {
+            return {
+                code: `export default ${JSON.stringify(code)}`,
+                map: null,
+            }
+        }
+    },
+}
 
 export default defineConfig({
     plugins: [tsconfigPaths({ root: '.' }), textLoader],

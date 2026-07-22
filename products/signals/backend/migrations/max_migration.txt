@@ -1,1 +1,1 @@
-0066_signalscoutconfig_run_cron_schedule
+0067_signalscoutconfig_run_cron_schedule

@@ -266,7 +266,9 @@ export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Approve a change request.
  * If quorum is reached, automatically applies the change immediately.
  */
-export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.looseObject({})
+export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
+})
 
 /**
  * Cancel a change request.
@@ -277,7 +279,13 @@ export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({}
 /**
  * Reject a change request.
  */
-export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.looseObject({})
+export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .describe(
+            'Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.'
+        ),
+})
 
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72

@@ -340,6 +340,7 @@ export interface SignalReportRefundResponseApi {
  * * `judgeme_reviews` - judgeme_reviews
  * * `intercom` - intercom
  * * `hubspot` - hubspot
+ * * `engineering_analytics` - engineering_analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -391,6 +392,7 @@ export const SignalSourceProductApi = {
     JudgemeReviews: 'judgeme_reviews',
     Intercom: 'intercom',
     Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -412,6 +414,9 @@ export const SignalSourceProductApi = {
  * * `anomaly_investigation` - anomaly_investigation
  * * `feedback` - feedback
  * * `review` - review
+ * * `ci_flaky_check` - ci_flaky_check
+ * * `ci_broken_default_branch` - ci_broken_default_branch
+ * * `ci_duration_regression` - ci_duration_regression
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -434,6 +439,9 @@ export const SignalSourceTypeApi = {
     AnomalyInvestigation: 'anomaly_investigation',
     Feedback: 'feedback',
     Review: 'review',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -713,6 +721,46 @@ export interface HealthCheckSignalExtraApi {
     payload: HealthCheckSignalExtraApiPayload
 }
 
+/**
+ * One immutable flaky observation: failed then passed on a later attempt of the same run,
+ * so only non-determinism can explain the flip.
+ */
+export interface EngineeringAnalyticsCIFlakyCheckSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    job_name: string
+    run_id: number
+    head_sha: string
+    failed_attempt: number
+    passed_attempt: number
+    flaky_count: number
+    window_days: number
+}
+
+export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    branch: string
+    conclusive_success_rate: number
+    conclusive_run_count: number
+    latest_conclusion: string
+    window_hours: number
+}
+
+export interface EngineeringAnalyticsCIDurationRegressionSignalExtraApi {
+    repo_owner: string
+    repo_name: string
+    workflow_name: string
+    current_p95_seconds: number
+    baseline_p95_seconds: number
+    pct_increase: number
+    current_p50_seconds: number
+    baseline_p50_seconds: number
+    window_days: number
+}
+
 export interface FreshdeskTicketSignalExtraApi {
     status: string | null
     priority: string | null
@@ -973,6 +1021,9 @@ export type SignalExtraApi =
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
+    | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
+    | EngineeringAnalyticsCIDurationRegressionSignalExtraApi
     | FreshdeskTicketSignalExtraApi
     | FreshserviceTicketSignalExtraApi
     | FrontConversationSignalExtraApi
@@ -1090,7 +1141,8 @@ export interface SignalNodeApi {
      * * `appfollow` - appfollow
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
-     * * `hubspot` - hubspot */
+     * * `hubspot` - hubspot
+     * * `engineering_analytics` - engineering_analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1111,7 +1163,10 @@ export interface SignalNodeApi {
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
      * * `feedback` - feedback
-     * * `review` - review */
+     * * `review` - review
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -2824,6 +2879,7 @@ export interface ForgetResponseApi {
  * * `judgeme_reviews` - Judge.me
  * * `intercom` - Intercom
  * * `hubspot` - HubSpot
+ * * `engineering_analytics` - Engineering analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2876,6 +2932,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     JudgemeReviews: 'judgeme_reviews',
     Intercom: 'intercom',
     Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
 } as const
 
 /**
@@ -2894,6 +2951,9 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
  * * `anomaly_investigation` - Anomaly investigation
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_default_branch` - CI broken default branch
+ * * `ci_duration_regression` - CI duration regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2914,6 +2974,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
 } as const
 
 export interface SignalSourceConfigApi {
