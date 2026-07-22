@@ -91,9 +91,15 @@ def team_from_row(row: dict, *, organization_id: str | None = None) -> CPTeam | 
     if not isinstance(schema_name, str) or not schema_name:
         logger.warning("cp_teams_row_missing_schema_name (team_id=%s)", team_id)
         return None
+    # Writes derive their URL from the org id, so a row without one is unusable — an
+    # empty org would send updates down /orgs//teams/... and fail silently every tick.
+    org = row.get("org_id") or organization_id
+    if not org:
+        logger.warning("cp_teams_row_missing_org_id (team_id=%s)", team_id)
+        return None
     return CPTeam(
         team_id=team_id,
-        organization_id=str(row.get("org_id") or organization_id or ""),
+        organization_id=str(org),
         schema_name=schema_name,
         enabled=bool(row.get("enabled")),
         backfill_enabled=bool(row.get("backfill_enabled")),

@@ -2976,21 +2976,25 @@ EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam | team_state.CPBackfillRow) -> None:
+def _push_earliest_event_date_to_cp(bf: DuckgresServerTeam | team_state.CPBackfillRow) -> bool:
     """Mirror a freshly resolved earliest_event_date onto the team's duckgres control-plane row.
 
-    Dual-write while per-team backfill state moves into the control plane: the Django row
-    stays the sensor's read source. Best-effort — any failure (resolving the org, the CP
-    call itself) is logged and swallowed so it can never fail the sensor tick.
+    Dual-write while per-team backfill state moves into the control plane. Best-effort —
+    any failure (resolving the org, the CP call itself) is logged and swallowed so it can
+    never fail the sensor tick — but the outcome is returned so cp mode (where this push
+    IS the persistence) can surface a failed write instead of silently retrying forever.
     """
     try:
         # Deferred like the other control-plane touchpoints: keeps the DRF-importing
         # adapter off this module's import path.
         from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
-        managed_warehouse.push_team_earliest_event_date(bf.server.organization_id, bf.team_id, bf.earliest_event_date)
+        return managed_warehouse.push_team_earliest_event_date(
+            bf.server.organization_id, bf.team_id, bf.earliest_event_date
+        )
     except Exception:
         logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
+        return False
 
 
 def _reconcile_earliest_event_dates_with_cp(backfills: list[DuckgresServerTeam | team_state.CPBackfillRow]) -> None:
@@ -3145,13 +3149,11 @@ def duckling_events_full_backfill_sensor(
 
     # 1. Resolve + cache earliest_event_date for teams that don't have it yet. This is the
     #    only expensive op (one ClickHouse query/team), bounded per tick and cached forever.
-    lookups = 0
-    for bf in backfills:
-        if bf.earliest_event_date is not None:
-            continue
-        if lookups >= EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK:
-            break
-        lookups += 1
+    #    Shuffled so rows whose cp-mode persist keeps failing (they stay unresolved next
+    #    tick) can't deterministically occupy the bounded budget and starve later teams.
+    unresolved = [bf for bf in backfills if bf.earliest_event_date is None]
+    random.shuffle(unresolved)
+    for bf in unresolved[:EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK]:
         bf.earliest_event_date = resolve_team_earliest_event_date(bf.team_id)
         if bf.earliest_event_date == NO_HISTORY_SENTINEL:
             context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
@@ -3160,7 +3162,11 @@ def duckling_events_full_backfill_sensor(
             cast(DuckgresServerTeam, bf).save(update_fields=["earliest_event_date"])
         # In cp mode this push IS the persistence (the CP row is the read source);
         # otherwise it stays the best-effort dual-write mirror.
-        _push_earliest_event_date_to_cp(bf)
+        pushed = _push_earliest_event_date_to_cp(bf)
+        if cp_is_read_source and not pushed:
+            context.log.warning(
+                f"Control plane rejected earliest_event_date persist for team_id={bf.team_id}; retrying next tick"
+            )
 
     if not cp_is_read_source:
         # Heal one-shot pushes that failed: re-mirror any resolved date the control plane

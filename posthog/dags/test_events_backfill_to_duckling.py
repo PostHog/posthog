@@ -833,15 +833,16 @@ class TestFullBackfillSensorEarliestDate:
 
     def test_caps_earliest_lookups_per_tick(self):
         # 7 unresolved teams, cap is 5 → only 5 ClickHouse lookups this tick; the other two
-        # stay unresolved and contribute no partitions until a later tick.
+        # stay unresolved and contribute no partitions until a later tick. Selection is
+        # shuffled (budget fairness), so assert counts, not which teams won the budget.
         backfills = [self._bf(t) for t in range(1, 8)]
         result, mock_ge = self._run_full_sensor(
             backfills, now=datetime(2020, 2, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
         )
         assert mock_ge.call_count == 5
         teams_emitted = {rr.partition_key.split("_")[0] for rr in result.run_requests}
-        assert teams_emitted == {"1", "2", "3", "4", "5"}
-        assert backfills[5].earliest_event_date is None and backfills[6].earliest_event_date is None
+        assert len(teams_emitted) == 5
+        assert sum(1 for bf in backfills if bf.earliest_event_date is None) == 2
 
     def test_top_up_only_fills_to_target_depth(self):
         # 98 runs already in flight against the depth-100 target → only 2 slots free this tick.

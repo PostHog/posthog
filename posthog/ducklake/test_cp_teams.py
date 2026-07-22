@@ -86,6 +86,8 @@ class TestTeamFromRow:
             ("missing_team_id", {"team_id": None}),
             ("unparseable_team_id", {"team_id": "abc"}),
             ("missing_schema_name", {"schema_name": None}),
+            # No org anywhere: a write would target /orgs//teams/... and fail silently.
+            ("missing_org_id", {"org_id": None}),
         ]
     )
     def test_unusable_rows_are_dropped(self, _name: str, overrides: dict) -> None:
