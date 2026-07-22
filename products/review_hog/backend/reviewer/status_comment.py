@@ -11,6 +11,7 @@ Every entry point here is best-effort by construction: a status comment must nev
 retry a review, so all exceptions are swallowed after logging.
 """
 
+import random
 import logging
 from datetime import timedelta
 from typing import Any
@@ -69,13 +70,20 @@ _PRIORITY_LABELS = {
 }
 
 # A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
-# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for a calming gif.
-# Self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked, to keep it copyright-clean.
-_NO_ISSUES_GIF_URL = (
-    "https://raw.githubusercontent.com/PostHog/pr-assets/"
-    "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif"
+# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
+# Assets are optimized and self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked.
+_NO_ISSUES_MEDIA = (
+    (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "2cfa8ec2d6e5c88ed94a98881499a09153681886/2026/07/41e56d03-cfbe-4660-b7d5-8774d805af5c.gif",
+        "Someone relaxing in a sunny garden",
+    ),
+    (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "7a8c2d963d82c14b12230b567b1825f0a5d7300e/2026/07/fa5b4036-b8cc-42d8-88fc-6a47af0b2285.png",
+        "A happy dog on a sunny path",
+    ),
 )
-_NO_ISSUES_GIF_ALT = "Someone relaxing in a sunny garden"
 
 
 def status_marker(report_id: str) -> str:
@@ -130,11 +138,12 @@ def render_final_body(
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
+        media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
             [
-                "Nothing worth raising this time, so here's a calming gif instead:",
+                "Nothing worth raising this time, so here's a calming picture instead:",
                 "",
-                f"![{_NO_ISSUES_GIF_ALT}]({_NO_ISSUES_GIF_URL})",
+                f"![{media_alt}]({media_url})",
             ]
         )
     else:
