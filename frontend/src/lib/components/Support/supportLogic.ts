@@ -702,7 +702,7 @@ export const supportLogic = kea<supportLogicType>([
                     message: !message
                         ? 'Please enter a message'
                         : tooLong
-                          ? `Your message is too long (max ${SUPPORT_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it. If you're linking a recording, use its Share button for a shorter URL.`
+                          ? `Your message is too long (max ${SUPPORT_MESSAGE_MAX_LENGTH.toLocaleString()} characters). If you need more characters, feel free to send a follow-up message!`
                           : undefined,
                     kind: requiresTriageFields && !kind ? 'Please choose' : undefined,
                     severity_level: requiresTriageFields && !severity_level ? 'Please choose' : undefined,
