@@ -145,6 +145,17 @@ class TestSearchRecentRuns(BaseTest):
 
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
+    def test_summary_surfaces_run_metadata(self) -> None:
+        # `metadata` carries the routed model triple stamped at run creation; a pre-column row
+        # (NULL) and a default-model run ({}) must both project as an empty dict, not None/crash.
+        routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
+        legacy = _create_run(self.team, metadata=None)
+
+        by_run_id = {hit.run_id: hit for hit in search_recent_runs(team_id=self.team.id)}
+
+        assert by_run_id[str(routed.id)].metadata == {"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"}
+        assert by_run_id[str(legacy.id)].metadata == {}
+
     def test_summary_surfaces_status_from_linked_task_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
