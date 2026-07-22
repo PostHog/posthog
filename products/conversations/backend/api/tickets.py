@@ -438,8 +438,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            if search.isdigit():
-                queryset = queryset.filter(ticket_number=int(search))
+            # A leading "#" is how ticket numbers are shown in the UI (e.g. "#1234"), so
+            # treat "#1234" the same as "1234" and match the ticket number exactly.
+            # Restrict to ASCII digits: str.isdigit() also accepts characters like "²"
+            # that int() then rejects, which would 500 the request.
+            ticket_number_search = search[1:] if search.startswith("#") else search
+            if ticket_number_search.isascii() and ticket_number_search.isdigit():
+                queryset = queryset.filter(ticket_number=int(ticket_number_search))
             else:
                 # EXISTS subquery: matches any comment in the ticket's conversation.
                 # Uses the (team_id, scope, item_id) composite index on Comment to
@@ -1149,7 +1154,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not self.team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1243,7 +1248,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 

@@ -62,6 +62,7 @@ CREATE INDEX cohort_bfc_run_status_day_idx ON cohort_backfill_chunks(run_id, sta
 CREATE TABLE cohort_backfill_run_cohorts (
     id uuid PRIMARY KEY,
     filters_shape_hash varchar(64) NOT NULL,
+    behavioral_filters_shape_hash varchar(64) NOT NULL DEFAULT '',
     pinned_filters jsonb NOT NULL,
     stamped_at timestamptz,
     superseded_at timestamptz,

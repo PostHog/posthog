@@ -1721,6 +1721,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
+        # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
+        # and drives loop bookkeeping in handle_loop_run_terminal. A run update must never be able
+        # to forge or repoint it, or a caller could steer terminal side effects at another loop.
+        "loop_id",
+        "loop_trigger_id",
+        "trigger_context",
+        "config_snapshot",
     }
 )
 
@@ -1784,10 +1791,17 @@ def task_accessible_for_run_view(
     read actions, which the caller signals via ``bypass_visibility``. Run-mutating actions pass
     ``for_control`` to use the narrower ``task_control_q`` — public-channel visibility lets
     teammates watch a run, not drive it.
+
+    Slack-originated tasks are the exception: those threads are multiplayer, so any same-team
+    user can already steer the run from Slack (follow-ups record them as the run's actor, with
+    sandbox credentials minted for them). The runs API mirrors that and lets team members drive
+    and watch Slack tasks' runs — otherwise a non-creator actor's sandbox 404s on every callback
+    (reply relay, log-append heartbeat, completion PATCH) and the thread dies silently.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id)
     if not bypass_visibility:
-        task_filter = task_filter.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
+        task_filter = task_filter.filter(scope_q | Q(origin_product=Task.OriginProduct.SLACK))
     return task_filter.exists()
 
 
@@ -1968,6 +1982,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
+        handle_loop_run_terminal,
+    )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_wizard_run_unbound,
@@ -2041,6 +2058,12 @@ def update_task_run(
         run.publish_stream_state_event()
 
     update_automation_run_result(run)
+    # Only on the actual transition: a repeat PATCH with the same terminal status, or an
+    # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
+    # (consecutive_failures would double-count). The workflow's status-update activity
+    # applies the same guard on its side.
+    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:

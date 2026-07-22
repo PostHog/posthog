@@ -31,7 +31,7 @@ def _make_action(team, **overrides) -> VisionAction:
             name=f"scanner-{uuid.uuid4().hex[:8]}",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "x"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
     defaults: dict = {
         "team": team,
@@ -151,7 +151,7 @@ class TestVisionActionModel(BaseTest):
             name="scanner",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "x"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         action = self._create_action(scanner=scanner)
         scanner.delete()

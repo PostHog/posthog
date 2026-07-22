@@ -23,7 +23,7 @@ jobs:
         name: Build and push PostHog
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         # Covers the build plus the post-build image-boot verification before dispatch.
         timeout-minutes: 40
         permissions:

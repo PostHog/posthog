@@ -223,6 +223,7 @@ import {
     UserBasicType,
     UserInterviewType,
     UserType,
+    WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
     WebhookInfo,
 } from '~/types'
@@ -2686,6 +2687,7 @@ const api = {
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
                     ActivityScope.EXTERNAL_DATA_SCHEMA,
+                    ActivityScope.LLM_PROMPT_LABEL,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -5671,8 +5673,14 @@ const api = {
     },
 
     dataWarehouseTables: {
-        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
-            return await new ApiRequest().dataWarehouseTables().get()
+        async list(params?: {
+            limit?: number
+            include_columns?: boolean
+        }): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest()
+                .dataWarehouseTables()
+                .withQueryString(params ?? {})
+                .get()
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
@@ -5697,6 +5705,19 @@ const api = {
         },
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
+        },
+        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
+        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
+        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
+            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        },
+        async createFromUpload(data: {
+            upload_id: string
+            filename: string
+            file_format: string
+            table_name: string
+        }): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().withAction('create_from_upload').create({ data })
         },
     },
 

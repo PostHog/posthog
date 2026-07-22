@@ -15,6 +15,7 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
 from .run_trace_evaluation import (
@@ -180,17 +181,40 @@ class TestBuildTraceHogGlobals:
             create_trace_event("$ai_generation", **{"$ai_input": "first question", "$ai_output": "first answer"}),
             create_trace_event("$ai_generation", **{"$ai_input": "second question", "$ai_output": "final answer"}),
         ]
-        trace = create_trace(events)
+        trace = create_trace(events, totalCost=0.03, totalLatency=2.5)
 
         globals_dict = build_trace_hog_globals(trace, "trace-123")
 
         assert "input" not in globals_dict
         assert "output" not in globals_dict
         assert globals_dict["trace"] == {"id": "trace-123", "event_count": 3}
+        assert globals_dict["target"] == {
+            "type": "trace",
+            "id": "trace-123",
+            "total_cost_usd": 0.03,
+            "total_latency_seconds": 2.5,
+        }
         assert len(globals_dict["events"]) == 3
         assert globals_dict["events"][1]["event"] == "$ai_generation"
         assert globals_dict["events"][1]["input"] == "first question"
         assert globals_dict["events"][2]["output"] == "final answer"
+        assert "input_text" not in globals_dict["events"][1]
+        assert "output_text" not in globals_dict["events"][2]
+        assert globals_dict["evaluation_events"][1]["input_text"] == "first question"
+        assert globals_dict["evaluation_events"][2]["output_text"] == "final answer"
+
+    def test_saved_events_source_only_builds_compatibility_events(self):
+        bytecode = compile_hog("return length(events) == 1 and events.1.output == 'answer'", "destination")
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": "question", "$ai_output": "answer"})]
+        )
+
+        globals_dict = build_trace_hog_globals(trace, "trace-123", bytecode=bytecode)
+        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=False)
+
+        assert set(globals_dict) == {"events", "trace"}
+        assert set(globals_dict["events"][0]) == {"uuid", "event", "timestamp", "input", "output", "properties"}
+        assert result == {"verdict": True, "reasoning": "", "error": None}
 
     def test_strips_heavy_keys_from_event_properties(self):
         events = [
