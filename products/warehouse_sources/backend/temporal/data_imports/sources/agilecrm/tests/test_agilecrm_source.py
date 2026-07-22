@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.a
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.source import AgileCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AgileCRMSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
+    AgileCRMSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

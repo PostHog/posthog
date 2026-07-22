@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "key": {
+            "description": "The feature flag key: the string identifier used in code (e.g. \"new-checkout\").",
+            "type": "string"
+        }
+    },
+    "required": ["key"],
+    "type": "object"
+}

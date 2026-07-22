@@ -201,6 +201,8 @@ export interface DataCatalogMetricApi {
     ai_model?: string
     /**
      * AI author's confidence in the proposal, 0-1.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     confidence?: number | null
@@ -296,6 +298,8 @@ export interface PatchedDataCatalogMetricApi {
     ai_model?: string
     /**
      * AI author's confidence in the proposal, 0-1.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     confidence?: number | null

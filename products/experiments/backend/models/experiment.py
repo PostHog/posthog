@@ -512,13 +512,11 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     total_metrics = models.PositiveIntegerField(default=0)
+
     metric_errors = models.JSONField(default=dict)
-    # Internal: written by the discovery activity, used by the service to recompute recalc fingerprints. Not exposed by the API serializer.
+    metric_retries = models.JSONField(default=dict)
     metric_uuids = models.JSONField(default=list)
 
-    # Single data-window end shared by all metrics in the run. Set once when the run starts; every metric
-    # (including retries) uses this value so all metrics cover the same window and retries overwrite rather than
-    # orphan rows. Exposed by the API serializer as the data freshness cutoff for the run's results.
     query_to = models.DateTimeField(null=True, blank=True)
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)

@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -464,6 +465,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     listeners(({ values }) => ({
+        openHistoryModal: () => {
+            posthog.capture('sql-editor-history-modal-opened', {
+                object: values.editingView ? 'view' : 'insight',
+            })
+        },
         shareTab: () => {
             const { activeTab, queryInput, sourceQuery } = values
             if (!activeTab) {

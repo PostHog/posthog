@@ -72,6 +72,7 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
@@ -82,6 +83,7 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_asset_html,
     fetch_message_assets,
 )
+from products.workflows.backend.models.email_reputation import EmailReputationSnapshot
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -364,7 +366,9 @@ class HogFlowActionConfigField(serializers.JSONField):
 
 
 class HogFlowActionSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Unique node ID within the workflow.")
+    # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
+    # real ids are short generated slugs, so 200 is generous.
+    id = serializers.CharField(max_length=200, help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
     on_error = serializers.ChoiceField(
@@ -834,6 +838,90 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class EmailReputationSnapshotSerializer(serializers.ModelSerializer):
+    """One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run)."""
+
+    scope = serializers.ChoiceField(
+        choices=EmailReputationSnapshot.Scope.choices,
+        read_only=True,
+        help_text="'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.",
+    )
+    state = serializers.ChoiceField(
+        choices=EmailReputationSnapshot.State.choices,
+        read_only=True,
+        help_text=(
+            "'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a "
+            "warning threshold), or 'critical' (over a critical threshold)."
+        ),
+    )
+    bounce_rate = serializers.FloatField(
+        read_only=True,
+        help_text="Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded.",
+    )
+    complaint_rate = serializers.FloatField(
+        read_only=True, help_text="Spam complaints / emails sent over the evaluated volume (0-1)."
+    )
+    emails_sent = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Emails in the evaluated window: at least the target's last day of sends and at least "
+            "the configured representative volume (SES-style), whichever covers more. 0 means no "
+            "recent sending."
+        ),
+    )
+    evaluated_at = serializers.DateTimeField(
+        read_only=True, help_text="When this snapshot was computed; one snapshot exists per target per run."
+    )
+
+    class Meta:
+        model = EmailReputationSnapshot
+        fields = [
+            "scope",
+            "state",
+            "bounce_rate",
+            "complaint_rate",
+            "emails_sent",
+            "evaluated_at",
+        ]
+        read_only_fields = fields
+
+
+class WorkflowEmailReputationSnapshotSerializer(EmailReputationSnapshotSerializer):
+    """A workflow-scoped reputation snapshot, annotated with the workflow it belongs to."""
+
+    hog_flow_id = serializers.UUIDField(read_only=True, help_text="The workflow this snapshot is for.")
+    hog_flow_name = serializers.CharField(
+        read_only=True, source="hog_flow.name", allow_null=True, help_text="Display name of the workflow."
+    )
+    history = serializers.SerializerMethodField(
+        help_text="This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest."
+    )
+
+    @extend_schema_field(EmailReputationSnapshotSerializer(many=True))
+    def get_history(self, obj: EmailReputationSnapshot) -> list[dict]:
+        rows = self.context.get("workflow_history", {}).get(obj.hog_flow_id, [])
+        return list(EmailReputationSnapshotSerializer(rows, many=True).data)
+
+    class Meta(EmailReputationSnapshotSerializer.Meta):
+        fields = [*EmailReputationSnapshotSerializer.Meta.fields, "hog_flow_id", "hog_flow_name", "history"]
+        read_only_fields = fields
+
+
+class TeamEmailReputationResponseSerializer(serializers.Serializer):
+    reputation = EmailReputationSnapshotSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text="Latest project-wide email reputation snapshot across all workflows; null until first evaluated.",
+    )
+    workflows = WorkflowEmailReputationSnapshotSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows."
+        ),
+    )
+
+
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -968,6 +1056,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "mismatch returns 409."
         ),
     )
+    action_redirects = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained "
+            "automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step "
+            "continue at its surviving successor instead of exiting. Null when no live deletions have occurred."
+        ),
+    )
 
     def to_internal_value(self, data):
         status = data.get("status")
@@ -1013,6 +1111,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "user_access_level",
             "draft",
             "draft_updated_at",
+            "action_redirects",
         ]
         read_only_fields = [
             "id",
@@ -1027,6 +1126,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "user_access_level",
             "draft",  # Written by draft routing (see perform_update / graph), never directly
             "draft_updated_at",
+            "action_redirects",  # Computed from graph diffs at save time (see _refresh_action_redirects)
         ]
 
     def validate(self, data):
@@ -1356,6 +1456,7 @@ class HogFlowViewSet(
         "metrics",
         "metrics_totals",
         "metrics_global",
+        "team_reputation",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -1623,6 +1724,10 @@ class HogFlowViewSet(
                     serializer.validated_data.update(remaining)
                     serializer.save()
             else:
+                if before_update is not None:
+                    self._refresh_action_redirects(
+                        serializer.instance, before_update, serializer.validated_data.get("actions")
+                    )
                 serializer.save()
 
         if not route_to_draft:
@@ -1655,6 +1760,20 @@ class HogFlowViewSet(
                 )
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
+
+    def _refresh_action_redirects(self, target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
+        # Skip-forward for deleted steps: refresh the redirect map whenever a live graph write is about
+        # to land, while both the old graph (`old`, the locked pre-write row) and the new actions are in
+        # hand. Must run before serializer.save() so the map persists in the same write, transaction,
+        # and worker reload as the graph it describes. Flag-gated with the rest of the revisions cycle.
+        # No status gate: disabling a flow doesn't purge its parked runs (the worker only cancels them
+        # if they wake while the flow is still disabled), so a step deleted during a disable/re-enable
+        # window needs its redirect recorded just like one deleted live.
+        if new_actions is None or not use_workflows_revisions(self.team):
+            return
+        target.action_redirects = compute_action_redirects(
+            old.actions or [], old.edges or [], new_actions, old.action_redirects
+        )
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
@@ -1717,6 +1836,7 @@ class HogFlowViewSet(
             if route_to_draft:
                 self._write_draft(locked, locked, serializer.validated_data)
             else:
+                self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
                 # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
                 serializer.save()
 
@@ -1821,6 +1941,7 @@ class HogFlowViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
             serializer.is_valid(raise_exception=True)
+            self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
             serializer.save()
             locked.draft = None
             locked.draft_updated_at = None
@@ -2151,6 +2272,103 @@ class HogFlowViewSet(
         deleted_count, _ = self.get_queryset().filter(id__in=deletable_ids).delete()
 
         return Response({"deleted": deleted_count})
+
+    # Severity order for the worst-offender sort; complaint rate breaks ties first (it's the more
+    # dangerous SES signal, with thresholds ~20x lower than bounce).
+    _REPUTATION_STATE_SEVERITY = {
+        EmailReputationSnapshot.State.CRITICAL: 0,
+        EmailReputationSnapshot.State.WARNING: 1,
+        EmailReputationSnapshot.State.HEALTHY: 2,
+        EmailReputationSnapshot.State.INSUFFICIENT_DATA: 3,
+    }
+
+    # Cap the per-workflow breakdown: without it, hundreds of email workflows each carrying a
+    # week of history make one unbounded response. Worst-first sorting means the cut tail is the
+    # healthiest workflows.
+    WORKFLOW_REPUTATION_LIMIT = 50
+    # Workflows drop off the breakdown once the evaluator stops producing snapshots for them
+    # (i.e. no sends within its lookback), so a long-dead sender's last bad rate isn't pinned
+    # to the top of the list forever.
+    WORKFLOW_REPUTATION_RECENCY_DAYS = 7
+    # How far back each listed workflow's per-day history reaches. Deliberately short: history
+    # ships inline on the reputation endpoint (workflows x days rows per response), so widening
+    # this fans out the payload for every workflow listed.
+    WORKFLOW_REPUTATION_HISTORY_DAYS = 7
+
+    @extend_schema(responses={200: TeamEmailReputationResponseSerializer})
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
+    def team_reputation(self, request: Request, **kwargs) -> Response:
+        """
+        Email deliverability reputation for this project: the latest project-wide snapshot and the
+        latest recent snapshot per workflow (worst first, capped). Written daily by the Node
+        evaluator; everything is null/empty until the first run.
+        """
+        # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
+        # filtered per object grant — only members with project-wide workflow read access get it.
+        # Members holding just object-level grants still get their (filtered) per-workflow rows.
+        can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
+
+        # for_team(canonical=True): rows are keyed by the raw team_id the Node evaluator writes,
+        # which may be a child environment id that canonical resolution would rewrite and miss.
+        latest = (
+            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
+            .filter(hog_flow__isnull=True)
+            .order_by("-evaluated_at")
+            .first()
+            if can_read_all_workflows
+            else None
+        )
+
+        # One row per workflow per run over the history window, grouped in Python so each workflow
+        # entry carries its recent history alongside the latest snapshot.
+        now = timezone.now()
+        workflow_rows = (
+            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
+            .filter(
+                hog_flow__isnull=False,
+                evaluated_at__gte=now - timedelta(days=self.WORKFLOW_REPUTATION_HISTORY_DAYS),
+            )
+            .order_by("hog_flow_id", "evaluated_at")
+            .select_related("hog_flow")
+        )
+        history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
+        for row in workflow_rows:
+            if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy
+                continue
+            history_by_flow.setdefault(row.hog_flow_id, []).append(row)
+
+        # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
+        # leak names/volumes of access-controlled workflows the list endpoint hides.
+        accessible_ids = set(
+            self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list("id", flat=True)
+        )
+        recency_cutoff = now - timedelta(days=self.WORKFLOW_REPUTATION_RECENCY_DAYS)
+        workflow_snapshots = [
+            rows[-1]
+            for flow_id, rows in history_by_flow.items()
+            if flow_id in accessible_ids and rows[-1].evaluated_at >= recency_cutoff
+        ]
+        # Sort by raw state string (not the State enum constructor, which raises on values a newer
+        # evaluator may write before this code deploys); unknown states sort last.
+        severity = {state.value: rank for state, rank in self._REPUTATION_STATE_SEVERITY.items()}
+        workflow_snapshots.sort(
+            key=lambda s: (
+                severity.get(s.state, 99),
+                -s.complaint_rate,
+                -s.bounce_rate,
+            )
+        )
+        workflow_snapshots = workflow_snapshots[: self.WORKFLOW_REPUTATION_LIMIT]
+
+        return Response(
+            TeamEmailReputationResponseSerializer(
+                {
+                    "reputation": latest,
+                    "workflows": workflow_snapshots,
+                },
+                context={"workflow_history": history_by_flow},
+            ).data
+        )
 
     @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True))
     @extend_schema(methods=["POST"], request=HogFlowBatchJobSerializer, responses=HogFlowBatchJobSerializer)

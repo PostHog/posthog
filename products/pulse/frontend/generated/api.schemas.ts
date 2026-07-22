@@ -272,16 +272,27 @@ export interface PaginatedProductBriefListListApi {
     results: ProductBriefListApi[]
 }
 
+export interface BriefSectionCitationApi {
+    /** Cited resource type, e.g. insight or dashboard. */
+    type: string
+    /** Stable id of the cited resource within its type. */
+    ref: string
+    /** Human-readable name of the cited resource, for display. */
+    label: string
+    /** Deep link into the app, or empty when the resource has no navigable target. */
+    url: string
+}
+
 export interface BriefSectionApi {
-    /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+    /** Section kind, e.g. what_happened or what_to_build_next. */
     kind: string
-    /** Short, specific section heading. */
+    /** Short section heading. */
     title: string
-    /** Section body in markdown. */
+    /** Section body rendered as markdown. */
     markdown: string
-    /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
-    citations: string[]
-    /** Confidence in this section, 0.0-1.0. */
+    /** PostHog resources this section cites as evidence. */
+    citations: BriefSectionCitationApi[]
+    /** Model confidence in this section, 0.0-1.0. */
     confidence: number
 }
 

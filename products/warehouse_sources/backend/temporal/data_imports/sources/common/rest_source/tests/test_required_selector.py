@@ -24,3 +24,12 @@ class TestRequiredDataSelector:
     def test_absent_key_is_silent_when_not_required(self) -> None:
         # Backward compatible: without required, a missing key still silently yields nothing.
         assert _client()._extract_response({"unexpected": "envelope"}, "data", required=False) == []
+
+
+class TestRequiredListBody:
+    def test_non_list_body_raises_when_required_and_no_selector(self) -> None:
+        with pytest.raises(ValueError, match="list response body"):
+            _client()._extract_response({"error": "x"}, None, required=True)
+
+    def test_list_body_ok_when_required_and_no_selector(self) -> None:
+        assert _client()._extract_response([{"id": 1}], None, required=True) == [{"id": 1}]

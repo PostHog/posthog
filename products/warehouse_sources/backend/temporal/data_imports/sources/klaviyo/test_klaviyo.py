@@ -500,3 +500,39 @@ class TestSourceResponseSortMode:
             resumable_source_manager=MagicMock(),
         )
         assert response.sort_mode == expected
+
+
+class TestApiVersionThreadsToRevisionHeader:
+    @parameterized.expand([("2024-10-15",), ("2026-07-15",)])
+    def test_pinned_version_reaches_revision_header(self, api_version: str) -> None:
+        # The resolved pin must reach Klaviyo's `revision` header, or a source pinned to a supported
+        # revision would silently sync against whatever version the request layer hardcodes.
+        captured: dict[str, str] = {}
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            captured.update(headers)
+            return {"data": [], "links": {"next": None}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="events",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    api_version=api_version,
+                )
+            )
+
+        assert captured["revision"] == api_version
+
+
+class TestVersionDeprecation:
+    def test_2024_revision_deprecated_with_sunset_and_current_is_not(self) -> None:
+        # The generic in-product warning keys off this metadata; the registry invariant test checks
+        # the set relationships but not the specific sunset date this PR pins.
+        source = KlaviyoSource()
+        deprecation = source.get_version_deprecation("2024-10-15")
+        assert deprecation is not None
+        assert deprecation.sunset_at == date(2026, 10, 15)
+        assert source.get_version_deprecation("2026-07-15") is None

@@ -203,16 +203,24 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     def visit_field(self, node: ast.Field) -> ast.Field:
         """Record demand when field references subquery or CTE column"""
+        field_type = node.type
+        # A property read (`col.some_key`) still demands its base blob column. Its node type is a
+        # PropertyType wrapping the base FieldType, so unwrap to that base — otherwise the column is
+        # never recorded as demanded and gets pruned from an asterisk-expanded subquery/CTE, leaving a
+        # dangling reference that later blows up property lowering.
+        if isinstance(field_type, ast.PropertyType):
+            field_type = field_type.field_type
+
         # Handle both FieldType and ExpressionFieldType
-        if not isinstance(node.type, ast.FieldType | ast.ExpressionFieldType):
+        if not isinstance(field_type, ast.FieldType | ast.ExpressionFieldType):
             return node
 
-        table_type = node.type.table_type
+        table_type = field_type.table_type
 
         if isinstance(table_type, ast.SelectQueryType | ast.SelectQueryAliasType | ast.SelectSetQueryType):
             subquery = self._get_subquery(table_type)
             if subquery:
-                self.demands[id(subquery)].add(node.type.name)
+                self.demands[id(subquery)].add(field_type.name)
         elif isinstance(table_type, ast.CTETableType | ast.CTETableAliasType):
             # For CTE types, get the underlying SelectQueryType and demand from it
             cte_select_query_type = (
@@ -222,7 +230,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             )
             cte_query = self._get_subquery(cte_select_query_type)
             if cte_query:
-                self.demands[id(cte_query)].add(node.type.name)
+                self.demands[id(cte_query)].add(field_type.name)
 
         return node
 

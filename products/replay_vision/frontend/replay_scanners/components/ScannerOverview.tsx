@@ -77,27 +77,29 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
     }
     return (
         <OverviewPanel title="Impact" subtitle={`last ${scannerImpact.window_days} days`} fill>
-            <div className="text-sm">
-                Matched <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
-                session{scannerImpact.affected_sessions === 1 ? '' : 's'} from{' '}
-                <strong className="tabular-nums">{scannerImpact.affected_users.toLocaleString()}</strong> user
-                {scannerImpact.affected_users === 1 ? '' : 's'}
-                {scannerImpact.sessions_without_user > 0 && (
-                    <span className="text-muted"> ({scannerImpact.sessions_without_user} without a user)</span>
-                )}
+            <div className="flex items-center justify-between gap-4">
+                <div className="text-sm">
+                    Matched <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
+                    session{scannerImpact.affected_sessions === 1 ? '' : 's'} from{' '}
+                    <strong className="tabular-nums">{scannerImpact.affected_users.toLocaleString()}</strong> user
+                    {scannerImpact.affected_users === 1 ? '' : 's'}
+                    {scannerImpact.sessions_without_user > 0 && (
+                        <span className="text-muted"> ({scannerImpact.sessions_without_user} without a user)</span>
+                    )}
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPeople />}
+                    onClick={() => saveAffectedCohort()}
+                    loading={affectedCohortLoading}
+                    disabledReason={scannerImpact.affected_users === 0 ? 'No users to save' : undefined}
+                    data-attr="vision-save-affected-cohort"
+                    className="shrink-0"
+                >
+                    Save as cohort
+                </LemonButton>
             </div>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconPeople />}
-                onClick={() => saveAffectedCohort()}
-                loading={affectedCohortLoading}
-                disabledReason={scannerImpact.affected_users === 0 ? 'No users to save' : undefined}
-                data-attr="vision-save-affected-cohort"
-                className="self-start"
-            >
-                Save as cohort
-            </LemonButton>
         </OverviewPanel>
     )
 }

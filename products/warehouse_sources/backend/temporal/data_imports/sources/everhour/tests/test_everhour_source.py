@@ -7,7 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour import EverhourResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source import EverhourSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EverhourSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
+    EverhourSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source"
