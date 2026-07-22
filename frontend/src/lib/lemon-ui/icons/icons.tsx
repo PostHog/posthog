@@ -427,6 +427,20 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** In-house draft icon for SQL insights: curly brackets wrapping a bar chart. Brackets match `IconBrackets` from `@posthog/icons`. */
+export function IconBracketsChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M4 4.75C4 3.784 4.784 3 5.75 3h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25V11c0 .372-.116.716-.314 1 .198.284.314.628.314 1v6.25c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 4 19.25V13a.25.25 0 0 0-.25-.25h-1a.75.75 0 0 1 0-1.5h1A.25.25 0 0 0 4 11V4.75Zm11-1a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75V11c0 .138.112.25.25.25h1a.75.75 0 0 1 0 1.5h-1A.25.25 0 0 0 20 13v6.25A1.75 1.75 0 0 1 18.25 21h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25V13c0-.372.116-.716.314-1a1.742 1.742 0 0 1-.314-1V4.75a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75ZM8.5 13.5a1 1 0 0 1 2 0v2.75a1 1 0 0 1-2 0V13.5ZM11 7.75a1 1 0 0 1 2 0v8.5a1 1 0 0 1-2 0v-8.5ZM13.5 10.5a1 1 0 0 1 2 0v5.75a1 1 0 0 1-2 0V10.5Z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design 123 icon. */
 export function Icon123(props: LemonIconProps): JSX.Element {
     return (
