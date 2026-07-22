@@ -76,10 +76,11 @@ class TeamTestSignalSerializer(DataclassSerializer):
             "nodeid": {"help_text": "Reconstructed pytest nodeid (the CI span name), a stable grouping key."},
             "selector": {"help_text": "Runnable pytest selector; exact when the CI reporter emitted it."},
             "signal_count": {
-                "help_text": "Failed + error + pass-on-retry spans in the current window (xfail excluded).",
+                "help_text": "Runs in the current window where the test failed, errored, or a retry "
+                "recovered it (xfail excluded).",
             },
             "signal_count_prior": {"help_text": "Same count over the equal-length window before date_from."},
-            "last_seen_at": {"help_text": "Most recent signal span for this test, either window."},
+            "last_seen_at": {"help_text": "Most recent failure, recovery, or xfail run for this test, either window."},
         }
 
 

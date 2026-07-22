@@ -1,4 +1,4 @@
-"""Test-health orchestration: the flaky-test leaderboard and the broken-tests panel."""
+"""Test-health orchestration: the active test-health queue and the broken-tests panel."""
 
 from products.engineering_analytics.backend.facade.contracts import (
     BROKEN_TEST_SPARKLINE_HOURS,
@@ -12,7 +12,7 @@ from products.engineering_analytics.backend.logic.queries.flaky_tests import que
 
 # Test-health queue defaults: a week of signal is the triage window, a month the ceiling
 # (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
-# The signal thresholds double as the bar for the team CI health rollups.
+# The signal threshold doubles as the bar for the team CI health rollups.
 _DEFAULT_FLAKY_WINDOW = "-7d"
 _MAX_FLAKY_WINDOW_DAYS = 30
 _DEFAULT_FLAKY_MIN_FAILED_PRS = 3

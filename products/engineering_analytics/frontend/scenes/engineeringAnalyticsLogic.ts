@@ -54,7 +54,7 @@ export const PR_TABLE_LIMIT = 1000
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
-// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+// Mirrors the endpoint's maximum so the UI can paginate every returned queue row.
 export const FLAKY_TEST_LIMIT = 200
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -550,7 +550,7 @@ export interface QuarantineModalState {
     owner: string
     issue: string
     mode: QuarantineMode
-    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    /** Glanceable confirm presentation for prefilled openers (queue rows); 'Edit details' switches to the form. */
     confirm?: boolean
 }
 
@@ -1372,7 +1372,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantineFailure: () => true,
                 },
             ],
-            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            // Test-health window; transient like the other lenses (no persisted UI in this phase).
             flakyTestWindow: [
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
@@ -1380,7 +1380,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Prototype panel hides the low-signal PR-only failures by default.
             showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
-            // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
+            // "connect a source" gate; only a real 'error' surfaces the queue's own banner.
             flakyTestsStatus: [
                 'ok' as LoaderStatus,
                 {
