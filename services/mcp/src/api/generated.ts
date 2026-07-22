@@ -60626,6 +60626,9 @@ export namespace Schemas {
       interview_url: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface SharingConfiguration {
       readonly created_at: string;
       enabled?: boolean;
@@ -60634,6 +60637,11 @@ export namespace Schemas {
       settings?: unknown;
       password_required?: boolean;
       readonly share_passwords: readonly SharePassword[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface ShipVariant {

@@ -19,6 +19,7 @@ export interface LoopReviewBehaviors {
     create_prs?: boolean
     watch_ci?: boolean
     fix_review_comments?: boolean
+    max_fix_iterations?: number
 }
 
 export interface LoopReviewContextOutputs {
@@ -37,6 +38,11 @@ export interface LoopReviewNotificationChannel {
     enabled?: boolean
 }
 
+export interface LoopReviewConnectors {
+    mcp_installation_ids?: string[]
+    posthog_mcp_scopes?: 'read_only' | 'full'
+}
+
 /** The loop config the agent assembled — identical in shape to the `loops-create` tool
  * arguments, so the "Create loop" button can forward it unchanged. */
 export interface LoopReviewData {
@@ -49,11 +55,14 @@ export interface LoopReviewData {
     visibility?: string
     repositories?: LoopReviewRepository[]
     triggers?: LoopReviewTrigger[]
+    enabled?: boolean
+    overlap_policy?: 'skip' | 'allow' | 'cancel_previous'
     behaviors?: LoopReviewBehaviors
+    connectors?: LoopReviewConnectors
+    sandbox_environment?: string | null
     notifications?: Record<string, LoopReviewNotificationChannel>
     context_target?: LoopReviewContextTarget | null
     _posthogUrl?: string
-    [key: string]: unknown
 }
 
 export interface LoopReviewState {
@@ -91,11 +100,35 @@ function describeTrigger(trigger: LoopReviewTrigger): string {
     return 'API'
 }
 
-function describeTriggers(triggers: LoopReviewTrigger[] | undefined): string {
-    if (!triggers || triggers.length === 0) {
-        return 'Manual only'
+const OVERLAP_LABELS: Record<string, string> = {
+    skip: 'skips overlapping runs',
+    allow: 'allows overlapping runs',
+    cancel_previous: 'cancels the previous run',
+}
+
+export function describeRunBehavior(data: Pick<LoopReviewData, 'triggers' | 'enabled' | 'overlap_policy'>): string {
+    const parts: string[] = []
+    if (!data.triggers || data.triggers.length === 0) {
+        parts.push('Manual only')
+    } else {
+        parts.push(data.triggers.map(describeTrigger).join(', '))
     }
-    return triggers.map(describeTrigger).join(', ')
+    if (data.enabled === false) {
+        parts.push('paused')
+    }
+    // the server defaults overlap_policy to 'skip', so always show the effective policy
+    const overlapPolicy = data.overlap_policy ?? 'skip'
+    parts.push(OVERLAP_LABELS[overlapPolicy] ?? overlapPolicy)
+    return parts.join(' · ')
+}
+
+export function describePosthogAccess(connectors: LoopReviewConnectors | undefined): string {
+    return connectors?.posthog_mcp_scopes === 'full' ? 'Full (read-write)' : 'Read-only'
+}
+
+function describeConnectors(connectors: LoopReviewConnectors | undefined): string {
+    const ids = connectors?.mcp_installation_ids ?? []
+    return ids.length > 0 ? ids.join(', ') : 'None'
 }
 
 function describeRepository(repositories: LoopReviewRepository[] | undefined): string {
@@ -137,8 +170,12 @@ function describeModel(data: LoopReviewData): string {
     return `${adapter} · ${model} · ${reasoning} reasoning`
 }
 
-function describeAutoFix(behaviors: LoopReviewBehaviors | undefined): string {
-    return behaviors?.watch_ci && behaviors?.fix_review_comments ? 'On' : 'Off'
+export function describeFixReviewComments(behaviors: LoopReviewBehaviors | undefined): string {
+    if (!behaviors?.fix_review_comments) {
+        return 'No'
+    }
+    const cap = behaviors.max_fix_iterations
+    return cap != null ? `Yes (up to ${cap} iterations)` : 'Yes'
 }
 
 export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): ReactElement {
@@ -165,17 +202,22 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
 
     const items: { label: string; value: ReactNode }[] = [
         { label: 'Name', value: data.name?.trim() || 'Not set' },
+        ...(data.description?.trim() ? [{ label: 'Description', value: data.description }] : []),
         { label: 'Visibility', value: data.visibility === 'team' ? 'Team' : 'Personal' },
         {
             label: 'What it does',
             value: <span className="whitespace-pre-wrap">{data.instructions?.trim() || 'No prompt'}</span>,
         },
-        { label: 'Runs', value: describeTriggers(data.triggers) },
+        { label: 'Runs', value: describeRunBehavior(data) },
         { label: 'Context', value: describeContext(data.context_target) },
         { label: 'Repository', value: describeRepository(data.repositories) },
         { label: 'Model', value: describeModel(data) },
         { label: 'Opens PRs', value: data.behaviors?.create_prs ? 'Yes' : 'No' },
-        { label: 'Auto-fix PRs', value: describeAutoFix(data.behaviors) },
+        { label: 'Watches CI', value: data.behaviors?.watch_ci ? 'Yes' : 'No' },
+        { label: 'Fixes review comments', value: describeFixReviewComments(data.behaviors) },
+        { label: 'PostHog access', value: describePosthogAccess(data.connectors) },
+        { label: 'Connectors', value: describeConnectors(data.connectors) },
+        { label: 'Sandbox', value: data.sandbox_environment || 'None' },
         { label: 'Notifications', value: describeNotifications(data.notifications) },
     ]
 
