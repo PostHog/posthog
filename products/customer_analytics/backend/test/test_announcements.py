@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from rest_framework import status
 
 from posthog.models.team import Team
@@ -102,6 +105,32 @@ class TestAnnouncementAPI(APIBaseTest):
 
         assert self.client.get(f"{self.base_url}{created['short_id']}/").status_code == status.HTTP_200_OK
         assert self.client.get(f"{self.base_url}{other.short_id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_query_count_does_not_grow_with_announcements(self):
+        def create_announcement_with_deliveries(index: int) -> None:
+            announcement = Announcement.all_teams.create(
+                team=self.team, message=f"msg {index}", created_by=self.user, total_channels=2
+            )
+            AnnouncementDelivery.all_teams.bulk_create(
+                AnnouncementDelivery(
+                    team=self.team, announcement=announcement, slack_channel_id=f"C{index}-{n}", slack_channel_name="ch"
+                )
+                for n in range(2)
+            )
+
+        create_announcement_with_deliveries(0)
+        self.client.get(self.base_url)  # warm request-scoped caches so both captures compare equal work
+        with CaptureQueriesContext(connection) as small_list:
+            assert self.client.get(self.base_url).status_code == status.HTTP_200_OK
+
+        for index in range(1, 5):
+            create_announcement_with_deliveries(index)
+        with CaptureQueriesContext(connection) as large_list:
+            response = self.client.get(self.base_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 5
+        assert len(large_list) == len(small_list)
 
     @patch(HELPER)
     def test_channels_action_labels_by_customer_and_sorts_mapped_first(self, mock_channels):
