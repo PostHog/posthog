@@ -1939,10 +1939,14 @@ class HogFlowViewSet(
 
     def perform_destroy(self, instance: HogFlow) -> None:
         # Workflow deletes are hard deletes; without this override they leave no trail at all.
-        # Log before delete() nulls the instance pk.
-        log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
+        # The audit row shares the delete's transaction so a failed delete rolls it back; the
+        # usage event fires only after commit. delete() nulls the pk, so stash it for the event.
+        flow_id = instance.id
+        with transaction.atomic():
+            log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
+            instance.delete()
+        instance.id = flow_id
         self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
-        instance.delete()
 
     def _refresh_action_redirects(
         self, target: HogFlow, old: HogFlow, new_actions: Optional[list], enabled: bool
@@ -2635,12 +2639,24 @@ class HogFlowViewSet(
             if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
         ]
 
-        # Hard deletes must leave a trail, same as the single destroy path.
-        for flow in deletable:
-            log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
-            self._report_workflow_action("hog_flow_deleted", flow, {"via": "bulk_delete"})
+        # Hard deletes must leave a trail, same as the single destroy path. Lock the rows so the
+        # audit entries match exactly what this request deletes (a concurrently removed row gets no
+        # entry), and share the delete's transaction so a failed delete rolls its audit rows back.
+        # Usage events fire only after commit.
+        with transaction.atomic():
+            deleted_ids = set(
+                self.get_queryset()
+                .select_for_update()
+                .filter(id__in=[flow.id for flow in deletable])
+                .values_list("id", flat=True)
+            )
+            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
+            for flow in deleted_flows:
+                log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
 
-        deleted_count, _ = self.get_queryset().filter(id__in=[flow.id for flow in deletable]).delete()
+        for flow in deleted_flows:
+            self._report_workflow_action("hog_flow_deleted", flow, {"via": "bulk_delete"})
 
         return Response({"deleted": deleted_count})
 
