@@ -250,34 +250,67 @@ const WORLD_MAP_LAND: [number, number, number, number][] = [
     [0.88, 0.7, 0.06, 0.07], // Australia
 ]
 
-// Sample a grid over the mask so the preview reads as an actual dotted world map
-// (the world map insight is a choropleth). Computed once at module load.
-function computeWorldMapDots(): [number, number][] {
-    const cols = 46
-    const rows = 22
-    const dots: [number, number][] = []
+// "Value" hotspots [cx, cy, weight] in the same normalized space, so the tiles
+// shade darker over higher-value regions the way the world map insight does.
+const WORLD_MAP_HOTSPOTS: [number, number, number][] = [
+    [0.18, 0.25, 0.9], // North America
+    [0.5, 0.25, 1.0], // Europe
+    [0.75, 0.27, 1.0], // Asia
+    [0.55, 0.55, 0.7], // Africa
+    [0.3, 0.6, 0.6], // South America
+    [0.87, 0.7, 0.5], // Australia
+]
+
+// Sample a grid over the land mask into shaded tiles so the preview reads as an
+// actual choropleth world map. Computed once at module load; each tile is
+// [x, y, opacity].
+function computeWorldMapTiles(): [number, number, number][] {
+    const cols = 40
+    const rows = 19
+    const tiles: [number, number, number][] = []
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
             const nx = (col + 0.5) / cols
             const ny = (row + 0.5) / rows
+            let onLand = false
             for (const [cx, cy, rx, ry] of WORLD_MAP_LAND) {
                 if (((nx - cx) / rx) ** 2 + ((ny - cy) / ry) ** 2 <= 1) {
-                    dots.push([12 + nx * 136, 12 + ny * 64])
+                    onLand = true
                     break
                 }
             }
+            if (!onLand) {
+                continue
+            }
+            let value = 0
+            for (const [hx, hy, weight] of WORLD_MAP_HOTSPOTS) {
+                const falloff = Math.exp(-(((nx - hx) * 3.2) ** 2 + ((ny - hy) * 3.2) ** 2))
+                value = Math.max(value, weight * falloff)
+            }
+            const opacity = Math.round((0.28 + 0.62 * Math.min(1, value)) * 100) / 100
+            tiles.push([12 + nx * 136, 12 + ny * 64, opacity])
         }
     }
-    return dots
+    return tiles
 }
 
-const WORLD_MAP_DOTS = computeWorldMapDots()
+const WORLD_MAP_TILES = computeWorldMapTiles()
+const WORLD_MAP_TILE_SIZE = 2.7
 
 export function WorldMapSketch(): JSX.Element {
     return (
         <SketchSvg>
-            {WORLD_MAP_DOTS.map(([cx, cy], index) => (
-                <circle key={index} cx={cx} cy={cy} r="1.4" fill={INK} opacity="0.85" />
+            {WORLD_MAP_TILES.map(([x, y, opacity], index) => (
+                <rect
+                    key={index}
+                    x={x - WORLD_MAP_TILE_SIZE / 2}
+                    y={y - WORLD_MAP_TILE_SIZE / 2}
+                    width={WORLD_MAP_TILE_SIZE}
+                    height={WORLD_MAP_TILE_SIZE}
+                    rx="0.6"
+                    fill={INK}
+                    opacity={opacity}
+                />
             ))}
         </SketchSvg>
     )
