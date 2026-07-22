@@ -248,14 +248,14 @@
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(604800))))
+     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800))))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(604800))))
+     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800))))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -334,14 +334,14 @@
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(604800))))
+     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800))))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(604800))))
+     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800))))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -1552,14 +1552,14 @@
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(3600))))
+     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600))))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(3600))))
+     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600))))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -1637,14 +1637,14 @@
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(3600))))
+     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600))))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.last_exposure_time, 'UTC'), toIntervalSecond(3600))))
+     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600))))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
