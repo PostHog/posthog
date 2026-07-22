@@ -32,6 +32,7 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -53,6 +54,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
@@ -1045,7 +1047,29 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError(detail=self._cohort_error_message(exc))
 
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
+        self._validate_warehouse_access(raw)
         return raw
+
+    def _validate_warehouse_access(self, filters: dict) -> None:
+        """Background recalculation executes the cohort without warehouse access control (the
+        definition is team-owned), so access is enforced here instead: the member saving the
+        filters must be able to read every warehouse table they resolve through."""
+        team = self.context.get("get_team", lambda: None)()
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if team is None or user is None or not getattr(user, "is_authenticated", False):
+            return
+        try:
+            HogQLCohortQuery(
+                filter=Filter(data={"properties": filters["properties"]}, team=team), team=team
+            ).get_query_executor(user=user).generate_clickhouse_sql()
+        except TableAccessDeniedError as e:
+            raise ValidationError(
+                f"Can't save this cohort: you don't have access to table `{e.table_name}`, which its filters use."
+            )
+        except Exception:
+            # Only access denials gate saving; other compile problems surface elsewhere.
+            return
 
     def validate(self, attrs: dict) -> dict:
         # Field-level validate_filters only runs when the PATCH body includes `filters`. This
