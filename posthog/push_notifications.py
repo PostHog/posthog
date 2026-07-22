@@ -4,7 +4,7 @@ The Expo push API accepts up to 100 messages per HTTP call and returns one
 ticket per message. Tickets carry transient errors (delivery failed, push token
 invalid) but final delivery success is only confirmed by polling receipts.
 
-For the PostHog Desktop mobile app the only thing we care about is best-effort
+For the PostHog mobile app, the only thing we care about is best-effort
 fan-out plus pruning tokens the device push service has rejected as
 permanently invalid (`DeviceNotRegistered`). Receipt polling is deferred until
 we have a real reason to surface delivery status.
