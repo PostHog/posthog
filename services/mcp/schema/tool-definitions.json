@@ -351,6 +351,34 @@
             "readOnlyHint": true
         }
     },
+    "llma-parser-recipe-create": {
+        "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Compiles, validates, and saves a custom parser recipe for an LLM analytics trace event.",
+        "title": "Create parser recipe",
+        "required_scopes": ["llm_analytics:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-parser-recipe-reference": {
+        "description": "Returns the LLM analytics parser recipe DSL reference: the syntax and a set of worked examples for writing parser recipes. Call this before `llma-parser-recipe-create` so you know the recipe grammar.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Returns the parser recipe DSL syntax and worked examples.",
+        "title": "Parser recipe reference",
+        "required_scopes": ["llm_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organizations-get": {
         "description": "Fetches the organizations that the user has access to, with their id, name, and membership level. Use this to discover organizations — including ones other than the active organization — and to resolve an organization name to the id you pass to `switch-organization`.",
         "category": "Organization & project management",

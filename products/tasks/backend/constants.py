@@ -91,6 +91,7 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "inbox-reports-bulk-set-state",
     "inbox-reports-set-state",
     "llma-prompt-label-set",
+    "organization-enforce-2fa",
     "scout-scratchpad-forget",
     "signals-scout-scratchpad-forget",
     "skill-archive",
@@ -119,6 +120,7 @@ POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "cdp-functions-create",
     "workflows-create",
     "workflows-create-email-template",
+    "llma-parser-recipe-create",
 )
 
 POSTHOG_EXEC_PERMISSION_REGEX = (
