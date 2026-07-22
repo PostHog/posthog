@@ -232,6 +232,15 @@ export class HogFlowManagerService {
             }
             const config = action.config as { inputs?: Record<string, unknown> }
             config.inputs = { ...config.inputs, ...actionSecrets }
+
+            // The top-level `trigger` is derived from the trigger action and is stripped of secrets
+            // the same way. The source-webhook consumer builds its function from `hogFlow.trigger`
+            // (not the action), so re-merge the trigger action's secrets there too or a webhook
+            // trigger's secret auth header would be missing at runtime.
+            if (action.type === 'trigger' && item.trigger && 'inputs' in item.trigger) {
+                const trigger = item.trigger as { inputs?: Record<string, unknown> }
+                trigger.inputs = { ...trigger.inputs, ...actionSecrets }
+            }
         }
     }
 }

@@ -3621,3 +3621,72 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow.refresh_from_db()
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED"
         assert flow.draft is None
+
+    def test_duplicate_action_id_is_rejected(self):
+        # Secret recovery is keyed by action id, so a forged duplicate id must never reach the recovery
+        # path - reject it outright on the normal write path (not just the /graph endpoint).
+        payload = self._flow_payload()
+        payload["actions"].append({**payload["actions"][1], "name": "dupe"})  # second action reuses action_1's id
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
+        assert response.status_code == 400, response.json()
+        assert "Duplicate action id" in str(response.json())
+
+    @patch(_REVISIONS_FLAG_PATH, return_value=True)
+    def test_noop_resave_of_secret_flow_does_not_bump_revision(self, _flag):
+        # Resending the masked graph a GET returned (api_key as {"secret": true}) must be a true no-op:
+        # validation recovers the secret back into actions before the strip, so the version-bump compare
+        # has to normalize both sides secret-free or every such save spuriously bumps the version.
+        flow_id = self._create()
+        assert (
+            self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
+            == 200
+        )
+        # GET returns the stored shape with the secret masked - exactly what a client resubmits.
+        masked_actions = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()["actions"]
+        assert next(a for a in masked_actions if a["type"] == "function")["config"]["inputs"]["api_key"] == {
+            "secret": True
+        }
+
+        # First resave settles any create-vs-update shape defaults; the second identical one is the no-op.
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": masked_actions}
+            ).status_code
+            == 200
+        )
+        version_after_first = HogFlow.objects.get(id=flow_id).version
+
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": masked_actions}
+            ).status_code
+            == 200
+        )
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.version == version_after_first
+        # And the resent mask never wiped the stored secret.
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
+    def test_test_invocation_rehydrates_resent_secret_in_configuration(self):
+        # A test run submits an explicit `configuration` (the masked graph a GET returned). The nested
+        # HogFlowSerializer never gets self.instance, so recovery must come via context - otherwise the
+        # required secret input 400s or is silently dropped.
+        flow_id = self._create()
+        config = self._flow_payload()
+        self._function_inputs(config)["api_key"] = {"secret": True}
+
+        with patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+                    "mock_async_functions": True,
+                    "configuration": config,
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sent_actions = mock_invoke.call_args.kwargs["payload"]["configuration"]["actions"]
+        sent_inputs = next(a for a in sent_actions if a["type"] == "function")["config"]["inputs"]
+        assert sent_inputs["api_key"]["value"] == "SUPER-SECRET"

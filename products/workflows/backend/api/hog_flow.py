@@ -160,7 +160,13 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
 _FUNCTION_TRIGGER_CONFIG_TYPES = frozenset({"webhook", "manual", "tracking_pixel"})
 
 
-def _function_template_for_action(action: dict) -> Optional[Any]:
+# A per-call {template_id: template_or_None} memo. Resolving a template is a DB query, and both the
+# read (masking) and write (stripping) paths touch every action, so callers pass one of these to
+# dedupe lookups - within a flow, and across a whole list page when stashed on the serializer context.
+TemplateCache = dict[str, Optional[Any]]
+
+
+def _function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
     # A function step, or a trigger whose source is function-shaped, resolves a template whose
     # inputs_schema tells us which inputs are secret. Everything else has no secret inputs.
     config = action.get("config") or {}
@@ -170,17 +176,24 @@ def _function_template_for_action(action: dict) -> Optional[Any]:
     )
     if not is_function:
         return None
-    return HogFunctionTemplate.get_template(config.get("template_id", "") or "")
+    template_id = config.get("template_id", "") or ""
+    if template_cache is None:
+        return HogFunctionTemplate.get_template(template_id)
+    if template_id not in template_cache:
+        template_cache[template_id] = HogFunctionTemplate.get_template(template_id)
+    return template_cache[template_id]
 
 
-def _secret_keys_for_action(action: dict) -> set[str]:
-    template = _function_template_for_action(action)
+def _secret_keys_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> set[str]:
+    template = _function_template_for_action(action, template_cache)
     if not template:
         return set()
     return {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
 
 
-def partition_flow_secrets(actions: list[dict]) -> tuple[list[dict], dict[str, dict]]:
+def partition_flow_secrets(
+    actions: list[dict], template_cache: Optional[TemplateCache] = None
+) -> tuple[list[dict], dict[str, dict]]:
     """Split secret inputs out of each action's config.inputs.
 
     Returns (stripped_actions, encrypted_map) where encrypted_map is {action_id: {input_key: value}}.
@@ -191,7 +204,7 @@ def partition_flow_secrets(actions: list[dict]) -> tuple[list[dict], dict[str, d
     encrypted: dict[str, dict] = {}
     for original in actions:
         action = deepcopy(original)
-        secret_keys = _secret_keys_for_action(action)
+        secret_keys = _secret_keys_for_action(action, template_cache)
         if secret_keys:
             inputs = (action.get("config") or {}).get("inputs")
             if isinstance(inputs, dict):
@@ -210,12 +223,14 @@ def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str
     return result
 
 
-def mask_secret_action_inputs(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
+def mask_secret_action_inputs(
+    actions: list[dict], secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
+) -> list[dict]:
     # Replace every set secret input with the {"secret": True} presence marker for read-back. Mutates
-    # the given action dicts (fresh from to_representation). A value counts as set if it lives in the
-    # encrypted map or, for legacy rows written before the split, still sits in plaintext inputs.
+    # the given action dicts (must be a copy - callers deepcopy first). A value counts as set if it
+    # lives in the encrypted map or, for legacy rows written before the split, still sits in plaintext.
     for flow_action in actions:
-        secret_keys = _secret_keys_for_action(flow_action)
+        secret_keys = _secret_keys_for_action(flow_action, template_cache)
         if not secret_keys:
             continue
         inputs = (flow_action.get("config") or {}).get("inputs")
@@ -227,6 +242,23 @@ def mask_secret_action_inputs(actions: list[dict], secrets_by_action: dict[str, 
             if action_secrets.get(key) or inputs.get(key):
                 inputs[key] = {"secret": True}
     return actions
+
+
+def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
+    # Return a copy of a content snapshot with secret inputs stripped from actions (and the derived
+    # trigger re-derived from them). Used to compare two snapshots secret-free, so a resent secret that
+    # validation recovers into `actions` doesn't read as a content change against the stored (stripped)
+    # snapshot and spuriously bump the revision.
+    normalized = dict(content)
+    actions = normalized.get("actions")
+    if isinstance(actions, list):
+        stripped, _ = partition_flow_secrets(actions, template_cache)
+        normalized["actions"] = stripped
+        if "trigger" in normalized:
+            trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
+            if trigger_action is not None:
+                normalized["trigger"] = trigger_action.get("config")
+    return normalized
 
 
 def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
@@ -1091,11 +1123,19 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         draft_secrets = instance.draft_encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
         data = super().to_representation(instance)
 
+        # `actions`/`draft` come back from super() by reference (JSONField doesn't copy), so masking in
+        # place would rewrite the live model instance. Deepcopy first to keep serialization side-effect
+        # free. The template cache lives on the context so a list render dedupes lookups across flows.
+        template_cache: TemplateCache = self.context.setdefault("_hogflow_template_cache", {})
         if isinstance(data.get("actions"), list):
-            mask_secret_action_inputs(data["actions"], live_secrets)
+            data["actions"] = mask_secret_action_inputs(deepcopy(data["actions"]), live_secrets, template_cache)
         draft = data.get("draft")
         if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
-            mask_secret_action_inputs(draft["actions"], merge_secret_maps(live_secrets, draft_secrets))
+            draft = deepcopy(draft)
+            draft["actions"] = mask_secret_action_inputs(
+                draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
+            )
+            data["draft"] = draft
 
         return data
 
@@ -1218,9 +1258,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     )
 
     def to_internal_value(self, data):
+        # When used as a nested field (the `configuration` override on test invocations) DRF never
+        # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
+        instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+
         status = data.get("status")
-        if status is None and self.instance:
-            status = self.instance.status
+        if status is None and instance:
+            status = instance.status
         if status != "active":
             self.context["is_draft"] = True
 
@@ -1228,7 +1272,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # resent {"secret": true} marker. Merge live over draft (draft wins) so an in-progress draft
         # edit recovers the value the client actually saw. Must be set before super() runs, since the
         # nested action serializers validate inside it.
-        instance = cast(Optional[HogFlow], self.instance)
         if instance is not None:
             self.context["existing_encrypted_inputs"] = merge_secret_maps(
                 instance.encrypted_inputs, instance.draft_encrypted_inputs
@@ -1237,8 +1280,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
         actions = data.get("actions")
-        if actions is None and self.instance:
-            actions = self.instance.actions
+        if actions is None and instance:
+            actions = instance.actions
         self.context["is_dwh_source"] = any(
             isinstance(action, dict)
             and action.get("type") == "trigger"
@@ -1292,6 +1335,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
         is_draft = self.context.get("is_draft")
+
+        # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
+        # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
+        # recovery is keyed by action id, so a forged duplicate id could otherwise pull another action's
+        # secret into an attacker-controlled step. Rejecting here blocks it before anything is written.
+        submitted_actions = data.get("actions")
+        if isinstance(submitted_actions, list):
+            submitted_ids = [a.get("id") for a in submitted_actions if isinstance(a, dict)]
+            duplicate_ids = sorted({aid for aid in submitted_ids if aid is not None and submitted_ids.count(aid) > 1})
+            if duplicate_ids:
+                raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
+
         actions = data.get("actions", instance.actions if instance else [])
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
@@ -1430,7 +1485,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # action set, so deleted actions' secrets drop out.
         if "actions" not in validated_data:
             return
-        stripped, encrypted = partition_flow_secrets(validated_data["actions"])
+        stripped, encrypted = partition_flow_secrets(validated_data["actions"], template_cache={})
         validated_data["actions"] = stripped
         validated_data["encrypted_inputs"] = encrypted
         # `trigger` is derived from the trigger action's config (see validate); re-derive it from the
@@ -2120,11 +2175,17 @@ class HogFlowViewSet(
         # network and must not run under the select_for_update lock.
         if not enabled:
             return False
-        old_content = snapshot_flow_content(before)
-        new_content = {
-            **old_content,
+        raw_old = snapshot_flow_content(before)
+        raw_new = {
+            **raw_old,
             **{field: validated_data[field] for field in DRAFT_CONTENT_FIELDS if field in validated_data},
         }
+        # Compare secret-free on both sides. `raw_new` still carries the plaintext secrets validation
+        # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
+        # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
+        template_cache: TemplateCache = {}
+        old_content = strip_content_secrets(raw_old, template_cache)
+        new_content = strip_content_secrets(raw_new, template_cache)
         if new_content == old_content:
             return False
         instance.version = (before.version or 0) + 1
@@ -2163,7 +2224,7 @@ class HogFlowViewSet(
         # snapshot; otherwise the draft's secrets are unchanged. Publish/restore re-attach from here.
         draft_encrypted_inputs = locked.draft_encrypted_inputs
         if "actions" in validated_data:
-            stripped, draft_encrypted_inputs = partition_flow_secrets(draft["actions"])
+            stripped, draft_encrypted_inputs = partition_flow_secrets(draft["actions"], template_cache={})
             draft["actions"] = stripped
             trigger_action = next((action for action in stripped if action.get("type") == "trigger"), None)
             if trigger_action is not None:

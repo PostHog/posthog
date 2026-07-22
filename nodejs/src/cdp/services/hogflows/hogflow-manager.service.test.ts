@@ -236,5 +236,46 @@ describe('HogFlowManager', () => {
             // The ciphertext blob never rides along on the in-memory flow.
             expect(loaded).not.toHaveProperty('encrypted_inputs')
         })
+
+        it('re-merges a webhook trigger secret into hogFlow.trigger, not just the trigger action', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Webhook-triggered flow')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: { type: 'webhook', template_id: 'template-source-webhook', inputs: {} },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                    })
+                    .build()
+            )
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    flow.id,
+                    hub.encryptedFields.encrypt(
+                        JSON.stringify({ trigger: { auth_header: { value: 'Bearer secret' } } })
+                    ),
+                ],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            const loaded = await manager.getHogFlow(flow.id)
+            // The source-webhook consumer builds its function from hogFlow.trigger, so the secret must
+            // land there too or a webhook trigger would run without its configured auth header.
+            expect((loaded!.trigger as { inputs: Record<string, unknown> }).inputs).toEqual({
+                auth_header: { value: 'Bearer secret' },
+            })
+        })
     })
 })
