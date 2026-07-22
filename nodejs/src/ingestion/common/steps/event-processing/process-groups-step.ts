@@ -127,7 +127,9 @@ function validateGroupSet(preparedEvent: PreIngestionEvent): PipelineWarning | n
             groupKey: sanitizeString(String(groupKey)),
             receivedType: Array.isArray(groupPropertiesToSet) ? 'array' : typeof groupPropertiesToSet,
         },
-        key: String(groupKey),
+        // No `key`: the limiter's bucket map never evicts, so a client-supplied
+        // key (like $group_key) would let a sender bypass the per-team debounce
+        // and grow the map without bound. Debounce per team and type instead.
     }
 }
 
