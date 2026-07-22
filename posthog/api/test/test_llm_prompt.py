@@ -1204,6 +1204,16 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert move_detail["changes"][0]["after"] == 2
         assert entries[1].user is not None and entries[1].user.id == self.user.id
 
+    def test_label_activity_survives_prompt_names_longer_than_item_id_column(self):
+        long_name = "a" * 100  # valid prompt name (max 255) but longer than ActivityLog.item_id's varchar(72)
+        self.create_prompt_version(name=long_name, version=1)
+
+        response = self._set_label(long_name, "production", 1)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        entry = ActivityLog.objects.get(team_id=self.team.id, scope="LLMPromptLabel")
+        assert entry.item_id == long_name[:72]
+
     def test_archive_logs_label_deletion(self):
         self.create_prompt_version(version=1)
         self._set_label("my-prompt", "production", 1)
