@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1261_alter_personalapikey_scoped_organizations_and_more"),
-        ("workflows", "0009_hogflow_action_redirects"),
+        ("workflows", "0010_email_reputation_snapshot"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
