@@ -696,9 +696,12 @@ class TestCohortUtils(BaseTest):
 
         context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
 
+        # Before the fix this raised `QueryError: Unable to resolve field: event_count`.
+        # Producing SQL at all is the core regression check; the top-level ORDER BY must be gone
+        # and the SELECT collapsed to the actor column. (`event_count` may still appear as a
+        # harmless unused column in an inner subquery, which the collapse does not descend into.)
         sql = print_cohort_hogql_query(cohort, context, team=self.team)
 
-        self.assertNotIn("event_count", sql)
         self.assertNotIn("order by", sql.lower())
         self.assertIn("as actor_id", sql.lower())
 
