@@ -85,6 +85,7 @@ import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, Project
 import type { TeamPublicType, TeamType } from '../../../types'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
@@ -778,7 +779,10 @@ export interface hogFunctionConfigurationLogicMeta {
             newInputs: CyclotronJobInputSchemaType[]
             oldInputs: CyclotronJobInputSchemaType[]
         } | null
-        canLoadSampleGlobals: (lastEventQuery: EventsQuery | null) => boolean
+        canLoadSampleGlobals: (
+            lastEventQuery: EventsQuery | null,
+            contextId: HogFunctionConfigurationContextId
+        ) => boolean
         showFilters: (type: HogFunctionTypeType) => boolean
         showExpectedVolume: (type: HogFunctionTypeType, sourceUsesEvents: boolean) => boolean
         canEditSource: (
@@ -1105,6 +1109,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
+                    const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
+                    if (sampleGlobalsLoader) {
+                        try {
+                            const globals = await sampleGlobalsLoader(values.exampleInvocationGlobals)
+                            breakpoint()
+                            return globals
+                        } catch (e: any) {
+                            if (isBreakpoint(e)) {
+                                // Superseded by a newer load — abort without dispatching a result
+                                throw e
+                            }
+                            actions.setSampleGlobalsError(e.message)
+                            return values.exampleInvocationGlobals
+                        }
+                    }
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
@@ -1791,9 +1810,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         canLoadSampleGlobals: [
-            (s) => [s.lastEventQuery],
-            (lastEventQuery: EventsQuery | null) => {
-                return !!lastEventQuery
+            (s) => [s.lastEventQuery, s.contextId],
+            (lastEventQuery: EventsQuery | null, contextId: HogFunctionConfigurationContextId) => {
+                return !!lastEventQuery || !!SAMPLE_GLOBALS_CONTEXTS[contextId]
             },
         ],
 

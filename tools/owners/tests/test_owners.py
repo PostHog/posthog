@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from posthog_owners import fmt as fmt_module
-from posthog_owners.cli import _consolidation_suggestions, _reserved_location_error
+from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
 from posthog_owners.matcher import path_matches_pattern
 from posthog_owners.resolver import OwnersResolver
@@ -612,3 +612,28 @@ def test_fmt_equivalence_proof_catches_a_wrong_layout(tmp_path: Path) -> None:
     placer = CanonicalPlacer(OwnersResolver(repo_root=tmp_path))
     with pytest.raises(AssertionError):
         placer._prove({}, {"a/f.py": ("team-wrong",)})
+
+
+_OWNERS_BY_FILE = {
+    "owners.yaml": {"team-devex", "team-billing"},
+    "rust/owners.yaml": {"ai-research"},
+    "ee/owners.yaml": {"team-bogus"},
+}
+
+
+@pytest.mark.parametrize(
+    "paths,expected",
+    [
+        ((), {"team-devex", "team-billing", "ai-research", "team-bogus"}),
+        (("rust/owners.yaml",), {"ai-research"}),
+        (("owners.yaml", "rust/owners.yaml"), {"team-devex", "team-billing", "ai-research"}),
+        (("./rust/owners.yaml",), {"ai-research"}),
+        (("posthog/owners.yaml",), set()),
+    ],
+)
+def test_live_scope_limits_validation_to_the_given_files(paths: tuple[str, ...], expected: set[str]) -> None:
+    assert _live_scope(_OWNERS_BY_FILE, paths) == expected
+
+
+def test_live_scope_ignores_stale_owners_outside_the_diff() -> None:
+    assert "team-bogus" not in _live_scope(_OWNERS_BY_FILE, ("owners.yaml",))

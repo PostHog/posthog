@@ -115,9 +115,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
 def _configure_source_mock_versioning(mock_get_source) -> None:
     """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
     attributes real values: the create path persists `default_version` into the `api_version`
-    column, and the serializer renders `get_version_deprecation` into the response."""
+    column, and the serializer renders `get_version_deprecation` into the response. The create path
+    also reads `max_instances_per_team` to enforce the per-team source limit — leave it unset so the
+    limit check is skipped rather than comparing against a MagicMock.
+
+    The update path also asks the source whether an edit introduces a new connection host or leaves
+    row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
+    mock_get_source.return_value.max_instances_per_team = None
+    mock_get_source.return_value.connection_host_fields = []
+    mock_get_source.return_value.server_managed_job_input_fields.return_value = []
+    mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
+    mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -1341,6 +1352,68 @@ class TestExternalDataSource(APIBaseTest):
         assert unconfigured_schema.should_sync is False
         assert configured_schema.should_sync is True
         assert mock_unpause.call_count == 1
+
+    @parameterized.expand(
+        [
+            # A bad-credentials rejection from the customer's database is theirs to fix and is
+            # already reported back in the response, so it must not be captured as error-tracking noise.
+            (
+                "expected_credential_error",
+                psycopg.OperationalError(
+                    'connection failed: FATAL:  password authentication failed for user "postgres"'
+                ),
+                False,
+            ),
+            # An unexpected error still points at a bug in our discovery code, so keep capturing it.
+            ("unexpected_error", ValueError("unexpected discovery failure"), True),
+        ]
+    )
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_bulk_update_schemas_apply_sync_defaults_skips_capture_for_expected_errors(
+        self, _name, raised_exception, should_capture, mock_capture_exception, _mock_workflow_exists
+    ):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="pg",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "app",
+                "user": "user",
+                "password": "pass",
+                "schema": "public",
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customer", team_id=self.team.pk, source=source, should_sync=False, sync_type=None
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            side_effect=raised_exception,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        # Discovery failed, so the schema is reported back either way and stays unconfigured.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "could not read the source" in response.json()["detail"]
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+        assert mock_capture_exception.called is should_capture
 
     @patch(
         "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -2673,6 +2746,39 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertCountEqual(names, ["table_a", "table_b"])
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_system_managed_source_rejects_schema_refresh(self, mock_get_source):
+        source = self._create_external_data_source()
+        source.connection_metadata = {"system_managed": True}
+        source.save(update_fields=["connection_metadata"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_get_source.assert_not_called()
+
+    def test_system_managed_source_schema_rejects_update(self):
+        source = self._create_external_data_source()
+        source.connection_metadata = {"system_managed": True}
+        source.save(update_fields=["connection_metadata"])
+        schema = ExternalDataSchema.objects.create(
+            name="sibling_team_events",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.pk}/",
+            data={"should_sync": True},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
     @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_source, mock_schedule):
@@ -3440,6 +3546,22 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+
+    def test_create_direct_postgres_rejects_the_managed_warehouse_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "managed_warehouse",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "This source name is reserved by PostHog."}
+        assert not ExternalDataSource.objects.filter(team=self.team, prefix="managed_warehouse").exists()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
@@ -7748,7 +7870,7 @@ class TestExternalDataSource(APIBaseTest):
 
         # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
         # excluded cases stay under the limit and fail later on the (empty) manifest instead.
-        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} sources of this type per project."
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         if expect_blocked:
             assert response.json()["message"] == limit_message
@@ -10975,7 +11097,11 @@ class TestResumeCDC(APIBaseTest):
     )
     def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        self._cdc_schema(source)
+        schema = self._cdc_schema(source)
+        # The non-retryable failure that paused the schedule also stamped this marker; a resume
+        # that leaves it behind keeps the schema reading as halted (digest badge, status guard).
+        schema.sync_type_config["cdc_extraction_paused"] = {"reason": "auth_failed", "at": "2026-07-16T05:42:00+00:00"}
+        schema.save()
 
         response = self._resume(source)
         assert response.status_code == 200, response.content
@@ -10985,6 +11111,9 @@ class TestResumeCDC(APIBaseTest):
         assert mock_sync.call_args.args[0].pk == source.pk
         mock_unpause.assert_called_once_with(str(source.pk))
         assert mock_get_status.call_args.args[0].pk == source.pk
+        schema.refresh_from_db()
+        assert "cdc_extraction_paused" not in schema.sync_type_config
+        assert schema.sync_halted is False
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
     @patch(
@@ -11132,6 +11261,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "does not support one-shot setup" in response.json()["message"]
         mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    def test_create_rejects_source_without_schema_discovery_without_persisting(self):
+        # AmazonS3 is an unreleased scaffold with no get_schemas. Creating it must 400 and leave no
+        # row behind — otherwise get_schemas raises NotImplementedError as an uncaught 500 after the
+        # source row is already persisted, orphaning it.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={"source_type": "AmazonS3", "prefix": "s3_create_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support schema discovery" in response.json()["message"]
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):

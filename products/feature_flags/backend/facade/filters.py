@@ -113,6 +113,18 @@ def groups_carry_restriction_marker(current_filters: dict, *, marker_key: str) -
     return bool(groups) and all(group.get(marker_key) is True for group in groups)
 
 
+def replace_variant_distribution(current_filters: dict, variants: list[dict]) -> dict:
+    """Rebuild ``multivariate.variants`` from ``variants``, leaving every other filters key untouched.
+
+    A caller that only owns the variant distribution — e.g. web experiments syncing
+    variant rollout percentages — carries ``groups`` (release conditions), ``payloads``,
+    aggregation index, and anything else over as-is, so it can't accidentally drop flag
+    configuration it doesn't know about. ``variants`` are deepcopied so the returned
+    filters never alias the caller's dicts.
+    """
+    return {**current_filters, "multivariate": {"variants": deepcopy(variants)}}
+
+
 def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_percentage: float | None) -> dict:
     """Set (or clear) the flag-level ``holdout`` object on the filters.
 

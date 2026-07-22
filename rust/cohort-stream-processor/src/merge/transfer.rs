@@ -9,9 +9,11 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::filters::reverse_index::TeamFilters;
+use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::PersonDedup;
-use crate::stage1::state::StatefulRecord;
+use crate::stage1::state::{StateVariant, StatefulRecord};
 
 pub const MERGE_EVENT_SCHEMA_VERSION: u32 = 1;
 
@@ -31,6 +33,124 @@ pub struct TransferLeaf {
     /// 16-byte `LeafStateKey` as 32 lowercase hex chars (human-readable on the wire).
     pub leaf_state_key: String,
     pub record: StatefulRecord,
+}
+
+/// One persisted membership register carried alongside P_old's leaf state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransferMembershipRegister {
+    pub cohort_id: i32,
+    pub in_cohort: bool,
+    /// Enough source semantics for a receiver to materialize the scan register without consulting
+    /// a potentially older or not-yet-loaded filter catalog.
+    #[serde(default)]
+    pub kind: TransferMembershipRegisterKind,
+}
+
+/// Source semantics for a transferred membership register.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferMembershipRegisterKind {
+    SingleLeafBehavioral,
+    SingleLeafPersonProperty,
+    #[default]
+    Composable,
+}
+
+/// Persisted source provenance for a merge-carried register. The local Stage 2 row may use a
+/// conservative bit from the receiver's current catalog shape; this value keeps the original wire
+/// bit and kind available for another catalogless hop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransferredRegisterProvenance {
+    pub kind: TransferMembershipRegisterKind,
+    pub in_cohort: bool,
+    expected_primary: Vec<u8>,
+}
+
+impl TransferredRegisterProvenance {
+    pub fn new(register: TransferMembershipRegister, expected_primary: &[u8]) -> Self {
+        Self {
+            kind: register.kind,
+            in_cohort: register.in_cohort,
+            expected_primary: expected_primary.to_vec(),
+        }
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut encoded = Vec::with_capacity(2 + self.expected_primary.len());
+        encoded.push(self.kind.encode()[0]);
+        encoded.push(self.in_cohort as u8);
+        encoded.extend_from_slice(&self.expected_primary);
+        encoded
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        let [kind, in_cohort, expected_primary @ ..] = bytes else {
+            return None;
+        };
+        Some(Self {
+            kind: TransferMembershipRegisterKind::decode(&[*kind])?,
+            in_cohort: match *in_cohort {
+                0 => false,
+                1 => true,
+                _ => return None,
+            },
+            expected_primary: expected_primary.to_vec(),
+        })
+    }
+
+    pub fn matches_primary(&self, primary: &[u8]) -> bool {
+        self.expected_primary == primary
+    }
+}
+
+impl TransferMembershipRegisterKind {
+    /// The safe initial value for a missing survivor register. Behavioral single-leaf state carries
+    /// its exact bit; person-property and composable state must be recomputed for the survivor.
+    pub const fn materialized_bit(self, transferred_bit: bool) -> bool {
+        match self {
+            Self::SingleLeafBehavioral => transferred_bit,
+            Self::SingleLeafPersonProperty | Self::Composable => false,
+        }
+    }
+
+    /// Compact persisted form used by the catalog-independent Stage 2 transfer inventory.
+    pub const fn encode(self) -> [u8; 1] {
+        [match self {
+            Self::SingleLeafBehavioral => 1,
+            Self::SingleLeafPersonProperty => 2,
+            Self::Composable => 3,
+        }]
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            [1] => Some(Self::SingleLeafBehavioral),
+            [2] => Some(Self::SingleLeafPersonProperty),
+            [3] => Some(Self::Composable),
+            _ => None,
+        }
+    }
+
+    /// Derive the register semantics from one catalog snapshot. `None` means the cohort does not
+    /// currently register membership.
+    pub(crate) fn from_filters(filters: &TeamFilters, cohort_id: CohortId) -> Option<Self> {
+        match filters.eligibility.get(&cohort_id)? {
+            crate::stage2::CohortEligibility::SingleLeaf(lsk) => {
+                Some(match filters.by_lsk.get(lsk).map(|meta| meta.variant) {
+                    Some(StateVariant::PersonProperty) => Self::SingleLeafPersonProperty,
+                    Some(
+                        StateVariant::BehavioralSingle
+                        | StateVariant::BehavioralDailyBuckets
+                        | StateVariant::BehavioralCompressedHistory,
+                    ) => Self::SingleLeafBehavioral,
+                    None => Self::Composable,
+                })
+            }
+            crate::stage2::CohortEligibility::Stage2Composable
+            | crate::stage2::CohortEligibility::Stage2ComposableRef => Some(Self::Composable),
+            crate::stage2::CohortEligibility::Excluded(_) => None,
+        }
+    }
 }
 
 impl TransferLeaf {
@@ -59,6 +179,12 @@ pub struct MergeStateTransfer {
     pub source_partition: i32,
     pub source_offset: i64,
     pub leaves: Vec<TransferLeaf>,
+    /// P_old's materialized behavioral membership rows. Carrying these preserves the reconcile scan
+    /// domain when no leaf transition recreates a composable row, and across catalog refreshes
+    /// between drain and apply. An apply uses them only to fill a missing survivor register;
+    /// post-merge evaluation remains authoritative.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub membership_registers: Vec<TransferMembershipRegister>,
     /// Cross-partition forward hops taken so far when `new_person_uuid` was itself tombstoned at
     /// apply time (chained merge `A → B → C` where `B → C` drained before `A → B` applied). Bounded
     /// by [`crate::merge::apply_handler::MAX_TRANSFER_FORWARD_HOPS`]. `#[serde(default)]`: a message
@@ -72,6 +198,15 @@ pub struct MergeStateTransfer {
     /// field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub person_dedup: Option<PersonDedup>,
+}
+
+impl MergeStateTransfer {
+    /// Whether applying this transfer can change survivor state.
+    pub fn has_payload(&self) -> bool {
+        !self.leaves.is_empty()
+            || !self.membership_registers.is_empty()
+            || self.person_dedup.is_some()
+    }
 }
 
 /// Staged transfer in `cf_pending_transfers`. Survives a crash between the drain batch and the
@@ -204,6 +339,61 @@ mod tests {
     }
 
     #[test]
+    fn membership_register_kind_inventory_codec_is_closed() {
+        for kind in [
+            TransferMembershipRegisterKind::SingleLeafBehavioral,
+            TransferMembershipRegisterKind::SingleLeafPersonProperty,
+            TransferMembershipRegisterKind::Composable,
+        ] {
+            assert_eq!(
+                TransferMembershipRegisterKind::decode(&kind.encode()),
+                Some(kind)
+            );
+        }
+        assert_eq!(TransferMembershipRegisterKind::decode(&[]), None);
+        assert_eq!(TransferMembershipRegisterKind::decode(&[0]), None);
+        assert_eq!(TransferMembershipRegisterKind::decode(&[1, 2]), None);
+    }
+
+    #[test]
+    fn transferred_register_provenance_codec_preserves_kind_and_bit() {
+        for provenance in [
+            TransferredRegisterProvenance::new(
+                TransferMembershipRegister {
+                    cohort_id: 1,
+                    in_cohort: true,
+                    kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+                },
+                b"primary-a",
+            ),
+            TransferredRegisterProvenance::new(
+                TransferMembershipRegister {
+                    cohort_id: 1,
+                    in_cohort: false,
+                    kind: TransferMembershipRegisterKind::SingleLeafPersonProperty,
+                },
+                b"primary-b",
+            ),
+            TransferredRegisterProvenance::new(
+                TransferMembershipRegister {
+                    cohort_id: 1,
+                    in_cohort: true,
+                    kind: TransferMembershipRegisterKind::Composable,
+                },
+                b"primary-c",
+            ),
+        ] {
+            assert_eq!(
+                TransferredRegisterProvenance::decode(&provenance.encode()),
+                Some(provenance.clone()),
+            );
+            assert!(provenance.matches_primary(&provenance.expected_primary));
+        }
+        assert_eq!(TransferredRegisterProvenance::decode(&[1]), None);
+        assert_eq!(TransferredRegisterProvenance::decode(&[1, 2]), None);
+    }
+
+    #[test]
     fn person_merge_event_shape_is_pinned() {
         let event = PersonMergeEvent {
             team_id: 42,
@@ -244,17 +434,52 @@ mod tests {
             source_partition: 17,
             source_offset: 12_345,
             leaves: vec![TransferLeaf::new(LeafStateKey([0xAB; 16]), single_record())],
+            membership_registers: vec![TransferMembershipRegister {
+                cohort_id: 9,
+                in_cohort: false,
+                kind: TransferMembershipRegisterKind::Composable,
+            }],
             forward_hops: 0,
 
             person_dedup: None,
         };
         let decoded = MergeStateTransfer::decode(&transfer.encode()).unwrap();
         assert_eq!(decoded, transfer);
+        let wire: serde_json::Value = serde_json::from_slice(&transfer.encode()).unwrap();
+        assert_eq!(
+            wire["membership_registers"][0]["kind"],
+            serde_json::json!("composable"),
+            "the self-describing register kind is pinned on the wire",
+        );
         assert_eq!(
             decoded.leaves[0].record,
             single_record(),
             "the leaf's StatefulRecord transfers whole, so redirect_dedup chains for free",
         );
+        assert_eq!(decoded.membership_registers, transfer.membership_registers);
+        assert!(decoded.has_payload());
+    }
+
+    #[test]
+    fn register_only_transfer_is_not_empty() {
+        let transfer = MergeStateTransfer {
+            team_id: 7,
+            old_person_uuid: uuid(0xAAAA),
+            new_person_uuid: uuid(0xBBBB),
+            merged_at_ms: 1,
+            source_partition: 3,
+            source_offset: 4,
+            leaves: vec![],
+            membership_registers: vec![TransferMembershipRegister {
+                cohort_id: 9,
+                in_cohort: false,
+                kind: TransferMembershipRegisterKind::SingleLeafBehavioral,
+            }],
+            forward_hops: 0,
+            person_dedup: None,
+        };
+
+        assert!(transfer.has_payload());
     }
 
     #[test]
@@ -276,6 +501,7 @@ mod tests {
             source_partition: 17,
             source_offset: 12_345,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 0,
             person_dedup: Some(PersonDedup {
                 applied_offsets: AppliedOffsets::from_sorted_entries(vec![(1, 100), (2, 200)]),
@@ -306,6 +532,51 @@ mod tests {
             decoded.forward_hops, 0,
             "missing forward_hops defaults to 0"
         );
+        assert!(
+            decoded.membership_registers.is_empty(),
+            "older transfers default to no carried register rows",
+        );
+    }
+
+    #[test]
+    fn transfer_tolerates_unknown_fields_so_a_new_sender_cannot_poison_an_old_receiver() {
+        // A sender may add fields to the transfer wire; a receiver that does not know them must
+        // ignore them, not reject the whole message. This pins the absence of
+        // `#[serde(deny_unknown_fields)]` on MergeStateTransfer — adding it would silently drop every
+        // cross-partition merge whose transfer carries an unknown field.
+        let json = serde_json::json!({
+            "team_id": 7,
+            "old_person_uuid": uuid(0xAAAA).to_string(),
+            "new_person_uuid": uuid(0xBBBB).to_string(),
+            "merged_at_ms": 1_716_800_000_000_i64,
+            "source_partition": 17,
+            "source_offset": 12_345,
+            "leaves": [],
+            "membership_registers": [{ "cohort_id": 9, "in_cohort": false, "kind": "composable" }],
+            "some_future_field": { "added": "by a newer sender" },
+        });
+        let decoded = MergeStateTransfer::decode(&serde_json::to_vec(&json).unwrap())
+            .expect("an unknown extra field must not fail the decode");
+        assert_eq!(
+            decoded.membership_registers,
+            vec![TransferMembershipRegister {
+                cohort_id: 9,
+                in_cohort: false,
+                kind: TransferMembershipRegisterKind::Composable,
+            }],
+            "the known additive field still round-trips alongside the ignored unknown one",
+        );
+    }
+
+    #[test]
+    fn register_without_kind_defaults_to_safe_composable_semantics() {
+        let register: TransferMembershipRegister = serde_json::from_value(serde_json::json!({
+            "cohort_id": 9,
+            "in_cohort": true,
+        }))
+        .unwrap();
+        assert_eq!(register.kind, TransferMembershipRegisterKind::Composable);
+        assert!(!register.kind.materialized_bit(register.in_cohort));
     }
 
     #[test]
@@ -318,6 +589,7 @@ mod tests {
             source_partition: 3,
             source_offset: 4,
             leaves: vec![],
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,

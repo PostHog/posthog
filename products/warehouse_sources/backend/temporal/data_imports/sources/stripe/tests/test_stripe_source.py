@@ -9,7 +9,7 @@ import stripe as stripe_lib
 from stripe import ListObject
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
     StripeSourceConfig,
 )
@@ -581,6 +581,14 @@ class TestWebhookOnlyResponseWiring:
         response = self._source(CUSTOMER_RESOURCE_NAME, manager)
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
+
+    def test_discount_partitions_on_start_not_created(self) -> None:
+        # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
+        # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
+        # the first real customer.discount.* webhook event, failing the whole sync.
+        manager = self._make_manager(enabled=True)
+        response = self._source(DISCOUNT_RESOURCE_NAME, manager)
+        assert response.partition_keys == ["start"]
 
 
 class TestSchemaWebhookCapability:

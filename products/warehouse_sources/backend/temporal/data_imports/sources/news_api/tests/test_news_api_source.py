@@ -6,7 +6,9 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewsApiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
+    NewsApiSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import NewsApiResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

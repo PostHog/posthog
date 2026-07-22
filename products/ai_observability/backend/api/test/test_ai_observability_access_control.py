@@ -191,6 +191,15 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/{obj.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("products.ai_observability.backend.api.ai_blob.object_storage.read_object")
+    def test_viewer_can_fetch_ai_blob(self, mock_read):
+        mock_read.return_value = (b"png-bytes", "image/png")
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/ai_blob/v1/sha256/{'a' * 64}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_viewer_can_list_score_definitions(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
@@ -758,6 +767,15 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.ai_observability.backend.api.ai_blob.object_storage.read_object")
+    def test_none_access_blocks_ai_blob(self, mock_read):
+        mock_read.return_value = (b"png-bytes", "image/png")
+        self._set_access_level(self.no_access_user, access_level="none")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/ai_blob/v1/sha256/{'a' * 64}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # -- Resource inheritance: setting llm_analytics cascades to child resources --

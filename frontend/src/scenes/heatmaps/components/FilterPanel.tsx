@@ -259,7 +259,8 @@ export function FilterPanel({
             </div>
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">
-                    No data found. Try changing your filters or the URL above.
+                    No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
+                    settings. A high value can hide data on pages with less traffic.
                 </LemonBanner>
             ) : null}
         </>

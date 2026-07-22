@@ -123,6 +123,7 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailReputationSnapshot
                               |EvaluationContext
                               |Edge
                               |Endpoint
@@ -186,7 +187,11 @@ rules:
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
                               |LogsExclusionRule
+                              |LogsMetricRule
                               |LogsView
+                              |Loop
+                              |LoopFire
+                              |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMPromptLabel
@@ -197,6 +202,7 @@ rules:
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
+                              |MessageSuppression
                               |MessageTemplate
                               |Metric
                               |RelationshipProposal
@@ -286,6 +292,7 @@ rules:
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
+                              |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
                               |ReviewQueueItem
@@ -429,6 +436,7 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailReputationSnapshot
                         |EvaluationContext
                         |Edge
                         |Endpoint
@@ -490,6 +498,9 @@ rules:
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
+                        |Loop
+                        |LoopFire
+                        |LoopTrigger
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptLabel
@@ -500,6 +511,7 @@ rules:
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference
+                        |MessageSuppression
                         |MessageTemplate
                         |Metric
                         |RelationshipProposal
@@ -588,6 +600,7 @@ rules:
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
+                        |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue
                         |ReviewQueueItem

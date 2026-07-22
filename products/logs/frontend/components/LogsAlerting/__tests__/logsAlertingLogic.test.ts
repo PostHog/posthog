@@ -1,6 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -28,11 +32,93 @@ jest.mock('@posthog/lemon-ui', () => ({
 const mockReset = logsAlertsResetCreate as jest.MockedFunction<typeof logsAlertsResetCreate>
 const mockList = logsAlertsList as jest.MockedFunction<typeof logsAlertsList>
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise
+    })
+    return { promise, resolve }
+}
+
 describe('logsAlertingLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
         mockList.mockResolvedValue({ results: [] } as any)
+    })
+
+    describe('createdByFilter', () => {
+        it('reloads alerts with the selected creator UUID', async () => {
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            mockList.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreatedByFilter('019abcde-1234-7000-8000-000000000001')
+            }).toFinishAllListeners()
+
+            expect(mockList).toHaveBeenCalledWith(expect.any(String), {
+                limit: 500,
+                created_by: '019abcde-1234-7000-8000-000000000001',
+            })
+
+            logic.unmount()
+        })
+
+        it('clears the selected creator when the project changes', async () => {
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreatedByFilter('019abcde-1234-7000-8000-000000000001')
+            }).toFinishAllListeners()
+            mockList.mockClear()
+
+            const nextTeamId = MOCK_DEFAULT_TEAM.id + 1
+            await expectLogic(logic, () => {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: nextTeamId })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ createdByFilter: null })
+
+            expect(mockList).toHaveBeenCalledWith(String(nextTeamId), { limit: 500 })
+
+            logic.unmount()
+        })
+
+        it('discards alerts returned for the previous project', async () => {
+            const logic = logsAlertingLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const previousProjectResponse = deferred<Awaited<ReturnType<typeof logsAlertsList>>>()
+            const currentProjectAlerts = [{ id: 'current-project-alert' }] as any
+            const nextTeamId = MOCK_DEFAULT_TEAM.id + 1
+            mockList.mockImplementation((projectId) => {
+                if (projectId === String(MOCK_DEFAULT_TEAM.id)) {
+                    return previousProjectResponse.promise
+                }
+                return Promise.resolve({ results: currentProjectAlerts } as any)
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setCreatedByFilter('019abcde-1234-7000-8000-000000000001')
+            }).toDispatchActions(['loadAlerts'])
+
+            await expectLogic(logic, () => {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: nextTeamId })
+            }).toDispatchActions(['loadAlerts', 'loadAlertsSuccess'])
+            expect(logic.values.alerts).toEqual(currentProjectAlerts)
+
+            previousProjectResponse.resolve({ results: [{ id: 'previous-project-alert' }] } as any)
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(logic.values.alerts).toEqual(currentProjectAlerts)
+
+            logic.unmount()
+        })
     })
 
     describe('resetAlert', () => {

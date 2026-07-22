@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OncehubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oncehub import (
+    OncehubSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.oncehub import OncehubResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source import OncehubSource
