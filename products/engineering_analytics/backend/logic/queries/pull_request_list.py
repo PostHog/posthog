@@ -57,10 +57,10 @@ _SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-# The ready→merge cycle time, when the (forward-only) transitions table is synced: the last
-# observed transition must be a ready_for_review (for a merged PR it always is — a draft can't
-# merge) and the PR must be merged. A missed join leaves last_is_ready NULL/0 → NULL, meaning
-# "not observed" (opened ready, or transitions predate the sync), never 0.
+# The ready-to-merge cycle time, when the (forward-only) transitions source is synced: the last
+# observed transition must be a ready_for_review (for a merged PR it always is; a draft can't
+# merge) and the PR must be merged. A missed join leaves last_is_ready NULL/0, so the column is
+# NULL, meaning "not observed" (opened ready, or transitions predate the sync), never 0.
 _READY_TO_MERGE = """
         if(pr.merged_at IS NOT NULL AND re.last_is_ready,
            dateDiff('second', re.last_transition_at, pr.merged_at), NULL) AS ready_to_merge_seconds
