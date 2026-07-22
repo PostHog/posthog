@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import ActionsNode
+from posthog.schema import ActionsNode, EventsNode
 
 from posthog.models import Team
 
@@ -107,7 +107,8 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
 
         assert len(sources) == 1
         assert sources[0].metric_uuid == metric["uuid"]
-        assert tuple(node.event for node in sources[0].nodes) == expected_events
+        assert len(sources[0].nodes) == len(expected_events)
+        assert tuple(node.event for node in sources[0].nodes if isinstance(node, EventsNode)) == expected_events
         assert sources[0].session_linkable is True
 
     @parameterized.expand(
@@ -150,7 +151,10 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         sources = resolve_metric_events(experiment)
 
         assert len(sources) == 1
-        assert [(type(node), int(node.id)) for node in sources[0].nodes] == [(ActionsNode, action.pk)]
+        assert len(sources[0].nodes) == 1
+        node = sources[0].nodes[0]
+        assert isinstance(node, ActionsNode)
+        assert int(node.id) == action.pk
         assert sources[0].session_linkable is True
 
     def test_data_warehouse_only_metric_is_not_session_linkable(self) -> None:
@@ -166,7 +170,8 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         assert dw_only.session_linkable is False
         assert dw_only.nodes == ()
         assert mixed.session_linkable is True
-        assert [node.event for node in mixed.nodes] == ["purchase"]
+        assert len(mixed.nodes) == 1
+        assert [node.event for node in mixed.nodes if isinstance(node, EventsNode)] == ["purchase"]
 
     def test_includes_secondary_and_saved_metrics(self) -> None:
         primary = _metric("mean", source=_events_node("purchase"))
