@@ -90,6 +90,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UniqueViolation",
     # Something changed in the target table's schema that we were not expecting.
     "UndefinedColumn",
+    # The destination table doesn't exist and we couldn't (or shouldn't) create it.
+    # Retrying can never make the table appear, so fail fast and let the user fix it.
+    "UndefinedTable",
+    "PostgreSQLDestinationTableNotFoundError",
     # A VARCHAR column is too small.
     "StringDataRightTruncation",
     # Raised by PostgreSQL client. Self explanatory.
@@ -144,6 +148,17 @@ class PostgreSQLIncompatibleSchemaError(Exception):
 
     def __init__(self, err_msg: str):
         super().__init__(f"The data being exported is incompatible with the schema of the destination table: {err_msg}")
+
+
+class PostgreSQLDestinationTableNotFoundError(Exception):
+    """Raised when the destination table does not exist and could not be auto-created."""
+
+    def __init__(self, schema: str, table_name: str):
+        super().__init__(
+            f"The destination table '{schema}.{table_name}' does not exist. Please create it, or grant the "
+            "batch export's database user permission to create tables in this schema, as described in the "
+            "docs: https://posthog.com/docs/cdp/batch-exports/postgres"
+        )
 
 
 class PostgreSQLTransactionError(Exception):
@@ -616,7 +631,10 @@ class PostgreSQLClient:
                         data = remove_invalid_json(data)
                         await copy.write(data)
 
-        await run_in_retryable_transaction(self.connection, _copy_tsv_in_transaction)
+        try:
+            await run_in_retryable_transaction(self.connection, _copy_tsv_in_transaction)
+        except psycopg.errors.UndefinedTable as err:
+            raise PostgreSQLDestinationTableNotFoundError(schema, table_name) from err
 
 
 def remove_invalid_json(data: bytes) -> bytes:
@@ -943,6 +961,9 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
                     )
             except psycopg.errors.InsufficientPrivilege:
+                # We lack SELECT on the table, which means it exists but we can't read its columns.
+                # Treat it as present (assuming all columns) so we don't then try to create it.
+                table_exists = True
                 external_logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
                     "will assume all columns are present. If this results in an error, please grant SELECT "

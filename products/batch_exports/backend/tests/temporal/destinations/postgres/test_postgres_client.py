@@ -1,3 +1,4 @@
+import io
 import pathlib
 
 import pytest
@@ -7,7 +8,9 @@ from psycopg.errors import SerializationFailure
 from posthog.models.integration import MISSING_CERT_PATH, PostgreSQLIntegration
 
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
+    NON_RETRYABLE_ERROR_TYPES,
     PostgreSQLClient,
+    PostgreSQLDestinationTableNotFoundError,
     PostgreSQLTransactionError,
     remove_invalid_json,
     run_in_retryable_transaction,
@@ -158,6 +161,34 @@ async def test_ensure_ssl_root_cert_file(postgres_config, setup_postgres_test_db
 
     if check_file_deleted is not None:
         assert check_file_deleted.exists() is False
+
+
+async def test_copy_tsv_to_postgres_raises_clear_error_when_table_missing(postgres_config, setup_postgres_test_db):
+    """A missing destination table fails fast with a clear, non-retryable error.
+
+    A missing table used to surface as a raw psycopg `UndefinedTable`, which was not in
+    `NON_RETRYABLE_ERROR_TYPES`, so the activity retried a doomed export. We now translate it into
+    `PostgreSQLDestinationTableNotFoundError`, whose name is registered as non-retryable.
+    """
+    assert PostgreSQLDestinationTableNotFoundError.__name__ in NON_RETRYABLE_ERROR_TYPES
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        ssl_mode="prefer",
+    )
+
+    async with postgres_client.connect() as pg_client:
+        with pytest.raises(PostgreSQLDestinationTableNotFoundError, match="does not exist"):
+            await pg_client.copy_tsv_to_postgres(
+                io.BytesIO(b"some\tvalue\n"),
+                postgres_config["schema"],
+                "table_that_does_not_exist",
+                ["column_a", "column_b"],
+            )
 
 
 @pytest.mark.parametrize("integration", [True], indirect=True)
