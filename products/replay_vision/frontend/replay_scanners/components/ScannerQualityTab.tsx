@@ -971,6 +971,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         entryCount: total,
                         onForward: () => setPage(page + 1),
                         onBackward: () => setPage(page - 1),
+                        // Page state lives in scannerQualityLogic; without this the control also pushes a
+                        // `page` URL param that nothing reads and that goes stale on filter or tab changes.
+                        useUrl: false,
                     }}
                     sorting={sort}
                     onSort={(next) => setSort(next)}
