@@ -4,6 +4,7 @@ import {
     IconApp,
     IconApps,
     IconBook,
+    IconBrackets,
     IconBug,
     IconCircleDashed,
     IconClock,
@@ -280,7 +281,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-insight-stickiness-light)'],
     },
     'insight/hog': {
-        icon: <IconDatabase />,
+        icon: <IconBrackets />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
     team_activity: {
