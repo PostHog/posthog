@@ -262,9 +262,8 @@ tools:
             The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus
             ordered events — opened, ready_for_review / converted_to_draft transitions (when synced; the transition
             source is forward-only, so older PRs may lack them), CI started, CI finished, and merged or closed. Use this
-            to answer "where is this PR stuck and what happened to it". metric_quality is "partial" — review and
-            comment events are not yet available. For aggregate questions use the pull-requests and workflow-health
-            tools.
+            to answer "where is this PR stuck and what happened to it". metric_quality is "partial" — review and comment
+            events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.
         feature_flag: engineering-analytics
     pull-requests:
         operation: engineering_analytics_pull_requests
@@ -282,10 +281,10 @@ tools:
             rollup (runs / passing / failing / pending). Use this for "which PRs are stuck", "which open PRs have
             failing or pending CI", and per-author or per-repo PR triage. ready_to_merge_seconds is the true
             ready-for-review→merge cycle time, non-null only when the draft→ready transition was observed (the
-            transition source is forward-only); when null on a merged PR, fall back to open_to_merge_seconds — exact
-            for PRs opened ready, an overstatement for PRs whose draft phase predates the sync. open_to_merge_seconds
-            is coarse — merged_at minus created_at, fusing draft and ready time — so report it as "open to merge",
-            never "cycle time". CI counts come from the latest run per workflow on the head SHA and can lag until the
+            transition source is forward-only); when null on a merged PR, fall back to open_to_merge_seconds — exact for
+            PRs opened ready, an overstatement for PRs whose draft phase predates the sync. open_to_merge_seconds is
+            coarse — merged_at minus created_at, fusing draft and ready time — so report it as "open to merge", never
+            "cycle time". CI counts come from the latest run per workflow on the head SHA and can lag until the
             workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft)
             for throughput questions.
         param_overrides:
