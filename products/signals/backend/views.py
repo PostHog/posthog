@@ -2348,13 +2348,15 @@ class SignalReportArtefactViewSet(
         request. Best-effort — a Slack failure must never break the reviewer edit.
         """
         team_id = self.team.id
+        # robust=True: a broker outage while enqueuing must not 500 an edit that already committed.
         transaction.on_commit(
             lambda: send_reviewer_added_slack_notifications.delay(
                 report_id=report_id,
                 team_id=team_id,
                 added_github_logins=list(added_logins),
                 exclude_user_id=actor_user_id,
-            )
+            ),
+            robust=True,
         )
 
     @staticmethod

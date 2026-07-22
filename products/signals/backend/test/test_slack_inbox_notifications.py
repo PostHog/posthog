@@ -1175,8 +1175,9 @@ def test_reviewer_added_task_still_dispatches_when_source_product_lookup_fails(o
     # Source products are cosmetic; a failure fetching them must not suppress the ping.
     org, team = org_and_team
     with (
+        # The task imports this lazily from signal_metadata, so patch it at its source module.
         patch(
-            "products.signals.backend.tasks.fetch_source_products_for_reports",
+            "products.signals.backend.signal_metadata.fetch_source_products_for_reports",
             side_effect=Exception("clickhouse unavailable"),
         ),
         patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch,
