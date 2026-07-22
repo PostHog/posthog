@@ -23,6 +23,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconShare,
+    IconScatter,
     IconSpotlight,
     IconToggle,
     IconToolbar,
@@ -68,6 +69,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconTrends />
         case 'llm_analytics':
             return <IconLlmAnalytics />
+        case 'ai_observability_clusters':
+            return <IconScatter />
         case 'live_debugger':
             return <IconBug />
         case 'logs':
