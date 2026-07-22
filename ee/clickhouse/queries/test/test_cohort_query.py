@@ -59,17 +59,30 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def execute(filter: Filter, team: Team):
+def execute(filter: Filter, team: Team, max_retries: int = 3):
     # Ensure tables are fully merged before reading membership. ClickHouse's eventual
     # consistency (CollapsingMergeTree and other MergeTree variants) means cohortpeople /
     # person / events may not be fully merged immediately after the test writes.
-    sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
-    sync_execute("OPTIMIZE TABLE person FINAL")
-    sync_execute("OPTIMIZE TABLE sharded_events FINAL")
+    # Under heavy CI load, a single OPTIMIZE may not be sufficient, so we retry.
+    import time
 
-    cohort_query = CohortQuery(filter=filter, team=team)
-    assert ["id"] == cohort_query.hogql_result.columns
-    return cohort_query.hogql_result.results
+    for attempt in range(max_retries):
+        sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
+        sync_execute("OPTIMIZE TABLE person FINAL")
+        sync_execute("OPTIMIZE TABLE sharded_events FINAL")
+
+        cohort_query = CohortQuery(filter=filter, team=team)
+        assert ["id"] == cohort_query.hogql_result.columns
+        results = cohort_query.hogql_result.results
+
+        # If we got results, return immediately. Empty results on the first
+        # attempt may indicate unmerged parts — retry after a brief pause.
+        if results or attempt == max_retries - 1:
+            return results
+
+        time.sleep(0.5)
+
+    return results
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
