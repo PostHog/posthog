@@ -83,6 +83,11 @@ _NO_ISSUES_MEDIA = (
         "e58e5703b12db9127e450347a5dc7882eec1a8dd/2026/07/fb797d93-c7f5-4f67-869b-68f630e0e1a2.png",
         "A happy dog on a sunny path",
     ),
+    (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "3cf9366a6d40bc591284b00304cb6ecd84164343/2026/07/c755cc49-ef33-4435-87e0-51074f110b19.gif",
+        "A panda relaxing and waving",
+    ),
 )
 
 
