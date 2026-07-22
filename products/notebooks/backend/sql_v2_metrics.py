@@ -9,10 +9,13 @@ reaper. The recorder measures end-to-end duration against the run row's ``create
 - its OTLP twin (the PostHog Metrics product),
 - a ``notebook node run completed`` event (product analytics, sliceable per notebook).
 
-Kernel runs additionally carry sandbox-side phase timings in the envelope's ``timings``
-dict (see ``sandbox/kernel/runner.py``): ``input_wait_s`` (waiting on the data plane for
-referenced frames or the display fetch), ``download_s`` (the presigned frame downloads),
-``exec_s`` (ipykernel cell execution), and ``sandbox_total_s`` (the whole sandbox-side run).
+Runs additionally carry phase timings in the envelope's ``timings`` dict. Kernel runs
+report them from the sandbox (``sandbox/kernel/runner.py``): ``input_wait_s`` (waiting on
+the data plane for referenced frames or the display fetch), ``download_s`` (the presigned
+frame downloads), ``exec_s`` (ipykernel cell execution), and ``sandbox_total_s`` (the whole
+sandbox-side run). Direct (hogql) runs report them from the async query manager's status
+(``sql_v2_direct._query_status_timings``): ``queued_s`` (enqueue -> Celery pickup) and
+``clickhouse_s`` (pickup -> completion, i.e. HogQL compile + ClickHouse execution).
 """
 
 from typing import Any, Optional, Protocol
@@ -53,6 +56,8 @@ _PHASE_BY_TIMING_KEY = {
     "download_s": "download",
     "exec_s": "exec",
     "sandbox_total_s": "sandbox_total",
+    "queued_s": "queued",
+    "clickhouse_s": "clickhouse",
 }
 
 _otel = OtelInstrumentFactory("notebooks")
@@ -63,9 +68,9 @@ NODE_RUN_SECONDS = Histogram(
     labelnames=["node_type", "outcome"],
     buckets=[0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 2700],
 )
-KERNEL_PHASE_SECONDS = Histogram(
-    "posthog_notebooks_kernel_phase_seconds",
-    "Sandbox-reported phase durations of a node run, from the callback envelope's timings.",
+NODE_RUN_PHASE_SECONDS = Histogram(
+    "posthog_notebooks_node_run_phase_seconds",
+    "Phase durations of a node run, from the run envelope's timings.",
     labelnames=["phase", "node_type"],
     buckets=[0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600],
 )
@@ -95,8 +100,8 @@ def record_node_run_terminal(run: NotebookNodeRun, outcome: str, capture: Option
         timings = _sanitized_timings(run.envelope)
         for key, seconds in timings.items():
             phase = _PHASE_BY_TIMING_KEY[key]
-            KERNEL_PHASE_SECONDS.labels(phase=phase, node_type=run.node_type).observe(seconds)
-            _otel.record_histogram_twin(KERNEL_PHASE_SECONDS, seconds, {"phase": phase, "node_type": run.node_type})
+            NODE_RUN_PHASE_SECONDS.labels(phase=phase, node_type=run.node_type).observe(seconds)
+            _otel.record_histogram_twin(NODE_RUN_PHASE_SECONDS, seconds, {"phase": phase, "node_type": run.node_type})
 
         _capture_completed_event(run, outcome, duration, timings, capture)
     except Exception:
