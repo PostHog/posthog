@@ -10,7 +10,7 @@ from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade import api as warehouse_api
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
@@ -101,11 +101,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
     @database_sync_to_async(thread_sensitive=False)
     def _existing_source_types(self) -> set[str]:
-        return set(
-            ExternalDataSource.objects.filter(team_id=self._team.pk, deleted=False).values_list(
-                "source_type", flat=True
-            )
-        )
+        return {source.source_type for source in warehouse_api.list_sources(self._team.pk)}
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_taxonomy_warnings(self, query: str) -> list[HogQLNotice]:

@@ -1,5 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
@@ -15,29 +16,13 @@ from products.marketing_analytics.backend.services.data_source_health import (
     DataSourceHealthEntry,
     _build_issues_summary,
     _compute_overall_status,
-    _resolve_sync_status,
     get_data_source_health,
 )
+from products.warehouse_sources.backend.facade import contracts as warehouse_contracts
 
-
-@freeze_time("2025-06-15")
-class TestResolveSyncStatus:
-    @parameterized.expand(
-        [
-            ("never_synced_returns_never", None, None, "never"),
-            ("recent_completed_returns_ok", timedelta(minutes=10), None, "ok"),
-            ("old_completed_returns_stale", STALE_THRESHOLD + timedelta(minutes=1), None, "stale"),
-            ("error_text_takes_priority_over_completed", timedelta(minutes=10), "boom", "error"),
-        ]
-    )
-    def test_resolve_sync_status(self, _name, age, last_error_text, expected):
-        last_completed_at = None if age is None else timezone.now() - age
-        assert (
-            _resolve_sync_status(
-                last_completed_at=last_completed_at, last_error_text=last_error_text, required_tables=[]
-            )
-            == expected
-        )
+# Sync-status resolution (never/ok/stale/error/tables_*) now lives in the warehouse
+# facade — decision-table coverage is in the facade's own tests. These tests cover
+# the marketing product layer: entry building, filtering, and overall status.
 
 
 def _entry(**kwargs: Any) -> DataSourceHealthEntry:
@@ -139,10 +124,31 @@ class TestBuildIssuesSummary:
         assert expected_substring in summary[0]
 
 
-class _FakeSource:
-    def __init__(self, source_id: str = "src-uuid-1", source_type: str = "GoogleAds"):
-        self.id = source_id
-        self.source_type = source_type
+_SRC_ID = UUID("12345678-1234-5678-1234-567812345678")
+
+
+def _health(
+    source_type: str = "GoogleAds",
+    sync_status: str = "ok",
+    *,
+    last_completed_sync_at: datetime | None = None,
+    last_unresolved_error: str | None = None,
+    rows_24h: int = 0,
+    rows_7d: int = 0,
+) -> warehouse_contracts.SourceHealth:
+    return warehouse_contracts.SourceHealth(
+        source_id=_SRC_ID,
+        team_id=1,
+        source_type=source_type,
+        prefix=None,
+        created_at=timezone.now(),
+        sync_status=sync_status,  # type: ignore[arg-type]
+        last_completed_sync_at=last_completed_sync_at,
+        last_unresolved_error=last_unresolved_error,
+        rows_synced_last_24h=rows_24h,
+        rows_synced_last_7d=rows_7d,
+        schemas=[],
+    )
 
 
 @freeze_time("2025-06-15")
@@ -151,22 +157,16 @@ class TestGetDataSourceHealthOrchestration(APIBaseTest):
         super().setUp()
         _TARGETS = {
             "sources_map": "products.marketing_analytics.backend.services.data_source_health._get_sources_map",
-            "sources_by_type": "products.marketing_analytics.backend.services.data_source_health._get_sources_by_type",
-            "last_job_state": "products.marketing_analytics.backend.services.data_source_health._get_last_job_state",
-            "rows_synced": "products.marketing_analytics.backend.services.data_source_health._get_rows_synced",
-            "required_tables": "products.marketing_analytics.backend.services.data_source_health._get_required_tables_status",
+            "health_by_type": "products.marketing_analytics.backend.services.data_source_health._get_health_by_type",
         }
         patchers = {key: patch(target, new_callable=AsyncMock) for key, target in _TARGETS.items()}
         self.mocks = {key: p.start() for key, p in patchers.items()}
         for p in patchers.values():
             self.addCleanup(p.stop)
 
-        # Defaults: empty config, no sources, never synced, no rows, no required tables.
+        # Defaults: empty config, no connected sources.
         self.mocks["sources_map"].return_value = {}
-        self.mocks["sources_by_type"].return_value = {}
-        self.mocks["last_job_state"].return_value = (None, None)
-        self.mocks["rows_synced"].return_value = (0, 0)
-        self.mocks["required_tables"].return_value = []
+        self.mocks["health_by_type"].return_value = {}
 
     @pytest.mark.asyncio
     async def test_no_sources_returns_no_sources_status(self):
@@ -178,11 +178,16 @@ class TestGetDataSourceHealthOrchestration(APIBaseTest):
 
     @pytest.mark.asyncio
     async def test_native_source_with_recent_sync_is_ok(self):
-        self.mocks["sources_by_type"].return_value = {"GoogleAds": _FakeSource()}
-        self.mocks["last_job_state"].return_value = (timezone.now() - timedelta(minutes=15), None)
-        self.mocks["rows_synced"].return_value = (500, 500)
+        self.mocks["health_by_type"].return_value = {
+            "GoogleAds": _health(
+                sync_status="ok",
+                last_completed_sync_at=timezone.now() - timedelta(minutes=15),
+                rows_24h=500,
+                rows_7d=500,
+            )
+        }
         self.mocks["sources_map"].return_value = {
-            "src-uuid-1": {"campaign": "name", "source": "src", "cost": "spend", "date": "day"}
+            str(_SRC_ID): {"campaign": "name", "source": "src", "cost": "spend", "date": "day"}
         }
 
         response = await get_data_source_health(self.team)
@@ -196,8 +201,9 @@ class TestGetDataSourceHealthOrchestration(APIBaseTest):
 
     @pytest.mark.asyncio
     async def test_failed_job_text_surfaces_as_error_status(self):
-        self.mocks["sources_by_type"].return_value = {"BingAds": _FakeSource(source_type="BingAds")}
-        self.mocks["last_job_state"].return_value = (None, "auth failed")
+        self.mocks["health_by_type"].return_value = {
+            "BingAds": _health(source_type="BingAds", sync_status="error", last_unresolved_error="auth failed")
+        }
 
         response = await get_data_source_health(self.team, source_type="BingAds")
 
@@ -206,9 +212,14 @@ class TestGetDataSourceHealthOrchestration(APIBaseTest):
         assert response.integrations[0].last_error == "auth failed"
 
     @pytest.mark.asyncio
-    async def test_stale_completed_is_marked_stale(self):
-        self.mocks["sources_by_type"].return_value = {"MetaAds": _FakeSource(source_type="MetaAds")}
-        self.mocks["last_job_state"].return_value = (timezone.now() - STALE_THRESHOLD - timedelta(hours=1), None)
+    async def test_stale_status_passes_through_to_entry(self):
+        self.mocks["health_by_type"].return_value = {
+            "MetaAds": _health(
+                source_type="MetaAds",
+                sync_status="stale",
+                last_completed_sync_at=timezone.now() - STALE_THRESHOLD - timedelta(hours=1),
+            )
+        }
 
         response = await get_data_source_health(self.team, source_type="MetaAds")
 
@@ -216,7 +227,7 @@ class TestGetDataSourceHealthOrchestration(APIBaseTest):
 
     @pytest.mark.asyncio
     async def test_filter_by_source_type_returns_only_that_one(self):
-        self.mocks["sources_by_type"].return_value = {"GoogleAds": _FakeSource()}
+        self.mocks["health_by_type"].return_value = {"GoogleAds": _health()}
 
         response = await get_data_source_health(self.team, source_type="GoogleAds")
 
@@ -235,9 +246,10 @@ class TestGetDataSourceHealthOrchestration(APIBaseTest):
         # sources (BigQuery, S3) need explicit column mapping. So for a native source,
         # `schema_columns_required_missing` must always be empty regardless of
         # `sources_map` content.
-        self.mocks["sources_by_type"].return_value = {"GoogleAds": _FakeSource()}
-        self.mocks["last_job_state"].return_value = (timezone.now() - timedelta(minutes=5), None)
-        self.mocks["sources_map"].return_value = {"src-uuid-1": {"campaign": "name"}}
+        self.mocks["health_by_type"].return_value = {
+            "GoogleAds": _health(last_completed_sync_at=timezone.now() - timedelta(minutes=5))
+        }
+        self.mocks["sources_map"].return_value = {str(_SRC_ID): {"campaign": "name"}}
 
         response = await get_data_source_health(self.team, source_type="GoogleAds")
 

@@ -17,6 +17,7 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 """
 
 from datetime import datetime, time, timedelta
+from typing import Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -150,3 +151,51 @@ class DataWarehouseCredential:
     id: UUID
     team_id: int
     created_at: datetime
+
+
+# --- Source health (sync-status rollup) ---
+
+# Resolution order (strictest first): tables_missing > tables_failed > tables_disabled
+# > error > never > stale > ok. The tables_* states only arise when the caller supplied
+# required schema names; a source that doesn't exist is the caller's "not connected",
+# never a value here — health is only computed for real sources.
+SyncStatus = Literal[
+    "ok",
+    "stale",
+    "error",
+    "never",
+    "tables_failed",
+    "tables_disabled",
+    "tables_missing",
+]
+
+
+@dataclass(frozen=True)
+class SchemaHealth:
+    """Per-schema sync state inside a source health rollup. When the health call was
+    given required schema names, absent names appear with ``present=False``."""
+
+    schema_name: str
+    present: bool
+    should_sync: bool
+    status: str | None
+    last_synced_at: datetime | None
+
+
+@dataclass(frozen=True)
+class SourceHealth:
+    """The read behind "is my imported data fresh, and if not, why?"."""
+
+    source_id: UUID
+    team_id: int
+    source_type: str
+    prefix: str | None
+    created_at: datetime
+    sync_status: SyncStatus
+    last_completed_sync_at: datetime | None
+    # Latest FAILED job's error, only when it is newer than the last completed sync —
+    # an error that a later successful sync resolved is not surfaced.
+    last_unresolved_error: str | None
+    rows_synced_last_24h: int
+    rows_synced_last_7d: int
+    schemas: list[SchemaHealth]
