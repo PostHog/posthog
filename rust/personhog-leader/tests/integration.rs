@@ -2094,6 +2094,7 @@ async fn oversized_updates_are_trimmed_or_rejected_at_admission() {
                 serde_json::from_str(payload["details"].as_str().unwrap()).unwrap();
             assert_eq!(details["category"], "size");
             assert_eq!(details["severity"], "error");
+            assert_eq!(details["pipelineStep"], "personhog_admission");
             assert!(
                 details["personId"].as_str().unwrap().contains('-'),
                 "personId is the uuid"

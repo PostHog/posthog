@@ -7,7 +7,17 @@ use tracing::warn;
 use common_ingestion_warnings::registry::WarningType;
 use common_ingestion_warnings::serializer::Warning as WarningPayload;
 use common_ingestion_warnings::throttle::{ThrottleDecision, WarningThrottle};
+use common_ingestion_warnings::WarningSource;
 use common_kafka::kafka_producer::KafkaContext;
+
+/// Warnings emitted from the leader's admission check, ahead of the write
+/// path proper. `pipeline_step` lands in the v2 table's `pipeline_step`
+/// column via the row's details.
+const LEADER_ADMISSION: WarningSource = WarningSource {
+    service: "personhog-leader",
+    path: "admission",
+    pipeline_step: "personhog_admission",
+};
 
 /// An in-product ingestion warning about a person's property size —
 /// emitted when admission trims an update to fit the Postgres constraint
@@ -85,11 +95,12 @@ impl WarningsProducer {
             }
         }
 
-        // teamId, category, and severity are injected by the terminal.
+        // teamId, category, severity, and pipelineStep are injected by the
+        // terminal.
         let payload = WarningPayload::new(warning_type)
             .with_detail("personId", warning.person_uuid.clone())
             .with_detail("message", warning.message.clone())
-            .into_row(warning.team_id, "personhog-leader");
+            .into_row(warning.team_id, LEADER_ADMISSION);
 
         let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
         let key = warning.team_id.to_string();
