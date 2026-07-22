@@ -50,7 +50,9 @@ from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
+    ApplePushIntegration,
     AwsS3Integration,
+    AwsS3RoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -99,6 +101,15 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def _github_account_type(owner_type: str | None) -> str | None:
+    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    return None
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -408,10 +419,17 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
+        report_properties: dict[str, Any] = {"integration_kind": kind, "is_overwrite": is_overwrite}
+        if kind == "github":
+            # Surface whether the connected GitHub account is an org or a personal one, mirroring the
+            # account_type we attach to PR webhook events. GitHub reports "Organization" / "User".
+            owner_type = ((instance.config or {}).get("account") or {}).get("type")
+            report_properties["repo_owner_type"] = owner_type
+            report_properties["account_type"] = _github_account_type(owner_type)
         report_user_action(
             self.context["request"].user,
             "integration created",
-            {"integration_kind": kind, "is_overwrite": is_overwrite},
+            report_properties,
             team=self.context["get_team"](),
         )
         return instance
@@ -431,10 +449,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return instance
 
         elif validated_data["kind"] == "firebase":
+            # Support both file upload and JSON config
             key_file = request.FILES.get("key")
-            if not key_file:
-                raise ValidationError("Firebase service account key file not provided")
-            key_info = json.loads(key_file.read().decode("utf-8"))
+            if key_file:
+                key_info = json.loads(key_file.read().decode("utf-8"))
+            else:
+                config = validated_data.get("config", {})
+                key_info = config.get("key_info")
+                if not key_info:
+                    raise ValidationError("Firebase service account key must be provided")
             instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
             return instance
 
@@ -631,24 +654,41 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "apns":
+            config = validated_data.get("config", {})
+            signing_key = config.get("signing_key")
+            key_id = config.get("key_id")
+            team_id_apple = config.get("team_id_apple")
+            bundle_id = config.get("bundle_id")
+            environment = config.get("environment", "production")
+
+            instance = ApplePushIntegration.integration_from_key(
+                signing_key=signing_key,
+                key_id=key_id,
+                team_id_apple=team_id_apple,
+                bundle_id=bundle_id,
+                team_id=team_id,
+                created_by=request.user,
+                environment=environment,
+            )
+            return instance
+
         elif validated_data["kind"] == "aws-s3":
             config = validated_data.get("config", {})
-            name = config.get("name")
-            aws_access_key_id = config.get("aws_access_key_id")
-            aws_secret_access_key = config.get("aws_secret_access_key")
 
-            if not (name and aws_access_key_id and aws_secret_access_key):
-                raise ValidationError("Name, access key ID, and secret access key must be provided")
-            if not all(isinstance(value, str) for value in (name, aws_access_key_id, aws_secret_access_key)):
-                raise ValidationError("Name, access key ID, and secret access key must be strings")
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            integration = AwsS3RoleBasedIntegration if "aws_role_arn" in config else AwsS3Integration
 
             try:
-                instance = AwsS3Integration.integration_from_config(
+                instance = integration.integration_from_config(
                     team_id=team_id,
-                    name=name,
-                    aws_access_key_id=aws_access_key_id,
-                    aws_secret_access_key=aws_secret_access_key,
                     created_by=request.user,
+                    organization_id=organization_id,
+                    **config,
                 )
             except S3CredentialIntegrationError as e:
                 raise ValidationError(str(e))
@@ -968,6 +1008,15 @@ class IntegrationViewSet(
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+        if instance.kind in OauthIntegration.supported_kinds:
+            # Disconnecting should sever the grant at the provider too, not just delete our copy
+            # of the tokens — otherwise the provider keeps treating the app as authorized.
+            try:
+                OauthIntegration(instance).revoke_token()
+            except NotImplementedError:
+                pass  # kind not configured on this instance
             except Exception as e:
                 capture_exception(e)
         if instance.kind == "github" and instance.integration_id:

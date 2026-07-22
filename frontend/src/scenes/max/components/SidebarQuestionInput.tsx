@@ -10,6 +10,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { cn } from 'lib/utils/css-classes'
 
+import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
+
 import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { InputFormArea, SandboxModeBadge } from './InputFormArea'
@@ -21,7 +23,7 @@ export function SidebarQuestionInput({
 }: {
     isSticky?: boolean
     sidePanel?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { focusCounter, threadVisible } = useValues(maxLogic)
 
     // Use raw state values instead of selector to ensure re-renders on state changes
@@ -32,6 +34,7 @@ export function SidebarQuestionInput({
         pendingApprovalsData,
         resolvedApprovalStatuses,
         pendingSandboxPermissionRequest,
+        conversation,
     } = useValues(maxThreadLogic)
     // A pending sandbox request only originates from the sandbox stream, so its presence alone is
     // enough — gating on `agent_runtime` would strand approvals on as-yet-unresolved conversations.
@@ -63,6 +66,10 @@ export function SidebarQuestionInput({
             textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
         }
     }, [focusCounter]) // Update focus when focusCounter changes
+
+    if (isPiTaskRuntime(conversation?.task?.runtime)) {
+        return null
+    }
 
     // Show form area directly when there's a pending form/approval (even if showInput is false)
     if (activeMultiQuestionForm || hasApprovalToShow || hasSandboxPermissionToShow) {

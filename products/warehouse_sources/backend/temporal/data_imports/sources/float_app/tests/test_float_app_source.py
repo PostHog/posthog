@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     FLOAT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.source import FloatAppSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FloatAppSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
+    FloatAppSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CURSOR_ENDPOINTS = {"deleted_tasks", "deleted_timeoffs", "deleted_logged_time"}
@@ -36,7 +38,6 @@ class TestFloatAppSource:
         assert config.label == "Float"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/float-app"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

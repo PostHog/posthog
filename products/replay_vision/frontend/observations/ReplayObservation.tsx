@@ -15,7 +15,7 @@ import {
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -26,6 +26,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
@@ -66,7 +67,6 @@ import {
     OBSERVATION_TRIGGER_TAG,
     type ScannerType,
 } from '../replay_scanners/types'
-import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -114,7 +114,8 @@ function AutoSeekToTime({
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
     const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
@@ -131,6 +132,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { retryObservation } = useActions(observationLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 
@@ -418,18 +423,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     initialLabel={observation.label}
                                 />
                             )}
-                            {qualityEnabled && prompt && scannerType && (
-                                <div className="flex justify-end pt-1">
-                                    <ImproveScannerPromptButton
-                                        scannerName={scannerName}
-                                        scannerType={scannerType}
-                                        prompt={prompt}
-                                        sessionId={observation.session_id}
-                                        outcome={describeObservationOutcome(observation)}
-                                        reasoning={reasoning}
-                                    />
-                                </div>
-                            )}
                         </div>
                     )}
 
@@ -499,7 +492,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 {observation.session_id}
                             </Link>
                         </LabeledRow>
-                        <LabeledRow label="Recording subject">
+                        <LabeledRow label="Person">
                             {observation.distinct_id ? (
                                 <Link to={urls.personByDistinctId(observation.distinct_id)}>
                                     {observation.recording_subject_email ?? observation.distinct_id}

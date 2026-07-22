@@ -25,16 +25,16 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 
 import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -308,12 +308,10 @@ function AiPromptFields({
 
 function DashboardInsightsField({
     dashboard,
-    subscription,
-    onResetSubscription,
+    onDefaultsApplied,
 }: {
     dashboard: DashboardType<any>
-    subscription: SubscriptionType
-    onResetSubscription: (subscription: SubscriptionType) => void
+    onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (
         <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -322,11 +320,9 @@ function DashboardInsightsField({
                     tiles={dashboard.tiles}
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
-                    // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
-                    // unsaved-changes warning; merge the IDs into the subscription to preserve them.
-                    onDefaultsApplied={(selectedIds) =>
-                        onResetSubscription({ ...subscription, dashboard_export_insights: selectedIds })
-                    }
+                    // The logic decides whether the auto-selection resets the form to a clean state
+                    // or joins a prefill's baseline — see applyDefaultSelectedInsights.
+                    onDefaultsApplied={onDefaultsApplied}
                 />
             )}
         </LemonField>
@@ -345,6 +341,7 @@ function EditSubscriptionForm({
         id,
         insightShortId,
         dashboardId,
+        dashboardName: dashboard?.name,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -356,7 +353,7 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { resetSubscription, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -515,8 +512,7 @@ function EditSubscriptionForm({
                         {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
-                                subscription={subscription}
-                                onResetSubscription={resetSubscription}
+                                onDefaultsApplied={applyDefaultSelectedInsights}
                             />
                         )}
 

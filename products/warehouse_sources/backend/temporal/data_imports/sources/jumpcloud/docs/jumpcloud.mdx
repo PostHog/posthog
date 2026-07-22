@@ -1,0 +1,79 @@
+---
+title: Linking JumpCloud as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Jumpcloud
+---
+
+<!--
+This is the user-facing posthog.com source doc. It lives here only because no posthog.com
+checkout was available when the source was implemented. Move it to
+`posthog.com/contents/docs/cdp/sources/jumpcloud.mdx` and delete this copy, then run
+`python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[JumpCloud](https://jumpcloud.com) is a cloud directory platform for identity, access, and device management.
+Linking it as a source syncs your users, devices, groups, SSO applications, and Directory Insights activity events
+into the PostHog Data warehouse, so you can join identity and security data with your product data — for example,
+access analytics, login and authentication monitoring, or compliance reporting.
+
+## Prerequisites
+
+To connect JumpCloud, you need:
+
+- A JumpCloud administrator account with API access.
+- Your admin API key, found in the JumpCloud Admin Portal under your account menu (click your initials in the
+  top-right corner, then **My API Key**).
+- A Directory Insights subscription if you want to sync the `events` table. How far back events are available
+  depends on your Directory Insights retention (up to 90 days).
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+1. Open the JumpCloud Admin Portal and click your account initials in the top-right corner.
+2. Select **My API Key** and copy the key.
+3. Paste the key into the **API key** field in PostHog.
+4. Pick the **Region** your JumpCloud organization is hosted in (US or EU).
+5. If you're an MSP/MTP admin managing multiple organizations, enter the **Organization ID** the key should act
+   on. Leave it blank otherwise.
+
+Note that the API key is tied to your admin account, so it can read whatever your admin role can. Rotating the
+key in JumpCloud invalidates the old one — update the source's credentials afterwards.
+
+## Sync modes
+
+<SyncModes />
+
+The `events` table (Directory Insights) supports **incremental** sync: each run only fetches events newer than
+the last synced event timestamp. The directory tables (`users`, `systems`, `user_groups`, `system_groups`,
+`applications`) have no server-side "updated since" filter in JumpCloud's API, so they sync as a **full
+refresh** — schedule them at a cadence that fits how often your directory changes.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **"Invalid JumpCloud API key"** when connecting: the key is wrong or has been rotated. Copy the current key
+  from the Admin Portal (account menu → **My API Key**) and re-enter it. Also check the selected region matches
+  where your organization is hosted.
+- **The `events` table fails with a permissions error**: Directory Insights requires a subscription that
+  includes it, and the admin's role must have access to Directory Insights.
+- **MSP/MTP admins**: if the source connects but shows no data, make sure the **Organization ID** field is set
+  to the sub-organization you want to sync.
+
+<TroubleshootingLink />

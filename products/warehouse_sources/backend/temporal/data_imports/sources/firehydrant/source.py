@@ -33,12 +33,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firehydran
     FIREHYDRANT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FireHydrantSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firehydrant import (
+    FireHydrantSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FireHydrantSource(ResumableSource[FireHydrantSourceConfig, FireHydrantResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.firehydrant.com/reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -152,7 +158,8 @@ You can create a bot token or personal API key in your [FireHydrant API keys set
         return firehydrant_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             region=config.region,
         )

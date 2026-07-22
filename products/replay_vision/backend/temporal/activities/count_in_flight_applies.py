@@ -6,7 +6,9 @@ from temporalio import activity
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.temporal.constants import in_flight_headroom
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 
 logger = structlog.get_logger(__name__)
@@ -42,4 +44,8 @@ def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFl
         team=Count("id"),
         scanner=Count("id", filter=Q(scanner_id=inputs.scanner_id)),
     )
+    # The workflow makes the same call on these counts; recorded here because metrics
+    # can't be emitted from deterministic workflow code.
+    if in_flight_headroom(counts["scanner"], counts["team"]) <= 0:
+        record_sweep_outcome("throttled")
     return InFlightApplyCounts(scanner=counts["scanner"], team=counts["team"])

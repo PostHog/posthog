@@ -1,0 +1,1289 @@
+{
+    "suppressed": [],
+    "runs": [
+        {
+            "label": "C0-baseline-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_invalidated",
+                    "matched_title": "Action name not bounded to the model's 400-char column, diverging from the REST contract"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions limit/offset lack non-negative bounds enforced by the REST path"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-level step matchers silently produce match-all steps unless event is $autocapture",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination orders by a non-unique, nullable column with no tiebreaker",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions sort/search is not index-backed for large projects",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Naive-count caveats: (1) The #2 match is partial \u2014 the run finding only covers the 400-char length gap, not old #2's whitespace-normalization/duplicate-bypass half, and the validator dismissed it on reachability grounds despite conceding the facts. (2) The sole caught_valid (#3) survived validation but was downgraded should_fix\u2192consider by the validator. (3) The index-performance junk finding superficially resembles old #6 but has a different root cause (query sort cost vs unbounded output rendering) \u2014 do not count it as a #6 catch. (4) The run's strongest finding (match-all element steps) is a genuinely new, code-verified bug the old report never found, so raw coverage (1/10 valid) understates finding quality while still reflecting the coverage collapse: all three security findings (#5, #8, #10), both performance findings (#6, #7), and the toolkit/frontend-wiring findings (#8, #9) were missed even though the single chunk included all their files. No suppressed old findings were listed for this run."
+        },
+        {
+            "label": "C0-baseline-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_invalidated",
+                    "matched_title": "Action name length not validated in tool path \u2014 diverges from REST and fails ungracefully"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions crashes ungracefully on negative/out-of-range limit or offset"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-matching step fields are silently dropped unless event is $autocapture",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions bypasses object-level access control, exposing restricted actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions pagination ordering is non-deterministic for equal/null names",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions loads the unused bytecode JSONField for every listed action",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Two near-miss judgment calls a naive count could flip: (1) the run's must_fix \"list_actions bypasses object-level access control\" is in the same RBAC area as old #4 but is a different root cause (read-path per-object queryset filtering vs old #4's write-path resource-level preflight blocking object-specific editor grants), so #4 stays missed and the list-ACL finding counts as a strong new_plausible; (2) old #6 is about unbounded rendered output size, not the dismissed bytecode-column fetch finding, so #6 stays missed. Old #2's match covers only the length-validation half of the old finding (not the whitespace/duplicate-check bypass) and the validator dismissed it as practically unreachable \u2014 the old run's validator had upheld the same premise. Old #3's match is VALID but the validator soft-suppressed it (should_fix\u2192consider), so it may not surface in the published body despite passing. Net: 2/10 caught (1 valid, 1 invalidated), 8 missed \u2014 including all three findings outside core.py (#8 toolkit.py, #9/#10 max-constants.tsx) even though those files were inside the single chunk."
+        },
+        {
+            "label": "C1-smallchunks-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Action name length (max 400) is not validated in the tool path, unlike the REST serializer"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Unvalidated negative limit/offset crash list_actions with an unhandled ValueError"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "List mode inlines every step of every action, undermining the context-window bound"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Action reads filter by team object, bypassing project (root-team) scoping and diverging from writes",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination ordering by name alone is non-deterministic for null/duplicate names",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions status formatter ignores search term and pagination context",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Untrusted free-form action fields are rendered verbatim into LLM tool output (prompt-injection surface)",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Old #2's match is partial: the run finding covers only the max_length-400 half of the old finding, not the trim/normalization half (untrimmed \" Signup \" bypassing the duplicate check goes unmentioned) \u2014 a naive count still credits #2 as caught. Old #6 was found (same root cause: row cap doesn't bound per-action rendering size) but the new validator dismissed it as speculative, whereas the old validator upheld it \u2014 counted caught_invalidated. The dismissed prompt-injection finding is thematically adjacent to old #10 (untrusted action names flowing into rendered output) but its root cause is backend LLM-context injection, not the frontend Markdown-image exfiltration channel, so #10 is missed, not matched. The must_fix root-team-scoping finding is a genuinely new, deeply verified bug the old run never surfaced \u2014 arguably the strongest finding in either report. Net: 2 caught_valid + 1 caught_invalidated of 10, plus 2 validator-VALID new findings; both perspective/gap units on chunk 2 (the toolkit-wiring chunk) returned 0 raw issues, which is why all four wiring/RBAC/frontend old findings (#4, #5, #8, #9, #10) were missed."
+        },
+        {
+            "label": "C1-smallchunks-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Action name length not validated \u2014 contract mismatch with REST and unhandled DataError"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative limit/offset crash list_actions; limit=0 silently defaults to 25"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "selector/text/tag/href only match on $autocapture events \u2014 tool can silently create no-op or match-all actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions bypasses object-level access filtering enforced by the REST ActionViewSet",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination orders by non-unique, nullable name \u2014 pages can skip or duplicate rows",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions status formatter omits search/pagination context shown by sibling list tools",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Delete path re-fetches action and re-evaluates object-level access control multiple times per delete",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions fetches and deserializes the unused, potentially-large bytecode column for every row",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Non-atomic name-uniqueness check allows duplicate action names under concurrency",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Five always-on tools added to DEFAULT_TOOLS increase per-request prompt cost across all agent modes",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Only 2/10 old findings caught (#2, #3), and both were validator-downgraded from should_fix to consider \u2014 a naive \"5 passed validator\" count is 2 catches + 3 genuinely new plausible finds. Three near-misses could mislead keyword matching: the run's VALID \"list_actions bypasses object-level access filtering\" is the INVERSE of old #4 (missing object filter on the list/read path vs over-strict resource gate blocking object-level editor grants on writes) \u2014 different root cause, counted as new; the dismissed DEFAULT_TOOLS prompt-cost finding touches the exact lines of old #8 but is a token-cost nit, not the subagent write-capability-boundary security issue; the dismissed status-formatter finding shares a file with old #9 but concerns the status label text, not the missing DEFAULT_TOOL_KEYS/modes registration. The #2 catch is partial \u2014 length validation only, omitting the whitespace-trim/duplicate-bypass half of the old finding. No old findings were flagged as suppressed/pre-covered in the task input, so all 8 misses count as plain misses here."
+        },
+        {
+            "label": "C1-smallchunks-3",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions does not validate lower bounds of limit/offset (negative values crash, limit=0 ignored)"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "caught_invalidated",
+                    "matched_title": "Action tools never surface in the mode-selector capability list despite being available in all modes"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access control (information disclosure vs REST list contract)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination ordering is non-deterministic (order_by(\"name\") has no stable tiebreaker)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Run produced only 4 post-dedup findings (6 raw, 3 validator-valid), so coverage of the 10-finding yardstick is thin: 1 caught_valid, 1 caught_invalidated, 8 missed. The biggest near-miss trap: the VALID \"list_actions bypasses object-level access control\" finding superficially resembles old #4 (both are RBAC-vs-REST-contract mismatches in the same files) but is the opposite defect \u2014 #4 is update/delete OVER-blocking users holding object-level editor grants, while the run finding is the list path UNDER-filtering per-object-blocked actions (info disclosure); I counted it as new_plausible and #4 as missed. Old #9 WAS matched but the new validator dismissed it as cosmetic and consistent with ~43 other unlisted tools, so it counts caught_invalidated, not caught_valid. Both new_plausible findings have strong, code-cited validator confirmations and neither double-matches any old finding; no old findings were marked as pre-covered/suppressed in the yardstick list."
+        },
+        {
+            "label": "C2-sequential-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_invalidated",
+                    "matched_title": "Bypassing ActionSerializer drops input validation enforced by the REST path"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative limit/offset in list_actions raise an unhandled error"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "list_actions output is unbounded in size despite the \"bounded by construction\" design claim"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access control, exposing restricted actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Element-match step conditions (selector/tag_name/text/href) silently compile to match-everything unless event is \"$autocapture\"",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions offset pagination uses a non-deterministic sort key, so rows can be skipped or duplicated across pages",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Naive counting caveats: (1) The validator, not the reviewer, cost 2 of 3 matched old findings \u2014 run findings for old 2 (serializer-bypass name validation) and old 6 (unbounded list content) described the same root causes the old report validated as Valid, but this run's validator dismissed both as low-impact/wrong-premise, so raw \"passed validator\" (4) understates reviewer-stage coverage (3 matches found). (2) Run finding A (object-level list bypass) sits on the same RBAC surface as old 4 but is the inverse defect (list exposes object-denied actions vs. resource gate blocking object-scoped editors on update/delete) \u2014 I did not count it as a match. (3) Run finding B partially brushes old 7's territory (unvalidated step properties reaching refresh_bytecode) but its root cause is validation parity, not unbounded payload size/CPU, so old 7 stays missed. (4) No old findings were flagged as suppressed for this run; all 3 unmatched new findings are validator-confirmed and concrete (the $autocapture match-all finding is arguably the strongest single finding in either report). Net: 1 caught_valid, 2 caught_invalidated, 7 missed, 3 new_plausible, 0 new_junk."
+        },
+        {
+            "label": "C2-sequential-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions lacks lower-bound validation on limit/offset; negative values raise an uncaught ValueError"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-matcher step fields (selector/tag_name/text/href) silently ignored unless event is $autocapture, so Max can create ineffective or over-broad actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Action tools filter by team= object, bypassing RootTeamMixin project-scope rewriting \u2014 actions become invisible/unfetchable in secondary environments",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions loads and deserializes the unused bytecode JSONField for every listed action",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Only 1/10 yardstick findings caught (old #3 via the negative limit/offset finding); note its validator verdict is VALID but the priority was downgraded to consider, so a weighted count should treat it as marginal. The dismissed bytecode-defer finding may look adjacent to old #6/#7 (both performance, both around list/bytecode) but its root cause is a DB column fetch, not #6's unbounded rendered output or #7's unbounded write payloads \u2014 it matches neither. The two new_plausible findings are genuinely outside the old yardstick, and the RootTeamMixin team=/team_id one is a strongly-verified must_fix arguably more severe than most yardstick items \u2014 a naive coverage-only count understates this run's quality while a naive finding count (4) overstates it (one dismissed, one downgraded). No suppressed old findings were flagged in this task, so all misses count normally."
+        },
+        {
+            "label": "C3-both-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Action name length not validated \u2014 >400 chars raises unhandled DataError"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions crashes on negative limit/offset (missing boundary validation)"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions row cap does not bound output size \u2014 per-row rendering inlines full description and all steps, defeating the context-flood guarantee"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-matching steps (selector/tag_name/text/href) are silently dropped unless event is \"$autocapture\", and element-only steps compile to match-all",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions bypasses object-level access control, leaking restricted actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions pagination sorts on a non-unique, nullable key \u2014 pages can skip or duplicate actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Name-uniqueness enforced by non-atomic check-then-save with no DB constraint \u2014 concurrent creates race to duplicate names",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions ORDER BY name and name__icontains search are unindexed \u2014 full sort + sequential scan on the primary discovery path",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Two of the three catches were priority-downgraded by the validator (should_fix\u2192consider) while staying VALID: the #2 match covers only the max-length half of the old finding (the whitespace-normalization/duplicate-bypass half is absent), and the #6 match survived but was soft-suppressed to consider. The run's strongest new finding, \"list_actions bypasses object-level access control\" (must_fix/security), superficially resembles old #4 but is the opposite defect \u2014 list too permissive (leaks object-restricted actions) vs old #4's update/delete too strict (object-level editor grants denied at resource preflight) \u2014 so I did not count it as a match; a keyword-based count would wrongly credit #4. The frontend chunk (chunk 3) produced 1 raw issue and 0 surviving findings, so both frontend old findings (#9, #10) plus the toolkit/subagent one (#8) were fully missed despite their files being in chunks 2-3. None of the 10 old findings were marked suppressed in the task, so all 7 misses count as true misses here."
+        },
+        {
+            "label": "C3-both-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions does not validate negative limit/offset (contract divergence from REST)"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access controls (data exposure)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions pagination is non-deterministic (order_by lacks a unique tie-breaker)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Max action CRUD skips the report_user_action product-analytics events the REST path emits (observability gap)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Only 1/10 yardstick findings caught (old #3, exact root-cause match, validator VALID). Caution for naive counting: the run's must_fix \"list_actions bypasses object-level access controls\" looks superficially like old #4 but is a different root cause \u2014 #4 is the update/delete resource-level preflight over-blocking legitimate object-scoped editors, while the run finding is the list path missing object-level queryset pruning (read exposure); I counted it as new_plausible, not a match. The report_user_action finding passed the validator as real but was priority-downgraded to consider (impact, not correctness), so \"4 passed validator\" slightly overstates surfaced severity. Chunk 2 (frontend/schema files) yielded zero raw issues from every perspective, which fully explains the misses of #9 and #10; the remaining misses (1, 2, 5, 6, 7, 8) are core.py/toolkit issues the perspectives simply never raised. No old findings were flagged as pre-covered/suppressed in the task input, so all misses count as genuine here."
+        },
+        {
+            "label": "C4-completeness-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_invalidated",
+                    "matched_title": "Action name length not validated; diverges from REST contract and raises uncaught DB error"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions doesn't validate limit/offset \u2014 negative values raise an uncaught ValueError and limit=0 silently becomes the default"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "list_actions expands every step of every action, undermining the stated 'compact/bounded' context safety"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element matchers (selector/tag_name/text/href) silently compile to match-all unless event is $autocapture",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Action with no steps silently matches every event, but create_action frames it as a harmless empty placeholder",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination orders by a non-unique key, so offset/limit paging can drop or duplicate actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions bypasses object-level access control, exposing restricted actions",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions status formatter drops pagination/search context that its direct peers surface",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Raw count is 1/10 caught_valid, 2/10 caught_invalidated, 7 missed \u2014 but two of the misses have misleading near-misses. The run's must_fix \"list_actions bypasses object-level access control\" superficially resembles old #4 (both compare tool RBAC to the REST AccessControlPermission contract) but is the opposite defect direction (read-side exposure on list vs write-side over-restriction on update/delete), and its validator convincingly refuted the premise (object-level `none` controls are uncreatable for actions), so it was scored as unmatched junk rather than a #4 match. The #2 match is partial: the run caught only the max_length-400 half and lost the whitespace-normalization dup-check bypass, and the validator dismissed it as an unreachable edge case despite the old validator upholding it. The #6 match is a genuine same-root-cause hit (action-count cap doesn't bound per-action step/description bytes) that the validator dismissed as speculative. The completeness-gap pass produced the run's best output \u2014 three VALID new_plausible findings (two match-all bytecode traps plus unstable pagination ordering) that the old report never had; no suppressed-old-findings list was supplied for this PR, so all misses are reported plainly."
+        },
+        {
+            "label": "C4-completeness-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Over-length action name bypasses validation and hits a raw DB DataError"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "ListActionsTool forwards unvalidated limit/offset: 0 silently coerced, negatives crash"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "caught_valid",
+                    "matched_title": "Irreversible update_action step replacement is not gated behind approval, while the reversible soft-delete is"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "list_actions inlines every step of every action, so per-item output size is unbounded despite the item cap"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access control",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "delete_action removes actions with dependent resources without surfacing them",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Delete-approval preview understates blast radius and omits the actual referencing resources",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "update_action with an empty steps list silently converts an action to match-all",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Offset pagination orders only by a nullable, non-unique name column",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "get_required_resource_access overrides omit the return type annotation required for new code",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions orders and searches on the unindexed name column",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Delete path re-fetches the action and re-runs object-access checks across the approval/replay cycle",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Old 2 is a PARTIAL match: the run's over-length-name finding shares the root cause (direct save bypasses serializer/model validation) but covers only the max_length half, not the whitespace-normalization/duplicate-bypass half. The run's must_fix \"list_actions bypasses object-level access control\" is in the same RBAC territory as old 4 but is the opposite defect (list under-restricts vs update/delete over-restricting object-scoped editors), so I did NOT count it as a catch \u2014 a keyword-based count would wrongly match them. \"delete_action removes actions with dependent resources\" and \"Delete-approval preview understates blast radius\" are near-duplicates of each other (both VALID, both about surfacing action references at delete time), so the new_plausible count of 5 arguably represents 4 distinct issues. Run finding C (empty steps \u2192 match-all) is adjacent to old 5's steps=[] remark but has a distinct root cause (omit-vs-empty-list contract footgun), so old 5 was matched to the approval-gating finding instead. Both frontend old findings (9 and the must_fix Markdown-exfil 10) were missed \u2014 chunk 3 perspectives emitted 0 raw issues and its lone completeness-pass issue did not survive to the post-dedup list."
+        },
+        {
+            "label": "C5-warmsession-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions lacks non-negative range validation on limit/offset (unhandled ValueError)"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "list_actions non-detailed output renders every step of every action, undermining the bounded-context goal"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Soft-delete recompiles bytecode and reloads a now-deleted action on workers",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Non-deterministic pagination ordering (no stable tiebreaker)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions fetches the large unused bytecode column for every row",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Five tools added unconditionally to DEFAULT_TOOLS increase per-request context/latency across every agent mode",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Only 2 of 6 post-dedup findings passed the validator, and only one of those maps to a yardstick finding (old #3, an exact root-cause match including the limit=0 coercion detail). Old #6 (list output not bounded by the limit) is matched by the run's \"renders every step of every action\" finding \u2014 same root cause (_format_action renders full descriptions/steps despite the row cap) \u2014 but the validator DISMISSED it as speculative scale, so it counts as caught_invalidated, whereas the old validator upheld it; a naive valid-only count would call it missed. Note this run's reviewer only surfaced issues on chunk 1 (core.py) plus one chunk-2 performance finding; chunks 2 and 3 produced zero issues for contracts-security and logic-correctness perspectives, which is why the four higher-severity old findings in tool.py/toolkit.py/max-constants.tsx (#4, #5, #8, #10) and the frontend #9 were all missed, including both must_fix security findings (#8, #10). The one genuinely new plausible finding is the missing order_by tiebreaker (validator upheld but downgraded to consider); the other three new findings were validator-dismissed performance noise."
+        },
+        {
+            "label": "C5-warmsession-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative offset/limit in list_actions raises an unhandled ValueError"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "Compact list rendering inlines every step, so per-action output is unbounded"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access control (data exposure)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions paginates over a non-unique ORDER BY, risking skipped/duplicated rows",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "delete_action recompiles bytecode on soft-delete \u2014 wasteful and can raise an uncaught non-HogQL error",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "format_action_detail runs synchronous ORM access inside the async event loop",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions fetches full rows (incl. large bytecode blob) it never renders",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions orders by unindexed `name` with OFFSET pagination",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Five action tools added to DEFAULT_TOOLS load into every agent mode's LLM context",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Key trap for a naive count: the run's must_fix VALID \"list_actions bypasses object-level access control\" looks superficially like old #4 (both are actions RBAC), but it is the opposite defect on a different path \u2014 list is too permissive (no queryset filtering) while old #4 was update/delete being too strict (resource-editor preflight blocking object-scoped editors) \u2014 so #4 is genuinely missed and the list-access finding counts as a strong NEW catch. Similarly, the dismissed delete-recompile finding is not old #7 (unbounded create/update payloads before compile); it shares only the word \"bytecode\". Old #3 was matched near-verbatim (including the limit=0 nit) and old #6 was matched but validator-dismissed as speculative, so only 1 of 10 old findings survives as caught_valid. Coverage collapse is structural: 8 of the run's 9 post-dedup findings target core.py's list path (chunk 1); chunks 2 and 3 produced essentially zero raw issues, so all tool.py/toolkit/frontend yardstick findings (#1, #2, #4, #5, #8, #9, #10) were missed. No old findings were flagged as suppressed/pre-covered for this PR."
+        },
+        {
+            "label": "C6-pinnedchunks-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "ListActionsTool crashes on negative limit/offset instead of failing gracefully"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access control (information disclosure)",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "order_by(\"name\") is not a stable total order, so offset pagination can skip or duplicate rows",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions fetches the unused bytecode JSONField for every listed action",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Offset pagination ordered by the unindexed name column scans and sorts the full set per call",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Only 1/10 old findings caught: run finding E matches old #3 exactly (missing ge/le bounds on limit/offset \u2192 negative-slice ValueError) and is validator-VALID. Two near-misses that a naive keyword count could overcount: the dismissed access-control finding is the INVERSE of old #4 (list too permissive vs update/delete preflight too strict \u2014 different root cause, not a match), and the two list-performance findings (bytecode column fetch, unindexed sort) are NOT old #6, which was about unbounded rendered output/context size, not DB efficiency. No double-matches. The run concentrated almost entirely on chunk 1's list_actions surface (7 of 9 raw issues from chunk 1) and produced zero valid findings from chunks 2-3, missing all frontend (#9, #10), toolkit/subagent (#8), and update/attribution (#1, #2, #5, #7) issues; no old findings were flagged as pre-covered/suppressed for this run."
+        },
+        {
+            "label": "C6-pinnedchunks-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Missing name length validation diverges from REST and can raise an unhandled DB DataError"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative or zero limit/offset in list_actions crashes with unhandled ValueError"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "list_actions output is bounded by count but not by size \u2014 can still flood agent context"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "ListActionsTool bypasses object-level access controls (data exposure)",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Non-deterministic pagination: order_by(\"name\") over a non-unique, nullable column",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "_format_step reports an event filter for an empty-string event that the query engine ignores",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "DeleteActionTool fetches the action and re-runs the object-access check multiple times per approval",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "List-mode output renders every step of every action, undermining the bounded-output goal",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Old #2 is a partial match: the run finding covers only the max_length=400/DataError half, not the untrimmed-name duplicate-check bypass, but the root cause (serializer-bypassing direct saves lack name validation) is the same and the verdict is VALID. Old #6 was matched by TWO validator-dismissed run findings (a dedup miss \u2014 same size-unbounded-list issue from two perspectives); I matched the should_fix one and pushed the duplicate to new_junk, so don't double-count. The run's headline must_fix (ListActionsTool object-level access bypass) is superficially adjacent to old #4 but is a distinct root cause (missing list filtering exposing blocked objects vs an over-strict resource gate denying legitimate object-scoped editors on update/delete), so #4 remains missed. Chunk 3 (frontend + schema files) emitted zero raw issues across all three perspectives, structurally guaranteeing misses on old #9 and #10 (including the must_fix Markdown-injection finding). Net: 2 caught_valid, 1 caught_invalidated, 7 missed, plus 2 genuinely new VALID findings."
+        },
+        {
+            "label": "C7-gappinned-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Unbounded limit/offset let negative values crash list_actions with an unhandled ValueError"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "caught_invalidated",
+                    "matched_title": "UpdateActionTool can destructively replace all of an action's steps without the approval gate delete has"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions output size is unbounded despite the result-count cap"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "list_actions bypasses object-level access controls, exposing restricted actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Mixed team= / team_id= filters break action CRUD in multi-environment projects",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Offset pagination orders by a nullable, non-unique column (name), risking skipped/duplicated rows across pages",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "create/update/delete tools skip the report_user_action analytics the REST path emits",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "DeleteActionTool re-fetches the action and re-runs the object-level access check per approved delete",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Max action CRUD tools skip the report_user_action product-analytics events the REST path emits",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions sorts on an unindexed column and uses an unindexable ILIKE search",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions output is not actually compact \u2014 full step detail is inlined for every action",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Two dedup escapes inflate the raw counts: the #6 catch appears twice (the VALID \"output size unbounded\" finding plus a dismissed \"not actually compact\" duplicate counted here as new_junk), and the report_user_action telemetry gap also appears twice (one VALID consider, one dismissed near-duplicate). The #6 catch has a VALID verdict but the validator downgraded its effective priority should_fix\u2192consider, so a naive count of surfaced should_fix+ findings would drop it. Do not conflate the run's must_fix \"list_actions bypasses object-level access\" with old #4 \u2014 they are opposite RBAC failures (list too permissive/leaking vs update/delete preflight too strict blocking legitimate object-level editors); #4 is genuinely missed. Chunk 3 (frontend/schema) yielded 1 raw issue and zero post-dedup findings, so all frontend yardstick items (#9, #10) missed entirely. The run's strength is net-new backend bugs (multi-environment team scoping, pagination ordering, list access-control bypass) rather than yardstick coverage: 2/10 caught valid, 1 caught-but-invalidated, 7 missed."
+        },
+        {
+            "label": "C7-gappinned-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "limit/offset lack lower-bound validation; negatives raise an unhandled error and diverge from the REST contract"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-match step fields (selector/text/href/tag_name) are silently ignored unless event is $autocapture",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions bypasses object-level access controls, exposing restricted actions",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions pagination orders only by non-unique, nullable `name`, making paging non-deterministic",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Negative or malformed pagination input crashes list_actions with an unhandled ValueError",
+                    "verdict_valid": true,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions fetches full Action rows including large unused columns",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions sort + search do full per-team scans with no supporting index at advertised scale",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Team-scoping uses object form (team=) that bypasses RootTeamManager rewriting, breaking project/environment scoping and diverging from REST",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "create/update/delete do not emit the 'action created/updated' product-analytics events the REST path fires",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Malformed/cohort property filters crash create_action/update_action as a hard, non-retryable failure",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "An action created/updated with no steps silently matches every event",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Naive counts mislead here in four ways. (1) The run's 6 VALID findings include an intra-run dedup miss: two VALID findings (contracts-security and performance-reliability) both describe old #3's negative-pagination crash, so I matched the first and classified the duplicate as new_junk \u2014 counting VALID findings double-counts that one issue (its verdict_valid=true despite the junk classification). (2) Coverage is only 1/10 despite 6 VALIDs because the run's valid output is dominated by genuinely new deep issues the old report never found (RootTeamManager team= scoping, autocapture-gated element fields, cohort-filter non-retryable crash, pagination tiebreaker) \u2014 new-finding quality is high even though yardstick recall is very low. (3) The dismissed \"list_actions bypasses object-level access\" finding superficially resembles old #4 but has a different root cause (missing list queryset filtering vs. the resource-gate blocking object-scoped editor grants on update/delete), so it is not a catch; likewise the dismissed stepless-action finding overlaps old #5's steps=[] wipe but roots in empty-steps match-all semantics, not the missing dangerous-op approval. (4) All chunk-2 wiring and chunk-3 frontend yardsticks (#8, #9, #10) were missed \u2014 chunk 3's single raw issue vanished by dedup \u2014 so the run skews heavily toward the core.py list path (5 of 11 post-dedup findings target list_actions)."
+        }
+    ]
+}

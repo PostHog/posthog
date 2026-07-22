@@ -11,6 +11,7 @@
 
 import { defineNativeTool, NativeTool, NativeToolSchema, Type } from '@posthog/agent-shared'
 
+import { githubAppRequestV1 } from './tools/github-app-request.v1'
 import { httpRequestV1 } from './tools/http-request.v1'
 import { identityConnectV1 } from './tools/identity-connect.v1'
 import { identityFetchV1 } from './tools/identity-fetch.v1'
@@ -83,6 +84,7 @@ import { webSearchV1 } from './tools/web-search/web-search.v1'
  */
 export const nativeToolsCatalogV1 = defineNativeTool({
     id: '@posthog/agent-applications-native-tools-list',
+    approval: 'allow',
     description: [
         'List every native (@posthog/*) tool available to put in an agent spec —',
         'id, description, the credential provider + scopes it needs, and cost hint. Call this to',
@@ -154,6 +156,7 @@ export const ALL_TOOLS: NativeTool[] = [
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
+    githubAppRequestV1,
     identityConnectV1,
     identityFetchV1,
     webSearchV1,

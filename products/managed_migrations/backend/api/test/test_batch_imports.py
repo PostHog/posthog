@@ -98,6 +98,27 @@ class TestBatchImportModel(BaseTest):
                 "day-1",
                 [{"key": "day-1", "current_offset": 0, "total_size": None}],
             ),
+            (
+                # url_list part keys are credential-bearing URLs: the returned key (and the
+                # status message built from it) must be redacted, while state keeps the raw
+                # URL the worker resolves against.
+                "url_key_redacted_in_return_but_not_state",
+                [
+                    {
+                        "key": "https://u:p@example.com/d.jsonl?X-Amz-Signature=abc",
+                        "current_offset": 42,
+                        "total_size": None,
+                    }
+                ],
+                "https://example.com/d.jsonl",
+                [
+                    {
+                        "key": "https://u:p@example.com/d.jsonl?X-Amz-Signature=abc",
+                        "current_offset": 0,
+                        "total_size": None,
+                    }
+                ],
+            ),
         ]
     )
     def test_resume_with_inflight_part_reset_resets_first_unfinished_part(
@@ -110,6 +131,7 @@ class TestBatchImportModel(BaseTest):
         self.assertEqual(reset_key, expected_reset_key)
         batch_import.refresh_from_db()
         assert batch_import.state is not None
+        self.assertNotIn("X-Amz-Signature", batch_import.status_message or "")
         self.assertEqual(batch_import.state["parts"], expected_parts)
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)

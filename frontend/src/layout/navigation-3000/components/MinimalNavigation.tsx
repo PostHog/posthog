@@ -42,7 +42,7 @@ export function MinimalNavigation(): JSX.Element {
             )}
             <div className="flex items-center justify-end gap-2 flex-1">
                 <ZenModeButton />
-                {(currentOrganization?.teams?.length ?? 0 > 1) ? (
+                {(currentOrganization?.teams?.length ?? 0) > 1 ? (
                     <ProjectMenu
                         buttonProps={{
                             size: 'lg',

@@ -1,3 +1,5 @@
+import re
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -7,6 +9,7 @@ import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
@@ -338,7 +341,9 @@ class TestBatchQueueFailRun:
         await _insert_batch(conn, batch_index=2, run_uuid="run-x")
         await BatchQueue.update_status(conn, batch_id=bid1, job_state="succeeded", attempt=1)
 
-        count = await BatchQueue.fail_run(conn, run_uuid="run-x", reason="test failure")
+        count = await BatchQueue.fail_run(
+            conn, run_uuid="run-x", team_id=1, schema_id="schema-1", reason="test failure"
+        )
 
         assert count == 2
 
@@ -556,6 +561,70 @@ class TestQueueFreshnessProbe:
         # Any status row means the batch was picked up — it must stop counting.
         await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
         assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOldestNonTerminalBatchAge:
+    @pytest.mark.parametrize(
+        "job_state,expect_pending",
+        [
+            (None, True),  # never claimed
+            ("executing", True),
+            ("waiting_retry", True),
+            ("succeeded", False),
+            ("failed", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_counts_only_non_terminal_states(self, conn, sync_conn, job_state, expect_pending):
+        bid = await _insert_batch(conn)
+        if job_state is not None:
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=1)
+
+        age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"])
+
+        if expect_pending:
+            assert age is not None and age >= 0
+        else:
+            assert age is None
+
+    @pytest.mark.asyncio
+    async def test_scoped_to_team_and_schemas(self, conn, sync_conn):
+        await _insert_batch(conn)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["other-schema"])
+            is None
+        )
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=2, schema_ids=["schema-1"]) is None
+        )
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+                sync_conn, team_id=1, schema_ids=["schema-1", "other-schema"]
+            )
+            is not None
+        )
+
+    @pytest.mark.asyncio
+    async def test_dead_run_remnants_do_not_count(self, conn, sync_conn):
+        # A batch enqueued into a run after fail_run swept it stays 'pending' but can
+        # never be claimed; counting it would hold the CDC backpressure guard down for
+        # the whole pruning window (a full extraction stop for the source).
+        failed = await _insert_batch(conn, run_uuid="dead-run", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, run_uuid="dead-run", batch_index=1)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"]) is None
+        )
+
+        await _insert_batch(conn, run_uuid="live-run", batch_index=0)
+
+        assert (
+            BatchQueue.get_oldest_non_terminal_batch_age_seconds(sync_conn, team_id=1, schema_ids=["schema-1"])
+            is not None
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -946,7 +1015,7 @@ class TestStateDualWrite:
         done = await _insert_batch(conn, batch_index=1, run_uuid="run-dw")
         await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
 
-        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", reason="boom")
+        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", team_id=1, schema_id="schema-1", reason="boom")
 
         assert failed == 1
         assert (await _batch_state(conn, pending))[0] == "failed"
@@ -1039,3 +1108,120 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimEligibilityWindow:
+    """Batches old enough to have lost their parquet to retention must never be
+    claimed or recovery-swept — but the claim gates must keep seeing them."""
+
+    @pytest.mark.parametrize("age,claimable", [("6 days", True), ("7 days", False)])
+    @pytest.mark.asyncio
+    async def test_claim_excludes_batches_past_eligibility_window(self, conn, age, claimable):
+        bid = await _insert_batch(conn)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '{age}' WHERE id = %s",
+            [bid],
+        )
+
+        batches = await _claim(conn)
+
+        assert len(batches) == (1 if claimable else 0)
+        await _release(conn, batches=batches)
+
+    @pytest.mark.parametrize(
+        "gate_state,old_run_uuid",
+        [
+            ("executing", "run-other"),  # schema-busy gate: old executing batch in a sibling run
+            ("failed", "run-x"),  # failed-run gate: old failed batch in the same run
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_gates_still_see_batches_past_eligibility_window(self, conn, gate_state, old_run_uuid):
+        # Guards against "optimizing" CLAIM_ELIGIBILITY_INTERVAL into the NOT
+        # EXISTS gates: a 7-day-old row still exists and must keep gating until
+        # retention actually removes it, or two runs of one schema overlap.
+        old = await _insert_batch(conn, batch_index=0, run_uuid=old_run_uuid)
+        await BatchQueue.update_status(conn, batch_id=old, job_state=gate_state, attempt=1)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 days' WHERE id = %s",
+            [old],
+        )
+        await _insert_batch(conn, batch_index=1, run_uuid="run-x")
+
+        assert await _claim(conn) == []
+
+    @pytest.mark.parametrize("age,collected", [("6 days", True), ("7 days", False)])
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_excludes_batches_past_eligibility_window(self, conn, age, collected):
+        bid = await _insert_batch(conn)
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=120)
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '{age}' WHERE id = %s",
+            [bid],
+        )
+
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+
+        assert len(stale) == (1 if collected else 0)
+
+    def test_eligibility_window_stays_below_retention_window(self):
+        from posthog.temporal.warehouse_sources_queue_partition_management.activities import RETENTION_DAYS
+
+        match = re.fullmatch(r"(?:(\d+) days?)?\s*(?:(\d+) hours?)?", CLAIM_ELIGIBILITY_INTERVAL.strip())
+        assert match, f"unparseable CLAIM_ELIGIBILITY_INTERVAL: {CLAIM_ELIGIBILITY_INTERVAL!r}"
+        window = timedelta(days=int(match.group(1) or 0), hours=int(match.group(2) or 0))
+
+        assert timedelta(0) < window < timedelta(days=RETENTION_DAYS), (
+            "CLAIM_ELIGIBILITY_INTERVAL must stay below RETENTION_DAYS: a claimable "
+            "batch's parquet must still exist when the retention sweep runs"
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSyncTypeFleetPartition:
+    @pytest.mark.asyncio
+    async def test_allowlist_and_denylist_fleets_partition_the_queue(self, conn, conn_b):
+        # Two fleets with complementary scopes must claim disjoint sets that
+        # together cover every class — a class neither fleet claims would sit in
+        # the queue until partition pruning.
+        cdc_bid = await _insert_batch(conn, team_id=1, schema_id="cdc-s", run_uuid="cdc-run", sync_type="cdc")
+        fr_bid = await _insert_batch(conn, team_id=2, schema_id="fr-s", run_uuid="fr-run", sync_type="full_refresh")
+        inc_bid = await _insert_batch(conn, team_id=3, schema_id="inc-s", run_uuid="inc-run", sync_type="incremental")
+
+        cdc_fleet = await _claim(conn, owner=OWNER_A, sync_types=["cdc"])
+        general_fleet = await _claim(conn_b, owner=OWNER_B, exclude_sync_types=["cdc"])
+
+        assert [str(b.id) for b in cdc_fleet] == [cdc_bid]
+        assert {str(b.id) for b in general_fleet} == {fr_bid, inc_bid}
+
+    @pytest.mark.asyncio
+    async def test_filter_leaves_schema_busy_gate_class_blind(self, conn):
+        # A CDC schema's initial snapshot enqueues full_refresh batches, which run
+        # on the other fleet. While one is executing, a cdc-scoped claim must still
+        # see the schema as busy — scoping the busy gate itself would let two
+        # fleets write the same schema's table concurrently.
+        snapshot_bid = await _insert_batch(conn, schema_id="S", run_uuid="snapshot-run", sync_type="full_refresh")
+        await _insert_batch(conn, schema_id="S", run_uuid="cdc-run", sync_type="cdc")
+        control_bid = await _insert_batch(conn, team_id=2, schema_id="T", run_uuid="t-run", sync_type="cdc")
+        await BatchQueue.update_status(conn, batch_id=snapshot_bid, job_state="executing", attempt=1)
+
+        batches = await _claim(conn, sync_types=["cdc"])
+
+        assert [str(b.id) for b in batches] == [control_bid]
+
+    @pytest.mark.asyncio
+    async def test_stale_sweep_scoped_to_fleet_classes(self, conn):
+        # Each fleet judges staleness against its own recovery grace, so its sweep
+        # must only recover its own classes: an unscoped short-grace sweep would
+        # re-queue a batch the other fleet still considers mid-write.
+        cdc_bid = await _insert_batch(conn, schema_id="cdc-s", run_uuid="cdc-run", sync_type="cdc")
+        fr_bid = await _insert_batch(conn, team_id=2, schema_id="fr-s", run_uuid="fr-run", sync_type="full_refresh")
+        await _insert_backdated_executing(conn, batch_id=cdc_bid, age_seconds=120)
+        await _insert_backdated_executing(conn, batch_id=fr_bid, age_seconds=120)
+
+        cdc_stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60, sync_types=["cdc"])
+        all_stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+
+        assert [str(b.id) for b in cdc_stale] == [cdc_bid]
+        assert {str(b.id) for b in all_stale} == {cdc_bid, fr_bid}

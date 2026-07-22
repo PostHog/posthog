@@ -30,13 +30,13 @@
         "@types/jest-image-snapshot": "^6.4.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
-        "@vitejs/plugin-react": "^4.7.0",
+        "@vitejs/plugin-react": "catalog:",
         "chokidar": "^3.6.0",
         "jest-image-snapshot": "^6.4.0",
         "storybook": "catalog:",
         "storybook-addon-pseudo-states": "^10.4.3",
         "storybook-dark-mode": "^5.0.0",
         "typescript": "catalog:",
-        "vite": "^7.3.3"
+        "vite": "catalog:"
     }
 }

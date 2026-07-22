@@ -241,6 +241,7 @@ const insightActionsMapping: Record<
     viewers: () => null,
     view_count: () => null,
     is_cached: () => null,
+    filter_override_context: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

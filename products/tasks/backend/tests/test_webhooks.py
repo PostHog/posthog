@@ -5,6 +5,7 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -18,7 +19,22 @@ from posthog.models.user import User
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.webhooks import find_task_run
+from products.tasks.backend.webhooks import _account_type, find_task_run
+
+
+class TestAccountType(TestCase):
+    @parameterized.expand(
+        [
+            ("org_owner", {"repository": {"owner": {"type": "Organization"}}}, "organization"),
+            ("user_owner", {"repository": {"owner": {"type": "User"}}}, "personal"),
+            ("org_fallback_no_owner", {"organization": {"login": "acme"}}, "organization"),
+            ("org_owner_beats_missing_org", {"repository": {"owner": {"type": "Organization"}}}, "organization"),
+            ("unknown", {"repository": {"full_name": "acme/widgets"}}, None),
+            ("empty", {}, None),
+        ]
+    )
+    def test_account_type(self, _name, payload, expected):
+        self.assertEqual(_account_type(payload), expected)
 
 
 def generate_github_signature(payload: bytes, secret: str) -> str:
@@ -726,7 +742,8 @@ class TestExternalPRWebhook(TestCase):
         return {
             "action": action,
             "installation": {"id": 555000},
-            "repository": {"full_name": "acme/widgets"},
+            "repository": {"full_name": "acme/widgets", "owner": {"login": "acme", "type": "Organization"}},
+            "organization": {"login": "acme"},
             "pull_request": {
                 "html_url": "https://github.com/acme/widgets/pull/7",
                 "number": 7,
@@ -775,6 +792,8 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(props["pr_deletions"], 30)
         self.assertEqual(props["pr_changed_files"], 5)
         self.assertEqual(props["pr_commits"], 3)
+        self.assertEqual(props["account_type"], "organization")
+        self.assertEqual(props["repo_owner_type"], "Organization")
         self.assertIsNone(props["task_id"])
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])
@@ -1062,6 +1081,9 @@ class TestGitHubWebhookFanout(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        # The dispatcher's per-handler delivery dedup lives in the default cache, which is not
+        # rolled back between tests — without this, tests reusing a delivery id poison each other.
+        cache.clear()
 
     def _make_request(
         self, payload: dict, event_type: str = "issues", delivery_id: str = "del-1", url: str = "/webhooks/github/pr/"
@@ -1181,6 +1203,33 @@ class TestGitHubWebhookFanout(TestCase):
         response = self._make_request(payload, event_type="push", url="/webhooks/github/")
 
         self.assertEqual(response.status_code, 200)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_failed_handler_releases_dedup_so_redelivery_is_processed(self, mock_secret):
+        # The dedup mark is set before the handler runs; a handler failure must release it so
+        # GitHub's redelivery of the same GUID gets processed instead of silently skipped for
+        # 24h. A successful handler keeps the mark, so a duplicate delivery stays deduped.
+        mock_secret.return_value = self.webhook_secret
+        payload = {
+            "action": "created",
+            "ref": "refs/heads/main",
+            "installation": {"id": 77777},
+            "repository": {"full_name": "myorg/myrepo"},
+        }
+        loops_handler = "products.tasks.backend.facade.webhooks.handle_github_event_for_loops"
+
+        with patch(loops_handler, side_effect=RuntimeError("boom")):
+            first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
+        self.assertEqual(first.status_code, 200)
+
+        with patch(loops_handler) as mock_loops:
+            second = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
+            self.assertEqual(second.status_code, 200)
+            mock_loops.assert_called_once()
+
+            third = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
+            self.assertEqual(third.status_code, 200)
+            mock_loops.assert_called_once()
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_unified_url_bad_signature_returns_403(self, mock_secret):

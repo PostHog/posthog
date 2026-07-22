@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { MCP_INSTALL_COMMAND } from './constants'
 
