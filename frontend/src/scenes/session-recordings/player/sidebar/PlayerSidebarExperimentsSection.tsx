@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCollapse, IconExpand, IconExternal, IconMinus, IconWarning } from '@posthog/icons'
 
@@ -49,6 +49,11 @@ function VariantTag({ item }: { item: ExperimentSessionContextItemApi }): JSX.El
     )
 }
 
+// A busy metric can carry up to the API's 50-event cap; rendering them all inline floods the narrow
+// sidebar. Show a sample of seek points and note the rest as a static count (no inline expansion —
+// the full picture lives on the recordings tab's metric filter and the experiment's own analysis).
+const MAX_INLINE_METRIC_EVENTS = 15
+
 function MetricEventChips({
     seekPoints,
     onSeek,
@@ -56,9 +61,11 @@ function MetricEventChips({
     seekPoints: { ms: number; offsetSeconds: number }[]
     onSeek: (timestampMs: number) => void
 }): JSX.Element {
+    const shown = seekPoints.slice(0, MAX_INLINE_METRIC_EVENTS)
+    const hiddenCount = seekPoints.length - shown.length
     return (
         <div className="flex flex-row flex-wrap gap-1 pl-3">
-            {seekPoints.map(({ ms, offsetSeconds }) => (
+            {shown.map(({ ms, offsetSeconds }) => (
                 <Link
                     key={ms}
                     className="font-mono tabular-nums"
@@ -69,6 +76,7 @@ function MetricEventChips({
                     {colonDelimitedDuration(offsetSeconds, 2)}
                 </Link>
             ))}
+            {hiddenCount > 0 ? <span className="text-muted">+{hiddenCount} more</span> : null}
         </div>
     )
 }
@@ -223,12 +231,19 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
             ? ([...seenItems, ...enrolledItems].find((item) => item.experiment_id === currentExperimentId) ?? null)
             : null
 
-    // Default-expand the current experiment's metrics on load so they're visible right away. Depending
-    // on the identity + metric count (not the expand set) keeps a manual collapse afterwards sticky.
+    // Default-expand the current experiment's metrics on load so they're visible right away — but only
+    // once per experiment. Auto-expanding again on a later metric-count change (e.g. a context refetch)
+    // would silently reopen a row the viewer deliberately collapsed, so a ref tracks who's been done.
     const currentExpandableId = currentItem?.experiment_id
     const currentMetricCount = currentItem?.metrics_in_session.length ?? 0
+    const autoExpandedIds = useRef<Set<number>>(new Set())
     useEffect(() => {
-        if (currentExpandableId != null && currentMetricCount > 0) {
+        if (
+            currentExpandableId != null &&
+            currentMetricCount > 0 &&
+            !autoExpandedIds.current.has(currentExpandableId)
+        ) {
+            autoExpandedIds.current.add(currentExpandableId)
             setExperimentExpanded(currentExpandableId, true)
         }
     }, [currentExpandableId, currentMetricCount, setExperimentExpanded])
