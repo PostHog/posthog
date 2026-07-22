@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 db_constraint=False,
                 on_delete=django.db.models.deletion.CASCADE,
-                related_name="customer_analytics_event_streams",
+                related_name="+",
                 to="posthog.team",
             ),
         ),

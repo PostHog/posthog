@@ -17,7 +17,7 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="customer_analytics_event_streams",
+        related_name="+",
     )
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
 
