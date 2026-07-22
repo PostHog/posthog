@@ -40,40 +40,10 @@ tools:
             Add one conversion goal to the project. Send the goal shape: kind (EventsNode for a PostHog event,
             ActionsNode for an action, DataWarehouseNode for an external table), the target (event name, action id or
             table), conversion_goal_name, and schema_map naming the fields that hold utm_campaign, utm_source, the
-            timestamp and the distinct id. conversion_goal_id is part of the goal shape but is assigned by the
-            server here, so send an empty string for it. Existing goals are left untouched.
-            Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the
-            conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists —
-            goal names must be unique.
-        feature_flag: marketing-analytics-mcp
-    marketing-analytics-update-conversion-goal:
-        operation: marketing_analytics_conversion_goals_update_partial_update
-        enabled: true
-        scopes:
-            - marketing_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update conversion goal
-        description: >
-            Change one conversion goal in place, identified by its conversion_goal_id. Only the fields you send are
-            changed and the goal keeps its position in the list. Use this to retarget a goal, rename it, or set
-            counts_as_customer / counts_as_revenue on a goal that already exists.
-        feature_flag: marketing-analytics-mcp
-    marketing-analytics-delete-conversion-goal:
-        operation: marketing_analytics_conversion_goals_delete_destroy
-        enabled: true
-        scopes:
-            - marketing_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete conversion goal
-        description: >
-            Remove one conversion goal from the project, identified by its conversion_goal_id. The other goals stay in
-            place. Dashboards and reports built on this goal will stop showing it, so confirm with the user first.
+            timestamp and the distinct id. conversion_goal_id is part of the goal shape but is assigned by the server
+            here, so send an empty string for it. Existing goals are left untouched. Set counts_as_customer when
+            converting means the person became a customer, and counts_as_revenue when the conversion value is money.
+            Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-data-sources:
         operation: marketing_analytics_data_sources_retrieve
@@ -89,6 +59,20 @@ tools:
             List the platform-side health of every native marketing integration: connected/not, last sync time and
             status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side
             only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-delete-conversion-goal:
+        operation: marketing_analytics_conversion_goals_delete_destroy
+        enabled: true
+        scopes:
+            - marketing_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete conversion goal
+        description: >
+            Remove one conversion goal from the project, identified by its conversion_goal_id. The other goals stay in
+            place. Dashboards and reports built on this goal will stop showing it, so confirm with the user first.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-diagnose:
         operation: marketing_analytics_diagnose_retrieve
@@ -165,6 +149,21 @@ tools:
     marketing-analytics-test-mapping-create:
         operation: marketing_analytics_test_mapping_create
         enabled: false
+    marketing-analytics-update-conversion-goal:
+        operation: marketing_analytics_conversion_goals_update_partial_update
+        enabled: true
+        scopes:
+            - marketing_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update conversion goal
+        description: >
+            Change one conversion goal in place, identified by its conversion_goal_id. Only the fields you send are
+            changed and the goal keeps its position in the list. Use this to retarget a goal, rename it, or set
+            counts_as_customer / counts_as_revenue on a goal that already exists.
+        feature_flag: marketing-analytics-mcp
     marketing-analytics-utm-audit:
         operation: marketing_analytics_utm_audit_retrieve
         enabled: true
