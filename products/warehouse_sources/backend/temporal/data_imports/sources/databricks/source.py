@@ -182,7 +182,11 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
         }
 
     def validate_credentials(
-        self, config: DatabricksSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DatabricksSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "access_token" and not config.auth_type.access_token:
             return False, "Missing required parameter: access token"

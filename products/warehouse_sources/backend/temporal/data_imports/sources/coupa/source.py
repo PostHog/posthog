@@ -117,11 +117,12 @@ A Coupa admin can create an OIDC client under Setup > Integrations > OAuth2/Open
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CoupaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: CoupaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.instance_url), team_id)
