@@ -154,6 +154,7 @@ export interface AlertFormLogicProps {
     /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
      * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
     insightIsTrendsFunnel?: boolean
+    uiVersion?: 'legacy' | 'redesigned'
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -243,12 +244,18 @@ function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | n
     if (props.defaultToAnomalyDetection) {
         return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
     }
+    if (props.uiVersion === 'redesigned' && props.insightName) {
+        return `${props.insightName} alert`
+    }
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
 }
 
-const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
+const getThresholdBounds = (
+    goalLines?: GoalLine[] | null,
+    uiVersion: AlertFormLogicProps['uiVersion'] = 'legacy'
+): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
-        return {}
+        return uiVersion === 'redesigned' ? { upper: 1 } : {}
     }
 
     // Simple assumption that the alert should be triggered when the first/smallest goal line is crossed
@@ -530,7 +537,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           threshold: {
                               configuration: {
                                   type: InsightThresholdType.ABSOLUTE,
-                                  bounds: getThresholdBounds(values.goalLines),
+                                  bounds: getThresholdBounds(values.goalLines, props.uiVersion),
                               },
                           },
                           condition: {
@@ -645,6 +652,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     // be formatted with those fields or we end up with "undefined: undefined".
                     lemonToast.error(`Error saving alert: ${formatSaveError(error)}`)
                     throw error
+                }
+
+                if (isNewAlert) {
+                    posthog.capture('alert creation completed', {
+                        ui_version: props.uiVersion ?? 'legacy',
+                    })
                 }
 
                 // The alert is already persisted — any error from the local side-effects below is a
@@ -877,7 +890,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     parent.actions.upsertAlert(updatedAlert)
                     parent.actions.loadAlerts()
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
