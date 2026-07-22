@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -25,6 +27,13 @@ class HogFlowRevision(TeamScopedRootMixin, UUIDTModel):
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # A revision's tenant scope always mirrors its workflow's. A mismatched (team, hog_flow)
+        # pair would leak the revision into the wrong team's history — fail-closed reads filter on
+        # this row's team_id, not the workflow's.
+        self.team_id = self.hog_flow.team_id
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"HogFlowRevision {self.hog_flow_id} v{self.version}"
