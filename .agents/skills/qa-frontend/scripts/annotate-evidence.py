@@ -80,7 +80,17 @@ def _wrap_caption(
 ) -> list[str]:
     if _text_width(draw, text, font) <= max_width:
         return [text]
-    words = text.split()
+    words = []
+    for word in text.split():
+        # a single token wider than the bar (URL, selector, id) is chunked by
+        # characters, otherwise the greedy wrap would let it overflow the image
+        while _text_width(draw, word, font) > max_width and len(word) > 1:
+            cut = len(word)
+            while cut > 1 and _text_width(draw, word[:cut], font) > max_width:
+                cut -= 1
+            words.append(word[:cut])
+            word = word[cut:]
+        words.append(word)
     lines: list[str] = []
     current = ""
     for word in words:
@@ -229,16 +239,18 @@ def animate(args: argparse.Namespace) -> int:
     target_w = min(args.max_width, max(img.width for img in images))
     resized: list[Image.Image] = []
     for img in images:
-        if img.width != target_w:
+        # only downscale oversized frames; narrower ones are padded below so
+        # readable text never gets blurred by upscaling
+        if img.width > target_w:
             img = img.resize((target_w, round(img.height * target_w / img.width)), Image.LANCZOS)
         resized.append(img)
 
     max_h = max(img.height for img in resized)
     padded: list[Image.Image] = []
     for img in resized:
-        if img.height != max_h:
+        if img.width != target_w or img.height != max_h:
             canvas = Image.new("RGB", (target_w, max_h), BAR_BG)
-            canvas.paste(img, (0, 0))
+            canvas.paste(img, ((target_w - img.width) // 2, 0))
             img = canvas
         padded.append(img)
 

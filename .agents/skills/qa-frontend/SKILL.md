@@ -103,7 +103,9 @@ Create the run directory once, before capturing logs or evidence:
 
 ```bash
 RUN_ID="local-$(date +%Y%m%d-%H%M%S)"          # local mode
-RUN_ID="pr${PR_NUMBER}-$(date +%Y%m%d-%H%M%S)" # PR mode, after resolving PR number
+
+PR_NUMBER=$(gh pr view "$PR_REF" --json number --jq '.number')  # PR mode: resolve the
+RUN_ID="pr${PR_NUMBER}-$(date +%Y%m%d-%H%M%S)"                  # number from any PR ref
 RUN_DIR=".qa-frontend/runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 ```

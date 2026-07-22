@@ -253,6 +253,8 @@ Run a **demo pass** by default after the QA loop settles: re-run the key flow on
 
    If real input events are unreliable in the session (a known agent-browser daemon quirk), programmatic `el.click()` plus an explicit `ripple()` looks identical on film.
 
+   The caption bar overlays the bottom edge of the page, and PostHog anchors toasts and some action buttons there. When a step's proof is a bottom-anchored element, clear the caption for that beat with `window.__qaCursor.caption(null)` and restore it afterwards, so the recording never covers the result it exists to show.
+
 5. Stop recording, trim any lead-in, and transcode for universal playback:
 
    ```bash
