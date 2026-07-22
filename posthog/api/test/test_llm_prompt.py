@@ -1212,9 +1212,10 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         entry = ActivityLog.objects.get(team_id=self.team.id, scope="LLMPromptLabel")
-        # Pinned value doubles as a drift tripwire for the mirrored frontend helper
-        # (promptActivityItemId in the prompts frontend pins the same fixture).
-        assert entry.item_id == "a" * 63 + "#0a0bb1d9"
+        assert entry.item_id == "a" * 39 + "#2816597888e4a0d3a36b82b83316ab32"
+        # The History tab queries by the serializer-provided key; it must match what was logged.
+        resolve = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/{long_name}/")
+        assert resolve.json()["prompt"]["activity_item_id"] == entry.item_id
 
     def test_long_prompt_names_sharing_a_prefix_get_distinct_activity_keys(self):
         shared_prefix = "b" * 80

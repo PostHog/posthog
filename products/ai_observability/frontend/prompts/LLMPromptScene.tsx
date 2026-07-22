@@ -33,7 +33,7 @@ import {
     PublishReviewModal,
     cleanPromptSearchParams,
 } from './promptSceneComponents'
-import { openArchivePromptDialog, openDuplicatePromptDialog, promptActivityItemId } from './utils'
+import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
@@ -244,7 +244,7 @@ export function LLMPromptScene(): JSX.Element {
                                               content: (
                                                   <ActivityLog
                                                       scope={ActivityScope.LLM_PROMPT_LABEL}
-                                                      id={promptActivityItemId(prompt.name)}
+                                                      id={prompt.activity_item_id}
                                                   />
                                               ),
                                           },
