@@ -11,6 +11,7 @@ from typing import Any, cast
 from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -360,11 +361,17 @@ class GatewayPoliciesUpsertSerializer(GatewayPoliciesQuerySerializer):
     policies = ToolPolicyEntrySerializer(many=True, help_text="Per-tool states to upsert for the scope.")
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class MCPToolInputSchemaField(serializers.JSONField):
+    pass
+
+
 class ResolvedToolPolicySerializer(serializers.Serializer):
     """One tool with its effective policy for the requested scope."""
 
     tool_name = serializers.CharField(help_text="Tool name as exposed by the upstream server.")
     description = serializers.CharField(allow_blank=True, help_text="Tool description from the upstream server.")
+    input_schema = MCPToolInputSchemaField(help_text="JSON Schema describing the tool's input arguments.")
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="Effective state for the scope.")
     team_state = serializers.ChoiceField(
         choices=APPROVAL_STATES,
@@ -756,22 +763,22 @@ class MCPGatewayServerViewSet(
             caller = GatewayCaller(kind="member", user_id=scope_user.id if scope_user else None)
         context = PolicyContext(team_id=self.team_id, caller=caller, gateway_server=server)
 
-        tools: list[tuple[str, str]] = []
+        tools: list[tuple[str, str, dict[str, Any]]] = []
         seen: set[str] = set()
         tool_rows = (
             MCPServerInstallationTool.objects.filter(installation__gateway_server=server, removed_at__isnull=True)
             .order_by("tool_name", "-last_seen_at")
-            .values_list("tool_name", "description")
+            .values_list("tool_name", "description", "input_schema")
         )
-        for tool_name, description in tool_rows:
+        for tool_name, description, input_schema in tool_rows:
             if tool_name in seen:
                 continue
             seen.add(tool_name)
-            tools.append((tool_name, description or ""))
+            tools.append((tool_name, description or "", input_schema or {}))
 
         is_admin = self._is_project_admin()
         rows: list[dict[str, Any]] = []
-        for tool_name, description in tools:
+        for tool_name, description, input_schema in tools:
             resolved = context.resolve(tool_name, description)
             # Beyond rule locks, a member can't loosen an admin-imposed state —
             # unless the baseline is "Member decides".
@@ -785,6 +792,7 @@ class MCPGatewayServerViewSet(
                 {
                     "tool_name": tool_name,
                     "description": description,
+                    "input_schema": input_schema,
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
                     "locked": resolved.locked or member_locked,

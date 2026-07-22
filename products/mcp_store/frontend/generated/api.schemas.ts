@@ -638,6 +638,11 @@ export const DecidedByEnumApi = {
 } as const
 
 /**
+ * JSON Schema describing the tool's input arguments.
+ */
+export type ResolvedToolPolicyApiInputSchema = { [key: string]: unknown }
+
+/**
  * One tool with its effective policy for the requested scope.
  */
 export interface ResolvedToolPolicyApi {
@@ -645,6 +650,8 @@ export interface ResolvedToolPolicyApi {
     tool_name: string
     /** Tool description from the upstream server. */
     description: string
+    /** JSON Schema describing the tool's input arguments. */
+    input_schema: ResolvedToolPolicyApiInputSchema
     /** Effective state for the scope.
      *
      * * `approved` - Approved

@@ -39695,6 +39695,11 @@ export namespace Schemas {
     }
 
     /**
+     * JSON Schema describing the tool's input arguments.
+     */
+    export type ResolvedToolPolicyInputSchema = { [key: string]: unknown };
+
+    /**
      * One tool with its effective policy for the requested scope.
      */
     export interface ResolvedToolPolicy {
@@ -39702,6 +39707,8 @@ export namespace Schemas {
       tool_name: string;
       /** Tool description from the upstream server. */
       description: string;
+      /** JSON Schema describing the tool's input arguments. */
+      input_schema: ResolvedToolPolicyInputSchema;
       /** Effective state for the scope.
        *
        * * `approved` - Approved
