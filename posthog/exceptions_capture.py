@@ -36,6 +36,6 @@ def capture_exception(error=None, additional_properties=None):
 
         # Only log if captured
         if uuid is not None:
-            logger.exception(error, event_id=uuid)
+            logger.exception(error or "Exception captured", event_id=uuid)
     else:
-        logger.exception(error)
+        logger.exception(error or "Exception captured")

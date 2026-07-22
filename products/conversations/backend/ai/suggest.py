@@ -264,13 +264,13 @@ def _build_ticket_context(
     if ticket.session_id:
         try:
             events = _fetch_session_events(team, ticket.session_id, ticket.created_at.isoformat())
-        except Exception:
-            capture_exception(additional_properties={"ticket_id": str(ticket.id)})
+        except Exception as e:
+            capture_exception(e, additional_properties={"ticket_id": str(ticket.id)})
 
         try:
             exceptions = _fetch_session_exceptions(team, ticket.session_id, ticket.created_at.isoformat())
-        except Exception:
-            capture_exception(additional_properties={"ticket_id": str(ticket.id)})
+        except Exception as e:
+            capture_exception(e, additional_properties={"ticket_id": str(ticket.id)})
 
     context = (
         _format_enhanced_context(conversation_text, events, exceptions) if events or exceptions else conversation_text
