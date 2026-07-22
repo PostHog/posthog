@@ -64,6 +64,7 @@ from ee.partners.stripe.api.provisioning.core import (
     handle_existing_user,
     handle_new_user,
     is_safe_deep_link_path,
+    is_stripe_oauth_app,
     lock_application,
     maybe_create_provisioned_pat,
     region_to_host,
@@ -346,6 +347,12 @@ class OAuthTokenView(StripeProvisioningAPIView):
             capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
             raise SpecError("server_error", "OAuth application is not configured", status=500)
 
+        # Stripe-only namespace: a consent-flow code bound to another partner's
+        # app is not redeemable here and must use that partner's own surface.
+        if not is_stripe_oauth_app(oauth_app):
+            capture_provisioning_event("token_exchange", "non_stripe_app", grant_type="authorization_code")
+            raise SpecError("invalid_grant", "Authorization code was not issued for the Stripe Projects app")
+
         # Lock the app row before reading the revoke stamp and minting, so this serializes
         # with revoke_application_sessions (see lock_application). Provisioning auth codes
         # live in the cache, not OAuthGrant, so the revoke's sweep can't reach them - the
@@ -463,6 +470,13 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 raise SpecError("invalid_grant", "Invalid or revoked refresh token")
 
             oauth_app = locked_app
+
+            # Stripe-only namespace: refresh tokens minted for any other
+            # application (or with no application) are not rotatable here.
+            # Checked before any token row is mutated.
+            if oauth_app is None or not is_stripe_oauth_app(oauth_app):
+                capture_provisioning_event("token_exchange", "non_stripe_app", grant_type="refresh_token")
+                raise SpecError("invalid_grant", "Refresh token was not issued for the Stripe Projects app")
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
             # base_team_id at refresh: the first team in the prior scope. The consent team
@@ -577,8 +591,13 @@ class StripeResourceAPIView(StripeProvisioningAPIView):
     authentication_classes = [StripeBearerAuthentication]
 
     def run_common_checks(self, request: Request) -> Response | None:
-        """Optional HMAC (required for HMAC-registered partners on top of bearer)
-        then API-Version - bearer auth already ran via the authentication class."""
+        """Optional HMAC, then API-Version - bearer auth already ran via the
+        authentication class.
+
+        TODO: latent gap - the spec mandates a signature on every orchestrator
+        call, but only update_service and deep_links enforce one; here a
+        missing Stripe-Signature header is accepted.
+        """
         if error := verify_stripe_signature_if_present(request):
             return error
         if error := verify_api_version(request):
@@ -663,9 +682,15 @@ class ResourcesCreateView(StripeResourceAPIView):
                 )
                 raise SpecError("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
+        # TODO: latent bug - this runs on every call, so a repeated create for
+        # an existing team overwrites its service_id (not idempotent), and the
+        # write lands before the billing checks below.
         resolved_service_id = service_id or ANALYTICS_SERVICE_ID
         set_provisioning_service_id(team, resolved_service_id)
 
+        # TODO: latent bug - the team, provisioning config, and token scopes
+        # are already persisted; a billing failure below returns an error to
+        # the orchestrator while leaving a usable, unbilled project behind.
         billing_result = try_activate_billing_with_spt(data["payment_credentials"], team, user)
         has_spt = billing_result is not None
         if billing_result is False:
@@ -678,6 +703,8 @@ class ResourcesCreateView(StripeResourceAPIView):
                 team_id=team.id,
                 has_spt=has_spt,
             )
+            # TODO: update_service reports this same billing failure as
+            # billing_activation_failed; the two codes should converge.
             raise SpecError("requires_payment_credentials", "Billing activation failed", resource_id=str(team.id))
 
         if resolved_service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
@@ -733,6 +760,10 @@ class ResourceDetailView(StripeResourceAPIView):
         if error := self.run_common_checks(request):
             return error
 
+        # TODO: latent gap - unlike update_service/remove there is no
+        # cross-application ownership check on TeamProvisioningConfig, so a
+        # token whose scope includes a team provisioned by another application
+        # can still read its credentials.
         team_id = self.parse_resource_team_id(resource_id, access_token)
         team = self.get_team(team_id, resource_id)
 
@@ -769,6 +800,10 @@ class RotateCredentialsView(StripeResourceAPIView):
             raise SpecError("invalid_request", first_error_message(serializer.errors), resource_id=resource_id)
         label_prefix = serializer.validated_data["label_prefix"]
 
+        # TODO: latent gap - unlike update_service/remove there is no
+        # cross-application ownership check on TeamProvisioningConfig, so a
+        # token whose scope includes a team provisioned by another application
+        # can rotate its credentials.
         team_id = self.parse_resource_team_id(resource_id, access_token)
         team = self.get_team(team_id, resource_id)
 
@@ -919,6 +954,10 @@ class ResourceRemoveView(StripeResourceAPIView):
             # Clear the mapping only if it is unclaimed or owned by the caller's
             # application; an in-scope partner must not delete another partner's
             # provisioning mapping for the same team.
+            # TODO: latent gap - when the config is owned by another application
+            # the delete is silently skipped, yet the team is still stripped
+            # from token scopes and "removed" is returned, so the mapping
+            # survives with no signal to the caller.
             config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
             if config is not None and config.application_id in (None, access_token.application_id):
                 config.delete()

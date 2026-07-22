@@ -176,6 +176,9 @@ def _should_proxy_token_lookup(request: HttpRequest, current_region: str) -> boo
 
 
 def _bearer_exists_locally(token_value: str) -> bool:
+    # TODO: latent bug - cache backend failures here (and in the token-lookup
+    # check above) propagate as 500s instead of falling back to the local DB
+    # lookup.
     # SHA-256 the token before using it as a cache key so raw bearer tokens
     # never appear in Redis keyspace dumps or logs. Tokens are already
     # high-entropy (256 bits from secrets.token_urlsafe), so an unsalted hash
@@ -219,6 +222,10 @@ class RegionProxyMixin:
     On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
     request can't be served locally at all); the lookup strategies fall through
     to local handling, which produces the appropriate auth error.
+
+    TODO: latent gap - because this runs before authentication and rate
+    limiting, an unauthenticated caller can induce outbound cross-region
+    requests (bounded request amplification).
     """
 
     region_proxy_strategy: str | None = None
@@ -233,9 +240,15 @@ class RegionProxyMixin:
         _ = request.body
 
         current = _current_region()
+        # TODO: latent gap - "E2E" instances are not listed here, so they
+        # attempt real cross-region proxying instead of handling locally.
         if current is None or current in ("DEV", "LOCAL"):
             return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 
+        # TODO: latent gap - the loop-prevention header is trusted from raw
+        # client input; a caller can set it to force local handling (and skip
+        # proxying) for a resource that lives in the other region. It can only
+        # suppress proxying, never trigger it.
         if request.META.get(f"HTTP_{PROXY_LOOP_HEADER.upper().replace('-', '_')}"):
             return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 

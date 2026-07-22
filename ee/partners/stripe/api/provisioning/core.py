@@ -100,13 +100,24 @@ def get_stripe_oauth_app() -> OAuthApplication:
     return app
 
 
+def is_stripe_oauth_app(app: OAuthApplication) -> bool:
+    """True when ``app`` is the configured Stripe Projects OAuth app.
+
+    Fails closed when ``STRIPE_POSTHOG_OAUTH_CLIENT_ID`` is unset: with no
+    configured Stripe identity, no caller can be the Stripe orchestrator.
+    """
+    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    return bool(client_id) and app.client_id == client_id
+
+
 def get_oauth_app_for_code(code_data: dict) -> OAuthApplication:
     """Resolve the OAuthApplication for a token exchange.
 
     Codes minted in this namespace always carry an empty ``partner_id`` and
     resolve to the Stripe Projects app; codes minted by the interactive consent
-    flow may carry a partner id and keep their original app binding, so those
-    codes stay redeemable here with identical semantics.
+    flow may carry a partner id and keep their original app binding. The token
+    view rejects any resolved app that is not the Stripe Projects app - this
+    namespace serves no other partner.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:
@@ -199,6 +210,8 @@ def resolve_team_for_existing_user(user: User, requested_team_id: int | None = N
     if len(non_demo_teams) == 1:
         return non_demo_teams[0]
 
+    # TODO: latent bug - memberships is unordered, so which organization hosts
+    # the new project is arbitrary for multi-org users.
     organization = memberships[0].organization
     return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
@@ -253,6 +266,9 @@ def handle_new_user(
     if not isinstance(configuration, dict):
         configuration = {}
 
+    # TODO: latent bug - organization_name is unvalidated; a non-string or
+    # over-long value fails at the DB layer as an uncaught TypeError/DataError
+    # (500) where the spec calls for a 400 invalid_request.
     org_name = configuration.get("organization_name") or f"{PARTNER_LABEL} ({email})"
 
     try:
@@ -519,6 +535,9 @@ def resolve_or_create_project_team(
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
 
+    # TODO: latent bug - project_name is unvalidated; a non-string or over-long
+    # value fails at the DB layer (500) where the spec calls for a 400
+    # invalid_request.
     project_name = configuration.get("project_name", "Default project")
     new_team = Team.objects.create_with_data(
         initiating_user=user,
@@ -645,6 +664,9 @@ def maybe_create_provisioned_pat(
     if not pat_scopes:
         capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
         return None
+    # TODO: latent bug - every call mints a new PAT without revoking earlier
+    # provisioned ones, so rotate_credentials accumulates live keys instead of
+    # rotating them.
     try:
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
@@ -675,6 +697,10 @@ def maybe_create_provisioned_pat(
 
 def get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
     """Return the user's non-demo teams for inclusion in the token exchange response."""
+    # TODO: latent bug - unlike the scoping paths, this listing skips the
+    # member-level access check (user_can_access_team), so names of restricted
+    # teams in advanced-permissions orgs leak into the response (listing only;
+    # tokens still cannot reach those teams).
     org_ids = list(user.organization_memberships.values_list("organization_id", flat=True))
     teams = Team.objects.filter(organization_id__in=org_ids, is_demo=False).select_related("organization")
     return [

@@ -8,6 +8,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.oauth import OAuthRefreshToken
+from posthog.models.utils import generate_random_oauth_refresh_token
+
 from ee.partners.stripe.api.provisioning.signature import compute_signature
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, HMAC_SECRET, StripeProvisioningTestBase
 
@@ -121,6 +124,33 @@ class TestOAuthToken(StripeProvisioningTestBase):
             f"{BASE_PATH}/provisioning/resources/{self.team.id}", token=first["access_token"]
         )
         assert detail.status_code == 401
+
+    def test_code_bound_to_non_stripe_app_not_redeemable(self):
+        other_app = self._create_other_partner_app()
+        self._seed_auth_code("code_other_partner", partner_id=str(other_app.id))
+
+        res = self._post_token({"grant_type": "authorization_code", "code": "code_other_partner"})
+        assert res.status_code == 400
+        assert res.json() == {
+            "error": "invalid_grant",
+            "error_description": "Authorization code was not issued for the Stripe Projects app",
+        }
+
+    def test_refresh_token_from_non_stripe_app_not_rotatable(self):
+        other_app = self._create_other_partner_app()
+        refresh_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=other_app, token=refresh_value, user=self.user, scoped_teams=[self.team.id]
+        )
+
+        res = self._post_token({"grant_type": "refresh_token", "refresh_token": refresh_value})
+        assert res.status_code == 400
+        assert res.json() == {
+            "error": "invalid_grant",
+            "error_description": "Refresh token was not issued for the Stripe Projects app",
+        }
+        # Rejected before any mutation: the token survives unrevoked.
+        assert OAuthRefreshToken.objects.get(token=refresh_value).revoked is None
 
     def test_refresh_is_possession_only(self):
         first = self._request_bearer_token().json()

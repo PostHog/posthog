@@ -46,6 +46,21 @@ class StripeProvisioningTestBase(APIBaseTest):
             },
         )
 
+    def _create_other_partner_app(self, **overrides):
+        from posthog.models.oauth import OAuthApplication
+
+        defaults = {
+            "client_id": "other-partner",
+            "name": "Other Partner",
+            "client_secret": "",
+            "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            "redirect_uris": "https://localhost",
+            "algorithm": "RS256",
+        }
+        defaults.update(overrides)
+        return OAuthApplication.objects.create(**defaults)
+
     def _sign_body(self, body: bytes, timestamp: int | None = None) -> str:
         ts = timestamp if timestamp is not None else int(time.time())
         sig = compute_signature(HMAC_SECRET, ts, body)

@@ -88,6 +88,10 @@ class AccountRequestSerializer(serializers.Serializer):
 
         expires_at_str = attrs.get("expires_at") or ""
         if expires_at_str:
+            # TODO: latent bug - parse_datetime raises ValueError on malformed
+            # values and returns naive datetimes for offset-less ones (the
+            # comparison below then raises TypeError); both surface as 500s
+            # where the spec calls for a 400 invalid_request.
             expires_at = parse_datetime(expires_at_str)
             if expires_at and expires_at < timezone.now():
                 capture_provisioning_event("account_request", "error", error_code="expired")

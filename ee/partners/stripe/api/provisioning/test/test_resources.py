@@ -1,9 +1,15 @@
+from datetime import timedelta
+
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.utils import generate_random_oauth_access_token
 
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
@@ -153,4 +159,30 @@ class TestResources(StripeProvisioningTestBase):
             "status": "error",
             "id": "",
             "error": {"code": "unauthorized", "message": message},
+        }
+
+    def test_bearer_from_non_stripe_partner_app_rejected(self):
+        # Even a fully enabled provisioning partner must not pass: this
+        # namespace only accepts the Stripe Projects app.
+        other_app = self._create_other_partner_app(
+            provisioning_auth_method="hmac",
+            provisioning_active=True,
+            provisioning_can_provision_resources=True,
+        )
+        token_value = generate_random_oauth_access_token(None)
+        OAuthAccessToken.objects.create(
+            application=other_app,
+            token=token_value,
+            user=self.user,
+            expires=timezone.now() + timedelta(days=1),
+            scope="query:read",
+            scoped_teams=[self.team.id],
+        )
+
+        res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token_value)
+        assert res.status_code == 401
+        assert res.json() == {
+            "status": "error",
+            "id": "",
+            "error": {"code": "unauthorized", "message": "Authentication failed"},
         }

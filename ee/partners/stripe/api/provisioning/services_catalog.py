@@ -36,6 +36,10 @@ logger = structlog.get_logger(__name__)
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
+# (connect, read) timeout so a hung billing service can't pin a worker while
+# the cached/static fallback is available.
+_BILLING_FETCH_TIMEOUT = (2, 10)
+
 _FALLBACK_DESCRIPTION = "PostHog — AI infrastructure for your product: product & web analytics, session replay, feature flags & experiments, error tracking, AI observability, logs & traces, and more."
 
 
@@ -98,6 +102,7 @@ def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params={"plan": "standard"},
+            timeout=_BILLING_FETCH_TIMEOUT,
         )
         res.raise_for_status()
         products = res.json().get("products", [])
@@ -105,6 +110,10 @@ def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
         logger.exception("stripe_provisioning.services.billing_fetch_failed")
         return None
 
+    # TODO: latent bug - this transform sits outside the try, so a malformed
+    # product payload (non-dict entries) raises and 500s the endpoint instead
+    # of returning None to trigger the fallback; an empty or fully filtered
+    # product list also produces a description with an empty product listing.
     product_names = [
         p.get("name", "")
         for p in products
