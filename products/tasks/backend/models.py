@@ -1987,6 +1987,77 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         return f"{self.name} ({self.artifact_type})"
 
 
+class SandboxSession(TeamScopedRootMixin, UUIDModel):
+    """Usage ledger for one cloud sandbox: when it ran, its resource shape, and which
+    slice of its lifetime is attributable to a user.
+
+    One row per sandbox, keyed on the provider sandbox id and upserted by the
+    provisioning activity so activity retries stay idempotent. Rows record raw usage
+    only — pricing/credit conversion happens downstream at aggregation time
+    (see logic/services/sandbox_usage.py). Pre-warmed sandboxes stay unattributed
+    (``user_attributed_at`` NULL, on PostHog's dime) until a user claims the run with
+    their first message; the boundary timestamps are deliberately redundant so any
+    future billable-window policy (wall-clock, active-plus-grace, ...) can be computed
+    from the ledger without a backfill.
+    """
+
+    class EndedReason(models.TextChoices):
+        CLEANUP = "cleanup", "Cleanup"
+        REAPED = "reaped", "Reaped"
+        PROVISION_FAILED = "provision_failed", "Provision Failed"
+
+    # db_constraint=False on the team FK: adding an FK constraint to that hot table
+    # locks it and stalls deploys; Django still enforces the relation and on_delete at
+    # the app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="sandbox_sessions")
+
+    sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
+    origin_product = models.CharField(
+        max_length=20,
+        choices=Task.OriginProduct,
+        null=True,
+        blank=True,
+        help_text="Task origin at provision time, denormalized for per-origin aggregation",
+    )
+    prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
+    vm_runtime = models.BooleanField(
+        default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
+    )
+
+    # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
+    # sandbox may consume — raw usage metrics derive from these; the burstable request
+    # floors are recorded for future pricing-policy work only (Modal bills max(request, actual)).
+    cpu_cores = models.FloatField(help_text="CPU core limit")
+    memory_gb = models.FloatField(help_text="Memory limit in GiB")
+    ttl_seconds = models.IntegerField(help_text="Hard TTL after which the provider kills the sandbox")
+    burstable = models.BooleanField(default=False)
+    cpu_request_cores = models.FloatField(null=True, blank=True, help_text="Reserved CPU floor when burstable")
+    memory_request_mb = models.IntegerField(null=True, blank=True, help_text="Reserved memory floor when burstable")
+
+    created_at = models.DateTimeField(default=django_timezone.now, help_text="Sandbox provisioned")
+    user_attributed_at = models.DateTimeField(
+        null=True, blank=True, help_text="Start of the user-attributable window; NULL while (pre)warm and unclaimed"
+    )
+    last_user_activity_at = models.DateTimeField(
+        null=True, blank=True, help_text="Most recent user message routed to this sandbox's run"
+    )
+    ended_at = models.DateTimeField(
+        null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to created_at + ttl_seconds"
+    )
+    ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_sandbox_session"
+        indexes = [
+            # Per-team period aggregation in the usage report scans attributed sessions.
+            models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+        ]
+
+    def __str__(self):
+        return f"Sandbox session {self.sandbox_id} for run {self.task_run_id}"
+
+
 class SandboxSnapshot(UUIDModel):
     """Tracks sandbox snapshots used for sandbox environments in tasks."""
 
