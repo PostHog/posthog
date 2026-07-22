@@ -15,11 +15,15 @@ from psycopg import sql as psql
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
-from posthog.ducklake.common import get_duckgres_config_for_org, validate_duckgres_identifier
+from posthog.ducklake.common import (
+    default_bucket_region,
+    get_duckgres_config_for_org,
+    get_org_config,
+    validate_duckgres_identifier,
+)
 from posthog.ducklake.models import ManagedWarehousePublishedTable
 from posthog.ducklake.publish import (
     build_publish_copy_sql,
-    build_publish_write_secret_sql,
     delete_stale_publish_versions,
     publish_folder,
     publish_s3_uri,
@@ -46,6 +50,8 @@ class PublishTableInputs:
 class PublishCopyResult:
     folder_version: str
     row_count: int
+    bucket: str
+    bucket_region: str
 
 
 @dataclass
@@ -54,6 +60,8 @@ class PublishRegisterInputs:
     publication_id: str
     folder_version: str
     row_count: int
+    bucket: str
+    bucket_region: str
 
 
 @dataclass
@@ -61,6 +69,7 @@ class PublishCleanupInputs:
     team_id: int
     publication_id: str
     keep_version: str
+    bucket: str
 
 
 @dataclass
@@ -86,11 +95,19 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
     publication.save(update_fields=["status", "updated_at"])
 
     team = Team.objects.only("organization_id").get(id=inputs.team_id)
-    config = get_duckgres_config_for_org(str(team.organization_id))
+    organization_id = str(team.organization_id)
+    config = get_duckgres_config_for_org(organization_id)
+    # Published snapshots live in the org's own managed-warehouse bucket, so the
+    # worker's ambient credentials cover the write — no injected secret.
+    storage = get_org_config(organization_id)
+    bucket = storage.get("DUCKLAKE_BUCKET") or ""
+    if not bucket:
+        raise ValueError(f"No managed warehouse bucket recorded for organization {organization_id}")
+    bucket_region = storage.get("DUCKLAKE_BUCKET_REGION") or default_bucket_region()
 
     version = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
     folder = publish_folder(inputs.team_id, publication.id.hex)
-    destination = publish_s3_uri(folder, version)
+    destination = publish_s3_uri(bucket, folder, version)
 
     with HeartbeaterSync(details=("duckgres_publish", inputs.publication_id), logger=logger):
         with psycopg.connect(
@@ -107,7 +124,6 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
             keepalives_count=4,
         ) as conn:
             setup_duckgres_session(conn, extensions=("httpfs",))
-            conn.execute(build_publish_write_secret_sql(destination))
             cursor = conn.execute(
                 psql.SQL("SELECT count(*) FROM {}.{}").format(
                     psql.Identifier(publication.source_schema_name),
@@ -122,7 +138,7 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
                 build_publish_copy_sql(publication.source_schema_name, publication.source_table_name, destination)
             )
 
-    return PublishCopyResult(folder_version=version, row_count=row_count)
+    return PublishCopyResult(folder_version=version, row_count=row_count, bucket=bucket, bucket_region=bucket_region)
 
 
 @temporalio.activity.defn
@@ -136,7 +152,7 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> None:
             .get(id=inputs.publication_id, deleted=False)
         )
         folder = publish_folder(inputs.team_id, publication.id.hex)
-        url_pattern = publish_url_pattern(folder, inputs.folder_version)
+        url_pattern = publish_url_pattern(inputs.bucket, inputs.bucket_region, folder, inputs.folder_version)
 
         table: DataWarehouseTable | None = None
         if publication.table_id is not None:
@@ -180,7 +196,9 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> None:
 def publish_table_cleanup_activity(inputs: PublishCleanupInputs) -> None:
     close_old_connections()
     publication = ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).get(id=inputs.publication_id)
-    delete_stale_publish_versions(publish_folder(inputs.team_id, publication.id.hex), inputs.keep_version)
+    delete_stale_publish_versions(
+        inputs.bucket, publish_folder(inputs.team_id, publication.id.hex), inputs.keep_version
+    )
 
 
 @temporalio.activity.defn
@@ -218,6 +236,8 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                     publication_id=inputs.publication_id,
                     folder_version=copy_result.folder_version,
                     row_count=copy_result.row_count,
+                    bucket=copy_result.bucket,
+                    bucket_region=copy_result.bucket_region,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
@@ -229,6 +249,7 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                         team_id=inputs.team_id,
                         publication_id=inputs.publication_id,
                         keep_version=copy_result.folder_version,
+                        bucket=copy_result.bucket,
                     ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),

@@ -34,22 +34,28 @@ class TestPublishHelpers(SimpleTestCase):
     def test_reserved_names_without_suffix_are_shared_tables(self) -> None:
         assert reserved_backfill_table_names(None) == frozenset({"events", "persons"})
 
-    @override_settings(BUCKET_URL="s3://data-warehouse")
     def test_publish_s3_uri_and_folder(self) -> None:
         folder = publish_folder(42, "abc123")
         assert folder == "team_42_publish_abc123"
-        assert publish_s3_uri(folder, "20260720120000") == "s3://data-warehouse/team_42_publish_abc123/20260720120000"
+        assert (
+            publish_s3_uri("posthog-duckling-acme-mw-prod-us", folder, "20260720120000")
+            == "s3://posthog-duckling-acme-mw-prod-us/__posthog_published/team_42_publish_abc123/20260720120000"
+        )
 
-    @override_settings(
-        USE_LOCAL_SETUP=True,
-        BUCKET_URL="s3://data-warehouse",
-        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
-    )
+    @override_settings(USE_LOCAL_SETUP=True, OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000")
     def test_publish_url_pattern_local(self) -> None:
-        url = publish_url_pattern("team_42_publish_abc123", "20260720120000")
-        assert url == "http://objectstorage:19000/data-warehouse/team_42_publish_abc123/20260720120000/**.parquet"
+        url = publish_url_pattern("ducklake-dev", "us-east-1", "team_42_publish_abc123", "20260720120000")
+        assert (
+            url
+            == "http://objectstorage:19000/ducklake-dev/__posthog_published/team_42_publish_abc123/20260720120000/**.parquet"
+        )
 
-    @override_settings(USE_LOCAL_SETUP=False, DATAWAREHOUSE_BUCKET_DOMAIN="warehouse.example.com")
+    @override_settings(USE_LOCAL_SETUP=False)
     def test_publish_url_pattern_prod(self) -> None:
-        url = publish_url_pattern("team_42_publish_abc123", "20260720120000")
-        assert url == "https://warehouse.example.com/dlt/team_42_publish_abc123/20260720120000/**.parquet"
+        url = publish_url_pattern(
+            "posthog-duckling-acme-mw-prod-us", "us-east-1", "team_42_publish_abc123", "20260720120000"
+        )
+        assert url == (
+            "https://posthog-duckling-acme-mw-prod-us.s3.us-east-1.amazonaws.com"
+            "/__posthog_published/team_42_publish_abc123/20260720120000/**.parquet"
+        )

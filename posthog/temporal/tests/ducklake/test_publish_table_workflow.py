@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _FAKE_COLUMNS = {"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}}
 _WORKFLOW_MODULE = "posthog.temporal.ducklake.publish_table_workflow"
+_BUCKET = "posthog-duckling-acme-mw-prod-us"
+_BUCKET_REGION = "us-east-1"
 
 
 class TestPublishTableActivities(BaseTest):
@@ -39,6 +41,8 @@ class TestPublishTableActivities(BaseTest):
                     publication_id=str(publication.id),
                     folder_version="20260720120000",
                     row_count=5,
+                    bucket=_BUCKET,
+                    bucket_region=_BUCKET_REGION,
                 )
             )
 
@@ -50,6 +54,7 @@ class TestPublishTableActivities(BaseTest):
         table = DataWarehouseTable.objects.get(team_id=self.team.pk, id=publication.table_id)
         assert table.format == DataWarehouseTable.TableFormat.Parquet
         assert table.name == "customer_arr"
+        assert f"/{_BUCKET}/__posthog_published/" in table.url_pattern
         assert f"team_{self.team.pk}_publish_{publication.id.hex}" in table.url_pattern
         assert "/20260720120000/**.parquet" in table.url_pattern
         assert table.row_count == 5
@@ -61,7 +66,7 @@ class TestPublishTableActivities(BaseTest):
         connection.__exit__.return_value = False
         count_cursor = MagicMock()
         count_cursor.fetchone.return_value = (0,)
-        connection.execute.side_effect = [MagicMock(), count_cursor]
+        connection.execute.side_effect = [count_cursor]
 
         with (
             patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
@@ -75,6 +80,10 @@ class TestPublishTableActivities(BaseTest):
                     "DUCKGRES_PASSWORD": "password",
                 },
             ),
+            patch(
+                f"{_WORKFLOW_MODULE}.get_org_config",
+                return_value={"DUCKLAKE_BUCKET": _BUCKET, "DUCKLAKE_BUCKET_REGION": _BUCKET_REGION},
+            ),
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect", return_value=connection),
             patch(f"{_WORKFLOW_MODULE}.setup_duckgres_session"),
             patch(f"{_WORKFLOW_MODULE}.HeartbeaterSync"),
@@ -82,7 +91,7 @@ class TestPublishTableActivities(BaseTest):
         ):
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 
-        assert connection.execute.call_count == 2
+        assert connection.execute.call_count == 1
 
     def test_register_repoints_existing_table_on_republish(self) -> None:
         publication = self._publication()
@@ -97,6 +106,8 @@ class TestPublishTableActivities(BaseTest):
                     publication_id=str(publication.id),
                     folder_version="20260720120000",
                     row_count=5,
+                    bucket=_BUCKET,
+                    bucket_region=_BUCKET_REGION,
                 )
             )
             publish_table_register_activity(
@@ -105,6 +116,8 @@ class TestPublishTableActivities(BaseTest):
                     publication_id=str(publication.id),
                     folder_version="20260721120000",
                     row_count=7,
+                    bucket=_BUCKET,
+                    bucket_region=_BUCKET_REGION,
                 )
             )
 
@@ -122,6 +135,8 @@ class TestPublishTableActivities(BaseTest):
             publication_id=str(publication.id),
             folder_version="20260720120000",
             row_count=5,
+            bucket=_BUCKET,
+            bucket_region=_BUCKET_REGION,
         )
 
         with (
