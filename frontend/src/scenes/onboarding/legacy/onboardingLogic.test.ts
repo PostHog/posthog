@@ -730,16 +730,31 @@ describe('onboardingLogic — flow composition', () => {
             expect(router.values.searchParams.step).toBe('install')
         })
 
-        it('keeps waiting on ?step=plans while billing has not loaded (async-appended step)', async () => {
-            // `plans` joins the flow only after billing loads; reconciling it away would
-            // permanently lose the requested step (e.g. the post-upgrade round-trip
-            // landing before billing settles).
-            router.actions.push('/onboarding/conversations?step=plans')
+        it.each(['plans', 'plans:conversations'])(
+            'keeps waiting on ?step=%s while billing has not loaded (async-appended step)',
+            async (step) => {
+                // `plans` joins the flow only after billing loads; reconciling it away would
+                // permanently lose the requested step (e.g. the post-upgrade round-trip
+                // landing before billing settles). The namespaced form must wait too.
+                router.actions.push(`/onboarding/conversations?step=${step}`)
+                await expectLogic(logic).toDispatchActions(['setStepId'])
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                expect(logic.values.stepId).toBe(step)
+                expect(logic.values.currentFlowStep).toBeNull()
+                expect(router.values.searchParams.step).toBe(step)
+            }
+        )
+
+        it('self-corrects a namespaced step id that is not in the flow and never will be', async () => {
+            // A stale bookmark or edited `?with=` list can request a namespaced id
+            // (`install:llm_analytics`) for a product that isn't selected. Product steps are
+            // contributed synchronously, so it can never appear — reconcile instead of spinning.
+            router.actions.push('/onboarding/web_analytics?step=install:llm_analytics')
             await expectLogic(logic).toDispatchActions(['setStepId'])
             await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(logic.values.stepId).toBe('plans')
-            expect(logic.values.currentFlowStep).toBeNull()
-            expect(router.values.searchParams.step).toBe('plans')
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+            expect(router.values.searchParams.step).toBeUndefined()
         })
 
         it('leaves a resolvable bare ?step=install untouched for a product that has an install step', async () => {

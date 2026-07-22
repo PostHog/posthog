@@ -22,19 +22,15 @@ const ASYNC_APPENDED_STEP_KEYS: string[] = [
 
 /**
  * Whether a requested step id might still be emitted into the flow once async data
- * (billing, org membership) loads. Product-provided steps (install, configure, …)
- * are contributed synchronously the moment the flow builds, so a bare product-level
- * step key missing from a built flow will never appear — e.g. `?step=install` for a
- * product whose provider emits no install step — and must be self-corrected instead
- * of leaving the host on a spinner forever.
- *
- * A `?` or `&` means query params fused into the step value (a mangled URL) — never
- * treat that as pending. Namespaced ids (`install:logs`) are conservatively treated
- * as pending: they include the namespaced forms of the async-appended steps
- * (`plans:<product>`), which must keep waiting for billing.
+ * (billing, org membership) loads. Product-provided steps are contributed synchronously
+ * the moment the flow builds, so anything else missing from a built flow will never
+ * appear and must be self-corrected instead of leaving the host on a spinner forever.
+ * Namespaced ids (`plans:conversations`) are pending only when their prefix is an
+ * async-appended key; a `?` or `&` means query params fused into the step value
+ * (a mangled URL) — never pending.
  */
 export const mayStepAppearLater = (stepId: string): boolean =>
-    !/[?&]/.test(stepId) && (ASYNC_APPENDED_STEP_KEYS.includes(stepId) || stepId.includes(':'))
+    !/[?&]/.test(stepId) && ASYNC_APPENDED_STEP_KEYS.includes(stepId.split(':')[0])
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
     if (!stepKey) {
