@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { insightsApi } from 'scenes/insights/utils/api'
 
@@ -96,6 +97,37 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).not.toEqual(initialQueryKey)
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
+        })
+
+        // Guards the per-view invariant: hidden series are keyed per insight (the spend tab renders
+        // two insights off one logic — hiding a series on one must not hide it on the other) and
+        // reset when the date range changes (stale keys would otherwise hide series on the redrawn chart).
+        it('toggles hidden series keys per insight and resets them on date change', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            mountForKind()
+
+            logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
+            logic.actions.toggleHiddenSeriesKey('insight-b', 'Recordings-1', 2)
+            expect(logic.values.hiddenSeriesKeysByShortId).toEqual({
+                'insight-a': ['Events-0'],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
+                kind,
+                is_hidden: true,
+                series_count: 2,
+            })
+
+            logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
+            expect(logic.values.hiddenSeriesKeysByShortId).toEqual({ 'insight-a': [], 'insight-b': ['Recordings-1'] })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
+                kind,
+                is_hidden: false,
+                series_count: 3,
+            })
+
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            expect(logic.values.hiddenSeriesKeysByShortId).toEqual({})
         })
 
         // Environments without the saved billing insight (or a failing fetch) must degrade to an
