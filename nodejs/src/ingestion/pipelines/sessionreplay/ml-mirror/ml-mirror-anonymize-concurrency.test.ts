@@ -12,7 +12,10 @@ import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessio
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import { RetentionResolution, RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention-service'
+import {
+    RetentionResolution,
+    RetentionService,
+} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
