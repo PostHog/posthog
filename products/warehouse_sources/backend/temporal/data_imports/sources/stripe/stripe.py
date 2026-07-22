@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
@@ -623,6 +624,10 @@ def stripe_source(
     api_version: str,
     should_use_incremental_field: bool = False,
 ):
+    # The canonical Stripe schema (`external_table_definitions`) drives both these write-side hints
+    # and — because `has_managed_hogql_schema=True` — the read-side HogQL fields, and neither is
+    # api_version-aware. Apply the same hints for every version so write and read stay consistent;
+    # per-version divergence would need the read schema versioned too, not just the write hints.
     column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
@@ -861,10 +866,13 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
         )
 
     try:
+        # Webhook management stays pinned to acacia regardless of the source's sync pin: the version
+        # here isn't threaded from the per-instance row (these calls run at source-setup time), and
+        # the endpoint create/list/update responses this path reads are stable across versions.
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -919,7 +927,7 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -964,7 +972,7 @@ def update_webhook_events(
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
@@ -1012,7 +1020,7 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
         client = StripeClient(
             api_key,
             stripe_account=stripe_account_id,
-            stripe_version="2024-09-30.acacia",
+            stripe_version=STRIPE_API_VERSION_ACACIA,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
             http_client=_tracked_stripe_http_client(),
