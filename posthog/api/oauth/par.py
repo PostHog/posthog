@@ -65,11 +65,13 @@ PAR_REQUEST_URI_LIFETIME_SECONDS = 60 * 5
 # round-trips through PAR unchanged.
 PAR_EXCLUDED_PARAMS = frozenset({"client_secret", "request_uri"})
 
-# Upper bound on the stored (urlencoded) parameter set. Comfortably fits the full
-# advertised scope list plus the other parameters (a few KB), while bounding both
-# how much a public client can write into the shared cache and the length of the
-# expanded /oauth/authorize/ URL the authorization endpoint redirects to.
-PAR_MAX_STORED_BYTES = 12 * 1024
+# Upper bound on the stored (urlencoded) parameter set. A full advertised scope
+# list plus redirect_uri/state/PKCE is only a few KB, so 8 KiB fits every real
+# request while keeping the expanded /oauth/authorize/ URL the authorization
+# endpoint redirects to below the ~8 KiB request-line/header limits common in
+# proxies and servers — and bounding how much a public client can write into the
+# shared cache per push.
+PAR_MAX_STORED_BYTES = 8 * 1024
 
 
 def _cache_key(reference: str) -> str:
@@ -121,13 +123,12 @@ class PushedAuthorizationRequestSerializer(serializers.Serializer):
     """Validates an RFC 9126 pushed authorization request. Fields mirror the
     query parameters of a normal OAuth authorization request."""
 
-    # Only the fields needed to authenticate the push and enforce RFC 9126 are
-    # declared/validated here; the rest of the authorization parameters (scope,
-    # state, PKCE, nonce, claims, resource, access-level hints, ...) are stored
-    # verbatim from the request body and validated later at /oauth/authorize/.
-    # The whole stored set is bounded by PAR_MAX_STORED_BYTES, so no per-field
-    # length cap is needed (a small cap on `scope` would wrongly reject a client
-    # requesting the full advertised scope list).
+    # The authorization parameters below are declared to document the contract for
+    # generated clients, docs, and MCP consumers. They are stored verbatim from the
+    # request body and their values are validated later at /oauth/authorize/, so
+    # they stay optional here (a client may push any subset) and carry no per-field
+    # length cap — the whole stored set is bounded by PAR_MAX_STORED_BYTES instead
+    # (a small cap on `scope` would wrongly reject a full advertised scope list).
     client_id = serializers.CharField(max_length=512, help_text="OAuth client identifier issued to the application.")
     client_secret = serializers.CharField(
         required=False,
@@ -138,6 +139,23 @@ class PushedAuthorizationRequestSerializer(serializers.Serializer):
         required=False,
         max_length=512,
         help_text="Not permitted: a pushed authorization request must not itself contain a request_uri (RFC 9126 §2.1).",
+    )
+    redirect_uri = serializers.CharField(
+        required=False, help_text="Where to send the browser after authorization; must match a registered redirect URI."
+    )
+    response_type = serializers.CharField(
+        required=False, help_text="OAuth response type. Use `code` for the code flow."
+    )
+    scope = serializers.CharField(required=False, help_text="Space-delimited list of requested OAuth scopes.")
+    state = serializers.CharField(
+        required=False, help_text="Opaque value echoed back to the client to maintain state / prevent CSRF."
+    )
+    code_challenge = serializers.CharField(required=False, help_text="PKCE code challenge (RFC 7636).")
+    code_challenge_method = serializers.CharField(
+        required=False, help_text="PKCE code challenge method, typically `S256`."
+    )
+    nonce = serializers.CharField(
+        required=False, help_text="OpenID Connect nonce binding the ID token to this request."
     )
 
 
