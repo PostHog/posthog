@@ -5835,6 +5835,21 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-create-conversion-goal": {
+        "description": "Add one conversion goal to the project. Send the goal shape: kind (EventsNode for a PostHog event, ActionsNode for an action, DataWarehouseNode for an external table), the target (event name, action id or table), conversion_goal_name, and schema_map naming the fields that hold utm_campaign, utm_source, the timestamp and the distinct id. conversion_goal_id is part of the goal shape but is assigned by the server here, so send an empty string for it. Existing goals are left untouched. Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Create conversion goal",
+        "title": "Create conversion goal",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
     "marketing-analytics-data-sources": {
         "description": "List the platform-side health of every native marketing integration: connected/not, last sync time and status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.",
         "category": "Marketing analytics",
@@ -5847,6 +5862,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-delete-conversion-goal": {
+        "description": "Remove one conversion goal from the project, identified by its conversion_goal_id. The other goals stay in place. Dashboards and reports built on this goal will stop showing it, so confirm with the user first.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Delete conversion goal",
+        "title": "Delete conversion goal",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "marketing-analytics-mcp"
     },
@@ -5907,6 +5937,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-update-conversion-goal": {
+        "description": "Change one conversion goal in place, identified by its conversion_goal_id. Only the fields you send are changed and the goal keeps its position in the list. Use this to retarget a goal, rename it, or set counts_as_customer / counts_as_revenue on a goal that already exists.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Update conversion goal",
+        "title": "Update conversion goal",
+        "required_scopes": ["marketing_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "marketing-analytics-mcp"
     },
