@@ -1,16 +1,27 @@
 import { useMountedLogic, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { IntegrationType } from '~/types'
 
-import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
-import { formatRunInterval, prettifyScoutSkillName, RUN_INTERVAL_OPTIONS } from '../../../utils/scoutRunsWindow'
+import type {
+    PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
+    SignalScoutConfigApi as SignalScoutConfig,
+} from 'products/signals/frontend/generated/api.schemas'
+
+import {
+    dailyCronToTime,
+    formatRunInterval,
+    prettifyScoutSkillName,
+    RUN_INTERVAL_OPTIONS,
+    timeToDailyCron,
+} from '../../../utils/scoutRunsWindow'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -22,9 +33,21 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
     deleting?: boolean
+    /** True while this scout's config update request is in flight. */
+    updating?: boolean
 }
 
-function intervalOptions(config: SignalScoutConfig): { value: string; label: string }[] {
+/** Sentinel select values for the scheduled (cron) modes — rolling options use the interval minutes. */
+const DAILY_AT_MODE = 'daily_at'
+const CUSTOM_CRON_MODE = 'custom_cron'
+const DEFAULT_DAILY_TIME = '09:00'
+
+/**
+ * The schedule is either a rolling interval OR a cron — one select models that choice.
+ * Rolling presets carry the interval minutes; "Daily at a set time" switches to a daily cron
+ * (revealing the time picker); a cron the picker can't express shows as a read-only "Custom" mode.
+ */
+function scheduleOptions(config: SignalScoutConfig, scheduleMode: string): { value: string; label: string }[] {
     const options = RUN_INTERVAL_OPTIONS.map((option) => ({
         value: String(option.minutes),
         label: option.label,
@@ -34,6 +57,10 @@ function intervalOptions(config: SignalScoutConfig): { value: string; label: str
             value: String(config.run_interval_minutes),
             label: formatRunInterval(config.run_interval_minutes),
         })
+    }
+    options.push({ value: DAILY_AT_MODE, label: 'Daily at a set time' })
+    if (scheduleMode === CUSTOM_CRON_MODE) {
+        options.push({ value: CUSTOM_CRON_MODE, label: `Custom (${config.run_cron_schedule})` })
     }
     return options
 }
@@ -48,7 +75,7 @@ export function ScoutEnabledSwitch({ config, onUpdate, updating = false }: Scout
                     checked={config.enabled}
                     onChange={(checked) => onUpdate(config.id, { enabled: checked })}
                     loading={updating}
-                    disabledReason={updating ? 'Saving…' : undefined}
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
                     aria-label={`${config.skill_name} enabled`}
                 />
             </span>
@@ -69,23 +96,78 @@ export function ScoutConfigForm({
 }: ScoutConfigFormProps): JSX.Element {
     useMountedLogic(integrationsLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
+    const { timezone: projectTimezone } = useValues(teamLogic)
+    const dailyTime = dailyCronToTime(config.run_cron_schedule)
+    const scheduleMode = config.run_cron_schedule
+        ? dailyTime !== null
+            ? DAILY_AT_MODE
+            : CUSTOM_CRON_MODE
+        : String(config.run_interval_minutes)
+    const controlsDisabledReason = updating
+        ? 'Saving scout settings'
+        : config.enabled
+          ? undefined
+          : 'Enable the scout first'
 
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
-                    <span className="text-xs text-default">Cadence</span>
-                    <span className="text-[11.5px] text-muted">How often the scout is dispatched</span>
+                    <span className="text-xs text-default">Schedule</span>
+                    <span className="text-[11.5px] text-muted">
+                        {scheduleMode === CUSTOM_CRON_MODE
+                            ? 'A cron schedule set via the API'
+                            : 'A rolling cadence, or a set time each day'}
+                    </span>
                 </div>
                 <LemonSelect
                     size="small"
-                    value={String(config.run_interval_minutes)}
-                    options={intervalOptions(config)}
-                    disabledReason={updating ? 'Saving…' : config.enabled ? undefined : 'Enable the scout first'}
-                    className="w-36"
-                    onChange={(value) => onUpdate(config.id, { run_interval_minutes: Number(value) })}
+                    value={scheduleMode}
+                    options={scheduleOptions(config, scheduleMode)}
+                    disabledReason={controlsDisabledReason}
+                    className="w-44"
+                    onChange={(value) => {
+                        if (value === scheduleMode || value === CUSTOM_CRON_MODE) {
+                            return
+                        }
+                        if (value === DAILY_AT_MODE) {
+                            onUpdate(config.id, { run_cron_schedule: timeToDailyCron(dailyTime ?? DEFAULT_DAILY_TIME) })
+                            return
+                        }
+                        // A rolling cadence replaces any cron — the schedule is one or the other.
+                        onUpdate(config.id, { run_interval_minutes: Number(value), run_cron_schedule: null })
+                    }}
                 />
             </div>
+            {scheduleMode === DAILY_AT_MODE ? (
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-xs text-default">Run time</span>
+                        <span className="text-[11.5px] text-muted">Uses the project timezone ({projectTimezone})</span>
+                    </div>
+                    <LemonInput
+                        key={config.run_cron_schedule ?? 'unset'}
+                        type="time"
+                        step={60}
+                        size="small"
+                        defaultValue={dailyTime ?? DEFAULT_DAILY_TIME}
+                        disabledReason={controlsDisabledReason}
+                        className="w-44"
+                        onBlur={(event) => {
+                            const value = event.currentTarget.value
+                            // Empty means a half-finished edit, never "clear" — turning the
+                            // schedule off is the select's job, so just fall back to the saved time.
+                            if (!value) {
+                                return
+                            }
+                            const runCronSchedule = timeToDailyCron(value)
+                            if (runCronSchedule !== config.run_cron_schedule) {
+                                onUpdate(config.id, { run_cron_schedule: runCronSchedule })
+                            }
+                        }}
+                    />
+                </div>
+            ) : null}
             <ScoutSlackDestination
                 config={config}
                 onUpdate={onUpdate}
@@ -124,7 +206,7 @@ function ScoutSlackDestination({
     loading,
     updating = false,
 }: ScoutConfigControlsProps & { integrations: IntegrationType[]; loading: boolean }): JSX.Element {
-    const destination = config.output_destinations.slack
+    const destination = config.output_destinations?.slack
     const configuredIntegration = destination
         ? integrations.find((integration) => integration.id === destination.integration_id)
         : undefined

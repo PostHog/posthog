@@ -1365,7 +1365,10 @@ export const accessControlLogic = kea<accessControlLogicType>([
                                 (member) => member === accessControl.organization_member
                             )
                     ) as (AccessControlTypeMember | AccessControlTypeOrganizationAdmins)[]
-                return members.concat(organizationAdminsAsAccessControlMember)
+                // No row when no admins are visible (org may hide them from restricted members)
+                return organizationAdminsAsAccessControlMember.organization_admin_members.length > 0
+                    ? members.concat(organizationAdminsAsAccessControlMember)
+                    : members
             },
         ],
 

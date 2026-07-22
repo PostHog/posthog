@@ -35,6 +35,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     enabled: true,
     emit: true,
     run_interval_minutes: 1440,
+    run_cron_schedule: null,
     output_destinations: {},
     last_run_at: null,
     created_at: '2026-07-22T00:00:00Z',
@@ -113,7 +114,7 @@ describe('scoutFleetLogic', () => {
             queuedUpdates
         )
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
-        expect(logic.values.updatingScoutConfigIds).toEqual([])
+        expect(logic.values.updatingScoutIds).toEqual([])
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -163,6 +164,6 @@ describe('scoutFleetLogic', () => {
             output_destinations: outputDestinations,
         })
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
-        expect(logic.values.updatingScoutConfigIds).toEqual([])
+        expect(logic.values.updatingScoutIds).toEqual([])
     })
 })

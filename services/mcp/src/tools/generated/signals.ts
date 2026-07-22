@@ -515,6 +515,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
@@ -589,6 +592,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
@@ -979,6 +985,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
@@ -1062,6 +1071,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.run_interval_minutes !== undefined) {
             body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        if (params.run_cron_schedule !== undefined) {
+            body['run_cron_schedule'] = params.run_cron_schedule
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations

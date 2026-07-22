@@ -1,8 +1,6 @@
 import type { UserBasicType } from '~/types'
 
 import {
-    type PatchedSignalScoutConfigUpdateApi,
-    type SignalScoutConfigApi,
     type SignalReportRefundApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
@@ -291,15 +289,6 @@ export interface SignalRun {
 }
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
-
-/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
-export type ScoutOrigin = SignalScoutConfigApi['scout_origin']
-
-/** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
-export type SignalScoutConfig = SignalScoutConfigApi
-
-/** Editable subset of a scout config (PATCH `signals/scout/configs/{id}`). */
-export type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
 /** Status from the linked TaskRun behind a scout run. */
 export type SignalScoutRunStatus = 'not_started' | 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'

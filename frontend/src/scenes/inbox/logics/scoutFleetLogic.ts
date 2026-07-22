@@ -17,14 +17,15 @@ import {
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
 } from 'products/signals/frontend/generated/api'
-import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    FleetFindingsSummaryApi,
+    PatchedSignalScoutConfigUpdateApi,
+    ScoutMetadataApi,
+    SignalScoutConfigApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 
-import type {
-    PatchedSignalScoutConfigUpdateApi,
-    SignalScoutConfigApi,
-} from '../../../../../products/signals/frontend/generated/api.schemas'
-import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
+import { SignalScoutRunSummary } from '../types'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -36,6 +37,9 @@ import {
     ScoutRollup,
     sortConfigsForDisplay,
 } from '../utils/scoutRunsWindow'
+
+type SignalScoutConfig = SignalScoutConfigApi
+type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
@@ -80,7 +84,7 @@ export interface scoutFleetLogicValues {
     scoutConfigsLoading: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
-    updatingScoutConfigIds: string[]
+    updatingScoutIds: string[]
     visibleConfigs: SignalScoutConfig[]
 }
 
@@ -418,7 +422,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 deleteScoutFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
-        updatingScoutConfigIds: [
+        updatingScoutIds: [
             [] as string[],
             {
                 updateScoutConfig: (state, { configId }) => (state.includes(configId) ? state : [...state, configId]),
@@ -523,7 +527,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         updateScoutConfig: async ({ configId, updates }) => {
-            const inFlight: Set<string> = (cache.updatingScoutConfigIds ??= new Set())
+            const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
             const pendingUpdates: Map<string, SignalScoutConfigUpdate> = (cache.pendingScoutConfigUpdates ??= new Map())
 
             if (inFlight.has(configId)) {
@@ -546,8 +550,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
             try {
                 while (updatesToSend) {
+                    const previousCronSchedule = confirmedConfig?.run_cron_schedule
                     const updated = await signalsScoutConfigUpdate(String(teamId), configId, updatesToSend)
                     confirmedConfig = updated
+
+                    if (updatesToSend.run_cron_schedule === null && previousCronSchedule) {
+                        lemonToast.info('Scheduled run time cleared. The scout is back on its rolling interval.')
+                    }
 
                     const queuedUpdates = pendingUpdates.get(configId)
                     if (!queuedUpdates) {
@@ -622,7 +631,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     }
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
-                        throw new Error('Could not resolve the active project to delete the scout')
+                        throw new Error('Could not resolve the active project')
                     }
                     await signalsScoutConfigDestroy(String(teamId), configId)
                     // Remove only after the backend confirms — deletion is irreversible, so no optimistic

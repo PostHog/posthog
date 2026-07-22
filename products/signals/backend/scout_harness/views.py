@@ -1361,10 +1361,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List scout configs",
         description=(
-            "List the per-(team, skill) scout configs for this project — schedule "
-            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
-            "authored scout skill appears here once its config is registered, either "
-            "explicitly via create or by the coordinator's next tick."
+            "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
+            "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
+            "and `emit` posture. A freshly authored scout skill appears here once its config is registered, "
+            "either explicitly via create or by the coordinator's next tick."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -1403,10 +1403,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Create a scout config",
         description=(
             "Register the config for a `signals-scout-*` skill immediately, without waiting "
-            "for the coordinator to auto-register it — optionally setting `run_interval_minutes`, "
-            "`enabled`, and `emit` in the same call. The skill must already exist on this "
-            "project. Upsert: if a config already exists for the skill, the provided fields "
-            "are applied to it."
+            "for the coordinator to auto-register it. The same call can optionally set "
+            "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. "
+            "The skill must already exist on this project. Upsert: if a config already exists "
+            "for the skill, the provided fields are applied to it."
         ),
         operation_id="signals_scout_config_create",
     )
@@ -1480,9 +1480,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Update a scout config",
         description=(
-            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, `emit` "
-            "(dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records "
-            "`enabled_by` and is activity-logged since it drives spend."
+            "Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron "
+            "`run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) "
+            "posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` "
+            "and is activity-logged since it drives spend."
         ),
         operation_id="signals_scout_config_update",
     )

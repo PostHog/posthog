@@ -21,7 +21,7 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutConfigIds } = useValues(scoutFleetLogic)
+    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
 
@@ -61,7 +61,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                         config={config}
                         rollup={rollup}
                         onUpdate={updateScoutConfig}
-                        updating={updatingScoutConfigIds.includes(config.id)}
+                        updating={updatingScoutIds.includes(config.id)}
                         asHeader
                     />
 

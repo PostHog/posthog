@@ -1,1 +1,1 @@
-0066_signalscoutconfig_output_destinations
+0068_signalscoutconfig_output_destinations
