@@ -186,7 +186,7 @@ def forward_pending_user_message(run_id: str) -> None:
             ],
         )
 
-if result.success or result.turn_in_flight:
+        if result.success or result.turn_in_flight:
             # Attribution stamp for the sandbox usage ledger: the initial prompt is a
             # user message, so its delivery starts the user-attributable window even
             # when the run state carried a warm marker at provision time. A turn in
