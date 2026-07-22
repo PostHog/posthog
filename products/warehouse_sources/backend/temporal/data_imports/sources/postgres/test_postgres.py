@@ -882,6 +882,30 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/trigger
+            # function refreshing a materialized view during our read-only SELECT.
+            'cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction\nCONTEXT:  SQL statement "REFRESH MATERIALIZED VIEW CONCURRENTLY analyticssnapshot"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "ReadOnlySqlTransaction: cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction",
+            # Same class of upstream write via a different statement — the match must generalize.
+            "cannot execute INSERT in a read-only transaction",
+        ],
+    )
+    def test_readonly_transaction_write_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Write in a read-only transaction should be non-retryable: {error_msg}"
+
+    def test_readonly_transaction_write_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Write in a read-only transaction should surface an actionable message"
+        assert "read-only transaction" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "cannot call jsonb_each on a non-object",
             "InvalidParameterValue: cannot call jsonb_each on a non-object",
             "cannot call jsonb_each_text on a non-object",
@@ -2809,7 +2833,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         assert valid is True
         assert error is None
-        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
 
     def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
         config = source.parse_config(
@@ -2828,7 +2852,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         assert valid is True
         assert error is None
-        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
 
 
 class TestValidateCredentialsErrorMapping:

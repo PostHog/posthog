@@ -25,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
+    GoogleSheetsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     GOOGLE_SHEETS_API_VERSION_V4,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
@@ -80,6 +82,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 
@@ -114,7 +117,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         )
 
     def validate_credentials(
-        self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GoogleSheetsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         client = google_sheets_client()
         try:

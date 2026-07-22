@@ -9,6 +9,7 @@ from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
+    STEER_DECLINED_OUTCOME,
     SendFollowupToSandboxInput,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
@@ -91,7 +92,9 @@ class TestRefreshSandboxMcp:
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
-        mock_user_configs.assert_called_once_with(token="fresh-token", team_id=7, user_id=42, interaction_origin=None)
+        mock_user_configs.assert_called_once_with(
+            token="fresh-token", team_id=7, user_id=42, interaction_origin=None, allowed_installation_ids=None
+        )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args
         assert kwargs["auth_token"] == "jwt"
@@ -468,6 +471,19 @@ class TestSendFollowupActivityRefreshOrdering:
         args, _kwargs = _patches["refresh"].call_args
         assert args[1] == "read_only"
 
+    def test_steer_from_different_actor_declines_before_using_credentials(self, _patches):
+        _patches["task_run"].state = {"sandbox_id": "sandbox-1"}
+        _patches["task_run"].task.created_by_id = 42
+
+        outcome = send_followup_to_sandbox(
+            SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99, steer=True)
+        )
+
+        assert outcome == STEER_DECLINED_OUTCOME
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+
 
 class TestSendFollowupTurnTimeout:
     """A read timeout (turn_in_flight) means the message was delivered and the
@@ -503,6 +519,7 @@ class TestSendFollowupTurnTimeout:
             mock_conn_token.return_value = "jwt"
 
             yield {
+                "task_run": task_run,
                 "user_msg": mock_user_msg,
                 "turn_complete": mock_turn_complete,
                 "error": mock_error,
@@ -520,18 +537,41 @@ class TestSendFollowupTurnTimeout:
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 
-    def test_undelivered_message_stays_fatal(self, _patches):
-        # The non-fatal carve-out must stay scoped to delivered-but-running —
-        # a connection failure means the user's message never arrived.
+    def test_retryable_failure_retries_without_sentinel(self, _patches):
         _patches["user_msg"].return_value = CommandResult(
             success=False, status_code=502, error="Connection to sandbox failed", retryable=True
         )
 
-        with pytest.raises(ApplicationError, match="Connection to sandbox failed") as exc_info:
-            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+        with pytest.raises(ApplicationError, match="retryable failure") as exc_info:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+
+        assert exc_info.value.non_retryable is False
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_retryable_stream_error_final_attempt_writes_actionable_sentinel(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(
+            success=False,
+            status_code=200,
+            error="Internal error: API Error: Content block not found",
+            retryable=True,
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._current_attempt",
+                return_value=SEND_FOLLOWUP_MAX_ATTEMPTS,
+            ),
+            pytest.raises(ApplicationError, match="The model response could not be completed") as exc_info,
+        ):
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
         assert exc_info.value.non_retryable is True
-        _patches["error"].assert_called_once()
+        _patches["error"].assert_called_once_with(
+            "run-1",
+            "The model response could not be completed. Please retry the task.",
+            False,
+        )
         _patches["turn_complete"].assert_not_called()
 
     def test_response_504_retries_without_sentinel(self, _patches):
@@ -543,7 +583,7 @@ class TestSendFollowupTurnTimeout:
         )
 
         with pytest.raises(ApplicationError, match="delivery unknown") as exc_info:
-            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
         assert exc_info.value.non_retryable is False
         _patches["error"].assert_not_called()
@@ -561,7 +601,7 @@ class TestSendFollowupTurnTimeout:
             ),
             pytest.raises(ApplicationError, match="send_followup failed") as exc_info,
         ):
-            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
         assert exc_info.value.non_retryable is True
         _patches["error"].assert_called_once()
@@ -579,6 +619,33 @@ class TestSendFollowupTurnTimeout:
 
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_declined_steer_returns_for_normal_requeue_without_markers(self, _patches):
+        _patches["task_run"].state = {"sandbox_id": "sandbox-1"}
+        _patches["user_msg"].return_value = CommandResult(
+            success=True,
+            status_code=200,
+            data={"result": {"steered": False, "stopReason": STEER_DECLINED_OUTCOME}},
+        )
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_mcp_session_user",
+            return_value=42,
+        ):
+            outcome = send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-1",
+                    message="hi",
+                    message_id="m-1",
+                    actor_user_id=42,
+                    steer=True,
+                )
+            )
+
+        assert outcome == STEER_DECLINED_OUTCOME
+        _patches["user_msg"].assert_called_once()
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 

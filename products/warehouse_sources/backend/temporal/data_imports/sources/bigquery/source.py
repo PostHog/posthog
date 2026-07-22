@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQuerySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
@@ -261,7 +263,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         }
 
     def validate_credentials(
-        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
@@ -291,6 +297,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             iconPath="/static/services/bigquery.png",
+            caption=(
+                "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+            ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],

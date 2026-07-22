@@ -23,7 +23,7 @@ jobs:
         name: Build and push PostHog
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         # Covers the build plus the post-build image-boot verification before dispatch.
         timeout-minutes: 40
         permissions:
@@ -953,7 +953,7 @@ jobs:
             - name: Check for changes that affect warehouse-sources-load
               id: check_changes_warehouse_sources_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/warehouse/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

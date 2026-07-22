@@ -81,8 +81,8 @@ const DiscussionContent = ({
     const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
 
     useEffect(() => {
-        // Use setSelectedComment without auto-focusing the composer
-        setSelectedComment(selectedTabOptions ?? null)
+        // Select without auto-focusing the composer; reveal expands the thread the deep link targets
+        setSelectedComment(selectedTabOptions ?? null, true)
     }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

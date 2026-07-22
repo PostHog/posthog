@@ -18,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.configcat import (
     configcat_source,
     validate_credentials,
@@ -26,8 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
     CONFIGCAT_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConfigCatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.configcat import (
+    ConfigCatSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -99,25 +105,18 @@ Create a Public API credential (a username and password pair) under **Public Man
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — ConfigCat's list endpoints expose no pagination and
         # no server-side timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ConfigCatSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConfigCatSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The credential is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.basic_auth_username, config.basic_auth_password)
@@ -130,5 +129,6 @@ Create a Public API credential (a username and password pair) under **Public Man
             username=config.basic_auth_username,
             password=config.basic_auth_password,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

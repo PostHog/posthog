@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MonteCarloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.montecarlo import (
+    MonteCarloSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.monte_carlo import (
     MonteCarloResumeConfig,
     monte_carlo_source,
@@ -101,6 +103,7 @@ You can create an API key from **Settings → API → Keys** in your Monte Carlo
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "alerts":
@@ -127,7 +130,11 @@ You can create an API key from **Settings → API → Keys** in your Monte Carlo
         return schemas
 
     def validate_credentials(
-        self, config: MonteCarloSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MonteCarloSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_monte_carlo_credentials(config.api_key_id, config.api_key_secret):
             return True, None
