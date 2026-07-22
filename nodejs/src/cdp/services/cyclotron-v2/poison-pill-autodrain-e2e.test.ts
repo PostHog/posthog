@@ -120,9 +120,9 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         chClient = Clickhouse.createClient()
     })
 
-    afterAll(() => {
+    afterAll(async () => {
         clickhouse?.close()
-        chClient?.close()
+        await chClient?.close()
     })
 
     beforeEach(async () => {
