@@ -19,8 +19,8 @@ prevalence is measurable). Cloud agent sandboxes (``IS_SANDBOX`` /
 provisioned to run the checks fast.
 
 Checks declare what they need (``node`` modules, the dev ``stack``) and skip with
-a note when it's absent, so the no-dependency checks always run — even on a bare
-checkout or inside an agent sandbox. The pre-push hook runs ``--strict`` (failures
+a note when it's absent, so the no-dependency checks always run on a bare
+checkout. The pre-push hook runs ``--strict`` (failures
 block, advisories never do); the fix loop is ``--fix`` — see the running-ci-preflight skill.
 """
 
@@ -392,6 +392,7 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
         "failures",
         "advisories",
         "mode",
+        "marker",
         "stale",
         "behind_commits",
         "branch_age_days",
@@ -411,6 +412,19 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
     telemetry.track("ci_preflight_run", props)
 
 
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").lower() in {"1", "true"}
+
+
+def _no_op_run(summary: dict[str, Any], reason: str, as_json: bool) -> None:
+    """Short-circuit before any git work: report why, emit telemetry, exit 0."""
+    if as_json:
+        click.echo(json.dumps(summary))
+    else:
+        click.secho(f"  {reason} Nothing to check, CI remains the gate.", fg="yellow")
+    _emit_telemetry(summary)
+
+
 @click.command(
     name="ci:preflight",
     help="Catch the deterministic CI failures reachable from your diff before you push.",
@@ -424,37 +438,24 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
-    if os.environ.get("HOGLI_PREFLIGHT_DISABLED", "").lower() in {"1", "true"}:
-        disabled_summary: dict[str, Any] = {"mode": "disabled", "results": []}
-        if as_json:
-            click.echo(json.dumps(disabled_summary))
-        else:
-            click.secho(
-                "  ci:preflight disabled by operator (HOGLI_PREFLIGHT_DISABLED) — intentional; "
-                "do not unset. Nothing to check, CI remains the gate.",
-                fg="yellow",
-            )
-        _emit_telemetry(disabled_summary)
+    if _env_truthy("HOGLI_PREFLIGHT_DISABLED"):
+        _no_op_run(
+            {"mode": "disabled", "results": []},
+            "ci:preflight disabled by operator (HOGLI_PREFLIGHT_DISABLED) — intentional; do not unset.",
+            as_json,
+        )
         return
 
     # Cloud agent sandboxes (IS_SANDBOX is baked into PostHog Code sandbox images,
     # CLAUDE_CODE_REMOTE into Claude Code cloud) aren't provisioned for preflight's
     # dep-heavy checks yet — running them there just slows the agent down.
-    sandbox_marker = next(
-        (name for name in ("IS_SANDBOX", "CLAUDE_CODE_REMOTE") if os.environ.get(name, "").lower() in {"1", "true"}),
-        None,
-    )
+    sandbox_marker = next((name for name in ("IS_SANDBOX", "CLAUDE_CODE_REMOTE") if _env_truthy(name)), None)
     if sandbox_marker:
-        sandbox_summary: dict[str, Any] = {"mode": "sandbox", "results": []}
-        if as_json:
-            click.echo(json.dumps(sandbox_summary))
-        else:
-            click.secho(
-                f"  ci:preflight disabled in cloud agent sandbox ({sandbox_marker}) — intentional; "
-                "do not work around it. Nothing to check, CI remains the gate.",
-                fg="yellow",
-            )
-        _emit_telemetry(sandbox_summary)
+        _no_op_run(
+            {"mode": "sandbox", "marker": sandbox_marker, "results": []},
+            f"ci:preflight disabled in cloud agent sandbox ({sandbox_marker}) — intentional; do not work around it.",
+            as_json,
+        )
         return
 
     # Fetch first so both the diff base and the staleness check see a fresh

@@ -12,6 +12,15 @@ from hogli_commands.ci_preflight import _staleness_risks
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _clear_ambient_no_op_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CliRunner.invoke(env=...) merges onto os.environ, so ambient markers
+    # (e.g. IS_SANDBOX=1 baked into cloud agent sandboxes) would short-circuit
+    # every invocation and fail the non-short-circuit tests.
+    for name in ("HOGLI_PREFLIGHT_DISABLED", "IS_SANDBOX", "CLAUDE_CODE_REMOTE"):
+        monkeypatch.delenv(name, raising=False)
+
+
 class TestKillSwitch:
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight.changed_files")
@@ -32,15 +41,17 @@ class TestKillSwitch:
 
     @pytest.mark.parametrize("marker", ["IS_SANDBOX", "CLAUDE_CODE_REMOTE"])
     @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._fetch_master")
     @patch("hogli_commands.ci_preflight.changed_files")
     def test_cloud_sandbox_short_circuits_before_any_git_work(
-        self, mock_changed: MagicMock, mock_emit: MagicMock, marker: str
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_emit: MagicMock, marker: str
     ) -> None:
         result = runner.invoke(cli, ["ci:preflight", "--strict"], env={marker: "1"})
         assert result.exit_code == 0
         assert "sandbox" in result.output
         mock_changed.assert_not_called()
-        assert mock_emit.call_args[0][0]["mode"] == "sandbox"
+        mock_fetch.assert_not_called()
+        assert mock_emit.call_args[0][0] == {"mode": "sandbox", "marker": marker, "results": []}
 
 
 class TestStrictAndFixContracts:

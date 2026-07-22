@@ -160,7 +160,8 @@ COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
 RUN chmod +x /opt/posthog/bin/git
 ENV PATH="/opt/posthog/bin:${PATH}"
 
-# This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
+# This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user.
+# hogli ci:preflight also keys its sandbox no-op on this var (tools/hogli-commands/hogli_commands/ci_preflight.py).
 ENV IS_SANDBOX=1
 
 ENV PYTHONPATH="/tmp/workspace"
