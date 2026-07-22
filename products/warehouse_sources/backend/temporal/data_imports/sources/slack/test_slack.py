@@ -694,3 +694,47 @@ class TestGetSchemasAutoJoin:
             source.get_schemas(config, team_id=1)
 
         assert mock_join.called == expect_join
+
+    def test_byo_source_joins_by_default(self) -> None:
+        # The toggle defaults on: a bring-your-own source that doesn't set it explicitly still
+        # auto-joins. (Legacy OAuth sources are held off by the token gate — covered above.)
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
+            SlackSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = SlackSourceConfig.from_dict({"slack_access_token": "xoxb-token"})
+        assert config.join_public_channels is not None
+        assert config.join_public_channels.enabled is True
+
+        source = SlackSource()
+        with (
+            patch(f"{self._SRC}.auth_test_user_id", return_value="UBOT"),
+            patch(f"{self._SRC}.join_public_channels") as mock_join,
+            patch(f"{self._SRC}.get_channels", return_value=[]),
+        ):
+            source.get_schemas(config, team_id=1)
+
+        mock_join.assert_called_once()
+
+    def test_toggle_can_be_explicitly_disabled(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
+            SlackSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = SlackSourceConfig.from_dict(
+            {"slack_access_token": "xoxb-token", "join_public_channels": {"enabled": False}}
+        )
+        assert config.join_public_channels is not None
+        assert config.join_public_channels.enabled is False
+
+        source = SlackSource()
+        with (
+            patch(f"{self._SRC}.auth_test_user_id", return_value="UBOT"),
+            patch(f"{self._SRC}.join_public_channels") as mock_join,
+            patch(f"{self._SRC}.get_channels", return_value=[]),
+        ):
+            source.get_schemas(config, team_id=1)
+
+        mock_join.assert_not_called()

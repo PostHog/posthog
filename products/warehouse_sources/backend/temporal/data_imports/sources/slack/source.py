@@ -181,8 +181,8 @@ Invite the bot to any channel whose messages you want to sync (`/invite @PostHog
                     SourceFieldSwitchGroupConfig(
                         name="join_public_channels",
                         label="Automatically join public channels",
-                        caption="When on, the bot joins every public channel so their new messages sync without inviting it to each one. Private channels still need a manual invite. Requires the `channels:join` scope, which the manifest above already includes.",
-                        default=False,
+                        caption="On by default: the bot joins every public channel so their new messages sync without inviting it to each one. Turn it off to pick channels manually. Private channels always need a manual invite. Uses the `channels:join` scope, which the manifest above already includes.",
+                        default=True,
                         fields=cast(list[FieldType], []),
                     ),
                 ],

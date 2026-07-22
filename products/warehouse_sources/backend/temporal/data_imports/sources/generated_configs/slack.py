@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class SlackJoinPublicChannelsConfig(config.Config):
-    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    enabled: bool = config.value(converter=config.str_to_bool, default=True)
 
 
 @config.config
