@@ -95,7 +95,7 @@ def _customer_names_by_channel(team_id: int) -> dict[str, str]:
 
 
 def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
-    announcement = Announcement.objects.filter(id=announcement_id).first()
+    announcement = Announcement.objects.for_team(team_id).filter(id=announcement_id).first()
     if not announcement:
         logger.warning("announcement_not_found", announcement_id=announcement_id, team_id=team_id)
         return
@@ -111,7 +111,7 @@ def send_pending_deliveries(announcement_id: str, team_id: int) -> None:
     # may already be in Slack, so never re-post it.
     interrupted_ids = [d.id for d in pending if d.error == DELIVERY_IN_FLIGHT_ERROR]
     if interrupted_ids:
-        AnnouncementDelivery.objects.filter(id__in=interrupted_ids).update(
+        AnnouncementDelivery.objects.for_team(team_id).filter(id__in=interrupted_ids).update(
             status=AnnouncementDelivery.Status.FAILED,
             error=DELIVERY_INTERRUPTED_ERROR,
             updated_at=timezone.now(),
