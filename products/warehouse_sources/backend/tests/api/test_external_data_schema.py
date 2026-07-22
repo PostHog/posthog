@@ -3694,20 +3694,20 @@ class TestFanoutParentEnforcement(APIBaseTest):
     def _enforcement_patches(self, flag_enabled=True):
         return (
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_fanout_warehouse_reuse_enabled",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_fanout_warehouse_reuse_enabled",
                 return_value=flag_enabled,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
             ),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ),
             mock.patch("products.data_warehouse.backend.facade.api.external_data_workflow_exists", return_value=False),
             mock.patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow"),
             mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.pause_external_data_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.pause_external_data_schedule"
             ),
             mock.patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
         )
