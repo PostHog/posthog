@@ -105,7 +105,8 @@ impl DebugSymbolFile {
 
 /// Filter DWARF source paths for native (Rust/C/C++) builds: on top of the
 /// shared system-path filters, drop registry/toolchain sources that aren't
-/// part of the user's project tree.
+/// part of the user's project tree. Go toolchain sources are already trimmed
+/// inside the shared extraction (see `filter_go_toolchain_sources`).
 fn filter_native_source_paths(paths: &[String]) -> Vec<&str> {
     source_bundle::filter_source_paths(paths)
         .into_iter()

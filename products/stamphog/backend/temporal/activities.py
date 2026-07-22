@@ -55,6 +55,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
     STAMPHOG_REVIEW_GUIDANCE_PATH,
+    STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_OWNERS_DIR,
@@ -750,14 +751,15 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
+    # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
+    # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
+    # as an engine-refused one.
+    is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
-    # the author re-requests the next review by re-adding it. Keyed off parsed.verdict, not run.verdict —
-    # the gate-blocked branch overrides run.verdict to WAIT but the Action strips on gate refusals too.
+    # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
-    if repo_config.review_mode == ReviewMode.LABEL and parsed.verdict in (
-        ReviewVerdict.REFUSED,
-        ReviewVerdict.ESCALATE,
-    ):
+    if repo_config.review_mode == ReviewMode.LABEL and is_refusal:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
@@ -780,6 +782,28 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
+
+    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
+    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
+    # then overrode (a newer run might approve the same head). Same is_refusal condition as the
+    # trigger-label strip above, in both review modes: stamphog couldn't sign off, so a deeper
+    # second-opinion review is wanted. Adding the ReviewHog trigger label fires its workflow
+    # (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise strip it).
+    # This is a secondary, cross-product notification that must never jeopardize the verdict — the
+    # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
+    # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
+    # requests.RequestException the egress layer raises on rate limits and network blips, neither a
+    # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
+    # missed handoff, not corruption.
+    if is_refusal:
+        try:
+            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
+        except Exception:
+            # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
+            # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
+            activity.logger.exception(
+                f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
+            )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this

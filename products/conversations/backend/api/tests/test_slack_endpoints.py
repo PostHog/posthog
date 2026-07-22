@@ -243,6 +243,7 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
     ):
         mock_validate.return_value = None
+        mock_proxy.return_value = True
 
         with patch("products.conversations.backend.api.slack_interactivity.is_primary_region", return_value=True):
             response = self._post({"type": "block_actions", "team": {"id": "T_UNKNOWN"}})
@@ -250,6 +251,23 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         assert response.status_code == 200
         mock_process.delay.assert_not_called()
         mock_proxy.assert_called_once()
+
+    @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_returns_502_when_proxy_to_secondary_fails(
+        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+    ):
+        # Acking a failed proxy with 200 silently drops the click — Slack shows the
+        # clicker nothing and never resends. A non-2xx surfaces the failure in Slack.
+        mock_validate.return_value = None
+        mock_proxy.return_value = False
+
+        with patch("products.conversations.backend.api.slack_interactivity.is_primary_region", return_value=True):
+            response = self._post({"type": "block_actions", "team": {"id": "T_UNKNOWN"}})
+
+        assert response.status_code == 502
+        mock_process.delay.assert_not_called()
 
     @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")

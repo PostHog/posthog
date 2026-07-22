@@ -1554,6 +1554,19 @@ class BaseTestMigrations(QueryMatchingTest):
     apps: Optional[Any] = None
     assert_snapshots = False
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # An earlier test in the same process can leave a connection's underlying psycopg
+        # connection closed (e.g. dropped server-side) without Django noticing. Every
+        # migration test in the class then fails with "the connection is closed", and
+        # in-process reruns reuse the same dead wrapper, so they can never recover.
+        # Reset unusable connections before the class transaction machinery starts.
+        for conn in connections.all():
+            if conn.connection is not None and not conn.is_usable():
+                conn.close()
+        # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
+        super().setUpClass()  # type: ignore[misc]
+
     def setUp(self):
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)

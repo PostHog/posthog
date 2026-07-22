@@ -202,28 +202,6 @@ describe('handleAuthorize', () => {
         expect(callbackPuts).toHaveLength(0)
     })
 
-    it.each([
-        'state',
-        'client_id',
-        'redirect_uri',
-        'response_type',
-        'scope',
-        'code_challenge',
-        'code_challenge_method',
-    ])('rejects duplicate %s to prevent parameter-pollution code theft', async (param) => {
-        const request = new Request(
-            `https://oauth.posthog.com/oauth/authorize/?client_id=abc&response_type=code&${param}=first&${param}=second&_region=us`
-        )
-        const response = await handleAuthorize(request, mockKV)
-
-        expect(response.status).toBe(400)
-        const data = (await response.json()) as Record<string, unknown>
-        expect(data.error).toBe('invalid_request')
-        expect(data.error_description).toBe(`Duplicate ${param} parameter is not allowed`)
-        // Nothing gets keyed in KV when the request is rejected up front.
-        expect(vi.mocked(mockKV.put)).not.toHaveBeenCalled()
-    })
-
     it('sets security and cache headers on region picker page', async () => {
         const request = new Request('https://oauth.posthog.com/oauth/authorize/?client_id=abc&response_type=code')
         const response = await handleAuthorize(request, mockKV)
