@@ -75,6 +75,37 @@ logger = structlog.get_logger(__name__)
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
 
+# Feature flag gating the combined match+specificity single-LLM-call path, evaluated with the
+# team id as the distinct id (same pattern as `http-query-coalescing`). Checked once per batch
+# via an activity — flag evaluation is non-deterministic, and going through an activity records
+# the decision in workflow history, so flag flips are safe for in-flight runs (they replay the
+# recorded result) and only steer subsequent batches. Default OFF, fail-closed on eval errors.
+COMBINED_MATCH_FLAG = "signals-combined-match-specificity"
+
+_PATCH_COMBINED_MATCH = "combined-match-specificity"
+
+
+def combined_match_flag_enabled(team_id: int) -> bool:
+    """Sync flag check; returns False on any evaluation error so grouping never blocks on it."""
+    try:
+        return bool(posthoganalytics.feature_enabled(COMBINED_MATCH_FLAG, str(team_id)))
+    except Exception:
+        logger.warning("Combined match flag check failed, defaulting to two-call path", team_id=team_id)
+        return False
+
+
+@dataclass
+class CheckCombinedMatchEnabledInput:
+    team_id: int
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def check_combined_match_enabled_activity(input: CheckCombinedMatchEnabledInput) -> bool:
+    """Whether the combined match+specificity path is enabled for this team."""
+    # feature_enabled() is sync and can block on a network call; offload to a thread.
+    return await asyncio.to_thread(combined_match_flag_enabled, input.team_id)
+
 
 @dataclass
 class GenerateEmbeddingInput:
@@ -247,6 +278,19 @@ class NewGroup(BaseModel):
 MatchResponse = MatchFound | NewGroup
 
 
+class CombinedMatchFound(BaseModel):
+    """Existing-match response for the combined match+specificity call — MatchFound plus the PR title."""
+
+    reason: str
+    match_type: Literal["existing"]
+    signal_id: str
+    query_index: int
+    pr_title: str
+
+
+CombinedMatchResponse = CombinedMatchFound | NewGroup
+
+
 def _parse_match_response(data: dict) -> MatchResponse:
     """Parse and validate match response using discriminated union."""
     match_type = data.get("match_type")
@@ -258,7 +302,22 @@ def _parse_match_response(data: dict) -> MatchResponse:
         raise ValueError(f"Invalid match_type: {match_type}")
 
 
-MATCHING_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
+def _parse_combined_match_response(data: dict) -> CombinedMatchResponse:
+    """Parse and validate combined match response using discriminated union."""
+    match_type = data.get("match_type")
+    if match_type == "existing":
+        return CombinedMatchFound.model_validate(data)
+    elif match_type == "new":
+        return NewGroup.model_validate(data)
+    else:
+        raise ValueError(f"Invalid match_type: {match_type}")
+
+
+# Shared building blocks for the grouping prompts. MATCHING_SYSTEM_PROMPT (two-call path),
+# SPECIFICITY_CHECK_SYSTEM_PROMPT (two-call path), and COMBINED_MATCH_SYSTEM_PROMPT
+# (single-call path) must keep their semantics in sync, so the common sections live here
+# and the prompts are composed from them.
+_GROUPING_INTRO = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
 or if it should start a new group.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
@@ -268,7 +327,46 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 - An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
 - A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
 - Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
-- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
+- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match"""
+
+_EXISTING_MATCH_RESPONSE_FIELDS = """  "reason": "<Brief, less than 100 character sentence explaining what connects the signal to the group>",
+  "match_type": "existing",
+  "signal_id": "<the signal_id of the matching candidate>",
+  "query_index": <0-based index of the query that surfaced this candidate>"""
+
+_NEW_GROUP_RESPONSE = """{
+  "reason": "<Brief, less than 100 character sentence explaining why none of the candidates are related>",
+  "match_type": "new",
+  "title": "<short title for a new report>",
+  "summary": "<1-2 sentence summary of what this signal group is about>"
+}"""
+
+_RESPONSE_FOOTER = """IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
+
+You must respond with valid JSON only, no other text."""
+
+_PR_TEST_INSTRUCTIONS = """1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
+2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
+
+A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
+- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
+- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
+- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
+
+A VAGUE PR title is a catch-all that no single engineer would take on:
+- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
+- "Multiple workflow and integration improvements" — VAGUE (different systems)
+- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)"""
+
+_PR_TEST_RED_FLAGS = """- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
+- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
+- You'd assign the signals to different engineers based on expertise
+- The PR touches multiple unrelated systems or components"""
+
+
+MATCHING_SYSTEM_PROMPT = (
+    _GROUPING_INTRO
+    + """
 
 You will receive:
 1. A new signal with its description and source information
@@ -283,55 +381,41 @@ IMPORTANT — use group context when deciding:
 
 If a candidate signal from ANY query is related to the new signal AND its group theme aligns, respond with:
 {
-  "reason": "<Brief, less than 100 character sentence explaining what connects the signal to the group>",
-  "match_type": "existing",
-  "signal_id": "<the signal_id of the matching candidate>",
-  "query_index": <0-based index of the query that surfaced this candidate>
+"""
+    + _EXISTING_MATCH_RESPONSE_FIELDS
+    + """
 }
 
 If no candidate is related (or all queries returned no results), respond with:
-{
-  "reason": "<Brief, less than 100 character sentence explaining why none of the candidates are related>",
-  "match_type": "new",
-  "title": "<short title for a new report>",
-  "summary": "<1-2 sentence summary of what this signal group is about>"
-}
-
-IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
-
-You must respond with valid JSON only, no other text."""
+"""
+    + _NEW_GROUP_RESPONSE
+    + "\n\n"
+    + _RESPONSE_FOOTER
+)
 
 
-SPECIFICITY_CHECK_SYSTEM_PROMPT = """You are a senior engineer reviewing whether a group of signals belongs in a single pull request.
+SPECIFICITY_CHECK_SYSTEM_PROMPT = (
+    """You are a senior engineer reviewing whether a group of signals belongs in a single pull request.
 
 You will receive:
 1. A group of existing signals (the current report)
 2. A new signal being proposed for addition
 
 Your job:
-1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
-2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
-
-A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
-- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
-- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
-- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
-
-A VAGUE PR title is a catch-all that no single engineer would take on:
-- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
-- "Multiple workflow and integration improvements" — VAGUE (different systems)
-- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
+"""
+    + _PR_TEST_INSTRUCTIONS
+    + """
 
 IMPORTANT: Err on the side of REJECTING. A good PR addresses ONE concern, even if that concern has multiple symptoms.
 
 Red flags that the group is too broad:
-- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
-- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
-- You'd assign the signals to different engineers based on expertise
-- The PR touches multiple unrelated systems or components
+"""
+    + _PR_TEST_RED_FLAGS
+    + """
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
+)
 
 
 class SpecificityResult(BaseModel):
@@ -343,6 +427,55 @@ class SpecificityResult(BaseModel):
 MAX_SIGNALS_IN_SPECIFICITY_CONTEXT = 8
 
 
+# MATCHING_SYSTEM_PROMPT merged with the PR-test rules of SPECIFICITY_CHECK_SYSTEM_PROMPT:
+# one call decides the match AND verifies the combined group passes the pull request test,
+# so the two stages can never disagree with each other.
+COMBINED_MATCH_SYSTEM_PROMPT = (
+    _GROUPING_INTRO
+    + """
+
+You will receive:
+1. A new signal with its description and source information
+2. Discovery strength: how many independent search queries found signals in each existing group (higher = stronger evidence)
+3. Candidate groups with their most recent member signals
+4. Results from multiple search queries, each with candidate signals annotated with their group title and group size
+
+IMPORTANT — use group context when deciding:
+- Each candidate belongs to a group. The group title and member signals tell you the group's overall theme.
+- Match the new signal to a GROUP's theme, not just to an individual candidate signal.
+- A candidate that shares a keyword with the new signal but belongs to an unrelated group should NOT be matched.
+- Groups found by multiple independent queries are more likely genuinely related.
+
+THE PULL REQUEST TEST — before accepting a match, review the group like a senior engineer deciding whether it belongs in a single pull request:
+"""
+    + _PR_TEST_INSTRUCTIONS
+    + """
+
+IMPORTANT: Err on the side of REJECTING a match. A good PR addresses ONE concern, even if that concern has multiple symptoms.
+
+Red flags that the combined group would be too broad:
+"""
+    + _PR_TEST_RED_FLAGS
+    + """
+
+If the best candidate group fails the pull request test, do NOT match it — start a new group instead.
+
+If a candidate signal from ANY query is related to the new signal AND its group theme aligns AND the combined group passes the pull request test, respond with:
+{
+"""
+    + _EXISTING_MATCH_RESPONSE_FIELDS
+    + """,
+  "pr_title": "<the PR title (max 70 chars) covering ALL signals in the group including the new one>"
+}
+
+If no candidate is related, no related group passes the pull request test, or all queries returned no results, respond with:
+"""
+    + _NEW_GROUP_RESPONSE
+    + "\n\n"
+    + _RESPONSE_FOOTER
+)
+
+
 def _build_matching_prompt(
     description: str,
     source_product: str,
@@ -350,8 +483,13 @@ def _build_matching_prompt(
     queries: list[str],
     query_results: list[list[SignalCandidate]],
     report_contexts: dict[str, ReportContext],
+    report_members: dict[str, list[SignalData]] | None = None,
 ) -> str:
-    """Build matching prompt with group titles and multi-query agreement summary."""
+    """Build matching prompt with group titles and multi-query agreement summary.
+
+    When `report_members` is provided (the combined match+specificity call), each candidate
+    group's most recent member signals are rendered so the model can apply the PR test inline.
+    """
     report_query_hits: dict[str, set[int]] = defaultdict(set)
     for query_idx, candidates in enumerate(query_results):
         for c in candidates:
@@ -368,6 +506,22 @@ DISCOVERY STRENGTH (groups found by multiple independent queries are more likely
         title = ctx.title if ctx else "(untitled)"
         size = ctx.signal_count if ctx else 0
         prompt += f'- "{title}" ({size} signal{"s" if size != 1 else ""}): found by {len(query_indices)}/{len(queries)} queries\n'
+
+    if report_members is not None:
+        prompt += "\nCANDIDATE GROUPS (most recent member signals per group):\n"
+        for report_id in sorted(report_query_hits, key=lambda rid: (-len(report_query_hits[rid]), rid)):
+            ctx = report_contexts.get(report_id)
+            title = ctx.title if ctx else "(untitled)"
+            size = ctx.signal_count if ctx else 0
+            prompt += f'\n--- Group: "{title}" ({size} signal{"s" if size != 1 else ""}) ---\n'
+            members = report_members.get(report_id, [])
+            if not members:
+                prompt += "(no member signals available)\n"
+            for i, sig in enumerate(members):
+                prompt += f"""  Member {i + 1}:
+  - Source: {sig.source_product} / {sig.source_type}
+  - Description: {sig.content}
+"""
 
     prompt += "\nSEARCH RESULTS:\n"
     for query_idx, (query, candidates) in enumerate(zip(queries, query_results)):
@@ -521,6 +675,126 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
     except Exception as e:
         logger.exception(
             f"Failed to match signal with LLM: {e}",
+            source_product=input.source_product,
+            source_type=input.source_type,
+        )
+        raise
+
+
+async def match_and_verify_signal(
+    team_id: int | None,
+    description: str,
+    source_product: str,
+    source_type: str,
+    queries: list[str],
+    query_results: list[list[SignalCandidate]],
+    report_contexts: dict[str, ReportContext],
+    report_members: dict[str, list[SignalData]],
+) -> MatchResult:
+    """
+    Combined match + PR-specificity decision in a single LLM call.
+
+    Candidate group members ride along in the prompt so the model can apply the pull
+    request test while matching — a match returned here has already passed specificity.
+    """
+    candidates_by_id: dict[str, SignalCandidate] = {}
+    for candidates in query_results:
+        for c in candidates:
+            candidates_by_id[c.signal_id] = c
+
+    user_prompt = _build_matching_prompt(
+        description,
+        source_product,
+        source_type,
+        queries,
+        query_results,
+        report_contexts,
+        report_members=report_members,
+    )
+
+    def validate(text: str) -> MatchResult:
+        data = json.loads(text)
+        result = _parse_combined_match_response(data)
+
+        if isinstance(result, CombinedMatchFound):
+            matched = candidates_by_id.get(result.signal_id)
+            if matched is None:
+                raise ValueError(f"signal_id {result.signal_id} not found in candidates")
+            if result.query_index < 0 or result.query_index >= len(queries):
+                raise ValueError(f"query_index {result.query_index} out of range (0-{len(queries) - 1})")
+            if not result.pr_title.strip():
+                raise ValueError("pr_title must be non-empty for an existing match")
+            return ExistingReportMatch(
+                report_id=matched.report_id,
+                match_metadata=MatchedMetadata(
+                    parent_signal_id=result.signal_id,
+                    match_query=queries[result.query_index],
+                    reason=result.reason,
+                    specificity=SpecificityMetadata(
+                        pr_title=result.pr_title,
+                        specific_enough=True,
+                        reason=result.reason,
+                    ),
+                ),
+            )
+
+        return NewReportMatch(
+            title=result.title,
+            summary=result.summary,
+            match_metadata=NoMatchMetadata(
+                reason=result.reason,
+                rejected_signal_ids=list(candidates_by_id.keys()),
+            ),
+        )
+
+    return await call_llm(
+        team_id=team_id,
+        system_prompt=COMBINED_MATCH_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        validate=validate,
+        temperature=0.2,
+        stage="match_and_verify",
+    )
+
+
+@dataclass
+class MatchAndVerifySignalInput:
+    description: str
+    source_product: str
+    source_type: str
+    queries: list[str]
+    query_results: list[list[SignalCandidate]]
+    report_contexts: dict[str, ReportContext]
+    report_members: dict[str, list[SignalData]]
+    team_id: int | None = None
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def match_and_verify_signal_activity(input: MatchAndVerifySignalInput) -> MatchResult:
+    """Match a signal to a report and verify PR specificity in one LLM call."""
+    try:
+        result = await match_and_verify_signal(
+            team_id=input.team_id,
+            description=input.description,
+            source_product=input.source_product,
+            source_type=input.source_type,
+            queries=input.queries,
+            query_results=input.query_results,
+            report_contexts=input.report_contexts,
+            report_members=input.report_members,
+        )
+        total_candidates = sum(len(r) for r in input.query_results)
+        logger.debug(
+            f"Combined match result: matched={isinstance(result, ExistingReportMatch)}",
+            query_count=len(input.queries),
+            total_candidates=total_candidates,
+        )
+        return result
+    except Exception as e:
+        logger.exception(
+            f"Failed to match+verify signal with LLM: {e}",
             source_product=input.source_product,
             source_type=input.source_type,
         )
@@ -1176,6 +1450,26 @@ async def _process_signal_batch(
     if _use_parallel_sequential:
         from products.signals.backend.temporal.parallel_grouping import process_sequential_phase_parallel
 
+        # Combined single-LLM-call match+specificity, gated on a patch marker (in-flight
+        # histories from before this deploy keep replaying the two-call path) plus a feature
+        # flag checked via activity, so the decision lands in history and flag flips replay
+        # deterministically.
+        use_combined = False
+        if workflow.patched(_PATCH_COMBINED_MATCH):
+            # Fail closed on Temporal-level failures too (timeout, retries exhausted) — an
+            # escaped exception here would make the outer handler drop the whole batch.
+            try:
+                use_combined = await workflow.execute_activity(
+                    check_combined_match_enabled_activity,
+                    CheckCombinedMatchEnabledInput(team_id=team_id),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                logger.warning(
+                    "Combined match flag check activity failed, defaulting to two-call path", team_id=team_id
+                )
+
         _par = await process_sequential_phase_parallel(
             batch=batch,
             team_id=team_id,
@@ -1184,6 +1478,7 @@ async def _process_signal_batch(
             per_signal_ch_results=per_signal_ch_results,
             signal_embeddings=[e.embedding for e in signal_embeddings],
             report_contexts=report_contexts,
+            use_combined=use_combined,
         )
         dropped += _par.dropped
         promoted_reports = _par.promoted_reports
