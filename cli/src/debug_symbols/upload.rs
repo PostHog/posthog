@@ -4,7 +4,11 @@ use anyhow::{anyhow, Result};
 use tracing::info;
 
 use crate::{
-    api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
+    api::{
+        self,
+        releases::ReleaseBuilder,
+        symbol_sets::{SymbolSetUpload, MAX_FILE_SIZE},
+    },
     debug_symbols::{dedup_uploads_by_chunk_id, discover, package_dsym_bundles, report_problems},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
@@ -79,10 +83,10 @@ pub fn upload(args: &Args) -> Result<()> {
         native_uploads.push(file.into_upload(None, *include_source)?);
     }
 
-    // A failed dSYM bundle produces no upload, leaving a matching standalone
-    // Mach-O as the fallback. Successfully packaged dSYMs take priority.
+    // A failed or oversized dSYM leaves a matching standalone Mach-O as the
+    // fallback. Successfully packaged, uploadable dSYMs take priority.
     let dsym_uploads = package_dsym_bundles(&report.dsym_bundles, *include_source);
-    let mut uploads = merge_uploads_prefer_dsym(dsym_uploads, native_uploads);
+    let mut uploads = merge_uploads_prefer_dsym(dsym_uploads, native_uploads, MAX_FILE_SIZE);
 
     if uploads.is_empty() {
         anyhow::bail!(
@@ -131,14 +135,22 @@ pub fn upload(args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// Merge packaged native symbols, preferring a dSYM when both inputs carry the
-/// same uppercase Mach-O UUID. ELF ids remain lowercase and cannot collide.
+/// Merge packaged native symbols, preferring an uploadable dSYM when both
+/// inputs carry the same uppercase Mach-O UUID. Oversized dSYMs come last so a
+/// matching native upload wins, but remain available when there is no fallback
+/// and the upload layer can preserve its existing warning behavior. ELF ids
+/// remain lowercase and cannot collide.
 fn merge_uploads_prefer_dsym(
-    mut dsym_uploads: Vec<SymbolSetUpload>,
+    dsym_uploads: Vec<SymbolSetUpload>,
     native_uploads: Vec<SymbolSetUpload>,
+    max_file_size: usize,
 ) -> Vec<SymbolSetUpload> {
-    dsym_uploads.extend(native_uploads);
-    dedup_uploads_by_chunk_id(dsym_uploads)
+    let (mut preferred_dsyms, oversized_dsyms): (Vec<_>, Vec<_>) = dsym_uploads
+        .into_iter()
+        .partition(|upload| upload.data.len() <= max_file_size);
+    preferred_dsyms.extend(native_uploads);
+    preferred_dsyms.extend(oversized_dsyms);
+    dedup_uploads_by_chunk_id(preferred_dsyms)
 }
 
 #[cfg(test)]
@@ -154,10 +166,29 @@ mod tests {
             data: data.to_vec(),
         };
 
-        let uploads =
-            merge_uploads_prefer_dsym(vec![upload(uuid, b"dsym")], vec![upload(uuid, b"macho")]);
+        let uploads = merge_uploads_prefer_dsym(
+            vec![upload(uuid, b"dsym")],
+            vec![upload(uuid, b"macho")],
+            10,
+        );
 
         assert_eq!(uploads.len(), 1);
         assert_eq!(uploads[0].data, b"dsym");
+    }
+
+    #[test]
+    fn merge_uploads_uses_macho_when_matching_dsym_is_oversized() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let upload = |data: &[u8]| SymbolSetUpload {
+            chunk_id: uuid.to_string(),
+            release_id: None,
+            data: data.to_vec(),
+        };
+
+        let uploads =
+            merge_uploads_prefer_dsym(vec![upload(b"oversized-dsym")], vec![upload(b"macho")], 5);
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].data, b"macho");
     }
 }
