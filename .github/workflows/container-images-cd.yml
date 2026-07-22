@@ -18,6 +18,15 @@ on:
             - 'livestream/**'
     workflow_dispatch:
 
+# Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
+# preflight "absent" and both rebuild, moving an immutable sha-* tag to a new digest. Keyed
+# on github.sha (not the ref) so it also covers push-vs-dispatch overlap; different master
+# commits keep distinct groups and still build in parallel. Never cancel — a queued same-SHA
+# run must run its preflight after the first finishes and reconcile instead of rebuilding.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
 jobs:
     posthog_build:
         name: Build and push PostHog
@@ -65,7 +74,9 @@ jobs:
             # the immutable sha-<short>/<full-sha> tags. We reconcile from the existing
             # digest instead (see "Reconcile tags from existing image" below). Uses
             # batch-get-image because the ECR publish role has ecr:BatchGetImage but not
-            # ecr:DescribeImages.
+            # ecr:DescribeImages. A genuine miss exits 0 (a `None` result); a throttle,
+            # credential, or network error exits non-zero and must fail the step — we can't
+            # swallow it to an empty "absent" result and rebuild, which would overwrite the tags.
             - name: Check for existing image in ECR
               id: preflight
               env:
@@ -82,7 +93,7 @@ jobs:
                           "application/vnd.oci.image.manifest.v1+json" \
                           "application/vnd.docker.distribution.manifest.v2+json" \
                       --query 'images[0].imageId.imageDigest' \
-                      --output text 2>/dev/null || true)"
+                      --output text)"
                   [ "$digest" = "None" ] && digest=""
                   echo "digest=$digest" >> "$GITHUB_OUTPUT"
                   if [ -n "$digest" ]; then
@@ -134,7 +145,8 @@ jobs:
 
             # Attempt 1 may have pushed to ECR before failing on another registry. Re-check
             # so the retry reconciles from that digest instead of rebuilding (which would
-            # overwrite the immutable sha-* tags with a new digest).
+            # overwrite the immutable sha-* tags with a new digest). As in the preflight, a
+            # transient AWS error must fail the step rather than be swallowed to "absent".
             - name: Re-check for existing image in ECR (retry)
               id: preflight_retry
               if: steps.build.outcome == 'failure'
@@ -152,7 +164,7 @@ jobs:
                           "application/vnd.oci.image.manifest.v1+json" \
                           "application/vnd.docker.distribution.manifest.v2+json" \
                       --query 'images[0].imageId.imageDigest' \
-                      --output text 2>/dev/null || true)"
+                      --output text)"
                   [ "$digest" = "None" ] && digest=""
                   echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
