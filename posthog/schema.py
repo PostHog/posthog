@@ -69,6 +69,7 @@ from posthog.schema_enums import (
     DatabaseSerializedFieldType as DatabaseSerializedFieldType,
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
+    DataWarehouseManagedViewsetKind as DataWarehouseManagedViewsetKind,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
     DataWarehouseSourceCategory as DataWarehouseSourceCategory,
     DaysOfWeekEnum as DaysOfWeekEnum,
@@ -929,10 +930,6 @@ class DataWarehouseEventsModifier(BaseModel):
     id_field: str
     table_name: str
     timestamp_field: str
-
-
-class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
-    root: Literal["revenue_analytics"] = "revenue_analytics"
 
 
 class DataWarehouseSourceUsage(BaseModel):

@@ -25,6 +25,10 @@ const PRODUCT_DESCRIPTION =
 
 const RESOURCE_TYPES_MAP: Record<DataWarehouseManagedViewsetKind, AccessControlResourceType> = {
     revenue_analytics: AccessControlResourceType.RevenueAnalytics,
+    // Enabling/disabling a viewset creates or deletes warehouse views project-wide, which the
+    // backend gates on the `warehouse_view` scope. Engineering analytics has no dedicated access
+    // control resource, so gate on warehouse objects to match what the toggle actually mutates.
+    engineering_analytics: AccessControlResourceType.WarehouseObjects,
 }
 
 export function DataWarehouseManagedViewsetsScene(): JSX.Element {

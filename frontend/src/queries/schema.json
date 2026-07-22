@@ -18160,7 +18160,7 @@
             "type": "object"
         },
         "DataWarehouseManagedViewsetKind": {
-            "const": "revenue_analytics",
+            "enum": ["revenue_analytics", "engineering_analytics"],
             "type": "string"
         },
         "DataWarehouseNode": {
