@@ -178,6 +178,7 @@ export interface supportTicketSceneLogicValues {
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     draftContent: JSONContent | null
+    draftPrivateContent: JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
     emailReplyBlockedReason: EmailReplyBlockedReason | null
@@ -316,6 +317,9 @@ export interface supportTicketSceneLogicActions {
         assignee: TicketAssignee
     }
     setDraftContent: (content: JSONContent | null) => {
+        content: JSONContent | null
+    }
+    setDraftPrivateContent: (content: JSONContent | null) => {
         content: JSONContent | null
     }
     setDraftIsPrivate: (isPrivate: boolean) => {
@@ -483,8 +487,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadKnowledgeGaps: true,
         dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
 
-        // Draft message state (persists across tab switches)
+        // Draft message state (persists across tab switches). The public reply and the
+        // private note keep independent bodies so switching the composer tab never
+        // clobbers the other draft.
         setDraftContent: (content: JSONContent | null) => ({ content }),
+        setDraftPrivateContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
         setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
@@ -680,6 +687,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as JSONContent | null,
             {
                 setDraftContent: (_, { content }) => content,
+            },
+        ],
+        draftPrivateContent: [
+            null as JSONContent | null,
+            {
+                setDraftPrivateContent: (_, { content }) => content,
             },
         ],
         draftIsPrivate: [

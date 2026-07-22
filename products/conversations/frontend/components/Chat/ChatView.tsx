@@ -30,11 +30,15 @@ export interface ChatViewProps {
     unreadCustomerCount?: number
     /** Whether to show delivery status on team messages */
     showDeliveryStatus?: boolean
-    /** Draft content to restore (for tab persistence) */
+    /** Draft content to restore (for tab persistence) — the public reply body */
     draftContent?: JSONContent | null
-    /** Called when draft content changes */
+    /** Called when the public reply draft changes */
     onDraftChange?: (content: JSONContent | null) => void
-    /** Whether the private note checkbox is checked */
+    /** Separate draft body for the internal note tab */
+    privateDraftContent?: JSONContent | null
+    /** Called when the internal note draft changes */
+    onPrivateDraftChange?: (content: JSONContent | null) => void
+    /** Whether the internal-note tab is the active one */
     isPrivate?: boolean
     /** Called when private checkbox changes */
     onPrivateChange?: (isPrivate: boolean) => void
@@ -74,6 +78,8 @@ export function ChatView({
     showDeliveryStatus = false,
     draftContent,
     onDraftChange,
+    privateDraftContent,
+    onPrivateDraftChange,
     isPrivate,
     onPrivateChange,
     extraActions,
@@ -117,6 +123,8 @@ export function ChatView({
                     showPrivateOption={showPrivateOption}
                     draftContent={draftContent}
                     onDraftChange={onDraftChange}
+                    privateDraftContent={privateDraftContent}
+                    onPrivateDraftChange={onPrivateDraftChange}
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
