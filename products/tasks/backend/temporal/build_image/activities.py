@@ -1,11 +1,11 @@
 import re
-import json
 import logging
 import threading
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import BaseModel
 from temporalio import activity
 
 if TYPE_CHECKING:
@@ -70,6 +70,16 @@ class ScanImageSpecOutput:
     findings: list[dict] = field(default_factory=list)
 
 
+class ScanFinding(BaseModel):
+    severity: Literal["high", "medium", "low"]
+    detail: str
+
+
+class ScanVerdict(BaseModel):
+    passed: bool
+    findings: list[ScanFinding]
+
+
 def _get_image(input: ImageBuildActivityInput) -> SandboxCustomImage:
     return SandboxCustomImage.objects.for_team(input.team_id).get(id=input.image_id)
 
@@ -98,24 +108,15 @@ def _judge_spec_safety(spec_yaml: str, repository: str = "") -> ScanImageSpecOut
         ],
         temperature=0.0,
         max_tokens=1024,
+        response_format=ScanVerdict,
     )
-
-    response_text = ""
-    for chunk in client.stream(request):
-        if chunk.type == "text":
-            response_text += chunk.data.get("text", "")
-
-    text = response_text.strip()
-    if text.startswith("```"):
-        text = text.strip("`").removeprefix("json").strip()
-    try:
-        verdict = json.loads(text)
-    except json.JSONDecodeError:
-        raise RuntimeError("Security scan returned an unparseable verdict; retry the build")
-    findings = verdict.get("findings") or []
-    if not isinstance(findings, list):
-        findings = []
-    return ScanImageSpecOutput(passed=verdict.get("passed") is True, findings=findings)
+    response = client.complete(request)
+    if not isinstance(response.parsed, ScanVerdict):
+        raise RuntimeError("Security scan returned an invalid verdict; retry the build")
+    return ScanImageSpecOutput(
+        passed=response.parsed.passed,
+        findings=[finding.model_dump() for finding in response.parsed.findings],
+    )
 
 
 @activity.defn
