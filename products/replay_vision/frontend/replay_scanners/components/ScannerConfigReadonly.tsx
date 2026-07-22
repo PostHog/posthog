@@ -14,6 +14,7 @@ import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
+import { isEntityFilter } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
@@ -24,7 +25,7 @@ import {
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator, UniversalFilterValue } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
@@ -46,6 +47,28 @@ const SCANNER_TYPES: ScannerType[] = ['monitor', 'classifier', 'scorer', 'summar
 
 function Multiline({ value }: { value: string | null | undefined }): JSX.Element {
     return <div className="whitespace-pre-wrap text-sm">{value || <span className="text-muted">—</span>}</div>
+}
+
+/**
+ * Renders one recording filter chip. Event/action filters keep the page/URL they match in nested
+ * `properties`, so surface those as their own chips — otherwise the read-only view only shows the
+ * event name (e.g. "$pageview") with no way to see which page is selected.
+ */
+function FilterChip({ filter }: { filter: UniversalFilterValue }): JSX.Element {
+    const nestedProperties = isEntityFilter(filter) ? (filter.properties ?? []) : []
+
+    if (nestedProperties.length === 0) {
+        return <UniversalFilterButton filter={filter} />
+    }
+
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 border rounded p-1">
+            <UniversalFilterButton filter={filter} />
+            {nestedProperties.map((property, i) => (
+                <UniversalFilterButton key={i} filter={property} />
+            ))}
+        </div>
+    )
 }
 
 /** Renders an option set as tags with the chosen value emphasized and the rest greyed/struck through. */
@@ -321,7 +344,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                                 <span className="text-xs">Match {matchWord} of</span>
                                             )}
                                             {filters.map((filter, i) => (
-                                                <UniversalFilterButton key={i} filter={filter} />
+                                                <FilterChip key={i} filter={filter} />
                                             ))}
                                         </div>
                                     )}
