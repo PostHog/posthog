@@ -31,6 +31,13 @@ export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer for BatchImport model')
 
 /**
+ * Cancel a running or paused batch import, moving it to a terminal state.
+ */
+export const ManagedMigrationsCancelCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
  * Pause a running batch import.
  */
 export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
