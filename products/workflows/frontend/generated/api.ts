@@ -45,6 +45,7 @@ import type {
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    TeamEmailReputationResponseApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -834,6 +835,25 @@ export const hogFlowsMetricsGlobalRetrieve = async (
     options?: RequestInit
 ): Promise<WorkflowStatsRowApi[]> => {
     return apiMutator<WorkflowStatsRowApi[]>(getHogFlowsMetricsGlobalRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsReputationRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/reputation/`
+}
+
+/**
+ * Email deliverability reputation for this project: the latest project-wide snapshot and the
+ * latest recent snapshot per workflow (worst first, capped). Written daily by the Node
+ * evaluator; everything is null/empty until the first run.
+ */
+export const hogFlowsReputationRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TeamEmailReputationResponseApi> => {
+    return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

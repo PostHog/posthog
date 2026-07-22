@@ -420,6 +420,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _finish_active_followup(self) -> None:
         self._shutting_down = True
+        if self._completion_status == "cancelled":
+            self._pending_followup = None
+            self._pending_followups.clear()
+            if self._active_followup_task is not None:
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await self._cancel_relay(task)
+            return
+
         while True:
             if self._active_followup_task is not None:
                 task = self._active_followup_task

@@ -499,6 +499,15 @@ def approval_gate(action_refs: Union[type, str, list]):
                 request = args[0] if args else kwargs.get("request")
                 _, team, organization = _extract_context(self, request)
 
+            # System writes (facade calls from tasks or service code) bypass the gate:
+            # approval policies target human-driven changes, and a ChangeRequest cannot
+            # exist without a requester to attribute it to. Only a request explicitly
+            # declaring itself a system write takes this path (`is True` so mocks and
+            # attribute-forwarding proxies can't) — a merely user-less request, e.g. a
+            # pre-auth HttpRequest, still engages the gate.
+            if getattr(request, "is_system", False) is True:
+                return method(self, *args, **kwargs)
+
             if not team or not organization:
                 logger.warning(
                     f"No team/org context in {'serializer' if is_serializer else 'viewset'}, skipping approval gate"
