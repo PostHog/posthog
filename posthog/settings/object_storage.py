@@ -57,6 +57,14 @@ BILLING_USAGE_REPORTS_S3_BUCKET = os.getenv("BILLING_USAGE_REPORTS_S3_BUCKET") o
 # back to the general bucket in dev / self-hosted.
 AGENT_BUNDLES_S3_BUCKET = os.getenv("AGENT_BUNDLES_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
+# AI observability blob storage — offloaded binary payloads (images, files) from ai_events,
+# content-addressed under `{prefix}{team_id}/sha256/{hash}`. The nodejs ingestion writer reads
+# the same AI_BLOB_S3_BUCKET / AI_BLOB_S3_PREFIX env vars but defaults both to "" (offload
+# disabled) — any deployment enabling offload must set bucket AND prefix identically on both
+# services, or every read silently 404s. Defaults here match the local-dev ingestion wiring.
+AI_BLOB_S3_BUCKET = os.getenv("AI_BLOB_S3_BUCKET", "ai-blobs")
+AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
+
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs
 # them back with `s3(...)`, so only the ClickHouse cluster needs bucket access — the Dagster

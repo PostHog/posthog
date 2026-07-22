@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunn
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BunnySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -2,7 +2,7 @@
 
 The CI job-logs worker emits one Logs record per failure-line, tagged with the GitHub ``run_id`` /
 ``job_id`` (service ``github-ci-logs``). This resolves a PR to its workflow runs via the same
-``pull_requests`` attribution as ``pr_runs`` (SPEC §7 — never a head-SHA join, so every push is
+``pull_requests`` attribution as ``pr_runs`` (SPEC §6 — never a head-SHA join, so every push is
 captured), then reads the Logs product joined on ``run_id`` and groups the lines per failed job.
 
 Two caps bound the response: ``_PER_JOB_CAP`` lines per job, and ``_LINE_CAP`` lines overall. Rows

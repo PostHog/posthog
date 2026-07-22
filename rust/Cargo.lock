@@ -2239,6 +2239,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "chrono-tz",
+ "clap",
  "clickhouse",
  "cohort-core",
  "common-alloc",
@@ -8020,7 +8021,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8033,6 +8034,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simd-json",
+ "url",
  "zstd",
 ]
 
