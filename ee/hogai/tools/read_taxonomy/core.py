@@ -2,10 +2,23 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
+from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.utils.helpers import format_events_yaml
+
+# Taxonomy queries run as the shared `max_ai` ClickHouse user, which has a low global
+# concurrency cap. When it's saturated ClickHouse rejects the query, which surfaces as one
+# of these. It's transient and not the caller's fault, so we signal a plain retry instead of
+# letting it bubble up and be re-reported as an error-tracking issue.
+CLICKHOUSE_AT_CAPACITY_ERRORS = (ClickHouseAtCapacity, CHQueryErrorTooManySimultaneousQueries)
+CLICKHOUSE_AT_CAPACITY_MESSAGE = (
+    "PostHog's query engine is temporarily at capacity and could not run this taxonomy query. "
+    "Wait a moment, then retry the same query without changes."
+)
 
 
 class ReadEvents(BaseModel):
@@ -100,25 +113,28 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
 
     This is the shared execution logic used by both internal and external tools.
     """
-    match query:
-        case ReadEvents():
-            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset)
-        case ReadEventProperties():
-            result = toolkit.retrieve_event_or_action_properties(query.event_name)
-            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
-        case ReadEventSamplePropertyValues():
-            return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
-        case ReadActionProperties():
-            result = toolkit.retrieve_event_or_action_properties(query.action_id)
-            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
-        case ReadActionSamplePropertyValues():
-            return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
-        case ReadEntityProperties():
-            result = toolkit.retrieve_entity_properties(query.entity)
-            if query.entity == "person":
-                return f"{result}\n\n{DYNAMIC_PERSON_PROPERTIES_HINT}"
-            return result
-        case ReadEntitySamplePropertyValues():
-            return toolkit.retrieve_entity_property_values(query.entity, query.property_name)
-        case _:
-            raise ValueError(f"Invalid query type: The query structure '{type(query).__name__}' is not recognized.")
+    try:
+        match query:
+            case ReadEvents():
+                return format_events_yaml([], team, user, limit=query.limit, offset=query.offset)
+            case ReadEventProperties():
+                result = toolkit.retrieve_event_or_action_properties(query.event_name)
+                return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
+            case ReadEventSamplePropertyValues():
+                return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
+            case ReadActionProperties():
+                result = toolkit.retrieve_event_or_action_properties(query.action_id)
+                return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
+            case ReadActionSamplePropertyValues():
+                return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
+            case ReadEntityProperties():
+                result = toolkit.retrieve_entity_properties(query.entity)
+                if query.entity == "person":
+                    return f"{result}\n\n{DYNAMIC_PERSON_PROPERTIES_HINT}"
+                return result
+            case ReadEntitySamplePropertyValues():
+                return toolkit.retrieve_entity_property_values(query.entity, query.property_name)
+            case _:
+                raise ValueError(f"Invalid query type: The query structure '{type(query).__name__}' is not recognized.")
+    except CLICKHOUSE_AT_CAPACITY_ERRORS as e:
+        raise MaxToolTransientError(CLICKHOUSE_AT_CAPACITY_MESSAGE) from e

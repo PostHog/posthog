@@ -45,7 +45,7 @@ from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
 from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolError, MaxToolTransientError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
 from ee.hogai.utils.feature_flags import get_llm_gateway_variant
@@ -504,19 +504,30 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                         send_feature_flags=True,
                     )
         except MaxToolError as e:
-            logger.exception(
-                "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
-            )
             user_distinct_id = self._get_user_distinct_id(config)
-            capture_exception(
-                e,
-                distinct_id=user_distinct_id,
-                properties={
-                    **self._get_debug_props(config),
-                    "tool": tool_call.name,
-                    "retry_strategy": e.retry_strategy,
-                },
-            )
+            # Transient errors (e.g. ClickHouse at capacity) are expected, retry-able control flow —
+            # not bugs. Reporting them to error tracking just creates recurring noise, so we log a
+            # warning and skip capture_exception while still returning a retry hint to the agent.
+            is_transient = isinstance(e, MaxToolTransientError)
+            if is_transient:
+                logger.warning(
+                    "maxtool_transient_error",
+                    extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy},
+                )
+            else:
+                logger.exception(
+                    "maxtool_error",
+                    extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy},
+                )
+                capture_exception(
+                    e,
+                    distinct_id=user_distinct_id,
+                    properties={
+                        **self._get_debug_props(config),
+                        "tool": tool_call.name,
+                        "retry_strategy": e.retry_strategy,
+                    },
+                )
 
             if user_distinct_id:
                 posthoganalytics.capture(
