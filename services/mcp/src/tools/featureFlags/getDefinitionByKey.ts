@@ -26,7 +26,7 @@ const schema = z.object({
 
 type Params = z.infer<typeof schema>
 
-/** Returned when no flag matches the key — the expected outcome of a read-before-create check. */
+/** The result shape returned when no flag matches `key`. See the file doc comment for why this is data, not a thrown error. */
 interface FeatureFlagLookupMiss {
     found: false
     key: string
@@ -61,9 +61,6 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
         const matches = exact.length > 0 ? exact : results
 
         if (matches.length === 0) {
-            // A miss is the expected result of an existence check, not a failure — return it as
-            // data so the agent goes on to create the flag, instead of the call being logged as
-            // errored and the agent treating a routine "not there yet" as something to retry.
             return {
                 found: false,
                 key,
@@ -73,6 +70,8 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
             }
         }
         if (matches.length > 1) {
+            // Unlike a miss, this is still an error: the key is ambiguous and the agent can't
+            // proceed on its own — it needs the numeric id from a different tool call.
             const ids = matches.map((flag) => flag.id).join(', ')
             throw new ToolInputValidationError(
                 `Multiple feature flags matched key "${key}" (IDs: ${ids}). Pass the numeric \`id\` to ` +

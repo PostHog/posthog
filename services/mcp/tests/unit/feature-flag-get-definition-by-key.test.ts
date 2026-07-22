@@ -67,8 +67,6 @@ describe('feature-flag-get-definition-by-key', () => {
     it('returns a non-error found:false result naming the missing key when no flag matches', async () => {
         const request = vi.fn().mockResolvedValue({ results: [] })
 
-        // A read-before-create existence check for a flag that doesn't exist yet is the
-        // expected path — it must resolve, not throw, so the call isn't logged as errored.
         const result = await tool.handler(createMockContext(request), { key: 'checkout' })
 
         expect(result).toMatchObject({ found: false, key: 'checkout' })
