@@ -1263,13 +1263,19 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
-    def test_create_task_rejects_internal_image_builder_origin(self):
+    @parameterized.expand(
+        [
+            ("image_builder",),
+            ("experiments",),
+        ]
+    )
+    def test_create_task_rejects_internal_origin(self, origin: str):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": "image_builder",
+                "origin_product": origin,
                 "repository": "posthog/posthog",
             },
             format="json",
