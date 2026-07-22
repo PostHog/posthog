@@ -41,6 +41,7 @@ use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
     affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
+use crate::workers::ReconcileDeps;
 
 /// Inline bounded backoff for the transfer produce.
 ///
@@ -133,6 +134,8 @@ pub struct MergeWorkerDeps {
     /// `false` until every pod in the fleet can apply the transfer; while off the drain ships leaves
     /// only and never holds. Wired from `COHORT_REGISTER_TRANSFER_ENABLED`.
     pub register_transfer_enabled: bool,
+    /// Reconcile admission and the pod-wide scheduler wake-up count.
+    pub reconcile: ReconcileDeps,
 }
 
 impl MergeWorkerDeps {
@@ -153,6 +156,7 @@ impl MergeWorkerDeps {
             seed_tracker: Arc::new(OffsetTracker::new()),
             live_watermarks: Arc::new(LiveWatermarks::new()),
             register_transfer_enabled: false,
+            reconcile: ReconcileDeps::default(),
         })
     }
 }
@@ -904,6 +908,7 @@ mod tests {
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
+            reconcile: ReconcileDeps::default(),
         }
     }
 

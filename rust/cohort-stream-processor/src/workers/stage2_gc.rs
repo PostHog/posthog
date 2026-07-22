@@ -28,7 +28,7 @@ use crate::observability::metrics::{
     STAGE2_ORPHAN_GC_KEYS_DELETED_TOTAL, STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
     STAGE2_ORPHAN_GC_SKIPPED_TOTAL, STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
 };
-use crate::store::{Cf, CohortStore, Stage2Key, Stage2TransferredRegisterKey};
+use crate::store::{Cf, CohortStore, Stage2DirtyKey, Stage2Key, Stage2TransferredRegisterKey};
 
 /// Per-worker resume cursor: the raw last-key scanned in this partition's `cf_stage2` slice; `None`
 /// restarts at the prefix start. Loss on a rebalance is benign — a fresh tenure rescans and
@@ -38,10 +38,10 @@ pub struct Stage2GcCursor(Option<Vec<u8>>);
 
 /// GC one partition's `cf_stage2` orphans for one tick: inspect at most `scan_limit` raw keys,
 /// delete every Stage 2 row whose cohort no longer registers membership in `catalog`, and advance
-/// the raw cursor (wrapping on exhaustion). Transferred-register metadata counts against the hard
-/// per-tick budget but is not a membership row; it protects a catalog-skewed row until the catalog
-/// recognizes it. A no-op before the first catalog load or against an empty catalog (the two
-/// safety gates).
+/// the raw cursor (wrapping on exhaustion). Dirty and transferred-register metadata count against
+/// the hard per-tick budget but are not membership rows. Inactive dirty metadata is reclaimed;
+/// transferred-register metadata protects a catalog-skewed row until the catalog recognizes it. A
+/// no-op before the first catalog load or against an empty catalog (the two safety gates).
 // Sync GC core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
 // `CohortStore` I/O is already off the runtime threads.
 #[allow(clippy::disallowed_methods)]
@@ -94,8 +94,15 @@ pub fn handle_stage2_orphan_gc(
     // Decode and classify before opening the batch, since the batch closure is infallible.
     let mut undecodable = 0u64;
     let mut victims: Vec<Stage2Key> = Vec::new();
+    let mut stale_dirty: Vec<Stage2DirtyKey> = Vec::new();
     let mut settled_transferred: Vec<Stage2TransferredRegisterKey> = Vec::new();
     for (key_bytes, value) in &rows {
+        if let Ok(dirty) = Stage2DirtyKey::decode(key_bytes) {
+            if !store.is_stage2_dirty_tracking_active(dirty.stage2_key().cohort_prefix()) {
+                stale_dirty.push(dirty);
+            }
+            continue;
+        }
         if let Ok(transferred) = Stage2TransferredRegisterKey::decode(key_bytes) {
             let stage2_key = transferred.stage2_key();
             let primary = match store.get_stage2(&stage2_key) {
@@ -161,10 +168,16 @@ pub fn handle_stage2_orphan_gc(
         }
     }
 
-    if !victims.is_empty() || !settled_transferred.is_empty() {
+    if !victims.is_empty() || !stale_dirty.is_empty() || !settled_transferred.is_empty() {
         let result = store.write_batch(|batch| {
             for key in &victims {
                 batch.delete_stage2(key);
+                // Orphan deletion does not need reconcile coverage. Clear both a pre-existing dirty
+                // marker and the one `delete_stage2` just staged, in the same atomic batch.
+                batch.delete_stage2_dirty(&Stage2DirtyKey::new(*key));
+            }
+            for key in &stale_dirty {
+                batch.delete_stage2_dirty(key);
             }
             for key in &settled_transferred {
                 batch.delete_stage2_transferred_register(key);
@@ -482,6 +495,55 @@ mod tests {
         for key in &live {
             assert!(exists(&store, key), "every live row survived the sweep");
         }
+    }
+
+    #[test]
+    fn dirty_metadata_consumes_the_raw_per_tick_budget() {
+        let (_dir, store) = temp_store();
+        let live = stage2_key(LIVE_TEAM, 1, 100);
+        let _tracking = store.track_stage2_dirty(live.cohort_prefix());
+        put_row(&store, &live);
+        let dirty = Stage2DirtyKey::new(live).encode().to_vec();
+        let catalog = loaded(&[(LIVE_TEAM as i32, &[(1, single_leaf())])]);
+        let mut cursor = Stage2GcCursor::default();
+
+        handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, 1);
+        assert_eq!(cursor.0, Some(live.encode().to_vec()));
+
+        handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, 1);
+        assert_eq!(
+            cursor.0,
+            Some(dirty),
+            "one dirty marker consumes the entire one-key tick budget",
+        );
+        assert!(exists(&store, &live));
+
+        handle_stage2_orphan_gc(PARTITION, &store, &catalog, &mut cursor, 1);
+        assert!(cursor.0.is_none(), "the following empty tick wraps");
+    }
+
+    #[test]
+    fn inactive_dirty_only_marker_is_reclaimed() {
+        let (_dir, store) = temp_store();
+        let deleted = stage2_key(ABSENT_TEAM, 1, 100);
+        {
+            let _tracking = store.track_stage2_dirty(deleted.cohort_prefix());
+            store
+                .write_batch(|batch| batch.delete_stage2(&deleted))
+                .unwrap();
+            assert!(store
+                .get(Cf::Stage2, &Stage2DirtyKey::new(deleted).encode())
+                .unwrap()
+                .is_some());
+        }
+
+        let mut cursor = Stage2GcCursor::default();
+        handle_stage2_orphan_gc(PARTITION, &store, &live_team_only(), &mut cursor, NO_CAP);
+
+        assert!(store
+            .get(Cf::Stage2, &Stage2DirtyKey::new(deleted).encode())
+            .unwrap()
+            .is_none());
     }
 
     #[test]
