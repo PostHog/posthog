@@ -364,8 +364,8 @@ tools:
             coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200),
             `enabled`, `emit` (false = dry-run), and `output_destinations` in the same call. The skill must already
             exist on the project (author it via the skills store first). Upsert: if a config already exists for the
-            skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running
-            a scout drives spend.
+            skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a
+            scout drives spend.
     scout-config-delete:
         operation: signals_scout_config_destroy
         enabled: true
@@ -397,9 +397,9 @@ tools:
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
             (`run_interval_minutes`), `enabled` flag, `emit` (dry-run) posture, and output destinations. A freshly
-            authored scout appears once its config is registered — immediately via `scout-config-create` (one skill)
-            or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts
-            run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pair with
+            authored scout appears once its config is registered — immediately via `scout-config-create` (one skill) or
+            `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run,
+            how often, whether they emit findings to the inbox, and where those findings are delivered. Pair with
             `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
