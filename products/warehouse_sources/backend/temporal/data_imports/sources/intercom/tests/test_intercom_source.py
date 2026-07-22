@@ -135,7 +135,25 @@ class TestIntercomSource:
         assert is_valid is True
         assert error is None
         mock_get_integration.assert_called_once_with(self.config.intercom_integration_id, self.team_id)
-        mock_validate.assert_called_once_with("token", schema_name=None)
+        # No pin passed (pre-creation), so the probe runs on default_version.
+        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.15")
+
+    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), (None, "2.15")])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.validate_intercom_credentials"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
+    )
+    def test_validate_credentials_probes_under_resolved_pin(self, mock_get_integration, mock_validate, pin, expected):
+        # The probe must run on the source's pin, not a hardcoded version — otherwise a
+        # 2.13-pinned source validates against 2.15 and can report a scope it doesn't have.
+        mock_get_integration.return_value = mock.MagicMock(access_token="token")
+        mock_validate.return_value = (True, None)
+
+        self.source.validate_credentials(self.config, self.team_id, api_version=pin)
+
+        assert mock_validate.call_args.kwargs["api_version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"

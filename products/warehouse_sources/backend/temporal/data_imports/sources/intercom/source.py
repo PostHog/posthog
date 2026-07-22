@@ -132,7 +132,11 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         if not integration.access_token:
             return False, "Intercom integration has no access token. Please reconnect."
 
-        return validate_intercom_credentials(integration.access_token, schema_name=schema_name)
+        # Probe under the source's resolved pin so a 2.13-pinned source validates against the
+        # version it syncs on; `None` (pre-creation) resolves to `default_version`.
+        return validate_intercom_credentials(
+            integration.access_token, schema_name=schema_name, api_version=self.resolve_api_version(api_version)
+        )
 
     def source_for_pipeline(self, config: IntercomSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.intercom_integration_id, inputs.team_id)
