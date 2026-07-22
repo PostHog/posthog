@@ -24,12 +24,16 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     DataWarehouseSyncInterval,
     ExternalDataSchemaStatus,
     ExternalDataSource,
@@ -42,8 +46,8 @@ import {
 } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
+    SchemaEditorAction,
     SourceEditorAction,
-    useSourceEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
@@ -61,6 +65,14 @@ const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
+
+// Disabled reason for a row's edit controls, based on the user's effective access to that table.
+const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | null =>
+    getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseTable,
+        AccessControlLevel.Editor,
+        schema.user_access_level
+    )
 
 export interface SchemasTabProps {
     id: string
@@ -130,8 +142,15 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     }, [loadJobs, source])
 
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
     const prefixedSourceId = `managed-${id}`
+
+    // Singleton modal — track which schema's access controls are open.
+    const [accessControlSchema, setAccessControlSchema] = useState<ExternalDataSourceSchema | null>(null)
+    const openAccessControl = warehouseAccessControlEnabled
+        ? (schema: ExternalDataSourceSchema): void => setAccessControlSchema(schema)
+        : undefined
 
     return (
         <>
@@ -274,6 +293,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                     resyncSchema={resyncSchema}
                                     cancelSchema={cancelSchema}
                                     deleteTable={deleteTable}
+                                    openAccessControl={openAccessControl}
                                     showMetrics={showMetrics}
                                 />
                             ),
@@ -292,7 +312,18 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     resyncSchema={resyncSchema}
                     cancelSchema={cancelSchema}
                     deleteTable={deleteTable}
+                    openAccessControl={openAccessControl}
                     showMetrics={showMetrics}
+                />
+            )}
+            {accessControlSchema?.table && (
+                <AccessControlObjectModal
+                    isOpen={!!accessControlSchema}
+                    onClose={() => setAccessControlSchema(null)}
+                    resource={AccessControlResourceType.WarehouseTable}
+                    resource_id={accessControlSchema.table.id}
+                    title={accessControlSchema.label ?? accessControlSchema.name}
+                    description="Control who can query, sync, and manage this table. Members without editor access can't trigger syncs, change its settings, or delete it."
                 />
             )}
             {source?.source_type &&
@@ -334,6 +365,8 @@ interface ManagedSchemaTableProps {
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    /** Undefined when the warehouse access control feature is off. */
+    openAccessControl?: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
     /** Rendered inside a namespace group — the group header already shows the namespace, so strip it from row names. */
     inSchemaGroup?: boolean
@@ -350,13 +383,13 @@ function ManagedSchemaTable({
     resyncSchema,
     cancelSchema,
     deleteTable,
+    openAccessControl,
     showMetrics,
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
-    const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -373,7 +406,10 @@ function ManagedSchemaTable({
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             bulkSelection={{
                 getKey: (schema) => schema.id,
-                isRowSelectable: () => (editDisabledReason ? { disabledReason: editDisabledReason } : true),
+                isRowSelectable: (schema) => {
+                    const reason = schemaEditDisabledReason(schema)
+                    return reason ? { disabledReason: reason } : true
+                },
                 noun: ['schema', 'schemas'],
                 barClassName: 'mb-2',
                 renderActions: (ctx) => (
@@ -538,7 +574,7 @@ function ManagedSchemaTable({
                     sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                     render: function RenderShouldSync(_, schema) {
                         return (
-                            <SourceEditorAction source={source}>
+                            <SchemaEditorAction schema={schema}>
                                 <LemonSwitch
                                     checked={schema.should_sync}
                                     onChange={(active) => {
@@ -596,7 +632,7 @@ function ManagedSchemaTable({
                                         }
                                     }}
                                 />
-                            </SourceEditorAction>
+                            </SchemaEditorAction>
                         )
                     },
                 },
@@ -617,6 +653,7 @@ function ManagedSchemaTable({
                                     type="secondary"
                                     size="xsmall"
                                     to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id, 'configuration')}
+                                    disabledReason={schemaEditDisabledReason(schema)}
                                 >
                                     Configure
                                 </LemonButton>
@@ -627,6 +664,7 @@ function ManagedSchemaTable({
                                     resyncSchema={resyncSchema}
                                     cancelSchema={cancelSchema}
                                     deleteTable={deleteTable}
+                                    onOpenAccessControl={openAccessControl}
                                 />
                             </div>
                         )
@@ -784,6 +822,7 @@ function SchemaRowMore({
     resyncSchema,
     cancelSchema,
     deleteTable,
+    onOpenAccessControl,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
@@ -791,14 +830,25 @@ function SchemaRowMore({
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    onOpenAccessControl?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     return (
-        <SourceEditorAction source={source}>
+        <SchemaEditorAction schema={schema}>
             {({ disabledReason }) => (
                 <More
                     disabledReason={disabledReason}
                     overlay={
                         <>
+                            {onOpenAccessControl && schema.table && (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    fullWidth
+                                    onClick={() => onOpenAccessControl(schema)}
+                                >
+                                    Access control
+                                </LemonButton>
+                            )}
                             <Tooltip
                                 title={
                                     schema.sync_type === 'cdc'
@@ -930,6 +980,6 @@ function SchemaRowMore({
                     }
                 />
             )}
-        </SourceEditorAction>
+        </SchemaEditorAction>
     )
 }

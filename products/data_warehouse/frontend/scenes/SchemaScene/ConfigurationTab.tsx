@@ -38,8 +38,8 @@ import {
     SyncMethodFormHandle,
 } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
 import {
-    SourceEditorAction,
-    useSourceEditorAccess,
+    SchemaEditorAction,
+    useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
     StatusTagSetting,
@@ -104,7 +104,6 @@ export function ConfigurationTab({
         case 'details':
             return (
                 <DetailsSection
-                    source={source}
                     schema={schema}
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
@@ -116,7 +115,7 @@ export function ConfigurationTab({
         case 'sync-method':
             return (
                 <div className="flex flex-col gap-6">
-                    <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+                    <SyncMethodSection sourceId={sourceId} schema={schema} />
                     <ApiVersionSection sourceId={sourceId} source={source} schema={schema} />
                 </div>
             )
@@ -136,7 +135,6 @@ export function ConfigurationTab({
             return (
                 <ScheduleSection
                     sourceId={sourceId}
-                    source={source}
                     schema={schema}
                     isProjectTime={isProjectTime}
                     setIsProjectTime={setIsProjectTime}
@@ -172,7 +170,6 @@ function SectionHeader({ title, description }: { title: string; description?: st
 }
 
 function DetailsSection({
-    source,
     schema,
     reloadSchema,
     cancelSchema,
@@ -180,7 +177,6 @@ function DetailsSection({
     onConfigureSyncMethod,
     onViewSyncHistory,
 }: {
-    source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
@@ -206,7 +202,7 @@ function DetailsSection({
                             re-enable.
                         </span>
                     </div>
-                    <SourceEditorAction source={source}>
+                    <SchemaEditorAction schema={schema}>
                         <LemonSwitch
                             checked={schema.should_sync}
                             label={schema.should_sync ? 'Syncing' : 'Disabled'}
@@ -256,7 +252,7 @@ function DetailsSection({
                                 }
                             }}
                         />
-                    </SourceEditorAction>
+                    </SchemaEditorAction>
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Current status</span>
@@ -304,7 +300,7 @@ function DetailsSection({
                 </div>
             </div>
             <div className="mt-4 flex gap-2 flex-wrap">
-                <SourceEditorAction source={source}>
+                <SchemaEditorAction schema={schema}>
                     {({ disabledReason }) => (
                         <Tooltip
                             title={
@@ -331,9 +327,9 @@ function DetailsSection({
                             </LemonButton>
                         </Tooltip>
                     )}
-                </SourceEditorAction>
+                </SchemaEditorAction>
                 {schema.status === 'Running' && (
-                    <SourceEditorAction source={source}>
+                    <SchemaEditorAction schema={schema}>
                         {({ disabledReason }) => (
                             <LemonButton
                                 type="secondary"
@@ -344,7 +340,7 @@ function DetailsSection({
                                 Cancel current sync
                             </LemonButton>
                         )}
-                    </SourceEditorAction>
+                    </SchemaEditorAction>
                 )}
                 <LemonButton type="secondary" onClick={onViewSyncHistory}>
                     View sync history
@@ -354,15 +350,7 @@ function DetailsSection({
     )
 }
 
-function SyncMethodSection({
-    sourceId,
-    source,
-    schema,
-}: {
-    sourceId: string
-    source: ExternalDataSource | null
-    schema: ExternalDataSourceSchema
-}): JSX.Element {
+function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: ExternalDataSourceSchema }): JSX.Element {
     // Incremental fields + saving both go through schemaSceneLogic — deliberately NOT
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
@@ -374,7 +362,7 @@ function SyncMethodSection({
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
 
-    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
     // Load incremental fields only when the schema id changes. We intentionally exclude the kea
     // action refs from the deps — if they aren't stable, the effect would re-fire on every parent
@@ -521,7 +509,7 @@ function ApiVersionSection({
     schema: ExternalDataSourceSchema
 }): JSX.Element | null {
     const { loadSchema, resyncSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
-    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
     const supportedVersions = source?.supported_api_versions ?? []
     const sourceVersion = source?.api_version
@@ -668,9 +656,9 @@ function ColumnsAndRowFiltersSection({
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
 
-    // Plain value, not the render-prop form of SourceEditorAction: a fresh inline render-prop on
-    // every edit would remount the editors and wipe their drafts. See useSourceEditorAccess's docstring.
-    const { disabledReason: editorDisabledReason } = useSourceEditorAccess(source)
+    // Plain value, not the render-prop form of SchemaEditorAction: a fresh inline render-prop on
+    // every edit would remount the editors and wipe their drafts. See useSchemaEditorAccess's docstring.
+    const { disabledReason: editorDisabledReason } = useSchemaEditorAccess(schema)
 
     // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
@@ -772,7 +760,7 @@ function ColumnsAndRowFiltersSection({
                                     ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                     : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SourceEditorAction source={source}>
+                            <SchemaEditorAction schema={schema}>
                                 <LemonButton
                                     type="secondary"
                                     size="small"
@@ -781,7 +769,7 @@ function ColumnsAndRowFiltersSection({
                                 >
                                     Pull new schemas
                                 </LemonButton>
-                            </SourceEditorAction>
+                            </SchemaEditorAction>
                         </div>
                     ) : (
                         <>
@@ -842,13 +830,11 @@ function ColumnsAndRowFiltersSection({
 
 function ScheduleSection({
     sourceId,
-    source,
     schema,
     isProjectTime,
     setIsProjectTime,
 }: {
     sourceId: string
-    source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
@@ -864,7 +850,7 @@ function ScheduleSection({
     )
     const [draftSyncTimeOfDay, setDraftSyncTimeOfDay] = useState<string | null>(schema.sync_time_of_day ?? null)
     const [saving, setSaving] = useState(false)
-    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
     const serverFrequency = schema.sync_frequency || (isCdc ? '5min' : '6hour')
     const serverSyncTimeOfDay = schema.sync_time_of_day ?? null
@@ -926,7 +912,6 @@ function ScheduleSection({
                     />
                 </div>
                 <AnchorTimeField
-                    source={source}
                     schema={schema}
                     draftFrequency={draftFrequency}
                     draftSyncTimeOfDay={draftSyncTimeOfDay}
@@ -950,7 +935,6 @@ function ScheduleSection({
 }
 
 function AnchorTimeField({
-    source,
     schema,
     draftFrequency,
     draftSyncTimeOfDay,
@@ -958,7 +942,6 @@ function AnchorTimeField({
     isProjectTime,
     setIsProjectTime,
 }: {
-    source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     draftFrequency: DataWarehouseSyncInterval
     draftSyncTimeOfDay: string | null
@@ -967,7 +950,7 @@ function AnchorTimeField({
     setIsProjectTime: (v: boolean) => void
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
     const isSyncTimeSet = draftSyncTimeOfDay !== null
     const utcTime = draftSyncTimeOfDay || '00:00:00'
@@ -1094,7 +1077,7 @@ function DangerZoneSection({
                 description="Destructive actions that rebuild or remove data. Use only if you understand the impact."
             />
             <div className="border border-danger/40 rounded p-4 bg-surface-primary flex flex-col gap-2">
-                <SourceEditorAction source={source}>
+                <SchemaEditorAction schema={schema}>
                     {({ disabledReason }) => (
                         <>
                             {hasFullCdcResync && (
@@ -1189,7 +1172,7 @@ function DangerZoneSection({
                             )}
                         </>
                     )}
-                </SourceEditorAction>
+                </SchemaEditorAction>
             </div>
         </div>
     )
@@ -1220,6 +1203,7 @@ function DescriptionRow({
     source,
     saving,
     onSave,
+    disabledReason,
 }: {
     columnName: string
     label: string
@@ -1228,6 +1212,7 @@ function DescriptionRow({
     source?: string
     saving: boolean
     onSave: (columnName: string, description: string) => void
+    disabledReason?: string
 }): JSX.Element {
     const [value, setValue] = useState(description)
     // Keep local state in sync when the annotation reloads (e.g. after a save or AI enrichment).
@@ -1247,6 +1232,7 @@ function DescriptionRow({
                 onChange={setValue}
                 placeholder="Describe what this means…"
                 onPressEnter={() => dirty && onSave(columnName, value)}
+                disabled={!!disabledReason}
             />
             <DescriptionSourceTag source={source} />
             <LemonButton
@@ -1254,7 +1240,7 @@ function DescriptionRow({
                 type="secondary"
                 onClick={() => onSave(columnName, value)}
                 loading={saving}
-                disabledReason={!dirty ? 'No changes to save' : undefined}
+                disabledReason={disabledReason ?? (!dirty ? 'No changes to save' : undefined)}
             >
                 Save
             </LemonButton>
@@ -1264,6 +1250,7 @@ function DescriptionRow({
 
 function DescriptionsSection({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element {
     const tableId = schema.table?.id
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
     if (!tableId) {
         return (
@@ -1276,15 +1263,23 @@ function DescriptionsSection({ schema }: { schema: ExternalDataSourceSchema }): 
         )
     }
 
-    return <DescriptionsSectionContent tableId={tableId} columns={schema.available_columns ?? []} />
+    return (
+        <DescriptionsSectionContent
+            tableId={tableId}
+            columns={schema.available_columns ?? []}
+            disabledReason={accessDisabledReason}
+        />
+    )
 }
 
 function DescriptionsSectionContent({
     tableId,
     columns,
+    disabledReason,
 }: {
     tableId: string
     columns: { name: string; data_type?: string; is_nullable?: boolean }[]
+    disabledReason?: string
 }): JSX.Element {
     const logic = columnAnnotationsLogic({ tableId })
     const { annotationByColumn, annotationsLoading, savingColumn } = useValues(logic)
@@ -1306,6 +1301,7 @@ function DescriptionsSectionContent({
                     source={tableAnnotation?.description_source}
                     saving={savingColumn === ''}
                     onSave={saveDescription}
+                    disabledReason={disabledReason}
                 />
                 {annotationsLoading && columns.length === 0 ? (
                     <LemonSkeleton className="w-full h-8 mt-2" />
@@ -1324,6 +1320,7 @@ function DescriptionsSectionContent({
                                 source={annotation?.description_source}
                                 saving={savingColumn === column.name}
                                 onSave={saveDescription}
+                                disabledReason={disabledReason}
                             />
                         )
                     })

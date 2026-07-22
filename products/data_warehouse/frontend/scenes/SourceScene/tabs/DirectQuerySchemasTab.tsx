@@ -19,7 +19,10 @@ import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
-import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import {
+    SchemaEditorAction,
+    SourceEditorAction,
+} from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { buildTableQueryUrl } from 'products/data_warehouse/frontend/utils'
 
 import { ColumnSelectionModal } from './ColumnSelectionModal'
@@ -261,12 +264,12 @@ function DirectQuerySchemaGroups({
                                             key={schema.id}
                                             className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 px-6 py-1 items-center"
                                         >
-                                            <SourceEditorAction source={source}>
+                                            <SchemaEditorAction schema={schema}>
                                                 <LemonCheckbox
                                                     checked={schema.should_sync}
                                                     onChange={(active) => setDirectQuerySchemaEnabled(schema, active)}
                                                 />
-                                            </SourceEditorAction>
+                                            </SchemaEditorAction>
                                             <div className="flex items-center gap-1 min-w-0">
                                                 {schema.should_sync ? (
                                                     <Link
@@ -289,7 +292,7 @@ function DirectQuerySchemaGroups({
                                                 )}
                                             </div>
                                             {onConfigureColumns && (
-                                                <SourceEditorAction source={source}>
+                                                <SchemaEditorAction schema={schema}>
                                                     <LemonButton
                                                         type="tertiary"
                                                         size="xsmall"
@@ -297,7 +300,7 @@ function DirectQuerySchemaGroups({
                                                     >
                                                         Columns
                                                     </LemonButton>
-                                                </SourceEditorAction>
+                                                </SchemaEditorAction>
                                             )}
                                         </div>
                                     )

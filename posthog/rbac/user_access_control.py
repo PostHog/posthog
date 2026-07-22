@@ -86,7 +86,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
-    "external_data_schema": "external_data_source",
     "warehouse_table": "warehouse_objects",
     "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
@@ -321,8 +320,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
-    if name == "externaldataschema":
-        return "external_data_schema"
     if name == "datawarehousesavedquery":
         return "warehouse_view"
     if name == "datawarehousesavedqueryfolder":
@@ -684,6 +681,20 @@ class UserAccessControl:
 
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
+
+    def warehouse_table_effective_level(self, table: Optional[Model], source: Model) -> Optional[AccessControlLevel]:
+        """A warehouse table's effective access is the most restrictive of the table's own access
+        (`warehouse_table`) and its parent source's access. `table` is None before the first sync,
+        in which case only the source applies. Shared by the schema serializer and sync permission
+        so display and enforcement can't drift."""
+        source_level = self.get_user_access_level(source)
+        if table is None:
+            return source_level
+        table_level = self.get_user_access_level(table)
+        if source_level is None or table_level is None:
+            return source_level or table_level
+        order = ACCESS_CONTROL_LEVELS_RESOURCE
+        return source_level if order.index(source_level) <= order.index(table_level) else table_level
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """

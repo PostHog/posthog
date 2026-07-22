@@ -6394,6 +6394,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    /** The requesting user's effective access level for this table (inherits the source). */
+    user_access_level?: AccessControlLevel
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */

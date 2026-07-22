@@ -26076,6 +26076,9 @@ export namespace Schemas {
       default_version: string;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface ExternalDataSchema {
       readonly id: string;
       readonly name: string;
@@ -26182,6 +26185,11 @@ export namespace Schemas {
       api_version?: string | null;
       /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
       readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
@@ -44739,6 +44747,9 @@ export namespace Schemas {
       readonly supported_api_versions?: string[];
     } | null;
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -44845,6 +44856,11 @@ export namespace Schemas {
       api_version?: string | null;
       /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
       readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
