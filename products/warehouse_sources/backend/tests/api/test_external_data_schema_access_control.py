@@ -79,10 +79,28 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self._grant(self.editor_user, "external_data_source", None, "editor")
         self._grant(self.editor_user, "warehouse_table", str(self.table.id), "viewer")
 
-        # Reported access is the most-restrictive of source (editor) and table (viewer).
+        # The table's own rule is the most specific, so it wins over the source's editor access.
         self.assertEqual(self._reported_level(self.editor_user), "viewer")
         # And syncing the locked table is forbidden.
         self.assertEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_source_object_restriction_cascades_to_unruled_tables(self):
+        # Restricting the source itself (per-object rule) applies to tables without their own rules.
+        self._grant(self.editor_user, "external_data_source", str(self.source.id), "viewer")
+
+        self.assertEqual(self._reported_level(self.editor_user), "viewer")
+        self.assertEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_table_grant_overrides_restricted_source(self):
+        # Most-specific wins the other way too: an explicit table grant carves one table out of a
+        # restricted source instead of being flattened by a most-restrictive rule.
+        self._grant(self.editor_user, "external_data_source", str(self.source.id), "viewer")
+        self._grant(self.editor_user, "warehouse_table", str(self.table.id), "editor")
+
+        self.assertEqual(self._reported_level(self.editor_user), "editor")
+        self.client.force_login(self.editor_user)
+        resp = self.client.patch(f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/", {})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_table_lock_blocks_schedule_update_for_source_editor(self):
         # PATCH (changing sync frequency / method) is a write action — gated by the table lock too.

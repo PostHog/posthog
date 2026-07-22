@@ -22,7 +22,7 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import (
@@ -485,8 +485,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:
-        # Effective access to this table = most restrictive of the parent source and the synced
-        # warehouse table (null before first sync). Drives the row's sync/delete gating in the UI.
+        # Most-specific rule wins: the synced table's own rules if any, else the parent source's
+        # access (table is null before first sync). Drives the row's sync/delete gating in the UI.
         uac = self.user_access_control
         if uac is None:
             return None
@@ -1332,12 +1332,13 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 
 
 class WarehouseTableSyncPermission(BasePermission):
-    """Gate a schema's sync/delete/CRUD on Editor access to its warehouse table.
+    """Gate a schema's sync/delete/CRUD on Editor access to its table, most-specific rule first.
 
-    Layered on top of the source resource-level gate that AccessControlPermission already applies (the
-    viewset's scope_object is "external_data_source"). Reads are left to that gate and to query-time
-    table access. A schema whose table hasn't synced yet (table is None) has no per-table lock, so only
-    the source gate applies."""
+    Rules on the table itself (`warehouse_table`) win; without any, the source's access applies —
+    so restricting a source cascades to its tables, while a table-specific grant carves one out.
+    Layered on top of the source resource-level gate that AccessControlPermission already applies
+    (the viewset's scope_object is "external_data_source"). Reads are left to that gate and to
+    query-time table access."""
 
     def has_permission(self, request: Request, view) -> bool:
         return True
@@ -1352,9 +1353,8 @@ class WarehouseTableSyncPermission(BasePermission):
         uac = view.user_access_control
         if uac is None or uac.is_organization_admin:
             return True
-        if obj.table is None:
-            return True
-        return uac.check_access_level_for_object(obj.table, required_level="editor")
+        level = uac.warehouse_table_effective_level(obj.table, obj.source)
+        return level is not None and access_level_satisfied_for_resource("warehouse_table", level, "editor")
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
