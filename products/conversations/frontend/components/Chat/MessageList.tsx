@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import type { ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -21,6 +21,13 @@ export interface MessageListProps {
     unreadCustomerCount?: number
     /** Whether to show delivery status on team messages */
     showDeliveryStatus?: boolean
+    /** ID of the latest AI message eligible for reviewer feedback */
+    latestAiMessageId?: string | null
+    /** Recorded reviewer feedback keyed by message id */
+    feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
+    /** Whether AI reply feedback controls are enabled */
+    showAiReplyFeedback?: boolean
+    onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
 export function MessageList({
@@ -36,6 +43,10 @@ export function MessageList({
     isCustomerView = false,
     unreadCustomerCount = 0,
     showDeliveryStatus = false,
+    latestAiMessageId = null,
+    feedbackByMessageId = {},
+    showAiReplyFeedback = false,
+    onSubmitAiReplyFeedback,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -120,6 +131,18 @@ export function MessageList({
                                 message={message}
                                 isCustomer={isCustomerView ? !isCustomer : isCustomer}
                                 deliveryStatus={deliveryStatusMap.get(message.id)}
+                                showAiReplyFeedback={
+                                    showAiReplyFeedback &&
+                                    message.id === latestAiMessageId &&
+                                    message.authorType === 'AI'
+                                }
+                                aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                                onSubmitAiReplyFeedback={
+                                    onSubmitAiReplyFeedback
+                                        ? (rating, feedbackText) =>
+                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                        : undefined
+                                }
                             />
                         )
                     })}

@@ -48,6 +48,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgTransportBindingStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -418,6 +419,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         identityCredentials,
         identityLinks,
         identities,
+        routingMode: opts.routingMode ?? 'path',
+        domainSuffix: opts.domainSuffix,
         linkRedirectBaseUrl: 'http://callback.test',
         bus,
         logs: logSink,
@@ -456,6 +459,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         routingMode: opts.routingMode ?? 'path',
         pathPrefix: '/agents',
         domainSuffix: opts.domainSuffix,
+        // OAuth link-callback base for `path` mode (dev/harness). In `domain`
+        // mode the callback host is derived from the slug + domainSuffix instead.
+        // Matches the worker's linkRedirectBaseUrl so both sides agree.
+        publicBaseUrl: 'http://callback.test',
         slackSigningSecretResolver,
         authProvider: opts.authProvider,
         identities,
@@ -463,11 +470,14 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // Identity-linking callback route (`GET /link/:provider/callback`).
         identityCredentials,
         identityLinks,
+        // Edge admission: durable transport→canonical bindings.
+        transportBindings: new PgTransportBindingStore(pool),
+        posthogApiBaseUrl: 'http://localhost:8010',
         envEncryption: encryption,
         // Same `http` the worker uses, so tests asserting on outbound
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
-        http: opts.http,
+        http: harnessHttp,
         // Wire the JWT gate so preview-mode tests exercise the real claim
         // verification (audience, signature, app/rev binding). Without this the
         // resolver short-circuits and a non-live revision routes without a
@@ -485,6 +495,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
+        // Reuse the same in-process sandbox pool the worker uses so dry-run
+        // e2e cases exercise the same dispatch path as production sessions.
+        sandboxes,
     })
 
     return {

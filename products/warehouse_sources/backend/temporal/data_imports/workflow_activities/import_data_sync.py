@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
@@ -126,6 +129,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             external_data_source_id=inputs.source_id,
             external_data_schema_id=inputs.schema_id,
             external_data_job_id=inputs.run_id,
+            schema_name=model.schema.name if model.schema is not None else None,
+            sync_type=model.schema.sync_type if model.schema is not None else None,
+            pipeline_version=model.pipeline_version,
         )
 
         job_inputs = PipelineInputs(
@@ -193,6 +199,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             ) from e
 
         if SourceRegistry.is_registered(source_type):
+            new_source = SourceRegistry.get_source(source_type)
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -214,10 +222,18 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 row_filters=row_filters,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
+                # A schema-level override (user-managed) wins over the source pin.
+                api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
             )
 
-            new_source = SourceRegistry.get_source(source_type)
-            config = new_source.parse_config(model.pipeline.job_inputs)
+            try:
+                config = new_source.parse_config(model.pipeline.job_inputs)
+            except Exception as e:
+                # A stored config that can't be parsed (corrupt or double-encoded `job_inputs`)
+                # fails identically on every attempt — there is nothing to retry. Treat it as
+                # non-retryable so the job gives up cleanly instead of crash-looping and spamming
+                # error tracking. Mirrors the skip in `sync_new_schemas_activity`.
+                await handle_non_retryable_error(job_inputs, str(e), logger, e)
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
@@ -304,21 +320,38 @@ async def _handle_import_error(
     Errors the source classifies as non-retryable (bad credentials, a deleted or
     misconfigured remote — e.g. a MongoDB ``mongodb+srv://`` hostname whose DNS record no
     longer resolves) are handed to ``handle_non_retryable_error``, which stops the job after
-    a few attempts instead of retrying up to the activity's maximum. Everything else is
-    re-raised so Temporal retries it as usual.
+    a few attempts instead of retrying up to the activity's maximum.
+
+    Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
+    the source's own retries are exhausted. Temporal retries the whole activity and the error is
+    transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
+    this benign, recoverable failure out of error tracking.
+
+    Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
     error_msg = str(error)
-    is_non_retryable_error = any(
-        non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
-    )
-    if is_non_retryable_error:
+
+    # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
+    # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
+    # contract by type so every REST-based source stops immediately, rather than depending on each
+    # source listing the message in get_non_retryable_errors.
+    if isinstance(error, RESTClientNonRetryableError):
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
-    else:
-        await logger.aexception(error_msg)
-        await logger.adebug("Error encountered during import_data_activity - re-raising")
+
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    if any(match in error_msg for match in non_retryable_errors):
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+
+    retryable_errors = source_cls.get_retryable_errors()
+    if any(match in error_msg for match in retryable_errors):
+        await logger.awarning(error_msg)
+        await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
         raise error
+
+    await logger.aexception(error_msg)
+    await logger.adebug("Error encountered during import_data_activity - re-raising")
+    raise error
 
 
 async def _run(

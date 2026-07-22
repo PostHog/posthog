@@ -1613,17 +1613,19 @@ email@example.org,
 
         assert response["results"] == []
 
-    def test_cohort_list_search_orders_exact_before_similar_and_labels_match_type(self):
+    def test_cohort_list_search_hides_similar_when_exact_exists_but_falls_back_when_none(self):
         exact = Cohort.objects.create(team=self.team, name="marketing", created_by=self.user)
         similar = Cohort.objects.create(team=self.team, name="markteing", created_by=self.user)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()
-        results = response["results"]
-        by_id = {c["id"]: c for c in results}
+        with_exact = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()["results"]
+        assert [c["id"] for c in with_exact] == [exact.id], "similar matches must be hidden when exact matches exist"
+        assert with_exact[0]["search_match_type"] == "exact"
 
-        assert [c["id"] for c in results][:2] == [exact.id, similar.id]
-        assert by_id[exact.id]["search_match_type"] == "exact"
-        assert by_id[similar.id]["search_match_type"] == "similar"
+        # Delete the exact match; the fuzzy-only match must now surface as the fallback.
+        exact.delete()
+        without_exact = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()["results"]
+        assert [c["id"] for c in without_exact] == [similar.id]
+        assert without_exact[0]["search_match_type"] == "similar"
 
     def test_cohort_list_omits_search_match_type_when_not_searching(self):
         Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
@@ -5334,6 +5336,7 @@ email@example.org,
                 "source": {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "$pageview",
                             "properties": [{"type": "cohort", "value": cohort_id}],
                         }
@@ -6409,6 +6412,15 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+        # condition_type is auto-computed from the filter shape, independent of realtime eligibility
+        expected_condition_type = {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(cohort.condition_type, expected_condition_type)
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
 
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
@@ -6441,8 +6453,10 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
-        """API responses should include the cohort_type field"""
+        """API responses should include the cohort_type and condition_type fields"""
 
+        # condition_type is intentionally not passed here: it's derived from filters on
+        # save (even for a direct ORM create, not just through the API serializer).
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
@@ -6476,6 +6490,14 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertIn("cohort_type", response.data)
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", response.data)
+        expected_condition_type = {
+            "person_properties": False,
+            "behavioral": True,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
 
         # Test LIST request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
@@ -6485,6 +6507,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
         self.assertIn("cohort_type", cohort_data)
         self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", cohort_data)
+        self.assertEqual(cohort_data["condition_type"], expected_condition_type)
 
     def test_explicit_cohort_type_validation_success(self):
         """Should accept valid explicit cohort types"""

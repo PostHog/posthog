@@ -14,7 +14,6 @@ import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
-    buildBucketKeys,
     buildDailyActivity,
     buildKPIs,
     buildKpiWindow,
@@ -22,7 +21,6 @@ import {
     deltaPct,
     lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
-    normalizeBucket,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
@@ -67,6 +65,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'OpenAI Responses API',
             'OpenAI',
             'OpenAI Codex',
+            'Grok',
             'Cursor',
             'VS Code',
             'Windsurf',
@@ -180,32 +179,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('buildBucketKeys', () => {
-        it('emits one key per day across the resolved window, including empty trailing days', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                expect(buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')).toEqual([
-                    '2026-06-11 00:00:00',
-                    '2026-06-12 00:00:00',
-                    '2026-06-13 00:00:00',
-                    '2026-06-14 00:00:00',
-                    '2026-06-15 00:00:00',
-                    '2026-06-16 00:00:00',
-                    '2026-06-17 00:00:00',
-                    '2026-06-18 00:00:00',
-                ])
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('truncates weekly buckets to ISO Monday starts (matching ClickHouse dateTrunc)', () => {
-            // 2026-06-01 is a Monday; every key should land on a Monday.
-            const keys = buildBucketKeys({ dateFrom: '2026-06-01', dateTo: '2026-06-21' }, 'UTC', 'week')
-            expect(keys).toEqual(['2026-06-01 00:00:00', '2026-06-08 00:00:00', '2026-06-15 00:00:00'])
-        })
-    })
-
     describe('buildDailyActivity', () => {
         it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
             const rows: ActivityRow[] = [
@@ -267,34 +240,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('normalizeBucket', () => {
-        // The query API serializes dateTrunc buckets as ISO datetimes; they must come back in the
-        // same format buildBucketKeys emits, otherwise the zero-fill join misses every bucket.
-        it.each([
-            ['2026-06-19T00:00:00Z', 'UTC', '2026-06-19 00:00:00'],
-            ['2026-06-19T00:00:00+00:00', 'UTC', '2026-06-19 00:00:00'],
-            ['2026-06-19T11:30:00Z', 'UTC', '2026-06-19 11:30:00'],
-        ])('normalizes %s (%s) to %s', (raw, timezone, expected) => {
-            expect(normalizeBucket(raw, timezone)).toBe(expected)
-        })
-
-        it('returns empty string for missing values', () => {
-            expect(normalizeBucket(null, 'UTC')).toBe('')
-            expect(normalizeBucket('', 'UTC')).toBe('')
-        })
-
-        it('produces keys that match buildBucketKeys so the activity join lands', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const bucketKeys = buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
-                const normalized = normalizeBucket('2026-06-18T00:00:00Z', 'UTC')
-                expect(bucketKeys).toContain(normalized)
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-    })
-
     describe('buildKpiWindow', () => {
         it.each([
             ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
@@ -347,6 +292,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 5,
                 deltaPct: 500,
                 sparkline: [10, 20], // current sorted by bucket
+                sparklineLabels: ['2024-01-08', '2024-01-09'],
                 goodDirection: 'up',
             })
             expect(kpis.toolCalls).toMatchObject({
@@ -361,9 +307,12 @@ describe('mcpDashboardOverviewLogic', () => {
                 deltaPct: 100,
                 goodDirection: 'down',
             })
-            expect(kpis.errorRatePct.value).toBeCloseTo(6.667, 2)
-            expect(kpis.errorRatePct.previousValue).toBeCloseTo(10, 5)
-            expect(kpis.errorRatePct.goodDirection).toBe('down')
+            expect(kpis.errorRatePct).toMatchObject({
+                value: 7.5,
+                previousValue: 10,
+                deltaPct: -25,
+                goodDirection: 'down',
+            })
         })
 
         it('returns null deltas when there is no prior-period data', () => {
@@ -469,6 +418,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 30,
                 deltaPct: 40,
                 sparkline: [],
+                sparklineLabels: [],
                 goodDirection: 'up',
             })
         })

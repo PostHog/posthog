@@ -1,1 +1,1 @@
-0025_alter_replayobservation_error_reason
+0052_remap_scanner_models

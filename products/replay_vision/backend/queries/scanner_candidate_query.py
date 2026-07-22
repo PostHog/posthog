@@ -17,6 +17,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.temporal.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
@@ -27,9 +28,6 @@ from products.replay_vision.backend.temporal.constants import (
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# 30-min inactivity timeout + 5-min merge-lag buffer.
-SETTLE_INTERVAL = dt.timedelta(minutes=35)
-
 # Partition prune anchored to the SDK's 24h session_id rotation + 2h headroom for skew and lag.
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
@@ -38,6 +36,35 @@ SAMPLE_RATE_PRECISION = 10_000
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
+
+# Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
+FOCUSED_SURFACING_THRESHOLD = 0.30
+BALANCED_SURFACING_THRESHOLD = 0.10
+# Below balanced so unscored sessions are skipped by both filtered modes.
+NULL_SURFACING_SCORE_FALLBACK = 0.0
+
+_SURFACING_THRESHOLDS = {
+    SamplingMode.FOCUSED: FOCUSED_SURFACING_THRESHOLD,
+    SamplingMode.BALANCED: BALANCED_SURFACING_THRESHOLD,
+}
+
+
+def surfacing_score_predicate(sampling_mode: SamplingMode | str) -> ast.Expr | None:
+    """Quality pre-filter on the per-session surfacing score; None means no filter. Raises on unknown modes."""
+    threshold = _SURFACING_THRESHOLDS.get(SamplingMode(sampling_mode))
+    if threshold is None:
+        return None
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
+                ast.Constant(value=NULL_SURFACING_SCORE_FALLBACK),
+            ],
+        ),
+        right=ast.Constant(value=threshold),
+    )
 
 
 def eligibility_predicates() -> list[ast.Expr]:
@@ -82,6 +109,7 @@ class ScannerCandidateQuery:
         sampling_rate: float,
         # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
+        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
@@ -116,6 +144,8 @@ class ScannerCandidateQuery:
         extra_having: list[ast.Expr] = eligibility_predicates()
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
+        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+            extra_having.append(surfacing)
 
         self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
 

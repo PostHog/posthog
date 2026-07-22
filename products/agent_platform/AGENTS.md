@@ -83,6 +83,7 @@ Each line is a pino JSON record (`name` = subsystem, plus any bindings like
 
 - **Local dev + MCP local + e2e overview** —
   [docs/local-dev.md](docs/local-dev.md).
+- **Custom-tool authoring contract** — [docs/custom-tools.md](docs/custom-tools.md).
 - **Janitor HTTP surface** —
   [products/agent_platform/services/agent-janitor/src/server.ts](../../products/agent_platform/services/agent-janitor/src/server.ts).
 - **Spec shape (source of truth)** —

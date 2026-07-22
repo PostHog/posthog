@@ -1,8 +1,10 @@
-// Anchored page sections with a compact title row, plus a sticky jumper that scrolls between them.
+// Anchored page sections with a compact title row.
 
 import { ReactNode } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
 
 function sectionDomId(id: string): string {
     return `ea-section-${id}`
@@ -17,6 +19,7 @@ export function Section({
     title,
     note,
     right,
+    busy = false,
     children,
 }: {
     id: string
@@ -25,29 +28,20 @@ export function Section({
      *  criteria, a legend) — never a restatement of the title or an interaction hint. */
     note?: ReactNode
     right?: ReactNode
+    /** Reloading with data already on screen (e.g. the window changed): a spinner by the title and dimmed
+     *  content, so the stale data reads as "updating" instead of silently swapping. */
+    busy?: boolean
     children: ReactNode
 }): JSX.Element {
     return (
-        <section id={sectionDomId(id)} className="scroll-mt-14">
+        <section id={sectionDomId(id)} className="scroll-mt-14" aria-busy={busy}>
             <div className="mb-2 flex items-baseline gap-2.5">
                 <h2 className="m-0 text-base font-semibold">{title}</h2>
                 {note && <span className="text-xs text-tertiary">{note}</span>}
+                {busy && <Spinner className="text-sm text-secondary" />}
                 {right && <span className="ml-auto text-xs">{right}</span>}
             </div>
-            {children}
+            <div className={cn('transition-opacity', busy && 'pointer-events-none opacity-60')}>{children}</div>
         </section>
-    )
-}
-
-export function SectionNav({ items }: { items: { id: string; label: string }[] }): JSX.Element {
-    return (
-        <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-0.5 bg-primary px-1 py-1.5">
-            <span className="mr-1.5 text-xs text-tertiary">Jump to</span>
-            {items.map((item) => (
-                <LemonButton key={item.id} size="xsmall" onClick={() => scrollToSection(item.id)}>
-                    {item.label}
-                </LemonButton>
-            ))}
-        </div>
     )
 }

@@ -17,9 +17,16 @@ import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
+import {
+    insertHogFunction as _insertHogFunction,
+    createHogExecutionGlobals,
+    insertHogFunctionTemplate,
+} from '../_tests/fixtures'
+import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
+import { CdpCyclotronWorkerHogFlow } from '../consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
@@ -126,6 +133,7 @@ describe('CDP hog invocation rerun e2e', () => {
     let mockProducerObserver: KafkaProducerObserver
     let eventsConsumer: CdpEventsConsumer
     let cyclotronWorker: CdpCyclotronWorker
+    let hogflowWorker: CdpCyclotronWorkerHogFlow
     let rerunManager: RerunJobManager
     let rerunWorker: CdpRerunWorkerConsumer
     let kafkaQueue: CyclotronJobQueueKafka
@@ -259,6 +267,7 @@ describe('CDP hog invocation rerun e2e', () => {
         await Promise.all([
             eventsConsumer?.stop().catch(() => undefined),
             cyclotronWorker?.stop().catch(() => undefined),
+            hogflowWorker?.stop().catch(() => undefined),
             rerunWorker?.stop().catch(() => undefined),
             rerunManager?.disconnect().catch(() => undefined),
         ])
@@ -375,7 +384,10 @@ describe('CDP hog invocation rerun e2e', () => {
         }, 30_000)
 
         // ── 6. The hog function's fetch was called twice — once original, once rerun ─
-        expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+        // The wait above can pass on the paginator's running row, before the worker executes; poll for the fetch.
+        await waitForExpect(() => {
+            expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+        }, 30_000)
     })
 
     it('reruns successfully when person rehydration misses and the input reads person.properties', async () => {
@@ -508,9 +520,153 @@ describe('CDP hog invocation rerun e2e', () => {
         // Pre-fix, the input eval crashed on `undefined.properties` and this
         // count stayed at 1 (just the original). Post-fix, it's 2 (original +
         // rerun), and the rerun's body carries `foo=from-event`.
+        // Job 'completed' only means the paginator finished re-enqueueing; the worker executes asynchronously, so poll.
+        await waitForExpect(() => {
+            expect(
+                mockFetch.mock.calls.filter(([url]) => String(url).startsWith(FALLBACK_WEBHOOK_URL)).length
+            ).toBeGreaterThanOrEqual(2)
+        }, 30_000)
         const ourCalls = mockFetch.mock.calls.filter(([url]) => String(url).startsWith(FALLBACK_WEBHOOK_URL))
-        expect(ourCalls.length).toBeGreaterThanOrEqual(2)
         const rerunBody = String((ourCalls[ourCalls.length - 1] as any)[1]?.body ?? '')
         expect(rerunBody).toContain('foo=from-event')
+    })
+
+    it('reruns a multi-action hog flow by resuming, not restarting, so completed actions do not re-fire', async () => {
+        // The hog-flow counterpart to the hog_function reruns above, and the core
+        // guard for #70792: a hog_function rerun re-executes the whole function
+        // (fetch fires again, by design), but a hog FLOW rerun must RESUME from
+        // where the recorded run left off — never restart from the trigger and
+        // re-run already-completed actions. A completed flow's recorded state
+        // sits at `exit`, so its rerun resumes there and the fetch action never
+        // fires a second time. Pre-#70792 the rehydration dropped `currentAction`,
+        // the flow restarted from the trigger, and the fetch re-fired — the
+        // double-send this proves is gone. Distinct URL isolates the flow's fetch
+        // from the beforeEach hog_function that also matches this event.
+        const FLOW_WEBHOOK_URL = 'https://example.com/flow-resume-webhook'
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({ ok: true }),
+            text: () => Promise.resolve('{"ok":true}'),
+            headers: { 'Content-Type': 'application/json' },
+            dump: () => Promise.resolve(),
+        })
+
+        // The flow's function action runs a template, not inline hog — insert the same
+        // fetch template the workflows-e2e suite uses.
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-rerun-e2e-fetch',
+            name: 'Rerun E2E Fetch',
+            code: `
+            let res := fetch(inputs.url, {'method': inputs.method});
+            print('Fetch result:', res.status);
+            `,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'method', type: 'string', required: false },
+            ],
+        })
+
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-rerun-e2e-fetch',
+                            inputs: { url: { value: FLOW_WEBHOOK_URL }, method: { value: 'POST' } },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, flow)
+
+        // The hog-flow worker polls the same postgres-v2 backend the events consumer
+        // routes flows to (hogflowQueue in beforeEach).
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, cdpDeps, postgresV2Queue)
+        await hogflowWorker.start()
+
+        // ── 1. Original flow runs to completion — fetch fires exactly once ──────────
+        const { backgroundTask } = await eventsConsumer.processBatch([globals])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            expect(mockFetch.mock.calls.filter(([url]) => String(url) === FLOW_WEBHOOK_URL).length).toBe(1)
+        }, 15_000)
+
+        // Terminal 'succeeded' hog_flow row lands in ClickHouse via Kafka -> MV.
+        await waitForExpect(async () => {
+            const rows = await clickhouse.query<PersistedRow>(
+                `SELECT invocation_id, status, is_retry, function_kind
+                 FROM hog_invocation_results
+                 WHERE team_id = ${team.id} AND function_id = '${flow.id}' AND status = 'succeeded'`
+            )
+            expect(rows.length).toBeGreaterThanOrEqual(1)
+        }, 30_000)
+
+        const originalRows = await clickhouse.query<PersistedRow>(
+            `SELECT invocation_id, status, is_retry, function_kind
+             FROM hog_invocation_results
+             WHERE team_id = ${team.id} AND function_id = '${flow.id}' AND status = 'succeeded'`
+        )
+        expect(originalRows[0].function_kind).toBe('hog_flow')
+        expect(originalRows[0].is_retry).toBe(0)
+        const originalInvocationId = originalRows[0].invocation_id
+
+        // ── 2. Mimic Django POST /rerun for the flow, scoped to this invocation ─────
+        const windowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        const windowEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        const rerunJobId = await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
+            filter: {
+                window_start: windowStart,
+                window_end: windowEnd,
+                status: ['succeeded'],
+                invocation_ids: [originalInvocationId],
+            },
+        })
+
+        // ── 3. Rerun worker drains the wrapper job (hog_flow -> postgres-v2) ────────
+        rerunWorker = new CdpRerunWorkerConsumer(
+            { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
+            cdpDeps,
+            { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
+        )
+        await rerunWorker.start()
+
+        await waitForExpect(async () => {
+            const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [rerunJobId])
+            expect(res.rows[0]?.status).toBe('completed')
+        }, 30_000)
+
+        // ── 4. Rerun invocation flows back through the real hog-flow worker ─────────
+        // Wait for the rerun's terminal row (is_retry=1) so we know it fully executed
+        // — by this point it would have re-fired the fetch if it were restarting.
+        await waitForExpect(async () => {
+            const rows = await clickhouse.query<PersistedRow>(
+                `SELECT invocation_id, status, is_retry, function_kind
+                 FROM hog_invocation_results
+                 WHERE team_id = ${team.id}
+                   AND function_id = '${flow.id}'
+                   AND invocation_id = '${originalInvocationId}'
+                   AND is_retry = 1`
+            )
+            expect(rows.length).toBeGreaterThanOrEqual(1)
+        }, 30_000)
+
+        // ── 5. The resume ran nothing already done: the fetch is still at ONE call ──
+        // Restart-from-trigger (the pre-#70792 bug) would make this 2.
+        expect(mockFetch.mock.calls.filter(([url]) => String(url) === FLOW_WEBHOOK_URL).length).toBe(1)
     })
 })

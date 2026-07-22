@@ -11,8 +11,11 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.cdp.validation import compile_hog
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
 from .run_trace_evaluation import (
@@ -70,6 +73,20 @@ def setup_data():
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
+
+
+@pytest.fixture
+def active_key_config(setup_data):
+    """Give the team a healthy active provider key so a null-config judge resolves via DefaultModelSpec."""
+    team = setup_data["team"]
+    key = LLMProviderKey.objects.create(
+        team=team,
+        provider="openai",
+        name="openai key",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "sk-test"},
+    )
+    EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
 
 def evaluation_dict(setup_data: dict, **overrides: Any) -> dict[str, Any]:
@@ -164,17 +181,40 @@ class TestBuildTraceHogGlobals:
             create_trace_event("$ai_generation", **{"$ai_input": "first question", "$ai_output": "first answer"}),
             create_trace_event("$ai_generation", **{"$ai_input": "second question", "$ai_output": "final answer"}),
         ]
-        trace = create_trace(events)
+        trace = create_trace(events, totalCost=0.03, totalLatency=2.5)
 
         globals_dict = build_trace_hog_globals(trace, "trace-123")
 
         assert "input" not in globals_dict
         assert "output" not in globals_dict
         assert globals_dict["trace"] == {"id": "trace-123", "event_count": 3}
+        assert globals_dict["target"] == {
+            "type": "trace",
+            "id": "trace-123",
+            "total_cost_usd": 0.03,
+            "total_latency_seconds": 2.5,
+        }
         assert len(globals_dict["events"]) == 3
         assert globals_dict["events"][1]["event"] == "$ai_generation"
         assert globals_dict["events"][1]["input"] == "first question"
         assert globals_dict["events"][2]["output"] == "final answer"
+        assert "input_text" not in globals_dict["events"][1]
+        assert "output_text" not in globals_dict["events"][2]
+        assert globals_dict["evaluation_events"][1]["input_text"] == "first question"
+        assert globals_dict["evaluation_events"][2]["output_text"] == "final answer"
+
+    def test_saved_events_source_only_builds_compatibility_events(self):
+        bytecode = compile_hog("return length(events) == 1 and events.1.output == 'answer'", "destination")
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{"$ai_input": "question", "$ai_output": "answer"})]
+        )
+
+        globals_dict = build_trace_hog_globals(trace, "trace-123", bytecode=bytecode)
+        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=False)
+
+        assert set(globals_dict) == {"events", "trace"}
+        assert set(globals_dict["events"][0]) == {"uuid", "event", "timestamp", "input", "output", "properties"}
+        assert result == {"verdict": True, "reasoning": "", "error": None}
 
     def test_strips_heavy_keys_from_event_properties(self):
         events = [
@@ -250,7 +290,7 @@ class TestFetchTraceForEvaluation:
 
 class TestExecuteTraceLLMJudgeActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_judges_full_trace_transcript(self, setup_data):
+    def test_judges_full_trace_transcript(self, setup_data, active_key_config):
         trace = create_trace(
             [
                 create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),

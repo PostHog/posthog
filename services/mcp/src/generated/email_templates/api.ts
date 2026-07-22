@@ -288,7 +288,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
                 index: zod
                     .number()
                     .optional()
-                    .describe('add_*/move_content only. 0-based insert position; omit to append to the end.'),
+                    .describe('add_*\/move_content only. 0-based insert position; omit to append to the end.'),
             })
         )
         .optional()

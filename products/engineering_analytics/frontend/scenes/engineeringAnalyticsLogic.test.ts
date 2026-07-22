@@ -5,6 +5,7 @@ import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -147,6 +148,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         pending: 0,
         failingWorkflows: [],
         pushes: 0,
+        pushHistory: [],
         rerunCycles: 0,
         estimatedCostUsd: null,
         billableMinutes: null,
@@ -168,6 +170,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         open_to_merge_seconds: null,
         labels: [],
         pushes: 0,
+        push_history: [],
         rerun_cycles: 0,
         estimated_cost_usd: null,
         ...overrides,
@@ -223,8 +226,8 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
 }
 
 const SOURCES: GitHubSourceApi[] = [
-    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older' },
-    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website' },
+    { id: 'src-older', repo: 'posthog/posthog', prefix: 'older', synced: true },
+    { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website', synced: true },
 ]
 
 describe('engineeringAnalyticsLogic', () => {
@@ -250,6 +253,7 @@ describe('engineeringAnalyticsLogic', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it.each([
@@ -427,10 +431,33 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
 
         expect(logic.values.hasMultipleSources).toBe(true)
+        // The option value encodes (source, repo) so a multi-repo source's repos stay distinct.
         expect(logic.values.sourceOptions).toEqual([
-            { value: 'src-older', label: 'posthog/posthog' },
-            { value: 'src-newer', label: 'posthog/posthog.com' },
+            { value: 'src-older::posthog/posthog', label: 'posthog/posthog' },
+            { value: 'src-newer::posthog/posthog.com', label: 'posthog/posthog.com' },
         ])
+    })
+
+    it('lists one option per configured repo of a multi-repo source and scopes to the picked repo', async () => {
+        // One source syncing two repos → two distinct picker entries; picking one scopes source_id + repo.
+        mockSources.mockResolvedValue([
+            { id: 'src-multi', repo: 'posthog/posthog', prefix: 'multi', synced: true },
+            { id: 'src-multi', repo: 'posthog/posthog.com', prefix: 'multi', synced: true },
+        ])
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
+
+        expect(logic.values.hasMultipleSources).toBe(true)
+        expect(logic.values.sourceOptions).toEqual([
+            { value: 'src-multi::posthog/posthog', label: 'posthog/posthog' },
+            { value: 'src-multi::posthog/posthog.com', label: 'posthog/posthog.com' },
+        ])
+
+        logic.actions.setScope('src-multi', 'posthog/posthog.com')
+        await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
+        expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-multi', repo: 'posthog/posthog.com' })
     })
 
     it('hides the picker when the team has a single source', async () => {
@@ -450,8 +477,8 @@ describe('engineeringAnalyticsLogic', () => {
             'loadPullRequestsSuccess',
             'loadWorkflowHealthSuccess',
         ])
-        // No source picked → omit source_id so the backend resolves its default.
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined })
+        // No source picked → omit source_id/repo so the backend resolves its default.
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: undefined })
 
         logic.actions.setSourceId('src-newer')
         await expectLogic(logic).toDispatchActions([
@@ -463,9 +490,13 @@ describe('engineeringAnalyticsLogic', () => {
         ])
 
         expect(logic.values.sourceId).toBe('src-newer')
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
-        expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', source_id: 'src-newer' })
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer', repo: undefined })
+        expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer', repo: undefined })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', {
+            date_from: '-7d',
+            source_id: 'src-newer',
+            repo: undefined,
+        })
     })
 
     it.each([
@@ -515,13 +546,14 @@ describe('engineeringAnalyticsLogic', () => {
     it.each([
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
         ['test health', () => urls.engineeringAnalyticsTestHealth()],
-    ])('the %s route applies ?source like the other tabs', async (_label, url) => {
+    ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
 
-        router.actions.push(url(), { source: 'src-newer' })
-        await expectLogic(logic).toDispatchActions(['setSourceId'])
+        router.actions.push(url(), { source: 'src-newer', repo: 'posthog/posthog.com' })
+        await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
+        expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
@@ -683,6 +715,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(
             new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
         )
@@ -696,6 +729,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
         // could miss the connect prompt.
         mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
@@ -708,6 +742,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -719,6 +754,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -829,6 +865,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
+        silenceKeaLoadersErrors() // the loader failure is the scenario under test
         mockQuarantine.mockRejectedValue(
             new Error('Connect a GitHub data warehouse source to use engineering analytics.')
         )
@@ -914,6 +951,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a failed submit keeps the modal open so the user can retry', async () => {
+        silenceKeaLoadersErrors() // the submit failure is the scenario under test
         mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })
         logic = engineeringAnalyticsLogic()
         logic.mount()

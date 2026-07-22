@@ -15,6 +15,7 @@ interface SharePasswordsTableProps {
     insightId?: number
     recordingId?: string
     notebookShortId?: string
+    disabledReason?: string | null
 }
 
 // Export a hook to get password count for the parent component
@@ -29,6 +30,7 @@ export function SharePasswordsTable({
     insightId,
     recordingId,
     notebookShortId,
+    disabledReason,
 }: SharePasswordsTableProps): JSX.Element {
     const logicProps = { dashboardId, insightId, recordingId, notebookShortId }
     const logic = sharePasswordsLogic(logicProps)
@@ -78,6 +80,7 @@ export function SharePasswordsTable({
                                 size="xsmall"
                                 icon={<IconPlus />}
                                 onClick={() => setNewPasswordModalOpen(true)}
+                                disabledReason={disabledReason}
                             >
                                 Add
                             </LemonButton>
@@ -125,8 +128,9 @@ export function SharePasswordsTable({
                                                         },
                                                     })
                                                 }}
-                                                tooltip="Remove password"
+                                                tooltip={disabledReason ? undefined : 'Remove password'}
                                                 tooltipPlacement="left"
+                                                disabledReason={disabledReason}
                                             />
                                         </div>
                                     </div>

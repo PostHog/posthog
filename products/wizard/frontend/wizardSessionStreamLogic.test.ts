@@ -69,10 +69,14 @@ describe('wizardSessionStreamLogic polling mode', () => {
             .toDispatchActions(['connectionOpened', 'sessionUpdated'])
             .toMatchValues({ latestSession: session, connectionStatus: 'open' })
 
-        expect(mockLatestRetrieve).toHaveBeenCalledWith(expect.any(String), {
-            workflow_id: 'posthog-integration',
-            skill_id: undefined,
-        })
+        expect(mockLatestRetrieve).toHaveBeenCalledWith(
+            expect.any(String),
+            {
+                workflow_id: 'posthog-integration',
+                skill_id: undefined,
+            },
+            { headers: { 'X-Wizard-Poll-Source': 'transport' } }
+        )
     })
 
     it('keeps polling through a 204 (no session yet) without clobbering latestSession', async () => {

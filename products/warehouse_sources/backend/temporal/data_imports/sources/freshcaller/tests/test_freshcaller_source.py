@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshcallerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
+    FreshcallerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source.validate_freshcaller_credentials"
@@ -52,8 +54,6 @@ class TestFreshcallerSource:
         assert config.name.value == "Freshcaller"
         assert config.label == "Freshcaller"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # First cut ships hidden until validated end-to-end against a live account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/freshcaller"
 
         fields = config.fields

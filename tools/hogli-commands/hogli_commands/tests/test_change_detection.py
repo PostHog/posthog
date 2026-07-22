@@ -58,6 +58,14 @@ class TestChangedFiles:
             changed_files("orgin/master")
 
     @patch("hogli_commands.change_detection.subprocess.run")
+    def test_exclude_worktree_returns_committed_diff_only(self, mock_run: MagicMock) -> None:
+        # Pre-push scope: only the committed branch diff is pushed, so untracked/uncommitted
+        # work must not leak in. git status is never consulted (a single subprocess call).
+        mock_run.side_effect = [_completed(stdout="file_branch.py\0")]
+        assert changed_files(include_worktree=False) == ["file_branch.py"]
+        assert mock_run.call_count == 1
+
+    @patch("hogli_commands.change_detection.subprocess.run")
     def test_status_failure_raises_instead_of_dropping_uncommitted_work(self, mock_run: MagicMock) -> None:
         mock_run.side_effect = [
             _completed(stdout="file_branch.py\0"),

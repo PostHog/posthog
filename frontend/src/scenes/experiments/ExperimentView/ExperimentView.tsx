@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
@@ -25,12 +27,14 @@ import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
+import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { EditConclusionModal } from './ExperimentModals'
+import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
@@ -71,8 +75,12 @@ const AiAnalysisTab = (): JSX.Element => {
 }
 
 const MetricsTab = (): JSX.Element => {
-    const { orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
+    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
         useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
+    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
 
     return (
         <>
@@ -83,8 +91,10 @@ const MetricsTab = (): JSX.Element => {
                 <MultiVariantBiasWarning />
             </div>
 
+            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
+
             {/* Modern metrics view */}
-            {orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
+            {!hasMetrics ? (
                 <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
             ) : (
                 <>
@@ -120,8 +130,17 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        isExperimentDraft,
+        isExperimentLaunched,
+        orderedPrimaryMetricsWithResults,
+        exposureCriteria,
+        showDebugPanel,
+    } = useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -142,6 +161,71 @@ export function ExperimentView(): JSX.Element {
     if (!experimentLoading && isLegacyExperiment(experiment)) {
         return <LegacyExperimentView />
     }
+
+    const tabs: LemonTab<string>[] = [
+        {
+            key: 'settings',
+            label: 'Settings',
+            content: <SettingsTab />,
+        },
+        {
+            key: 'metrics',
+            label: 'Metrics',
+            content: <MetricsTab />,
+        },
+        // Both AI analysis actions require a launched experiment with primary metrics
+        ...(isExperimentLaunched && orderedPrimaryMetricsWithResults.length > 0
+            ? [
+                  {
+                      key: 'ai_analysis',
+                      label: (
+                          <div className="flex items-center gap-1">
+                              <IconSparkles />
+                              <span>AI analysis</span>
+                          </div>
+                      ),
+                      content: <AiAnalysisTab />,
+                  },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.EXPERIMENT_RECORDINGS_TAB]
+            ? [
+                  {
+                      key: 'recordings',
+                      label: 'Recordings',
+                      content: <ExperimentReplayTab experiment={experiment} />,
+                  },
+              ]
+            : []),
+        ...(!isExperimentDraft
+            ? [
+                  {
+                      key: 'code',
+                      label: 'Code',
+                      content: <CodeTab />,
+                  },
+              ]
+            : []),
+        {
+            key: 'variants',
+            label: 'Variants',
+            content: <VariantsTab />,
+        },
+        {
+            key: 'history',
+            label: 'History',
+            content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+        },
+        ...(experiment.feature_flag
+            ? [
+                  {
+                      key: 'feedback',
+                      label: 'User feedback',
+                      content: <ExperimentFeedbackTab experiment={experiment} />,
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <SceneContent>
@@ -168,59 +252,11 @@ export function ExperimentView(): JSX.Element {
                     <Info />
                     <ExperimentHeader />
                     <LemonTabs
-                        activeKey={activeTabKey}
+                        // Fall back to the default tab if the active one is conditionally hidden
+                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : 'metrics'}
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
-                        tabs={[
-                            {
-                                key: 'settings',
-                                label: 'Settings',
-                                content: <SettingsTab />,
-                            },
-                            {
-                                key: 'metrics',
-                                label: 'Metrics',
-                                content: <MetricsTab />,
-                            },
-                            {
-                                key: 'ai_analysis',
-                                label: (
-                                    <div className="flex items-center gap-1">
-                                        <IconSparkles />
-                                        <span>AI analysis</span>
-                                    </div>
-                                ),
-                                content: <AiAnalysisTab />,
-                            },
-                            ...(!isExperimentDraft
-                                ? [
-                                      {
-                                          key: 'code',
-                                          label: 'Code',
-                                          content: <CodeTab />,
-                                      },
-                                  ]
-                                : []),
-                            {
-                                key: 'variants',
-                                label: 'Variants',
-                                content: <VariantsTab />,
-                            },
-                            {
-                                key: 'history',
-                                label: 'History',
-                                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-                            },
-                            ...(experiment.feature_flag
-                                ? [
-                                      {
-                                          key: 'feedback',
-                                          label: 'User feedback',
-                                          content: <ExperimentFeedbackTab experiment={experiment} />,
-                                      },
-                                  ]
-                                : []),
-                        ]}
+                        tabs={tabs}
                     />
 
                     {/* Modern experiment modals */}

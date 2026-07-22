@@ -17,6 +17,11 @@ class DisplayType(StrEnum):
     SELECT = "select"
 
 
+class TargetType(StrEnum):
+    ACCOUNT = "account"
+    PERSON = "person"
+
+
 class DataType(StrEnum):
     STRING = "string"
     NUMERIC = "numeric"
@@ -43,6 +48,12 @@ NUMERIC_DISPLAY_TYPES = [
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
+    target_type = models.CharField(
+        choices=[(t.value, t.value) for t in TargetType],
+        default=TargetType.ACCOUNT,
+        max_length=20,
+        help_text="What entity this property is attached to: an account (default) or a person.",
+    )
     name = models.CharField(max_length=400)
     description = models.TextField(null=True)
     display_type = models.CharField(

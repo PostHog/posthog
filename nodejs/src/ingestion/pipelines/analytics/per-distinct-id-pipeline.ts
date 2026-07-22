@@ -66,31 +66,29 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
     const { options, outputs, aiSubpipelineFactory, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
-    return builder.retry(
-        (e) =>
-            e.branching(classifyEvent, (branches) =>
-                branches
-                    .branch('ai', (b) =>
-                        aiSubpipelineFactory(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            hogTransformer,
-                            topHog,
-                        })
-                    )
-                    .branch('event', (b) =>
-                        createEventSubpipeline(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            hogTransformer,
-                            topHog,
-                        })
-                    )
-            ),
-        { tries: 5, sleepMs: 100, name: 'per_distinct_id' }
+    // Retry is applied per step inside each branch's subpipeline (on the I/O
+    // steps that can throw transient errors), rather than around the whole chain.
+    return builder.branching(classifyEvent, (branches) =>
+        branches
+            .branch('ai', (b) =>
+                aiSubpipelineFactory(b, {
+                    options,
+                    outputs,
+                    teamManager,
+                    groupTypeManager,
+                    hogTransformer,
+                    topHog,
+                })
+            )
+            .branch('event', (b) =>
+                createEventSubpipeline(b, {
+                    options,
+                    outputs,
+                    teamManager,
+                    groupTypeManager,
+                    hogTransformer,
+                    topHog,
+                })
+            )
     )
 }

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -15,6 +15,50 @@ export const ListQueryParams = /* @__PURE__ */ zod.object({
 
 export const RetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
+export const PartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
+export const partialUpdateBodyNameMax = 64
+
+export const PartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    logo_media_id: zod.string().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    default_experiment_stats_method: zod
+        .union([
+            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+        ),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
 export const MembersListParams = /* @__PURE__ */ zod.object({
@@ -33,7 +77,7 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
+            "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
         ),
 })
 
@@ -80,185 +124,6 @@ export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
 export const RolesRoleMembershipsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const ActivityLogListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const activityLogListQueryPageSizeDefault = 100
-export const activityLogListQueryPageSizeMax = 1000
-
-export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
-    item_id: zod.string().min(1).optional().describe('Filter by the ID of the affected resource.'),
-    page: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Page number for pagination. When provided, uses page-based pagination ordered by most recent first.'
-        ),
-    page_size: zod
-        .number()
-        .min(1)
-        .max(activityLogListQueryPageSizeMax)
-        .default(activityLogListQueryPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
-    scope: zod
-        .enum([
-            'Cohort',
-            'FeatureFlag',
-            'Person',
-            'Group',
-            'Insight',
-            'Plugin',
-            'PluginConfig',
-            'HogFunction',
-            'HogFlow',
-            'DataManagement',
-            'EventDefinition',
-            'PropertyDefinition',
-            'Notebook',
-            'Endpoint',
-            'EndpointVersion',
-            'Dashboard',
-            'Replay',
-            'Experiment',
-            'ExperimentHoldout',
-            'ExperimentSavedMetric',
-            'Survey',
-            'EarlyAccessFeature',
-            'SessionRecordingPlaylist',
-            'Comment',
-            'Team',
-            'Project',
-            'ErrorTrackingIssue',
-            'DataWarehouseSavedQuery',
-            'LegalDocument',
-            'Organization',
-            'OrganizationDomain',
-            'OrganizationMembership',
-            'Role',
-            'UserGroup',
-            'BatchExport',
-            'BatchImport',
-            'ExportedAsset',
-            'Integration',
-            'Annotation',
-            'Tag',
-            'TaggedItem',
-            'Subscription',
-            'PersonalAPIKey',
-            'ProjectSecretAPIKey',
-            'OAuthApplication',
-            'User',
-            'Action',
-            'AlertConfiguration',
-            'Threshold',
-            'AlertSubscription',
-            'ExternalDataSource',
-            'ExternalDataSchema',
-            'Evaluation',
-            'LLMTrace',
-            'WebAnalyticsFilterPreset',
-            'CustomerProfileConfig',
-            'Log',
-            'LogsAlertConfiguration',
-            'LogsExclusionRule',
-            'DashboardWidget',
-            'ProductTour',
-            'Ticket',
-            'InstanceSetting',
-            'SignalReport',
-            'SignalScoutConfig',
-        ])
-        .optional()
-        .describe(
-            'Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".\n\n* `Cohort` - Cohort\n* `FeatureFlag` - FeatureFlag\n* `Person` - Person\n* `Group` - Group\n* `Insight` - Insight\n* `Plugin` - Plugin\n* `PluginConfig` - PluginConfig\n* `HogFunction` - HogFunction\n* `HogFlow` - HogFlow\n* `DataManagement` - DataManagement\n* `EventDefinition` - EventDefinition\n* `PropertyDefinition` - PropertyDefinition\n* `Notebook` - Notebook\n* `Endpoint` - Endpoint\n* `EndpointVersion` - EndpointVersion\n* `Dashboard` - Dashboard\n* `Replay` - Replay\n* `Experiment` - Experiment\n* `ExperimentHoldout` - ExperimentHoldout\n* `ExperimentSavedMetric` - ExperimentSavedMetric\n* `Survey` - Survey\n* `EarlyAccessFeature` - EarlyAccessFeature\n* `SessionRecordingPlaylist` - SessionRecordingPlaylist\n* `Comment` - Comment\n* `Team` - Team\n* `Project` - Project\n* `ErrorTrackingIssue` - ErrorTrackingIssue\n* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery\n* `LegalDocument` - LegalDocument\n* `Organization` - Organization\n* `OrganizationDomain` - OrganizationDomain\n* `OrganizationMembership` - OrganizationMembership\n* `Role` - Role\n* `UserGroup` - UserGroup\n* `BatchExport` - BatchExport\n* `BatchImport` - BatchImport\n* `ExportedAsset` - ExportedAsset\n* `Integration` - Integration\n* `Annotation` - Annotation\n* `Tag` - Tag\n* `TaggedItem` - TaggedItem\n* `Subscription` - Subscription\n* `PersonalAPIKey` - PersonalAPIKey\n* `ProjectSecretAPIKey` - ProjectSecretAPIKey\n* `OAuthApplication` - OAuthApplication\n* `User` - User\n* `Action` - Action\n* `AlertConfiguration` - AlertConfiguration\n* `Threshold` - Threshold\n* `AlertSubscription` - AlertSubscription\n* `ExternalDataSource` - ExternalDataSource\n* `ExternalDataSchema` - ExternalDataSchema\n* `Evaluation` - Evaluation\n* `LLMTrace` - LLMTrace\n* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset\n* `CustomerProfileConfig` - CustomerProfileConfig\n* `Log` - Log\n* `LogsAlertConfiguration` - LogsAlertConfiguration\n* `LogsExclusionRule` - LogsExclusionRule\n* `DashboardWidget` - DashboardWidget\n* `ProductTour` - ProductTour\n* `Ticket` - Ticket\n* `InstanceSetting` - InstanceSetting\n* `SignalReport` - SignalReport\n* `SignalScoutConfig` - SignalScoutConfig'
-        ),
-    scopes: zod
-        .array(
-            zod
-                .enum([
-                    'Cohort',
-                    'FeatureFlag',
-                    'Person',
-                    'Group',
-                    'Insight',
-                    'Plugin',
-                    'PluginConfig',
-                    'HogFunction',
-                    'HogFlow',
-                    'DataManagement',
-                    'EventDefinition',
-                    'PropertyDefinition',
-                    'Notebook',
-                    'Endpoint',
-                    'EndpointVersion',
-                    'Dashboard',
-                    'Replay',
-                    'Experiment',
-                    'ExperimentHoldout',
-                    'ExperimentSavedMetric',
-                    'Survey',
-                    'EarlyAccessFeature',
-                    'SessionRecordingPlaylist',
-                    'Comment',
-                    'Team',
-                    'Project',
-                    'ErrorTrackingIssue',
-                    'DataWarehouseSavedQuery',
-                    'LegalDocument',
-                    'Organization',
-                    'OrganizationDomain',
-                    'OrganizationMembership',
-                    'Role',
-                    'UserGroup',
-                    'BatchExport',
-                    'BatchImport',
-                    'ExportedAsset',
-                    'Integration',
-                    'Annotation',
-                    'Tag',
-                    'TaggedItem',
-                    'Subscription',
-                    'PersonalAPIKey',
-                    'ProjectSecretAPIKey',
-                    'OAuthApplication',
-                    'User',
-                    'Action',
-                    'AlertConfiguration',
-                    'Threshold',
-                    'AlertSubscription',
-                    'ExternalDataSource',
-                    'ExternalDataSchema',
-                    'Evaluation',
-                    'LLMTrace',
-                    'WebAnalyticsFilterPreset',
-                    'CustomerProfileConfig',
-                    'Log',
-                    'LogsAlertConfiguration',
-                    'LogsExclusionRule',
-                    'DashboardWidget',
-                    'ProductTour',
-                    'Ticket',
-                    'InstanceSetting',
-                    'SignalReport',
-                    'SignalScoutConfig',
-                ])
-                .describe(
-                    '* `Cohort` - Cohort\n* `FeatureFlag` - FeatureFlag\n* `Person` - Person\n* `Group` - Group\n* `Insight` - Insight\n* `Plugin` - Plugin\n* `PluginConfig` - PluginConfig\n* `HogFunction` - HogFunction\n* `HogFlow` - HogFlow\n* `DataManagement` - DataManagement\n* `EventDefinition` - EventDefinition\n* `PropertyDefinition` - PropertyDefinition\n* `Notebook` - Notebook\n* `Endpoint` - Endpoint\n* `EndpointVersion` - EndpointVersion\n* `Dashboard` - Dashboard\n* `Replay` - Replay\n* `Experiment` - Experiment\n* `ExperimentHoldout` - ExperimentHoldout\n* `ExperimentSavedMetric` - ExperimentSavedMetric\n* `Survey` - Survey\n* `EarlyAccessFeature` - EarlyAccessFeature\n* `SessionRecordingPlaylist` - SessionRecordingPlaylist\n* `Comment` - Comment\n* `Team` - Team\n* `Project` - Project\n* `ErrorTrackingIssue` - ErrorTrackingIssue\n* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery\n* `LegalDocument` - LegalDocument\n* `Organization` - Organization\n* `OrganizationDomain` - OrganizationDomain\n* `OrganizationMembership` - OrganizationMembership\n* `Role` - Role\n* `UserGroup` - UserGroup\n* `BatchExport` - BatchExport\n* `BatchImport` - BatchImport\n* `ExportedAsset` - ExportedAsset\n* `Integration` - Integration\n* `Annotation` - Annotation\n* `Tag` - Tag\n* `TaggedItem` - TaggedItem\n* `Subscription` - Subscription\n* `PersonalAPIKey` - PersonalAPIKey\n* `ProjectSecretAPIKey` - ProjectSecretAPIKey\n* `OAuthApplication` - OAuthApplication\n* `User` - User\n* `Action` - Action\n* `AlertConfiguration` - AlertConfiguration\n* `Threshold` - Threshold\n* `AlertSubscription` - AlertSubscription\n* `ExternalDataSource` - ExternalDataSource\n* `ExternalDataSchema` - ExternalDataSchema\n* `Evaluation` - Evaluation\n* `LLMTrace` - LLMTrace\n* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset\n* `CustomerProfileConfig` - CustomerProfileConfig\n* `Log` - Log\n* `LogsAlertConfiguration` - LogsAlertConfiguration\n* `LogsExclusionRule` - LogsExclusionRule\n* `DashboardWidget` - DashboardWidget\n* `ProductTour` - ProductTour\n* `Ticket` - Ticket\n* `InstanceSetting` - InstanceSetting\n* `SignalReport` - SignalReport\n* `SignalScoutConfig` - SignalScoutConfig'
-                )
-        )
-        .optional()
-        .describe(
-            'Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".'
-        ),
-    user: zod.string().optional().describe('Filter by user UUID who performed the action.'),
 })
 
 export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
@@ -403,6 +268,43 @@ export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Approve a change request.
+ * If quorum is reached, automatically applies the change immediately.
+ */
+export const ChangeRequestsApproveCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
+})
+
+/**
+ * Reject a change request.
+ */
+export const ChangeRequestsRejectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .describe(
+            'Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.'
         ),
 })
 

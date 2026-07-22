@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -13,6 +14,12 @@ if TYPE_CHECKING:
 
     from posthog.schema import RecordingsQuery
 
+# Lives here, not in queries/scanner_candidate_query (which imports SamplingMode from this
+# module), so `initial_watermark`'s default callable never needs to import back up into the
+# query layer — models must stay a dependency leaf for the query layer, never the reverse.
+# 30-min inactivity timeout + 5-min merge-lag buffer.
+SETTLE_INTERVAL = dt.timedelta(minutes=35)
+
 
 class ScannerType(models.TextChoices):
     MONITOR = "monitor", "Monitor"
@@ -21,23 +28,28 @@ class ScannerType(models.TextChoices):
     SUMMARIZER = "summarizer", "Summarizer"
 
 
+class SamplingMode(models.TextChoices):
+    FOCUSED = "focused", "Focused"
+    BALANCED = "balanced", "Balanced"
+    COMPREHENSIVE = "comprehensive", "Comprehensive"
+
+
 class ScannerProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
 
 class ScannerModel(models.TextChoices):
-    GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
+    """One model per Google tier, cheapest first. Members must mirror `billing.GEMINI_MODELS`; when
+    Google supersedes a model, swap the member and remap existing scanners in a migration (see 0052)."""
+
+    GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
+    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
 
 
 def initial_watermark() -> "datetime":
     """A new scanner's sweep watermark, started one settle-interval back so its first sweep immediately picks up
     recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
     forward normally from there, so there's no re-scan."""
-    from products.replay_vision.backend.queries.scanner_candidate_query import (  # noqa: PLC0415 — keep the heavy hogql query module off the model import path
-        SETTLE_INTERVAL,
-    )
-
     return timezone.now() - SETTLE_INTERVAL
 
 
@@ -63,6 +75,12 @@ class ReplayScanner(UUIDModel):
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
     )
+    sampling_mode = models.CharField(
+        max_length=20,
+        choices=SamplingMode.choices,
+        default=SamplingMode.COMPREHENSIVE,
+        help_text="Quality pre-filter applied before random sampling. focused = top sessions by surfacing score, balanced = drops the lowest-quality sessions, comprehensive = no filter.",
+    )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
     model = models.CharField(max_length=64, choices=ScannerModel.choices)
@@ -87,6 +105,14 @@ class ReplayScanner(UUIDModel):
         default="",
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
+    )
+
+    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
+    # ratings, not the scanner's behavior.
+    feedback_themes = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
     )
 
     estimated_monthly_observations = models.PositiveIntegerField(
@@ -121,12 +147,13 @@ class ReplayScanner(UUIDModel):
         "scanner_config",
         "query",
         "sampling_rate",
+        "sampling_mode",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate"})
+    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")

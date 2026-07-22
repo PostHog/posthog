@@ -7,6 +7,7 @@ import type {
     BarFillStyle,
     ChartLegendConfig,
     ChartTheme,
+    DateRangeZoomData,
     PointClickData,
     Series,
     TooltipConfig,
@@ -64,6 +65,8 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
     config?: TimeSeriesBarChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. See `BarChartProps.onDateRangeZoom`. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode
@@ -77,6 +80,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     dataAttr,
     className,
     children,
@@ -125,7 +129,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,
@@ -137,8 +141,8 @@ export function TimeSeriesBarChart<Meta = unknown>({
         tooltip: timeSeriesTooltipConfig,
         animateHover,
         yAxes,
+        barCornerRadius,
         bars: {
-            cornerRadius: barCornerRadius,
             divergingStack,
             valueDomain,
             fillStyle,
@@ -154,6 +158,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
                 onError={onError}

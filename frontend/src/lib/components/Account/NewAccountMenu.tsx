@@ -5,10 +5,12 @@ import {
     IconDatabase,
     IconGear,
     IconLeave,
+    IconPeople,
     IconPlusSmall,
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,6 +18,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -24,7 +27,6 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -380,6 +382,36 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 >
                                                     <IconServer />
                                                     Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.featureFlagsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-flags-staff-tools"
+                                                >
+                                                    <IconToggle />
+                                                    Flags staff tools
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.cohortsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-cohorts-staff-tools"
+                                                >
+                                                    <IconPeople />
+                                                    Cohorts staff tools
                                                 </Link>
                                             )}
                                         />

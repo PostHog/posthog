@@ -12,18 +12,26 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_API_VERSION_V2,
+    BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
+    BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
     validate_bigquery_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQuerySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
@@ -33,6 +41,13 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
+    # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default
+    # bump leaves existing syncs byte-for-byte unchanged.
+    supported_versions = (UNVERSIONED_API_VERSION, BIGQUERY_API_VERSION_V2)
+    default_version = BIGQUERY_API_VERSION_V2
+    api_docs_url = "https://cloud.google.com/bigquery/docs/release-notes"
+
     @property
     def get_implementation(self) -> BigQueryImplementation:
         return _BIGQUERY_IMPLEMENTATION
@@ -51,14 +66,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # can't recover invalid credentials; the user must upload a new key file. Matched on the
             # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
             # token-endpoint failures that should stay retryable.
-            "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            "invalid_grant": BIGQUERY_CREDENTIALS_REJECTED_ERROR,
             # Raised from `bigquery_client` when `service_account.Credentials.from_service_account_info`
             # parses the uploaded key file's `private_key`. A truncated or corrupted PEM body (wrong
             # padding, stray characters, copy-paste damage) makes the `cryptography` backend reject it
             # as a `ValueError: Unable to load PEM file. ... InvalidData(InvalidPadding)`. The key can't
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
-            "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
+            "Unable to load PEM file": BIGQUERY_INVALID_KEY_FILE_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the
@@ -176,6 +191,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # rename it back, or remove it from the sync. Matched on the stable "Not found: Table"
             # wording rather than the volatile table id.
             "Not found: Table": "BigQuery couldn't find a table this source is syncing — it was deleted or renamed after the source was set up. Restore or rename the table in BigQuery, or remove it from this source's synced tables, then re-enable the source.",
+            # Raised from `bq_client.get_table(...)` in `_build_source_response` (and other calls) when
+            # the GCP project the source references no longer exists — it was deleted, or the Project ID
+            # in the service account key file (or the configured dataset project) is wrong. The google
+            # exception stringifies as "... Project <id> is not found. Make sure it references valid GCP
+            # project that hasn't been deleted.", which the table/dataset "Not found" keys don't cover, so
+            # it slips through and retries forever. Retrying can't conjure a missing project; the user
+            # must fix the project reference. Matched on the stable guidance wording rather than the
+            # volatile project id that appears earlier in the message.
+            "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
@@ -239,7 +263,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         }
 
     def validate_credentials(
-        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
@@ -249,7 +277,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             and config.use_custom_region.region != ""
         ):
             region = config.use_custom_region.region
-        if validate_bigquery_credentials(
+        return validate_bigquery_credentials(
             config.dataset_id,
             {
                 "project_id": config.key_file.project_id,
@@ -260,10 +288,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             },
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
-        ):
-            return True, None
-
-        return False, "Invalid BigQuery credentials"
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -272,6 +297,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             iconPath="/static/services/bigquery.png",
+            caption=(
+                "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+            ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],

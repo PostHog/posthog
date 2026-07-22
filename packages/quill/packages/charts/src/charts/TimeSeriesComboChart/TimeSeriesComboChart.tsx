@@ -33,6 +33,9 @@ export interface TimeSeriesComboChartConfig {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. */
     barLayout?: ComboChartConfig['barLayout']
+    /** Stacked layout only — stack negative bar values below the zero baseline instead of
+     *  clamping them to 0. See {@link ComboChartConfig.divergingStack}. */
+    divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
@@ -89,6 +92,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         goalLines,
         defaultSeriesType,
         barLayout,
+        divergingStack,
         barCornerRadius,
         showCrosshair,
         showGrid,
@@ -121,7 +125,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,
@@ -131,6 +135,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         showCrosshair,
         defaultSeriesType,
         barLayout,
+        divergingStack,
         barCornerRadius,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,

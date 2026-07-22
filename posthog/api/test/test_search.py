@@ -7,7 +7,7 @@ from django.test.utils import CaptureQueriesContext
 
 from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -16,6 +16,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestSearch(APIBaseTest):
@@ -104,18 +106,21 @@ class TestSearch(APIBaseTest):
                     "type": "dashboard",
                     "result_id": str(self.dashboard_1.id),
                     "extra_fields": {"description": "", "name": "second dashboard"},
+                    "user_access_level": "manager",
                 },
                 {
                     "rank": sorted_results[1]["rank"],
                     "type": "insight",
                     "result_id": self.insight_1.short_id,
                     "extra_fields": {"name": "second insight", "description": None, "query": None},
+                    "user_access_level": "editor",
                 },
                 {
                     "rank": sorted_results[2]["rank"],
                     "type": "notebook",
                     "result_id": self.notebook_1.short_id,
                     "extra_fields": {"title": "second notebook", "content": None},
+                    "user_access_level": "manager",
                 },
             ],
         )
@@ -375,3 +380,67 @@ def test_process_query(query, expected, dbresult):
         result = cursor.fetchall()
 
         assert result[0][0] == dbresult
+
+
+@pytest.mark.ee
+class TestSearchAccessLevels(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
+        self.membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+
+    def _levels_by_result_id(self, response, entity_type: str) -> dict[str, str | None]:
+        return {
+            result["result_id"]: result["user_access_level"]
+            for result in response.json()["results"]
+            if result["type"] == entity_type
+        }
+
+    def test_blocked_resource_results_are_annotated_none(self):
+        FeatureFlag.objects.create(key="searchable-a", team=self.team, created_by=self.other_user)
+        FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.other_user)
+        EventDefinition.objects.create(team=self.team, name="searchable-event")
+        AccessControl.objects.create(team=self.team, resource="feature_flag", resource_id=None, access_level="none")
+
+        response = self.client.get("/api/projects/@current/search?q=searchable")
+
+        assert response.status_code == 200
+        flag_levels = self._levels_by_result_id(response, "feature_flag")
+        assert len(flag_levels) == 2
+        assert set(flag_levels.values()) == {"none"}
+        assert set(self._levels_by_result_id(response, "event_definition").values()) == {None}
+
+    def test_object_grants_resolve_by_pk_for_short_id_entities(self):
+        flag_granted = FeatureFlag.objects.create(key="searchable-a", team=self.team, created_by=self.other_user)
+        FeatureFlag.objects.create(key="searchable-b", team=self.team, created_by=self.other_user)
+        insight_granted = Insight.objects.create(name="searchable insight", team=self.team, created_by=self.other_user)
+        Insight.objects.create(name="searchable insight two", team=self.team, created_by=self.other_user)
+        for resource in ("feature_flag", "insight"):
+            AccessControl.objects.create(team=self.team, resource=resource, resource_id=None, access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="feature_flag",
+            resource_id=str(flag_granted.pk),
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+        # AccessControl rows are keyed by pk even though insight results expose short_id as result_id
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(insight_granted.pk),
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        response = self.client.get("/api/projects/@current/search?q=searchable")
+
+        assert response.status_code == 200
+        # "none" resource access + object grants: only granted objects are returned, with resolved levels
+        assert self._levels_by_result_id(response, "feature_flag") == {str(flag_granted.pk): "viewer"}
+        assert self._levels_by_result_id(response, "insight") == {insight_granted.short_id: "viewer"}

@@ -27,6 +27,7 @@ use uuid::Uuid;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
@@ -302,7 +303,9 @@ impl FakeWorker {
                         }
                     }
                 }),
-            );
+            )
+            // Like the real Express worker, inflate gzipped request bodies.
+            .layer(tower_http::decompression::RequestDecompressionLayer::new());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -371,7 +374,11 @@ struct Harness {
 /// the production batch consumer (no auto commit/store, earliest reset). The
 /// short session timeout makes group handovers observable quickly in tests.
 /// `instance_id` opts into static membership (`group.instance.id`).
-fn make_kafka_consumer(topic: &str, group_id: &str, instance_id: Option<&str>) -> StreamConsumer {
+fn make_kafka_consumer(
+    topic: &str,
+    group_id: &str,
+    instance_id: Option<&str>,
+) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -384,7 +391,9 @@ fn make_kafka_consumer(topic: &str, group_id: &str, instance_id: Option<&str>) -
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer = config.create().expect("kafka consumer");
+    let kafka_consumer: StreamConsumer<SentinelContext> = config
+        .create_with_context(SentinelContext::detached())
+        .expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
@@ -449,6 +458,7 @@ impl Harness {
             None,
             &worker_urls,
             1,
+            true,
         ));
         spawn_reaper(
             Arc::clone(&registry),
@@ -477,6 +487,7 @@ impl Harness {
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
+                debug_recorder: None,
             },
             handle,
         );
@@ -525,6 +536,7 @@ impl Harness {
             None,
             &worker_urls,
             1,
+            true,
         ));
         spawn_reaper(
             Arc::clone(&registry),
@@ -551,6 +563,7 @@ impl Harness {
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
+                debug_recorder: None,
             },
             handle,
         );
@@ -1253,7 +1266,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
     let dispatcher = Dispatcher::new(Arc::clone(&registry));
-    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1);
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1, true);
 
     // batch-1: user-1 pins to a worker. Send it for real but DON'T resolve, so it
     // is genuinely in flight on that worker.
@@ -1263,7 +1276,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
     let survivor_idx = 1 - pinned_idx;
     transport
-        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone())
+        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone(), false)
         .await
         .expect("batch-1 send");
 
@@ -1290,7 +1303,12 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
         "deferred group flushes to the survivor, not the drainer"
     );
     transport
-        .send_batch(f2[0].worker.as_ref(), "batch-2", f2[0].messages.clone())
+        .send_batch(
+            f2[0].worker.as_ref(),
+            "batch-2",
+            f2[0].messages.clone(),
+            false,
+        )
         .await
         .expect("batch-2 flush send");
 
@@ -2002,6 +2020,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
         None,
         &worker_urls,
         1,
+        true,
     ));
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
@@ -2017,6 +2036,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
         },
         handle2,
     );
@@ -2074,6 +2094,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
         None,
         &urls,
         1,
+        true,
     ));
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
@@ -2091,6 +2112,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
         },
         handle,
     );

@@ -47,8 +47,9 @@ describe('TextCard', () => {
             />
         )
 
+        // Wiring guard only: the exact zone count is pinned by EditModeEdgeOverlay's own test.
         const edges = getAllByTitle('Click to edit layout')
-        expect(edges).toHaveLength(4)
+        expect(edges.length).toBeGreaterThan(0)
 
         fireEvent.mouseDown(edges[0])
         expect(onEnterEditModeFromEdge).toHaveBeenCalledTimes(1)

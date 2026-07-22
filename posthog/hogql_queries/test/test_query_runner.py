@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -42,13 +43,15 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
+    SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
     AnalyticsQueryRunner,
     ExecutionMode,
     QueryRunner,
@@ -126,6 +129,40 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.__abstractmethods__ = frozenset()
 
         return TestQueryRunner
+
+    def test_sync_warning_attach_preserves_other_warning_kinds(self):
+        # The accumulator attach replaces the response's warnings with the collected sync warnings.
+        # Access control warnings ride the same shared field and were silently dropped whenever a
+        # sync warning was present.
+        from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning
+
+        from posthog.hogql.warehouse_warnings import record_warnings
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        sync_warning = DataWarehouseSyncWarning(
+            table_name="paid_bills",
+            schema_name="paid_bills",
+            source_type="Stripe",
+            status="Failed",
+            message="sync failed",
+        )
+        ac_warning = AccessControlFilterWarning(
+            resources=["insight"], message="Results may exclude insights you don't have access to"
+        )
+
+        def calculate_with_warnings(_self):
+            record_warnings([sync_warning])
+            response = TheTestBasicQueryResponse(results=[])
+            response.warnings = [ac_warning]
+            return response
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_warnings):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        warnings = [w if isinstance(w, dict) else w.model_dump() for w in response.warnings or []]
+        assert any(w.get("table_name") == "paid_bills" for w in warnings)
+        assert any(w.get("resources") == ["insight"] for w in warnings)
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -448,6 +485,60 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
+    @parameterized.expand(
+        [
+            # The override replaces the subclass staleness policy in both directions: a runner
+            # that considers a young cache stale must still serve it within the window, and a
+            # runner that pins a long freshness must still recompute past the window.
+            ("subclass_stale_within_window_serves_cache", True, timedelta(minutes=11), True),
+            ("subclass_fresh_past_window_recomputes", False, timedelta(minutes=31), False),
+        ]
+    )
+    def test_cache_age_override_governs_staleness_over_subclass_policy(
+        self,
+        _name: str,
+        subclass_says_stale: bool,
+        cache_age: timedelta,
+        expected_is_cached: bool,
+    ):
+        base = self.setup_test_query_runner_class()
+
+        class OpinionatedQueryRunner(base):  # type: ignore[misc, valid-type]
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+                return subclass_says_stale
+
+            def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+                return last_refresh + timedelta(hours=24) if last_refresh else None
+
+        start = datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)
+        with freeze_time(start):
+            OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+
+        with freeze_time(start + cache_age):
+            response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                cache_age_seconds=1800,
+            )
+        self.assertEqual(response.is_cached, expected_is_cached)
+
+    def test_cache_age_override_not_persisted_on_cache_write(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)):
+            response = runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                cache_age_seconds=999,
+            )
+
+        # The override governs this request's staleness decision only; the target age written
+        # to the cache (served to authenticated viewers and driving cache warming) must stay
+        # the runner's default.
+        self.assertNotEqual(response.cache_target_age, response.last_refresh + timedelta(seconds=999))
+        self.assertEqual(response.cache_target_age, runner.cache_target_age(response.last_refresh))
+
     def test_modifier_passthrough(self):
         try:
             from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -467,7 +558,12 @@ class TestQueryRunner(BaseTest):
         )
         response = runner.calculate()
         assert response.clickhouse is not None
-        assert "events.`mat_$browser" in response.clickhouse
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json AS events" in response.clickhouse
+            assert "events.properties.`$browser`" in response.clickhouse
+            assert "events.`mat_$browser" not in response.clickhouse
+        else:
+            assert "events.`mat_$browser" in response.clickhouse
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
@@ -628,6 +724,23 @@ class TestQueryRunner(BaseTest):
                 SloOutcome.SUCCESS,
                 "user_error",
                 False,
+            ),
+            (
+                # ClickHouse-raised user-safe error (code 60 = UNKNOWN_TABLE), e.g. a query
+                # referencing a deleted warehouse table — must not reach error tracking.
+                "user_facing_ch_query_error",
+                lambda: ExposedCHQueryError("Unknown table ae_event_people", code=60),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # Internal (non-exposed) HogQL errors are server faults and must stay captured.
+                "internal_hogql_resolution_error",
+                lambda: ResolutionError("Unable to resolve field: ae_event_people"),
+                SloOutcome.FAILURE,
+                "error",
+                True,
             ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
@@ -890,8 +1003,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expected_results: list[dict],
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -968,8 +1079,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
 
         from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -1020,8 +1129,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
         from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
@@ -1087,8 +1194,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
         from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
@@ -1162,8 +1267,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -1185,48 +1288,24 @@ class TestApplySeriesCustomNames(BaseTest):
 class TestSharedInsightsExecutionMode(BaseTest):
     @parameterized.expand(
         [
-            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            # name, execution_mode, expected_mode, expected_cache_age_seconds
             (
-                "force_blocking_no_last_refresh_downgrades",
+                "force_blocking_downgrades_with_staleness_window_threshold",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_refreshed_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(seconds=10),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_under_threshold_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=29, seconds=59),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_at_threshold_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=30),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            ),
-            (
-                "force_blocking_long_stale_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(hours=24),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
             ),
             (
                 "cache_only_remaps_to_extended_async",
                 ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                timedelta(seconds=10),
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
             ),
             (
                 "recent_cache_async_passes_through",
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
             ),
             (
                 "blocking_if_stale_passes_through",
@@ -1235,8 +1314,8 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
                 # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
             ),
         ]
     )
@@ -1244,12 +1323,12 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self,
         _name: str,
         execution_mode: ExecutionMode,
-        last_refresh_offset: timedelta | None,
         expected_mode: ExecutionMode,
+        expected_cache_age_seconds: int | None,
     ) -> None:
-        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
-        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
-        self.assertEqual(result, expected_mode)
+        result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
+        self.assertEqual(result_mode, expected_mode)
+        self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
 
 
 @pytest.mark.ee

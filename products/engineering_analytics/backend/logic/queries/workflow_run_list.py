@@ -13,6 +13,10 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunDetail
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._run_detail import RUN_DETAIL_COLUMNS, to_run_detail
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    branch_filter_clause,
+    date_to_filter_clause,
+)
 
 # Safety bound on the runs list (mirrors the PR table's cap philosophy).
 _LIMIT = 200
@@ -44,16 +48,8 @@ def query_workflow_run_list(
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
     }
-    date_to_clause = ""
-    if date_to is not None:
-        date_to_clause = "AND run_started_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_health.
-    branch = branch.strip() if branch else None
-    branch_clause = ""
-    if branch:
-        branch_clause = "AND head_branch = {branch}"
-        placeholders["branch"] = ast.Constant(value=branch)
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
+    branch_clause = branch_filter_clause(branch, placeholders)
     response = curated.run(
         _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)

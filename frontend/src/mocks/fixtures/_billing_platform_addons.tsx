@@ -115,6 +115,12 @@ const highFrequencyAlerts = feature(
     'Run insight alerts as frequently as every 15 minutes.',
     { entitlement_only: true }
 )
+const realTimeAlerts = feature(
+    'real_time_alerts',
+    'Real time alerts',
+    'Run insight alerts in real time as events are ingested.',
+    { entitlement_only: true }
+)
 const prioritySupport = (note: string = 'Target response time 24 hours'): AddonPlanFeature =>
     feature(
         'priority_support',
@@ -217,6 +223,7 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
+    realTimeAlerts,
 ]
 
 const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
@@ -245,6 +252,7 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     saml,
     approvals,
     highFrequencyAlerts,
+    realTimeAlerts,
 ]
 
 type AddonSpec = {

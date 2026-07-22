@@ -2,7 +2,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { MARKER, parseSections, postSection, renderComment, STATUS_EMOJI, upsertSection } from './update-ci-report.mjs'
+import {
+    clearSectionIfPresent,
+    MARKER,
+    parseSections,
+    postSection,
+    renderComment,
+    STATUS_EMOJI,
+    upsertSection,
+} from './update-ci-report.mjs'
 
 type SectionEntry = { status: string; summary: string; inner: string }
 type SectionState = Map<string, SectionEntry>
@@ -42,6 +50,16 @@ function legacyComment(summary: string, body = 'old body'): string {
 }
 
 describe('ci-report section helper', () => {
+    // The script narrates its progress to the CI job log via console.info/warn;
+    // exercising it in jest would dump that narration into the test output.
+    beforeEach(() => {
+        jest.spyOn(console, 'info').mockImplementation(() => {})
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     it('renders collapsed section blocks in fixed registry order regardless of write order', () => {
         // Written eager-graph -> dist-size -> bundle-size; registry order is the reverse.
         const rendered: string = renderComment(
@@ -155,6 +173,21 @@ describe('ci-report section helper', () => {
     })
 
     describe('postSection concurrency', () => {
+        // postSection narrates every write/retry/merge to the console — that's its
+        // CLI UX, not test-relevant output
+        let consoleInfoSpy: jest.SpyInstance
+        let consoleWarnSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation()
+            consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+        })
+
+        afterEach(() => {
+            consoleInfoSpy.mockRestore()
+            consoleWarnSpy.mockRestore()
+        })
+
         type StoredComment = { id: number; body: string; author: string }
         type FireOnceHook = { fn: (() => void) | null }
         // An in-memory GitHub issue-comments API — the network is the boundary being
@@ -273,6 +306,29 @@ describe('ci-report section helper', () => {
             expect(github.comments).toHaveLength(1)
             const sections = parseSections(github.comments[0].body)
             expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph'])
+        })
+
+        it('removes a legacy bot comment only after its replacement section lands', async () => {
+            const legacy = '<!-- old-check -->\nOld standalone result'
+            const github = fakeGitHub([{ body: legacy }, { body: legacy, author: 'some-human' }])
+            await postSection(
+                { id: 'bundle-size', status: 'ok', summary: 'migrated', body: 'BUNDLE' },
+                { ...opts, legacyPrefixes: ['<!-- old-check -->'] }
+            )
+            expect(github.comments).toHaveLength(2)
+            expect(github.comments.some((comment) => comment.author === 'some-human' && comment.body === legacy)).toBe(
+                true
+            )
+            expect(github.comments.some((comment) => parseSections(comment.body).has('bundle-size'))).toBe(true)
+        })
+
+        it('removes a resolved legacy comment even when no report section exists yet', async () => {
+            const github = fakeGitHub([{ body: '## Old result\nNo longer relevant' }])
+            await clearSectionIfPresent(
+                { id: 'bundle-size', summary: 'resolved', body: 'Nothing to report.' },
+                { legacyPrefixes: ['## Old result'] }
+            )
+            expect(github.comments).toHaveLength(0)
         })
 
         it('retries when a concurrent writer clobbers the section, keeping both', async () => {

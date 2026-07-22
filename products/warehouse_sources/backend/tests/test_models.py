@@ -1,11 +1,15 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db.models import Model
+from django.test import SimpleTestCase
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
 
@@ -14,10 +18,14 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    complete_schema_run,
+    mark_initial_sync_complete,
     process_incremental_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -192,6 +200,64 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         assert schema.incremental_field_last_value == 42
 
 
+class TestExternalDataSchemaOOMEvent(BaseTest):
+    def _source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _schema(self, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
+
+    def _oom(self, schema: ExternalDataSchema, *, age_days: float = 0) -> ExternalDataSchemaOOMEvent:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(team_id=self.team.pk, schema=schema)
+        if age_days:
+            # created_at is auto_now_add, so backdate via an update to place the row outside the window.
+            ExternalDataSchemaOOMEvent.objects.unscoped().filter(pk=event.pk).update(
+                created_at=timezone.now() - timedelta(days=age_days)
+            )
+        return event
+
+    def test_recent_count_windows_and_scopes_to_schema(self) -> None:
+        # A miscounted window or a dropped schema filter would force-repartition a healthy table
+        # (or never fire): recent_count must count only this schema's occurrences inside the window.
+        schema_a = self._schema("orders")
+        schema_b = self._schema("events")
+        self._oom(schema_a)
+        self._oom(schema_a)
+        self._oom(schema_a, age_days=10)  # outside a 7-day window
+        self._oom(schema_b)  # different schema
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=7) == 2
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=30) == 3
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_b, days=7) == 1
+
+    def test_recent_count_ignores_ooms_before_last_repartition(self) -> None:
+        # A repartition fixes the OOMs that preceded it. Without this floor, those OOMs keep counting
+        # and re-trigger a repartition on the same healthy table every cooldown until they age out.
+        schema = self._schema("orders")
+        self._oom(schema, age_days=2)
+        self._oom(schema, age_days=2)
+        self._oom(schema, age_days=2)
+        schema.sync_type_config = {
+            **(schema.sync_type_config or {}),
+            "last_repartition_at": (timezone.now() - timedelta(days=1)).isoformat(),
+        }
+        schema.save()
+
+        # All three OOMs predate the repartition, so none count toward re-triggering it.
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
+
+        # An OOM recorded after the repartition still counts: the rewrite did not fix it, so this is a
+        # real escalation the controller should act on.
+        self._oom(schema)
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
+
 class TestUpdateSyncTypeConfigKeys(BaseTest):
     """The locked-merge helper that keeps the CDC extract activity and concurrent API PATCHes from
     clobbering each other's sync_type_config keys."""
@@ -309,6 +375,169 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert stale.sync_type_config["cdc_last_log_position"] == "0/100"  # the copy really was stale
         schema.refresh_from_db()
         assert schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+
+class TestMarkInitialSyncComplete(BaseTest):
+    """The shared first-sync-complete transition (V2 pipelines + V3 loader post-load), whose
+    False→True edge is what moves a CDC schema out of snapshot mode into streaming."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(
+        self, sync_type: str, sync_type_config: dict, *, initial_sync_complete: bool = False
+    ) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=self.source,
+            name="users",
+            sync_type=sync_type,
+            sync_type_config=sync_type_config,
+            initial_sync_complete=initial_sync_complete,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                # First completion of a CDC snapshot flips it to streaming; keys written
+                # concurrently by the CDC extract activity (deferred runs) must survive the flip.
+                "cdc_snapshot_flips_to_streaming_preserving_other_keys",
+                "cdc",
+                {"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                False,
+                True,
+                {"cdc_mode": "streaming", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+            ),
+            (
+                # Already-streaming CDC schema (re-run after a reset) completes without a config rewrite.
+                "cdc_already_streaming_config_unchanged",
+                "cdc",
+                {"cdc_mode": "streaming"},
+                False,
+                True,
+                {"cdc_mode": "streaming"},
+            ),
+            (
+                # Non-CDC schemas must never get a cdc_mode key injected.
+                "non_cdc_config_untouched",
+                "incremental",
+                {"incremental_field": "id"},
+                False,
+                True,
+                {"incremental_field": "id"},
+            ),
+            (
+                # Only the False→True transition flips: a schema manually put back into snapshot
+                # mode must not be flipped to streaming by a later run's completion.
+                "already_complete_is_noop_even_in_snapshot_mode",
+                "cdc",
+                {"cdc_mode": "snapshot"},
+                True,
+                True,
+                {"cdc_mode": "snapshot"},
+            ),
+        ]
+    )
+    def test_transition(
+        self,
+        _name: str,
+        sync_type: str,
+        config: dict,
+        initial_flag: bool,
+        expected_flag: bool,
+        expected_config: dict,
+    ) -> None:
+        schema = self._create(sync_type, config, initial_sync_complete=initial_flag)
+        mark_initial_sync_complete(schema.id, self.team.pk)
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete == expected_flag
+        assert schema.sync_type_config == expected_config
+
+
+class TestCompleteSchemaRun(BaseTest):
+    """The success repaint checks the broken marker under the row lock: the sweeper can mark the
+    source broken while a run is in flight, and an unlocked check on a stale instance would
+    overwrite the sweeper's FAILED with COMPLETED, hiding the breakage from the failure digest."""
+
+    def _schema(self, sync_type_config: dict) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="users",
+            sync_type="cdc",
+            sync_type_config=sync_type_config,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                # The sweeper marked the source broken after this run's instance was loaded;
+                # the stale instance must not repaint FAILED away.
+                "broken_marker_blocks_repaint",
+                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
+                False,
+                ExternalDataSchema.Status.FAILED,
+                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
+            ),
+            (
+                # A successful run proves extraction resumed: the pause marker is cleared in the
+                # same transaction as the repaint.
+                "paused_marker_cleared_on_repaint",
+                {"cdc_mode": "streaming", "cdc_extraction_paused": {"reason": "auth_failed"}},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+            (
+                "healthy_schema_repaints",
+                {"cdc_mode": "streaming"},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+        ]
+    )
+    def test_repaint_respects_markers(
+        self,
+        _name: str,
+        config: dict,
+        expected_repainted: bool,
+        expected_status: str,
+        expected_config: dict,
+    ) -> None:
+        schema = self._schema({"cdc_mode": "streaming"})
+        # The instance the activity holds predates the sweeper's marker write — a check against
+        # its in-memory config would see no marker and repaint every case below.
+        stale_instance = ExternalDataSchema.objects.get(id=schema.id)
+        ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config=config)
+
+        now = timezone.now()
+        repainted = complete_schema_run(stale_instance, last_synced_at=now)
+
+        assert repainted is expected_repainted
+        schema.refresh_from_db()
+        assert schema.status == expected_status
+        assert schema.sync_type_config == expected_config
+        assert schema.latest_error == ("boom" if not expected_repainted else None)
+        # The passed instance mirrors the persisted outcome either way.
+        assert stale_instance.status == expected_status
+        assert stale_instance.sync_type_config == expected_config
 
 
 @pytest.mark.parametrize(
@@ -572,3 +801,33 @@ class TestStagedIncrementalCursor:
         with patch.object(schema, "save"):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
+
+
+class TestSSHTunnelPortValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Out-of-range ports previously slipped through to sshtunnel, which asserted `port >= 0`
+            # and crashed credential validation with a bare AssertionError ("PORT < 0 (...)").
+            ("negative", -122, False),
+            ("zero", 0, False),
+            ("too_large", 70000, False),
+            ("non_numeric", "not-a-number", False),
+            ("http", 80, False),
+            ("https", 443, False),
+            ("ssh", 22, True),
+            ("postgres", 5432, True),
+            ("max_valid", 65535, True),
+        ]
+    )
+    def test_has_valid_port(self, _name: str, port: int | str, expected_valid: bool) -> None:
+        tunnel = SSHTunnel(
+            enabled=True,
+            host="ssh.example.com",
+            port=port,
+            auth_type="password",
+            username="user",
+            password="pw",
+            private_key=None,
+            passphrase=None,
+        )
+        assert tunnel.has_valid_port()[0] is expected_valid

@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confirm": {
+            "default": false,
+            "description": "False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow.",
+            "type": "boolean"
+        },
+        "confirm_token": {
+            "description": "From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

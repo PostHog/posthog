@@ -7,7 +7,9 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SegmentSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
+    SegmentSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.segment import SegmentResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.source import SegmentSource
@@ -27,7 +29,6 @@ class TestSourceConfig:
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
-        assert config.unreleasedSource is True
 
     def test_config_fields(self) -> None:
         config = SegmentSource().get_source_config

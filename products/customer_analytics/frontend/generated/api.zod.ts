@@ -9,6 +9,82 @@
  */
 import * as zod from 'zod'
 
+export const accountRelationshipDefinitionsCreateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const accountRelationshipDefinitionsUpdateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsUpdateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -82,6 +158,13 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
+
+export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod.uuid().describe('Id of the relationship definition to assign.'),
+        user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
+    })
+    .describe('Input for assigning a user to an account relationship.')
 
 export const accountsUpdateBodyNameMax = 400
 
@@ -195,6 +278,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
+export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
@@ -212,6 +296,13 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('\* `account` - account\n\* `person` - person')
+            .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -264,6 +355,7 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsUpdateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsUpdateBodyOptionsItemLabelMax = 400
 
@@ -281,6 +373,13 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('\* `account` - account\n\* `person` - person')
+            .default(customPropertyDefinitionsUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -333,6 +432,7 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
@@ -352,6 +452,13 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('\* `account` - account\n\* `person` - person')
+            .default(customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -415,15 +522,33 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .describe('UUID of the custom property definition this source feeds. One source per definition.'),
         saved_query: zod
             .uuid()
-            .describe('UUID of the data-warehouse saved query (materialized view) to read values from.'),
+            .nullish()
+            .describe(
+                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+            ),
+        external_data_schema: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+            ),
         source_column: zod
             .string()
             .max(customPropertySourcesCreateBodySourceColumnMax)
-            .describe('Column in the view whose value is written to the property.'),
+            .nullish()
+            .describe('Account sources only: column in the view whose value is written to the property.'),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+            ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
-            .describe("Column in the view whose value matches an account's external_id."),
+            .describe(
+                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+            ),
         is_enabled: zod
             .boolean()
             .default(customPropertySourcesCreateBodyIsEnabledDefault)

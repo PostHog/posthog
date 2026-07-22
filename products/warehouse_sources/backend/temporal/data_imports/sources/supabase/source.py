@@ -8,6 +8,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -15,7 +16,9 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -24,6 +27,7 @@ _SourceField = (
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldOauthAccountSelectConfig
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 )
@@ -100,7 +104,11 @@ class SupabaseSource(PostgresSource):
         )
 
     def validate_credentials(
-        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         bare_host = _strip_host_scheme(config.host or "")
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)

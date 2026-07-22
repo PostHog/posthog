@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this change request.",
+            "type": "string"
+        },
+        "reason": {
+            "description": "Reason for the rejection (required). Recorded with the vote and shown to the requester.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "reason"],
+    "type": "object"
+}

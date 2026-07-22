@@ -1,11 +1,14 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import duckdb
 from parameterized import parameterized
 
 from posthog.ducklake.common import (
     DucklingBackfillEnableError,
+    default_bucket_region,
     enable_team_backfill,
     get_team_backfill_state,
     initialize_ducklake,
@@ -15,6 +18,8 @@ from posthog.ducklake.common import (
 )
 from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 from posthog.models import Organization, Team
+
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 @pytest.mark.django_db
@@ -88,6 +93,17 @@ class TestEnableTeamBackfill:
         assert suffix == "prod"
         assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
 
+    def test_same_name_reenables_a_deprovisioned_membership(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        server = self._server(org)
+        DuckgresServerTeam.objects.create(server=server, team=team, table_suffix="prod", backfill_enabled=False)
+
+        suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+
+        assert suffix == "prod"
+        assert DuckgresServerTeam.objects.get(team=team).backfill_enabled is True
+
     def test_refuses_to_change_a_set_suffix(self):
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -115,6 +131,41 @@ class TestEnableTeamBackfill:
         with pytest.raises(DucklingBackfillEnableError):
             enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="events")
 
+    def test_registers_a_restricted_postgres_query_connection_for_the_team(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        server = self._server(org)
+
+        with patch(
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.configure_project_reader",
+            side_effect=lambda **kwargs: {
+                "username": f"posthog_team_{kwargs['team_id']}",
+                "password": kwargs["password"],
+            },
+        ):
+            enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+
+        source = ExternalDataSource.objects.get(
+            team_id=team.id, access_method=ExternalDataSource.AccessMethod.DIRECT, direct_query_enabled=True
+        )
+        assert source.source_type == "Postgres"
+        assert source.job_inputs["host"] == server.host
+
+    def test_direct_connection_failure_does_not_block_enablement(self):
+        # The connection is a best-effort convenience; a failure must never stop a team joining.
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        self._server(org)
+
+        with patch(
+            "products.data_warehouse.backend.managed_warehouse_connection.ensure_managed_warehouse_direct_source",
+            side_effect=Exception("boom"),
+        ):
+            suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+
+        assert suffix == "prod"
+        assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
+
 
 @pytest.mark.django_db
 class TestGetTeamBackfillState:
@@ -141,6 +192,20 @@ class TestGetTeamBackfillState:
         team = self._server_team(table_suffix="prod")
 
         assert get_team_backfill_state(team.id) == {"has_backfill": True, "table_suffix": "prod"}
+
+
+class TestDefaultBucketRegion:
+    @parameterized.expand(
+        [
+            ("unset", None, "us-east-1"),
+            ("us", "US", "us-east-1"),
+            ("eu", "EU", "eu-central-1"),
+            ("dev", "DEV", "us-east-1"),
+        ]
+    )
+    def test_region_follows_cloud_deployment(self, _name, deployment, expected):
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            assert default_bucket_region() == expected
 
 
 TEST_CONFIG = {

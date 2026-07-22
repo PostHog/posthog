@@ -1,15 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { HedgehogDirector } from '@posthog/brand/hoggies'
+import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { IconBrowser, IconDownload } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
 import { urls } from 'scenes/urls'
@@ -17,8 +20,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { heatmapLogic } from './heatmapLogic'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logicProps = { id: id }
@@ -38,6 +44,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         desiredNumericWidth,
         effectiveWidth,
         scalePercent,
+        isHeightCapped,
     } = useValues(logic)
     const {
         setName,
@@ -49,6 +56,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         exportHeatmap,
         setContainerWidth,
     } = useActions(logic)
+
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
@@ -129,7 +141,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             : undefined,
                         targetBlank: true,
                         'data-attr': 'heatmaps-open-in-toolbar',
-                        disabledReason: !displayUrl ? 'Select a URL first' : undefined,
+                        disabledReason: !displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason,
                     }}
                 >
                     You can also open your website using the toolbar and verify results there (useful for auth-protected
@@ -138,6 +150,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 <HeatmapHeader />
                 <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
                 <SceneDivider />
+                {isHeightCapped && (
+                    <LemonBanner type="info" className="mb-2">
+                        This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast,
+                        so data below that point isn't shown.
+                    </LemonBanner>
+                )}
                 <div ref={measureRef} className="w-full">
                     <div
                         className="border mx-auto bg-surface-primary rounded-lg"

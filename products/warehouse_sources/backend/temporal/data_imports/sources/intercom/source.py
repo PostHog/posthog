@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntercomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
+    IntercomSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     intercom_source,
     validate_credentials as validate_intercom_credentials,
@@ -34,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2.13",)
+    default_version = "2.13"
+    api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -57,6 +62,15 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             "Integration not found": "The linked Intercom integration no longer exists. Please reconnect your Intercom account.",
             "Intercom access token not found": "Intercom OAuth access token is missing. Please reconnect your Intercom account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The `companies` table walks Intercom's companies Scroll API (`_iter_companies` in
+        # intercom.py). The scroll cursor expires mid-walk on idle timeout or when a
+        # concurrent sync steals the workspace's single scroll slot, and the continuation
+        # then 404s (see `_is_scroll_expired`). `companies` is full-refresh, so a fresh
+        # Temporal attempt opens a new scroll and restarts cleanly — transient and
+        # self-recovering, not a real bug.
+        return {"Not Found for url: https://api.intercom.io/companies/scroll"}
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -88,6 +102,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint_config in INTERCOM_ENDPOINTS.values():
@@ -107,7 +122,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return schemas
 
     def validate_credentials(
-        self, config: IntercomSourceConfig, team_id: int, schema_name: str | None = None
+        self, config: IntercomSourceConfig, team_id: int, schema_name: str | None = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             integration = self.get_oauth_integration(config.intercom_integration_id, team_id)

@@ -460,6 +460,7 @@ export interface AssistantTrendsFilter {
      * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
+     * For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.
      */
     formulaNodes?: TrendsFormulaNode[]
 
@@ -496,8 +497,8 @@ export interface AssistantTrendsFilter {
      * `numeric` - no formatting. Prefer this option by default.
      * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
-     * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
-     * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage.
+     * `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`.
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */

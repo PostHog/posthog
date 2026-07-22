@@ -14,9 +14,13 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.persons import create_person
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
+    BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
+    FOCUSED_SURFACING_THRESHOLD,
+    NULL_SURFACING_SCORE_FALLBACK,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
+    surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_WINDOW_DAYS,
@@ -143,6 +147,33 @@ def test_sampling_predicate_emits_modulo_compare_at_partial_rate(rate, expected_
     assert isinstance(concat, ast.Call) and concat.name == "concat"
     # The per-scanner salt makes scanners draw independent samples instead of the identical session subset.
     assert isinstance(concat.args[1], ast.Constant) and concat.args[1].value == "scanner-1"
+
+
+def test_surfacing_score_predicate_passthrough_in_comprehensive():
+    assert surfacing_score_predicate("comprehensive") is None
+
+
+def test_surfacing_score_predicate_rejects_unknown_mode():
+    with pytest.raises(ValueError):
+        surfacing_score_predicate("focussed")
+
+
+def test_null_fallback_stays_below_balanced_threshold():
+    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    "mode,expected_threshold",
+    [
+        ("focused", FOCUSED_SURFACING_THRESHOLD),
+        ("balanced", BALANCED_SURFACING_THRESHOLD),
+    ],
+)
+def test_surfacing_score_predicate_emits_threshold(mode, expected_threshold):
+    expr = surfacing_score_predicate(mode)
+    assert isinstance(expr, ast.CompareOperation)
+    assert expr.op == ast.CompareOperationOp.GtEq
+    assert isinstance(expr.right, ast.Constant) and expr.right.value == expected_threshold
 
 
 # Integration: actual ClickHouse query.
