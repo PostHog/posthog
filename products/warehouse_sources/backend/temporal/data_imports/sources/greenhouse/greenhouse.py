@@ -203,6 +203,12 @@ def greenhouse_source(
             # `rel="next"` URL verbatim. v1's carries per_page + filters, v3's carries an opaque
             # cursor that must travel alone — following it verbatim satisfies both.
             "paginator": HeaderLinkPaginator(),
+            # Because that next URL is followed verbatim, pin every request (paginator and seeded
+            # resume URLs included) to the base host and reject cross-host redirects: a spoofed
+            # link must not be able to replay the credential — v3's minted Bearer token especially
+            # — to another origin. `allowed_hosts=[]` means "same host as base_url only".
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resources": [
             {

@@ -347,6 +347,38 @@ class TestGreenhousePaginationAndResume:
         assert sent[1] == (next_url, {})
         assert rows == [{"id": 1}, {"id": 2}]
 
+    @pytest.mark.parametrize(
+        "hostile_next_url",
+        [
+            "https://evil.example.com/v1/candidates?page=2",
+            # An allowed hostname over a downgraded scheme still puts the credential on the wire.
+            "http://harvest.greenhouse.io/v1/candidates?page=2",
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_origin_next_link_is_rejected_before_a_request_is_sent(
+        self, mock_factory: MagicMock, hostile_next_url: str
+    ) -> None:
+        # The Link URL is followed verbatim, so a spoofed one would otherwise replay the
+        # Authorization header (v3: a freshly minted Bearer token) to another origin.
+        session = mock_factory.return_value
+        self._wire(session, [_make_response([{"id": 1}], next_url=hostile_next_url)])
+
+        with pytest.raises(ValueError):
+            self._rows(_source("candidates"))
+
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cross_origin_redirect_is_not_followed(self, mock_factory: MagicMock) -> None:
+        session = mock_factory.return_value
+        redirect = _make_response([], status_code=302)
+        redirect.headers["Location"] = "https://evil.example.com/v1/candidates"
+        self._wire(session, [redirect])
+
+        with pytest.raises(ValueError):
+            self._rows(_source("candidates"))
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_filter_applied_to_first_request(self, mock_factory: MagicMock) -> None:
         session = mock_factory.return_value
