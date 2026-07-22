@@ -13,6 +13,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 import jwt
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import BaseModel
@@ -261,6 +262,31 @@ def get_global_themes():
     global_themes = DataColorTheme.objects.filter(Q(team_id=None))
     themes = DataColorThemeSerializer(global_themes, many=True).data
     return themes
+
+
+# Rendering-only flags evaluated for the resource creator, so exported and shared charts
+# render with the same styling the creator sees in-app (the anonymous exporter page has
+# no user to evaluate flags for otherwise). Remove entries once their rollout is complete.
+CHART_RENDERING_FEATURE_FLAGS = ["quill-chart-style-refresh", "product-analytics-quill-legend"]
+
+
+def chart_rendering_flags_for_resource(resource: Model | None) -> list[str]:
+    created_by = getattr(resource, "created_by", None)
+    if created_by is None:
+        # SharingConfiguration has no created_by; fall back to the shared resource's creator.
+        insight = getattr(resource, "insight", None)
+        dashboard = getattr(resource, "dashboard", None)
+        created_by = getattr(insight, "created_by", None) or getattr(dashboard, "created_by", None)
+    if created_by is None:
+        return []
+    enabled = []
+    for key in CHART_RENDERING_FEATURE_FLAGS:
+        try:
+            if posthoganalytics.feature_enabled(key, created_by.distinct_id, send_feature_flag_events=False):
+                enabled.append(key)
+        except Exception:
+            continue
+    return enabled
 
 
 def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
@@ -1209,6 +1235,51 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
+        elif isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("source"):
+            # Ad-hoc query export (no saved insight): compute the query server-side and inline the
+            # result so the exporter page can render `<Query cachedResults={…} />` without POSTing
+            # to the query API (which the asset token can't authenticate). The image exporter warms
+            # the cache right before rendering, so this is normally a cache hit.
+            # Render-once assets: only the exporter's short-lived render token may trigger this compute.
+            if self._token_purpose != EXPORTED_ASSET_PURPOSE_RENDER:
+                raise NotFound()
+            source_query = resource.export_context["source"]
+            execution_mode = shared_insights_execution_mode(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ).execution_mode
+            try:
+                query_response = process_query_dict(
+                    resource.team,
+                    source_query,
+                    execution_mode=execution_mode,
+                    # Anonymous render surface; attribute the read to the export owner so
+                    # warehouse HogQL access control resolves against their access.
+                    user=resource.created_by,
+                )
+            except Exception as e:
+                logger.warning("exported_query_calculation_failed", asset_id=resource.id, exc_info=True)
+                capture_exception(e)
+                raise NotFound("Query could not be calculated")
+
+            serialized_response: Any = None
+            if isinstance(query_response, BaseModel):
+                serialized_response = query_response.model_dump(mode="json")
+            elif isinstance(query_response, dict):
+                serialized_response = query_response
+            # `process_query_dict` swallows validation errors and returns a response with `error`
+            # populated — don't ship those to the anonymous exporter page.
+            if not isinstance(serialized_response, dict) or serialized_response.get("error"):
+                logger.warning("exported_query_returned_error", asset_id=resource.id)
+                raise NotFound("Query could not be calculated")
+
+            asset_title = "Query"
+            exported_data.update(
+                {
+                    "query": source_query,
+                    "query_results": serialized_response,
+                    "themes": get_themes_for_team(resource.team),
+                }
+            )
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
             from products.user_interviews.backend.facade.api import (
                 has_replied,
@@ -1403,6 +1474,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "asset_description": asset_description,
             "add_og_tags": add_og_tags,
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+            "extra_persisted_feature_flags": chart_rendering_flags_for_resource(resource),
         }
 
         return render_template(

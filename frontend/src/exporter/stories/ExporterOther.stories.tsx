@@ -8,6 +8,8 @@ import __dataTableHogQL from '../../mocks/fixtures/api/projects/team_id/insights
 import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { Exporter } from '../Exporter'
 
@@ -89,5 +91,24 @@ export const SQLInsightNoResults: Story = {
             ...(__dataTableHogQL as any),
             result: null,
         },
+    },
+}
+
+/** Ad-hoc query image export (`export_context.source`) — a query rendered from inlined results, with no saved insight. */
+export const AdhocQueryExport: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__trendsTable as any).query,
+        query_results: { results: (__trendsTable as any).result },
+    },
+}
+
+/** Multi-series ad-hoc export with `?legend=true` — the horizontal exporter legend below the chart, never the in-chart side legend. */
+export const AdhocQueryExportWithLegend: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__trendsBarBreakdown as any).query,
+        query_results: { results: (__trendsBarBreakdown as any).result },
+        legend: true,
     },
 }
