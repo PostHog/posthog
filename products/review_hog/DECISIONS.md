@@ -205,7 +205,7 @@ Dogfooding surfaced a dead-end: a review triggered from the Code review scene ru
 self-skipped and the findings were effectively invisible to the PR author — not in their "For you" tab (which
 matched `acting_user` only), no way to link to the report (drawer state was kea-only), the status comment
 blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
-tab claimed publication for findings computed against the *viewer's current* threshold. Decisions:
+tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
 
 - **Report deep links**: `/code_review?review=<report UUID>`, mirrored both ways by the existing URL sync in
   `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
@@ -220,7 +220,7 @@ tab claimed publication for findings computed against the *viewer's current* thr
   without a linked GitHub identity only get the PR-comment link.
 - **`ReviewReport.run_urgency_threshold`**, stamped at **finalize** (with `run_count` / `completed_head_sha`)
   from the same snapshot the body renderer and publish gate consumed — NOT at resolve, which describes the
-  *next* turn and would drift mid re-review under a different acting user. The drawer buckets by it; the
+  _next_ turn and would drift mid re-review under a different acting user. The drawer buckets by it; the
   viewer-settings proxy survives only as the fallback for pre-column rows. "Published (N)" now reads "Kept (N)"
   unless the review actually posted (`published_head_sha` set).
 - **Default-fallback threshold guard**: a default-resolved run (label trigger, unmapped author) now gates at
