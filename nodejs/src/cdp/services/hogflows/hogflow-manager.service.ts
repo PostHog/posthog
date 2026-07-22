@@ -1,9 +1,13 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
 import { Team } from '~/types'
+
+import { EncryptedFields } from '../../utils/encryption-utils'
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -21,6 +25,7 @@ const HOG_FLOW_FIELDS = [
     'exit_condition',
     'edges',
     'actions',
+    'encrypted_inputs',
     'abort_action',
     'billable_action_types',
     'variables',
@@ -35,7 +40,8 @@ export class HogFlowManagerService {
 
     constructor(
         private postgres: PostgresRouter,
-        private pubSub: PubSub
+        private pubSub: PubSub,
+        private encryptedFields: EncryptedFields
     ) {
         // The reload-hog-flows pub/sub below is the primary invalidation; these ages bound how
         // stale a worker can run when it misses the publish (pod restart, Redis blip). Live edits
@@ -181,8 +187,51 @@ export class HogFlowManagerService {
                     }
                 }
             }
+            this.mergeEncryptedInputs(item)
             acc[item.id] = item
             return acc
         }, {})
+    }
+
+    // Decrypts `encrypted_inputs` and folds each action's secret inputs back into
+    // `action.config.inputs` so the executor sees a whole config. Encrypted values win over any
+    // (legacy) plaintext still present in `actions`, so a row mid-migration keeps working either way.
+    private mergeEncryptedInputs(item: HogFlow): void {
+        const raw = item.encrypted_inputs as unknown
+
+        let decrypted: Record<string, Record<string, unknown>> | undefined
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            // The sql lib occasionally hands back an already-parsed object
+            decrypted = raw as Record<string, Record<string, unknown>>
+        } else if (typeof raw === 'string' && raw) {
+            try {
+                const plaintext = this.encryptedFields.decrypt(raw)
+                if (plaintext) {
+                    decrypted = parseJSON(plaintext)
+                }
+            } catch (error) {
+                logger.warn('[HogFlowManager]', 'Could not decrypt encrypted inputs - preserving original value', {
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                })
+                captureException(error)
+            }
+        }
+
+        // Drop the encrypted blob from the in-memory flow either way - downstream reads inputs off
+        // `action.config.inputs`, and this keeps the ciphertext out of anything that logs the flow.
+        delete item.encrypted_inputs
+
+        if (!decrypted) {
+            return
+        }
+
+        for (const action of item.actions ?? []) {
+            const actionSecrets = decrypted[action.id]
+            if (!actionSecrets || !('config' in action)) {
+                continue
+            }
+            const config = action.config as { inputs?: Record<string, unknown> }
+            config.inputs = { ...config.inputs, ...actionSecrets }
+        }
     }
 }

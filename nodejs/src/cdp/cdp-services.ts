@@ -356,7 +356,7 @@ export function createCdpCoreServices(
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
-    const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub)
+    const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
 
     const hogWatcherConfig = {
         hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
