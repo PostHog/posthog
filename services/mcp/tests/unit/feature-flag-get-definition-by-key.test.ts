@@ -37,7 +37,7 @@ describe('feature-flag-get-definition-by-key', () => {
             path: '/api/projects/42/feature_flags/',
             query: { key: 'new-checkout', limit: 5 },
         })
-        expect(result).toMatchObject({ id: 7, key: 'new-checkout' })
+        expect(result).toMatchObject({ id: 7, key: 'new-checkout', found: true })
     })
 
     it('picks the exact-case match when the key filter also returns a same-key different-case duplicate', async () => {
@@ -45,7 +45,7 @@ describe('feature-flag-get-definition-by-key', () => {
 
         const result = await tool.handler(createMockContext(request), { key: 'checkout' })
 
-        expect(result).toMatchObject({ id: 7, key: 'checkout' })
+        expect(result).toMatchObject({ id: 7, key: 'checkout', found: true })
     })
 
     it('resolves a key case-insensitively when no exact-case match exists', async () => {
@@ -53,7 +53,7 @@ describe('feature-flag-get-definition-by-key', () => {
 
         const result = await tool.handler(createMockContext(request), { key: 'new-checkout' })
 
-        expect(result).toMatchObject({ id: 7, key: 'New-Checkout' })
+        expect(result).toMatchObject({ id: 7, key: 'New-Checkout', found: true })
     })
 
     it('raises a validation error when a key matches multiple flags only case-insensitively', async () => {

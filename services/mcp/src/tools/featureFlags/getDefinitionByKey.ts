@@ -16,9 +16,11 @@ import type { Context, ToolBase } from '@/tools/types'
  *
  * A key that matches no flag is not an error. The dominant caller is an agent checking whether
  * a flag exists before creating it (a read-before-create existence check), so a miss is the
- * expected answer — it returns a structured `{ found: false }` result naming the key and
- * pointing at the list/create path, rather than throwing. Throwing here reported a routine
- * existence check as a failed tool call.
+ * expected answer: it returns a structured `{ found: false }` result naming the key and
+ * pointing at the list/create path. The caller's next step, creating the flag, doesn't depend
+ * on this being an exception. Reuse this not-found-as-data pattern for other existence checks;
+ * keep throwing where the caller expects the target to already exist, so a miss signals a
+ * genuine problem rather than an expected outcome.
  */
 const schema = z.object({
     key: z.string().describe('The feature flag key: the string identifier used in code (e.g. "new-checkout").'),
@@ -33,7 +35,8 @@ interface FeatureFlagLookupMiss {
     message: string
 }
 
-type Result = WithPostHogUrl<Schemas.FeatureFlag> | FeatureFlagLookupMiss
+/** Discriminate on `found` in both branches, so callers don't have to test for its absence on a match. */
+type Result = (WithPostHogUrl<Schemas.FeatureFlag> & { found: true }) | FeatureFlagLookupMiss
 
 const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
     name: 'feature-flag-get-definition-by-key',
@@ -79,7 +82,8 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
             )
         }
         const flag = matches[0]!
-        return await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
+        const flagWithUrl = await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
+        return { ...flagWithUrl, found: true }
     },
 })
 
