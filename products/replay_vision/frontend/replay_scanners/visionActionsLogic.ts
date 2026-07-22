@@ -107,7 +107,14 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                                 frequency: form.alert_frequency,
                                 metric: form.alert_metric,
                                 threshold: form.alert_threshold ?? 1,
-                                direction: form.alert_direction,
+                                // Direction is only a user choice for the average score (where "below a
+                                // floor" is the natural case). A count threshold is always "at least" —
+                                // "at most N matches" is a confusing quiet-window alarm — so pin it,
+                                // ignoring any stale below a loaded config might carry.
+                                direction:
+                                    form.alert_metric === VisionAlertMetricEnumApi.AvgScore
+                                        ? form.alert_direction
+                                        : VisionAlertDirectionEnumApi.Above,
                                 window_days: form.alert_window_days,
                             },
               }
@@ -234,6 +241,10 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             }
             try {
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
+                // Keep the digest in the shared list — scannerDigestLogic (the Observations-tab card)
+                // reads it from here via is_scanner_digest. The Summaries-and-alerts table filters it
+                // out at render time instead, so the card and the table can disagree without this
+                // source hiding the digest from both.
                 actions.loadActionsSuccess(response.results ?? [])
             } catch (error: any) {
                 lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)

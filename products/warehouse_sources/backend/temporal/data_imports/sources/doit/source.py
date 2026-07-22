@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit 
     doit_list_reports,
     doit_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DoItSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -41,6 +41,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 

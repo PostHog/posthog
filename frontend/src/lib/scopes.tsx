@@ -115,6 +115,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
+    { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
     {
         key: 'llm_gateway',
         objectName: 'LLM gateway',
@@ -126,6 +127,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
+    { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
@@ -190,6 +192,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
@@ -252,7 +255,12 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
+    'endpoint:read',
+    'feature_flag:read',
+    'account:read',
+    'loop:write',
+] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 

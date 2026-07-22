@@ -40,11 +40,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
+    ClickHouseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+# Shown when we can't map the failure to a specific cause. Names the usual
+# culprits so the user has something concrete to check, rather than a bare
+# "check your details".
+GENERIC_CONNECTION_ERROR = (
+    "Could not connect to ClickHouse. Check that the host and port are correct, the HTTPS setting matches "
+    "your server, and that PostHog's IP addresses are allowed through any firewall."
+)
+
+# A transient gateway/rate-limit response that survived the in-process connect
+# retries. The connection details are fine — the server is momentarily busy or
+# waking (idle ClickHouse Cloud services routinely 5xx the first request), so
+# ask the user to retry rather than implying their credentials are wrong.
+_TEMPORARILY_UNAVAILABLE = (
+    "ClickHouse is temporarily busy or unavailable and didn't accept the connection. Wait a moment and try again."
+)
 
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
@@ -60,6 +78,14 @@ ClickHouseErrors: dict[str, str] = {
     "connection refused": "Could not connect to ClickHouse on the given host/port",
     "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
     "ssl": "TLS/SSL handshake failed. If your server does not use TLS, disable the HTTPS toggle.",
+    # The host answered but isn't serving the ClickHouse HTTP interface on this
+    # host/port (wrong port, a proxy, or a native-protocol port). Same wording
+    # as the sync-time non-retryable handling.
+    "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    "returned response code 429": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 502": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 503": _TEMPORARILY_UNAVAILABLE,
+    "returned response code 504": _TEMPORARILY_UNAVAILABLE,
 }
 
 
@@ -233,6 +259,28 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_client` already retries dropped connections and rate limits in-process
+        # (see clickhouse.py's `_is_retryable_connect_error`) before re-raising as
+        # `ClickHouseConnectionError`. Bare HTTP 502/503/504 responses skip that
+        # in-process retry by design (there's no proxy CONNECT to re-dial) and go
+        # straight to Temporal's activity retry instead. Either way, once Temporal
+        # retries the activity the failure is transient and self-recovering, so
+        # don't surface it as tracked exception noise.
+        return {
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+            "Connection aborted",
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+            "returned response code 429",
+            "returned response code 502",
+            "returned response code 503",
+            "returned response code 504",
+        }
+
     def get_schemas(
         self,
         config: ClickHouseSourceConfig,
@@ -240,6 +288,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
@@ -314,7 +363,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return schemas
 
     def validate_credentials(
-        self, config: ClickHouseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -327,7 +380,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None, api_version=api_version)
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
@@ -336,16 +389,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             )
         except ClickHouseConnectionError as e:
             message = self._translate_error(str(e))
-            return False, message or "Could not connect to ClickHouse. Please check all connection details are valid."
+            return False, message or GENERIC_CONNECTION_ERROR
         except (DatabaseError, OperationalError, ClickHouseError) as e:
             message = self._translate_error(str(e))
             if message is None:
                 capture_exception(e)
-                return False, "Could not connect to ClickHouse. Please check all connection details are valid."
+                return False, GENERIC_CONNECTION_ERROR
             return False, message
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to ClickHouse. Please check all connection details are valid."
+            return False, GENERIC_CONNECTION_ERROR
 
         return True, None
 

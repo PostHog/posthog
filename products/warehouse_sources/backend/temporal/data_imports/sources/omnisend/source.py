@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OmnisendSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omnisend import (
+    OmnisendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend import (
     OmnisendResumeConfig,
     omnisend_source,
@@ -87,23 +92,16 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(fields := INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(fields),
-                incremental_fields=fields or [],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: OmnisendSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OmnisendSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, status_code = validate_omnisend_credentials(config.api_key)
         if is_valid:
@@ -132,6 +130,7 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
         return omnisend_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

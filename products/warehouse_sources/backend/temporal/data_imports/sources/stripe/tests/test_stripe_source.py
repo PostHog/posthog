@@ -1,4 +1,5 @@
 import functools
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -9,7 +10,7 @@ import stripe as stripe_lib
 from stripe import ListObject
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
     StripeSourceConfig,
 )
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     SUBSCRIPTION_PAGE_LIMIT,
@@ -390,6 +392,47 @@ class TestStripeNestedResourceGetRows:
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
 
 
+class TestInvoiceListWithAllLines:
+    def test_skips_lines_for_invoice_deleted_mid_sync(self):
+        invoices = [
+            SimpleNamespace(id="in_gone", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
+            SimpleNamespace(id="in_ok", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
+        ]
+
+        def line_items_list(invoice=None, params=None):
+            if invoice == "in_gone":
+                raise stripe_lib.InvalidRequestError(
+                    f"No such invoice: '{invoice}'", "invoice", code="resource_missing", http_status=404
+                )
+            return _list_object([{"id": "il_1"}])
+
+        client = MagicMock()
+        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+
+        assert [inv.id for inv in result] == ["in_gone", "in_ok"]
+        # The deleted invoice keeps its original (incomplete) lines rather than crashing the sync.
+        assert result[0].lines.has_more is True
+        # The still-existing invoice gets its lines fully expanded.
+        assert result[1].lines.has_more is False
+        assert result[1].lines.data == [{"id": "il_1"}]
+
+    def test_other_invalid_request_errors_still_raise(self):
+        invoices = [SimpleNamespace(id="in_1", lines=SimpleNamespace(has_more=True, data=[], url="orig"))]
+
+        def line_items_list(invoice=None, params=None):
+            raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
+
+        client = MagicMock()
+        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        with pytest.raises(stripe_lib.InvalidRequestError):
+            list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+
+
 class TestSubscriptionPageSize:
     def test_build_resources_caps_subscription_page_size(self):
         # Subscriptions expand discounts at two levels, so a full DEFAULT_LIMIT page can grow past the
@@ -581,6 +624,14 @@ class TestWebhookOnlyResponseWiring:
         response = self._source(CUSTOMER_RESOURCE_NAME, manager)
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
+
+    def test_discount_partitions_on_start_not_created(self) -> None:
+        # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
+        # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
+        # the first real customer.discount.* webhook event, failing the whole sync.
+        manager = self._make_manager(enabled=True)
+        response = self._source(DISCOUNT_RESOURCE_NAME, manager)
+        assert response.partition_keys == ["start"]
 
 
 class TestSchemaWebhookCapability:

@@ -115,6 +115,7 @@ BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
 # mirroring `mark_report_billing_exempt`'s first-reason-wins freeze.
 BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
     SignalSourceProduct.HEALTH_CHECKS: SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+    SignalSourceProduct.ENGINEERING_ANALYTICS: SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
 }
 
 
@@ -205,6 +206,32 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     """`first_billable_pr_run`, timestamp only."""
     run = first_billable_pr_run(report_id)
     return run.created_at if run else None
+
+
+def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
+    """Whether *this* PR of the report merged, per the tasks GitHub webhook.
+
+    Reads `output.pr_merged`, the flag the webhook persists when a PR merges — the factual record of
+    a merge, independent of report status. A report can now reach RESOLVED without a merged PR (a
+    user or agent can resolve it directly), so status alone no longer attests a merge.
+
+    Scoped to one `pr_url` rather than the whole report, because the caller is deciding about a
+    specific PR: the refund reverses the charge for the billable run's PR, and it's that PR which
+    must be closed if it never merged. A report-level check would let an unrelated later PR that did
+    merge vouch for the refunded one, leaving the refunded PR open.
+
+    Fail closed like `_bridges_with_pr_run`: the PR URL, the merge flag, and the four team checks all
+    sit in one `filter()` so they resolve against the same `TaskRun` row.
+    """
+    return SignalReportTask.objects.filter(
+        relationship=_IMPLEMENTATION,
+        report_id=report_id,
+        task__team_id=F("team_id"),
+        report__team_id=F("team_id"),
+        task__runs__team_id=F("team_id"),
+        task__runs__output__pr_url=pr_url,
+        task__runs__output__pr_merged=True,
+    ).exists()
 
 
 def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:

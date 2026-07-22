@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -6,16 +7,18 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
 
@@ -23,7 +26,14 @@ forward_pending_user_message = _module.forward_pending_user_message
 
 
 def _command_result(**kwargs):
-    defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
+    defaults = {
+        "success": False,
+        "status_code": 0,
+        "error": None,
+        "retryable": False,
+        "turn_in_flight": False,
+        "data": None,
+    }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
 
@@ -94,8 +104,37 @@ class TestForwardPendingUserMessage(TestCase):
 
         mock_send.assert_called_once()
         assert mock_send.call_args[0][1] == "fix the tests"
+        assert mock_send.call_args.kwargs["message_id"]
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_successful_delivery_attributes_sandbox_usage(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "await_user_message": True,
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="sb-fwd",
+            cpu_cores=4.0,
+            memory_gb=16.0,
+            ttl_seconds=3600,
+            ttl_expires_at=timezone.now() + timedelta(seconds=3600),
+        )
+        mock_send.return_value = _command_result(success=True, status_code=200)
+
+        forward_pending_user_message(str(run.id))
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-fwd")
+        assert session.user_attributed_at is not None
+        assert session.last_user_activity_at is not None
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")
@@ -109,14 +148,41 @@ class TestForwardPendingUserMessage(TestCase):
         )
         mock_send.return_value = _command_result(success=False, status_code=504, error="timeout", retryable=True)
 
-        forward_pending_user_message(str(run.id))
+        with self.assertRaises(ApplicationError) as error_context:
+            forward_pending_user_message(str(run.id))
 
+        assert error_context.exception.non_retryable is True
         mock_send.assert_called_once()
         captured_events = [call.kwargs["event"] for call in mock_capture.call_args_list]
         assert "process_task_activity_failed" in captured_events
         assert "process_task_activity_completed" not in captured_events
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
+        assert run.state.get("pending_user_message_id")
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_read_timeout_keeps_running_turn_alive(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=False,
+            status_code=504,
+            error="Sandbox request timed out",
+            retryable=True,
+            turn_in_flight=True,
+        )
+
+        forward_pending_user_message(str(run.id))
+
+        mock_send.assert_called_once()
+        run.refresh_from_db()
+        assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
@@ -132,12 +198,18 @@ class TestForwardPendingUserMessage(TestCase):
         )
         before = _delivery_failed_sample("true")
 
-        forward_pending_user_message(str(run.id))
+        with self.assertRaises(ApplicationError) as error_context:
+            forward_pending_user_message(str(run.id))
 
+        assert error_context.exception.non_retryable is True
         assert mock_send.call_count == 2
+        message_ids = [call.kwargs["message_id"] for call in mock_send.call_args_list]
+        assert message_ids[0]
+        assert message_ids[0] == message_ids[1]
         assert _delivery_failed_sample("true") == before + 1
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
+        assert run.state.get("pending_user_message_id") == message_ids[0]
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
@@ -157,6 +229,7 @@ class TestForwardPendingUserMessage(TestCase):
         assert _delivery_failed_sample("false") == before + 1
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
 
     @patch(
         "products.tasks.backend.logic.services.staged_artifacts.get_task_run_artifacts_by_id",

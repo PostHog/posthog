@@ -2,8 +2,10 @@
 
 ## The presentation layer stays source-agnostic
 
-The source/schema views here (`views/external_data_source.py`, `views/external_data_schema.py`)
-must not branch on a concrete source type. No:
+This applies to both data warehouse presentation layers: the source/schema views (now in
+`products/warehouse_sources/backend/presentation/views/`: `external_data_source.py`,
+`external_data_schema.py`) and the table/query-side views here. Neither may branch on a
+concrete source type. No:
 
 ```python
 if source_type == ExternalDataSourceType.POSTGRES: ...
@@ -44,14 +46,16 @@ source / adapter returns. Source capabilities never import `data_warehouse` type
 
 `.github/scripts/check-dwh-source-agnostic.py` is a shrink-only CI guard (run in
 `ci-backend.yml`). It counts every `ExternalDataSourceType.<NAME>` / `SourceType.<NAME>` /
-`is_direct_<engine>` reference in this directory against a baseline
-(`source_agnostic_baseline.txt`). A new reference fails CI; migrating a family lets you shrink
-the baseline:
+`is_direct_<engine>` reference across both the `data_warehouse` and `warehouse_sources`
+presentation layers against a baseline (`source_agnostic_baseline.txt`, kept here). A new
+reference fails CI; migrating a family lets you shrink the baseline:
 
 ```bash
 python .github/scripts/check-dwh-source-agnostic.py --regenerate-baseline
 ```
 
-The baseline only shrinks. When it hits zero, delete the guard.
+The baseline only shrinks. It is now empty: the presentation layer is fully source-agnostic, so
+the guard acts as a hard regression check — any new `ExternalDataSourceType.<NAME>` /
+`is_direct_<engine>` reference here fails CI. Keep it that way.
 
 See `implementing-warehouse-sources` for how to add behaviour to a source.

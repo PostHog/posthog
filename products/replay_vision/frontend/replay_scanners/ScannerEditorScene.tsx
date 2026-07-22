@@ -33,6 +33,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -360,8 +361,10 @@ function EditorFooter({
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
     // A broken duration filter (scans nothing) blocks the save — surface it as a disabled reason so the
-    // button explains itself instead of silently doing nothing.
-    const saveDisabledReason = durationValidationError ?? undefined
+    // button explains itself instead of silently doing nothing. RBAC takes priority: it's the more
+    // fundamental blocker, and this must match the backend's create/update requirement exactly — a
+    // disabled-looking button that the backend would still accept (or vice versa) is a real bug here.
+    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationValidationError
 
     return (
         <div className="flex items-center justify-between">
@@ -380,6 +383,7 @@ function EditorFooter({
                 <LemonButton
                     type="primary"
                     loading={isSubmitting}
+                    disabledReason={saveDisabledReason}
                     onClick={onAdvance}
                     className="ml-auto"
                     data-attr="vision-editor-next"
