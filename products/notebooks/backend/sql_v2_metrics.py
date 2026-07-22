@@ -35,9 +35,9 @@ logger = structlog.get_logger(__name__)
 
 NODE_RUN_COMPLETED_EVENT = "notebook node run completed"
 
-# The terminal statuses, plus `timed_out` — a FAILED written by a watchdog (the direct
-# lane's grace expiry or the stale-run reaper). Kept distinct so a hung sandbox is a
-# visible bucket rather than indistinguishable from a user error.
+# The terminal statuses, plus `timed_out` — a FAILED written by the direct lane's
+# grace-expiry watchdog. Kept distinct so an expired query is a visible bucket rather
+# than indistinguishable from a user error.
 OUTCOME_DONE = "done"
 OUTCOME_FAILED = "failed"
 OUTCOME_INTERRUPTED = "interrupted"

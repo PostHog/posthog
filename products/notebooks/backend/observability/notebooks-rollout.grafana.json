@@ -39,7 +39,7 @@
         {
             "type": "timeseries",
             "title": "Node run duration p50/p95, by node type",
-            "description": "End to end: run-row creation to the terminal transition (callback, direct-lane finish, interrupt, or reaper). Unlike the frame histograms below, every outcome contributes a sample \u2014 the reaper turns lost callbacks into timed_out instead of missing data.",
+            "description": "End to end: run-row creation to the terminal transition (callback, direct-lane finish, or interrupt). Unlike the frame histograms below, every terminal outcome contributes a sample \u2014 but a kernel run whose sandbox callback is lost stays RUNNING and is missing here until re-run.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -71,7 +71,7 @@
         {
             "type": "timeseries",
             "title": "Run outcomes",
-            "description": "done / failed / interrupted / timed_out. timed_out is a watchdog verdict (direct-lane grace expiry or the stale-run reaper) \u2014 a rising timed_out rate means callbacks are being lost, not that users are writing bad queries.",
+            "description": "done / failed / interrupted / timed_out. timed_out comes from the direct lane's grace-expiry watchdog \u2014 a rising timed_out rate means queries are expiring in the async manager, not that users are writing bad queries.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"

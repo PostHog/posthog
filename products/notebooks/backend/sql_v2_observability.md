@@ -59,17 +59,17 @@ The Prometheus `posthog_notebooks_frame_object_bytes` histogram is the mode-inde
 
 ## Node-run instrumentation (closes gap 1)
 
-Every terminal transition of a `NotebookNodeRun` — the sandbox callback, the direct-lane finish, dispatch failures, interrupts, and the stale-run reaper — reports once through `sql_v2_metrics.record_node_run_terminal`, emitting three sinks:
+Every terminal transition of a `NotebookNodeRun` — the sandbox callback, the direct-lane finish, dispatch failures, and interrupts — reports once through `sql_v2_metrics.record_node_run_terminal`, emitting three sinks:
 
-- **`posthog_notebooks_node_run_seconds{node_type,outcome}`** — end-to-end duration, run-row `created_at` to the terminal transition. `outcome` is `done` / `failed` / `interrupted` / `timed_out`; watchdog verdicts (direct-lane grace expiry, the reaper) are `timed_out`, so a lost callback is a bucket, not a missing sample.
+- **`posthog_notebooks_node_run_seconds{node_type,outcome}`** — end-to-end duration, run-row `created_at` to the terminal transition. `outcome` is `done` / `failed` / `interrupted` / `timed_out`; the direct lane's grace-expiry watchdog reports `timed_out`, so an expired query is a bucket, not a user error.
 - **`posthog_notebooks_node_run_phase_seconds{phase,node_type}`** — the decomposition, from the run envelope's `timings` dict. Sandbox-reported: `input_wait` (data-plane wait for referenced frames or the display fetch), `download` (presigned frame downloads), `exec` (ipykernel cell), `sandbox_total`. Direct lane, from `QueryStatus`: `queued` (enqueue → Celery pickup), `clickhouse` (pickup → completion).
 - **`notebook node run completed`** PostHog event with `duration_seconds`, the phase seconds, `row_count`, `outcome`, `notebook_short_id` — the per-notebook/per-team view Prometheus label cardinality can't hold.
 
 Both histograms also stream into the PostHog Metrics product via their OTLP twins (`posthog/otel_metrics.py`).
 
-The reaper (`sql_v2_reaper.py`, Celery beat every 10 min) fails runs stranded RUNNING past 40 minutes — the callback is best-effort by design, so without it a dead sandbox left rows RUNNING forever and the metrics survivorship-biased.
+One deliberate hole: the callback is best-effort, so a kernel-lane run whose sandbox dies without delivering stays RUNNING and contributes **no** sample — the row remains visible in Postgres and the node can be re-run. A periodic reaper that would fail such rows (and record them as `timed_out`) was built and dropped as more complexity than the case warrants; revisit if stranded rows become common.
 
-Still open from the original gap: nothing measures the frontend's own poll-to-render latency, and the kernel's presigned _download failure_ modes remain observable only as an `input_wait`-heavy failed run (see gap 5).
+Still open from the original gap: lost-callback kernel runs (above), the frontend's own poll-to-render latency, and the kernel's presigned _download failure_ modes, which remain observable only as an `input_wait`-heavy failed run (see gap 5).
 
 ## Gaps — suggested follow-ups
 
@@ -77,7 +77,7 @@ Ordered by how much they'd hurt during a rollout.
 
 ### 1. ~~No E2E latency for a notebook query~~ — closed by the node-run instrumentation above
 
-Shipped as proposed — see "Node-run instrumentation" above for the metric names and the reaper that makes `timed_out` a real bucket.
+Shipped — see "Node-run instrumentation" above for the metric names; the lost-callback caveat there is the one remaining sliver.
 
 ### 2. Success-only histograms → add an `outcome` label
 
