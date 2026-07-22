@@ -44,6 +44,7 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'inbox-reports-bulk-set-state',
     'inbox-reports-set-state',
     'llma-prompt-label-set',
+    'organization-enforce-2fa',
     'scout-scratchpad-forget',
     'signals-scout-scratchpad-forget',
     'skill-archive',
@@ -137,6 +138,7 @@ const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'cdp-functions-create',
     'workflows-create',
     'workflows-create-email-template',
+    'llma-parser-recipe-create',
 ])
 
 /** Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`. */
