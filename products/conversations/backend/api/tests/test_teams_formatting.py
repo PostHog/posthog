@@ -271,7 +271,7 @@ class TestRichContentToTeamsHtml(SimpleTestCase):
 class TestAppendTeamsAttribution(SimpleTestCase):
     def test_appends_italic_footer(self):
         assert append_teams_attribution("<p>Hello</p>", "Xander Jones") == (
-            "<p>Hello</p><p><i>Xander Jones via SupportHog</i></p>"
+            "<p>Hello</p><p><i>Max Hedgehog via SupportHog</i></p>"
         )
 
     def test_no_author_leaves_reply_untouched(self):
@@ -289,11 +289,11 @@ class TestBuildTeamsReplyHtml(SimpleTestCase):
             "type": "doc",
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "All fixed now."}]}],
         }
-        assert build_teams_reply_html(rich, "All fixed now.", "Xander Jones") == (
-            "<p>All fixed now.</p><p><i>Xander Jones via SupportHog</i></p>"
+        assert build_teams_reply_html(rich, "All fixed now.", "Max Hedgehog") == (
+            "<p>All fixed now.</p><p><i>Max Hedgehog via SupportHog</i></p>"
         )
 
     def test_falls_back_to_plain_content_with_footer(self):
-        assert build_teams_reply_html(None, "All fixed now.", "Xander Jones") == (
-            "All fixed now.<p><i>Xander Jones via SupportHog</i></p>"
+        assert build_teams_reply_html(None, "All fixed now.", "Max Hedgehog") == (
+            "All fixed now.<p><i>Max Hedgehog via SupportHog</i></p>"
         )
