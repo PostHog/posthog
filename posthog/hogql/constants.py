@@ -196,6 +196,13 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
     # without touching NULL semantics (unlike transform_null_in).
     optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
+    # A bugfix workaround for UNION/INTERSECT DISTINCT losing deduplication on ClickHouse 26.3.x when
+    # every branch carries an ORDER BY: the planner puts DistinctSortedStreamTransform (adjacent-row
+    # dedup, assumes a globally sorted input) after the Resize that merely concatenates the branches'
+    # independently sorted streams, so cross-branch duplicates survive. 26.6 plans a hash
+    # DistinctTransform instead. Only effective at the outermost statement level (branch-level settings
+    # are ignored for the distinct step), so set it on the executor's global settings, not per SELECT.
+    optimize_distinct_in_order: Optional[bool] = None
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
