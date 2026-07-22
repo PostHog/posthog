@@ -125,6 +125,7 @@ describe('BatchWritingPersonStore', () => {
             fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
+            fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
@@ -162,10 +163,15 @@ describe('BatchWritingPersonStore', () => {
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),
+            deletePersons: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
+            moveDistinctIdsFromPersons: jest
+                .fn()
+                .mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+            updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
         }
         return mockTransaction
     }

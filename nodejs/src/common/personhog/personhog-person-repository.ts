@@ -125,6 +125,15 @@ export class PersonHogPersonRepository implements PersonRepository {
         }
     }
 
+    fetchPersonsForUpdateByDistinctIds(
+        teamId: TeamId,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]> {
+        // Locking read — always Postgres, like fetchPerson({forUpdate: true}).
+        return this.postgres.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, callerTag)
+    }
+
     async fetchDistinctIdsForPersons(
         teamId: TeamId,
         personIntIds: string[],

@@ -87,6 +87,17 @@ export interface PersonRepository {
     ): Promise<InternalPerson[]>
 
     /**
+     * Batched, row-locking variant of fetchPerson({forUpdate: true}) for folded
+     * merges: resolves and locks all persons behind the given distinct_ids in
+     * one statement, in deterministic (person id) lock order.
+     */
+    fetchPersonsForUpdateByDistinctIds(
+        teamId: TeamId,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]>
+
+    /**
      * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id (single team).
      * Returns a record keyed by int person_id as a string (matching InternalPerson.id).
      * Persons with no distinct_ids will be absent from the result.
