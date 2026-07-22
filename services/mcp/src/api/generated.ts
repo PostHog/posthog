@@ -22737,7 +22737,7 @@ export namespace Schemas {
        * * `warning` - Warning
        * * `critical` - Critical */
       readonly state: EmailReputationStateEnum;
-      /** Bounces / emails sent over the evaluated volume (0-1). */
+      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
       readonly bounce_rate: number;
       /** Spam complaints / emails sent over the evaluated volume (0-1). */
       readonly complaint_rate: number;
@@ -67728,7 +67728,7 @@ export namespace Schemas {
        * * `warning` - Warning
        * * `critical` - Critical */
       readonly state: EmailReputationStateEnum;
-      /** Bounces / emails sent over the evaluated volume (0-1). */
+      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
       readonly bounce_rate: number;
       /** Spam complaints / emails sent over the evaluated volume (0-1). */
       readonly complaint_rate: number;

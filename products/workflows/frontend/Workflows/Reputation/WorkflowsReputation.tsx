@@ -20,19 +20,20 @@ const STATE_CONFIG: Record<EmailReputationStateEnumApi, { label: string; type: L
     healthy: {
         label: 'Healthy',
         type: 'success',
-        tooltip: 'Bounce rate below 2% and spam complaint rate below 0.1%.',
+        tooltip:
+            'Hard bounce rate below 2% and spam complaint rate below 0.1%. Transient bounces (greylisting, mailbox full) are not counted.',
     },
     warning: {
         label: 'Warning',
         type: 'warning',
         tooltip:
-            'Bounce rate at or above 2%, or spam complaint rate at or above 0.1%. Review your recipient list before rates climb further.',
+            'Hard bounce rate at or above 2%, or spam complaint rate at or above 0.1%. Review your recipient list before rates climb further.',
     },
     critical: {
         label: 'Critical',
         type: 'danger',
         tooltip:
-            'Bounce rate at or above 5%, or spam complaint rate at or above 0.5%. Sending at these rates puts email deliverability at risk.',
+            'Hard bounce rate at or above 5%, or spam complaint rate at or above 0.5%. Sending at these rates puts email deliverability at risk.',
     },
     insufficient_data: {
         label: 'Not enough data',

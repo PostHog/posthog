@@ -855,7 +855,8 @@ class EmailReputationSnapshotSerializer(serializers.ModelSerializer):
         ),
     )
     bounce_rate = serializers.FloatField(
-        read_only=True, help_text="Bounces / emails sent over the evaluated volume (0-1)."
+        read_only=True,
+        help_text="Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded.",
     )
     complaint_rate = serializers.FloatField(
         read_only=True, help_text="Spam complaints / emails sent over the evaluated volume (0-1)."
