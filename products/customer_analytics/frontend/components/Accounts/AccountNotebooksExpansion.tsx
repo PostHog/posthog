@@ -310,7 +310,7 @@ export function AccountNotebooksExpansion({
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
-                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_EVENT_STREAM] && {
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                                 key: 'event_stream' as const,
                                 label: 'Event stream',
                                 content: <AccountEventStreamToggle accountId={accountId} externalId={externalId} />,

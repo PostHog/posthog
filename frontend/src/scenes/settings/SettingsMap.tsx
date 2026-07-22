@@ -433,7 +433,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
                 component: <CustomerAnalyticsEventStream />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP', 'CUSTOMER_ANALYTICS_EVENT_STREAM'],
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
             },
         ],
