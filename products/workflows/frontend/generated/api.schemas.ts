@@ -438,7 +438,7 @@ export interface HogFlowActionApi {
     type: string
     /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
     config: HogFlowActionApiConfig
-    /** Output variable definition for downstream actions. */
+    /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
     output_variable?: unknown
 }
 
@@ -715,7 +715,7 @@ export const HogFlowGraphOperationOpEnumApi = {
 } as const
 
 export interface HogFlowGraphOperationApi {
-    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
      *
      * * `update_action` - update_action
      * * `add_action` - add_action
@@ -732,7 +732,7 @@ export interface HogFlowGraphOperationApi {
     action?: unknown
     /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
     edge?: HogFlowEdgeApi
-    /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+    /** replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op. */
     edges?: HogFlowEdgeApi[]
 }
 
@@ -819,10 +819,66 @@ export interface AppMetricsTotalsResponseApi {
 }
 
 export interface HogFlowPublishRequestApi {
-    /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+    /** False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow. */
     confirm?: boolean
-    /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
-    draft_updated_at?: string
+    /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
+    confirm_token?: string
+}
+
+export interface HogFlowPublishImpactMoveTargetApi {
+    /** Id of the surviving step runs will continue at. */
+    action_id: string
+    /** Name of the surviving step. */
+    name: string
+}
+
+export interface HogFlowPublishImpactDeletedStepApi {
+    /** Id of the step this publish deletes. */
+    action_id: string
+    /** Name of the deleted step. */
+    name: string
+    /**
+     * About how many in-flight runs are parked on this step. Null when the count is unavailable.
+     * @nullable
+     */
+    runs: number | null
+    /** Where those runs continue (skip-forward). Null when nothing downstream survives. */
+    moves_to: HogFlowPublishImpactMoveTargetApi | null
+    /** True when runs parked here exit the workflow instead of moving forward. */
+    exits: boolean
+}
+
+export interface HogFlowPublishImpactEmptyVariableApi {
+    /** Variable that renders empty for runs already past its producer. */
+    variable: string
+    /**
+     * Id of the new action that sets it; null when the draft newly declares it as a workflow variable.
+     * @nullable
+     */
+    set_by: string | null
+    /** Ids of steps whose content references the variable. */
+    referenced_by: string[]
+}
+
+export interface HogFlowPublishImpactScheduleConflictApi {
+    /** Schedule whose variable overrides reference removed variables. */
+    schedule_id: string
+    /** Override keys the draft no longer declares as workflow variables. */
+    variables: string[]
+}
+
+export interface HogFlowPublishImpactApi {
+    /** Per deleted step: how many runs are parked there and where they go. Empty for content-only edits. */
+    deleted_steps: HogFlowPublishImpactDeletedStepApi[]
+    /**
+     * In-flight runs whose current step is unknown. Null when the count is unavailable.
+     * @nullable
+     */
+    position_unknown: number | null
+    /** Variables that render empty for runs predating their producer. */
+    empty_variables: HogFlowPublishImpactEmptyVariableApi[]
+    /** Schedules overriding variables the draft removes. */
+    schedule_conflicts: HogFlowPublishImpactScheduleConflictApi[]
 }
 
 export interface HogFlowPublishResponseApi {
@@ -834,10 +890,17 @@ export interface HogFlowPublishResponseApi {
      */
     in_flight_runs: number | null
     /**
-     * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+     * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
      * @nullable
      */
     draft_updated_at: string | null
+    /**
+     * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+     * @nullable
+     */
+    confirm_token: string | null
+    /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
+    impact: HogFlowPublishImpactApi | null
     /** The workflow after publishing (only set when published=true). */
     workflow?: HogFlowApi | null
 }
@@ -908,6 +971,36 @@ export interface HogInvocationRerunResponseApi {
     queued_count: number
     /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
     skipped_count: number
+}
+
+export interface HogFlowRevisionBasicApi {
+    /** Workflow version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+}
+
+export interface PaginatedHogFlowRevisionBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowRevisionBasicApi[]
+}
+
+export interface HogFlowRevisionApi {
+    /** Workflow version this snapshot was published as. */
+    readonly version: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+    /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+    readonly content: unknown
+}
+
+export interface HogFlowRevisionRestoreRequestApi {
+    /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+    overwrite?: boolean
 }
 
 export interface PatchedHogFlowScheduleApi {
@@ -1398,6 +1491,17 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type HogFlowsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type HogFlowsMetricsGlobalRetrieveParams = {
     /**

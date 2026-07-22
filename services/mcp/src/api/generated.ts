@@ -7935,11 +7935,23 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
+    export interface TileFilters {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      filterTestAccounts?: boolean | null;
+      /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+      ignoreDashboardFilters?: boolean | null;
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
     export interface InsightFilterOverrideContext {
       /** Dashboard filters that remain active after applying tile precedence. */
       dashboard?: DashboardFilter | null;
       /** Tile filters applied above the dashboard filters. */
-      tile?: DashboardFilter | null;
+      tile?: TileFilters | null;
       /** Dashboard filters replaced by the tile filters. */
       overridden_dashboard?: DashboardFilter | null;
     }
@@ -15981,6 +15993,35 @@ export namespace Schemas {
     export interface CreateRunResult {
       run_id: string;
       uploads: UploadTarget[];
+    }
+
+    /**
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet
+     */
+    export type CreateTableFromUploadFileFormatEnum = typeof CreateTableFromUploadFileFormatEnum[keyof typeof CreateTableFromUploadFileFormatEnum];
+
+
+    export const CreateTableFromUploadFileFormatEnum = {
+      Csv: 'csv',
+      Json: 'json',
+      Parquet: 'parquet',
+    } as const;
+
+    export interface CreateTableFromUpload {
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: CreateTableFromUploadFileFormatEnum;
+      /** Name the resulting table is queried by in HogQL. */
+      table_name: string;
     }
 
     /**
@@ -31093,6 +31134,17 @@ export namespace Schemas {
       ordered_ids: string[];
     }
 
+    export interface FileUploadResponse {
+      /** Id of the stored upload. Pass it to create_from_upload to build the table. */
+      upload_id: string;
+      /** Sanitized name the file was stored under. */
+      filename: string;
+      /** Format the file will be read as: 'csv', 'json', or 'parquet'. */
+      file_format: string;
+      /** Size of the stored file in bytes. */
+      size_bytes: number;
+    }
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -32359,7 +32411,7 @@ export namespace Schemas {
       type: string;
       /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
-      /** Output variable definition for downstream actions. */
+      /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
     }
 
@@ -32533,7 +32585,7 @@ export namespace Schemas {
     } as const;
 
     export interface HogFlowGraphOperation {
-      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
        *
        * * `update_action` - update_action
        * * `add_action` - add_action
@@ -32550,7 +32602,7 @@ export namespace Schemas {
       action?: unknown;
       /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
       edge?: HogFlowEdge;
-      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+      /** replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op. */
       edges?: HogFlowEdge[];
     }
 
@@ -32602,11 +32654,67 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface HogFlowPublishImpactMoveTarget {
+      /** Id of the surviving step runs will continue at. */
+      action_id: string;
+      /** Name of the surviving step. */
+      name: string;
+    }
+
+    export interface HogFlowPublishImpactDeletedStep {
+      /** Id of the step this publish deletes. */
+      action_id: string;
+      /** Name of the deleted step. */
+      name: string;
+      /**
+         * About how many in-flight runs are parked on this step. Null when the count is unavailable.
+         * @nullable
+         */
+      runs: number | null;
+      /** Where those runs continue (skip-forward). Null when nothing downstream survives. */
+      moves_to: HogFlowPublishImpactMoveTarget | null;
+      /** True when runs parked here exit the workflow instead of moving forward. */
+      exits: boolean;
+    }
+
+    export interface HogFlowPublishImpactEmptyVariable {
+      /** Variable that renders empty for runs already past its producer. */
+      variable: string;
+      /**
+         * Id of the new action that sets it; null when the draft newly declares it as a workflow variable.
+         * @nullable
+         */
+      set_by: string | null;
+      /** Ids of steps whose content references the variable. */
+      referenced_by: string[];
+    }
+
+    export interface HogFlowPublishImpactScheduleConflict {
+      /** Schedule whose variable overrides reference removed variables. */
+      schedule_id: string;
+      /** Override keys the draft no longer declares as workflow variables. */
+      variables: string[];
+    }
+
+    export interface HogFlowPublishImpact {
+      /** Per deleted step: how many runs are parked there and where they go. Empty for content-only edits. */
+      deleted_steps: HogFlowPublishImpactDeletedStep[];
+      /**
+         * In-flight runs whose current step is unknown. Null when the count is unavailable.
+         * @nullable
+         */
+      position_unknown: number | null;
+      /** Variables that render empty for runs predating their producer. */
+      empty_variables: HogFlowPublishImpactEmptyVariable[];
+      /** Schedules overriding variables the draft removes. */
+      schedule_conflicts: HogFlowPublishImpactScheduleConflict[];
+    }
+
     export interface HogFlowPublishRequest {
-      /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+      /** False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow. */
       confirm?: boolean;
-      /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
-      draft_updated_at?: string;
+      /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
+      confirm_token?: string;
     }
 
     export interface HogFlowPublishResponse {
@@ -32618,12 +32726,40 @@ export namespace Schemas {
          */
       in_flight_runs: number | null;
       /**
-         * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+         * The staged draft's timestamp, for reference; publishing is confirmed via confirm_token.
          * @nullable
          */
       draft_updated_at: string | null;
+      /**
+         * Echo this back with confirm=true to publish the previewed draft. Only set on previews.
+         * @nullable
+         */
+      confirm_token: string | null;
+      /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
+      impact: HogFlowPublishImpact | null;
       /** The workflow after publishing (only set when published=true). */
       workflow?: HogFlow | null;
+    }
+
+    export interface HogFlowRevision {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+      /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
+      readonly content: unknown;
+    }
+
+    export interface HogFlowRevisionBasic {
+      /** Workflow version this snapshot was published as. */
+      readonly version: number;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface HogFlowRevisionRestoreRequest {
+      /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
+      overwrite?: boolean;
     }
 
     /**
@@ -36083,6 +36219,8 @@ export namespace Schemas {
       readonly outline: readonly LLMPromptOutlineEntry[];
       /** Names of the labels currently pointing at this version. */
       readonly labels: readonly string[];
+      /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+      readonly activity_item_id: string;
     }
 
     export interface LLMPromptDuplicate {
@@ -36142,6 +36280,8 @@ export namespace Schemas {
       readonly outline: readonly LLMPromptOutlineEntry[];
       /** Names of the labels currently pointing at this version. */
       readonly labels: readonly string[];
+      /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+      readonly activity_item_id: string;
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
@@ -41077,6 +41217,15 @@ export namespace Schemas {
       results: HogFlowMinimal[];
     }
 
+    export interface PaginatedHogFlowRevisionBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: HogFlowRevisionBasic[];
+    }
+
     export interface PaginatedHogFlowTemplateList {
       count: number;
       /** @nullable */
@@ -42130,6 +42279,9 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface ReplayScanner {
       readonly id: string;
       /**
@@ -42202,6 +42354,11 @@ export namespace Schemas {
       readonly updated_at: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedReplayScannerList {
@@ -45462,6 +45619,9 @@ export namespace Schemas {
       prompt_guide?: string;
     }
 
+    /**
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+     */
     export interface VisionAction {
       readonly id: string;
       /**
@@ -50757,6 +50917,9 @@ export namespace Schemas {
       person_id?: string;
     }
 
+    /**
+     * A Replay Vision scanner: its type, targeting query, and AI configuration.
+     */
     export interface PatchedReplayScanner {
       readonly id?: string;
       /**
@@ -50829,6 +50992,11 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
       readonly feedback_themes?: FeedbackThemes | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedReviewBlindSpotsConfigSelect {
@@ -53056,6 +53224,9 @@ export namespace Schemas {
       configuration?: unknown;
     }
 
+    /**
+     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
+     */
     export interface PatchedVisionAction {
       readonly id?: string;
       /**
@@ -66837,11 +67008,6 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
-      /**
-         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
-         * @maxLength 120
-         */
-      home_quick_action?: string;
     }
 
     export interface TaskRunCancelRequest {
@@ -75550,6 +75716,17 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFlowsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type HogFlowsMetricsGlobalRetrieveParams = {
     /**
      * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
@@ -79928,6 +80105,25 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    /**
+     * How the file will be read when the table is created.
+     */
+    export type WarehouseTablesUploadFileCreateBodyFileFormat = typeof WarehouseTablesUploadFileCreateBodyFileFormat[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat];
+
+
+    export const WarehouseTablesUploadFileCreateBodyFileFormat = {
+      Csv: 'csv',
+      Json: 'json',
+      Parquet: 'parquet',
+    } as const;
+
+    export type WarehouseTablesUploadFileCreateBody = {
+      /** The file to upload. */
+      file: Blob;
+      /** How the file will be read when the table is created. */
+      file_format: WarehouseTablesUploadFileCreateBodyFileFormat;
     };
 
     export type WarehouseViewLinkListParams = {
