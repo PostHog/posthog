@@ -5,6 +5,8 @@ import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
+import parserRecipeCreate from './aiObservability/parserRecipeCreate'
+import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -18,6 +20,8 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+
+import loopsReview from './loops/loopsReview'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
@@ -87,12 +91,15 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
+    'llma-parser-recipe-create': parserRecipeCreate,
+    'llma-parser-recipe-reference': parserRecipeReference,
 
     // Notebooks
     'notebook-edit': notebookEdit,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,

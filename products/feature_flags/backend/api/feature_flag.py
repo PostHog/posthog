@@ -295,19 +295,45 @@ def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
         return False
 
 
-def _validate_behavioral_cohort_for_feature_flag(cohort: Cohort, *, allow_realtime_backfilled: bool = False) -> None:
+def _describe_behavioral_properties(behavioral_props: list[Property]) -> str | None:
+    """Human-readable summary of which condition(s) on a cohort are behavioral, so a
+    validation error can point at the specific thing to fix instead of a bare cohort name.
+    Returns None if no properties parsed into a description (caller falls back to generic wording)."""
+    seen: set[tuple[str, str]] = set()
+    descriptions = []
+    for prop in behavioral_props:
+        marker = (prop.key, str(prop.value))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        descriptions.append(f"'{prop.key}' ({prop.value})")
+
+    if not descriptions:
+        return None
+    if len(descriptions) == 1:
+        return descriptions[0]
+    remaining = len(descriptions) - 1
+    return f"{descriptions[0]} and {remaining} other{'s' if remaining != 1 else ''}"
+
+
+def _validate_behavioral_cohort_for_feature_flag(
+    cohort: Cohort, behavioral_props: list[Property], *, allow_realtime_backfilled: bool = False
+) -> None:
     """
     Raises a validation error unless the cohort is flag-compatible.
 
     When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
     are permitted. Otherwise all behavioral cohorts are rejected.
     """
+    condition_description = _describe_behavioral_properties(behavioral_props)
+    condition_clause = f" on {condition_description}" if condition_description else ""
+
     if allow_realtime_backfilled:
         if cohort.is_flag_compatible:
             return
         if cohort.cohort_type != CohortType.REALTIME:
             raise serializers.ValidationError(
-                detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+                detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
@@ -316,7 +342,7 @@ def _validate_behavioral_cohort_for_feature_flag(cohort: Cohort, *, allow_realti
         )
 
     raise serializers.ValidationError(
-        detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+        detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
         code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     )
 
@@ -621,7 +647,8 @@ class EvaluationTagsChecker:
     @staticmethod
     def is_enabled(request) -> bool:
         """Check if evaluation contexts feature is enabled for the request user."""
-        if not hasattr(request, "user") or request.user.is_anonymous:
+        # request.user is None on facade system writes (ServiceRequest(None))
+        if getattr(request, "user", None) is None or request.user.is_anonymous:
             return False
 
         # Check FLAG_EVALUATION_TAGS feature flag
@@ -1446,9 +1473,21 @@ class FeatureFlagSerializer(
                             # filters are display-only and never evaluated, so skip them.
                             if cohort.is_static:
                                 continue
-                            if any(cohort_prop.type == "behavioral" for cohort_prop in cohort.properties.flat):
+                            behavioral_props = [
+                                cohort_prop
+                                for cohort_prop in cohort.properties.flat
+                                if cohort_prop.type == "behavioral"
+                            ]
+                            # Gate on both signals: cohort.properties.flat parses each leaf into a
+                            # Property() object, so a leaf shape the parser doesn't recognize would
+                            # silently vanish from it and defeat this guard; _has_filter_type walks
+                            # the raw filters JSON instead, so it can't miss an unparsable leaf. But
+                            # _has_filter_type only reads `filters` — legacy cohorts that store their
+                            # condition in the deprecated `groups` field instead (see Cohort.properties)
+                            # would defeat *that* check, so behavioral_props still needs to cover them.
+                            if cohort._has_filter_type("behavioral") or behavioral_props:
                                 _validate_behavioral_cohort_for_feature_flag(
-                                    cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
+                                    cohort, behavioral_props, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(

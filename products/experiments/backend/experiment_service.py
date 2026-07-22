@@ -95,7 +95,6 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     strip_group_cohort_restriction,
 )
-from products.feature_flags.backend.facade.rules import experiment_rule_from_filters
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -1223,7 +1222,7 @@ class ExperimentService:
 
         if existing_flag:
             self._validate_existing_flag(existing_flag)
-            variants = experiment_rule_from_filters(existing_flag.filters or {}).variants or list(DEFAULT_VARIANTS)
+            variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
 
         config = feature_flag_config or {}
@@ -2375,7 +2374,9 @@ class ExperimentService:
                         interaction_origin="experiments",
                         ai_stage="implementation",
                     )
-                    Experiment.objects.filter(id=experiment_id, team_id=team.id).update(
+                    # A concurrent reset may have already returned the experiment to draft —
+                    # only attach the pointer while it is still ended.
+                    Experiment.objects.filter(id=experiment_id, team_id=team.id, end_date__isnull=False).update(
                         flag_cleanup_task_id=created.task_id
                     )
                     # on_commit runs before the view serializes the response — reflect the id on the
@@ -2519,6 +2520,9 @@ class ExperimentService:
         experiment.archived = False
         experiment.conclusion = None
         experiment.conclusion_comment = None
+        # The cleanup task belongs to the ended run — keeping the pointer would resurrect a
+        # stale "Cleanup PR opened" line after the experiment is re-ended without opting in.
+        experiment.flag_cleanup_task_id = None
 
         experiment.save()
 
@@ -2551,11 +2555,10 @@ class ExperimentService:
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
-            # FeatureFlagSerializer needs a real request for its context; for non-HTTP callers
-            # write directly — flag caches still refresh via model save signals, only the flag's
-            # activity-log entry is skipped.
-            flag.filters = stripped_filters
-            flag.save(update_fields=["filters"])
+            # Non-HTTP callers have no acting user: a system write (user=None) skips the
+            # approval gate — this runs inside the caller's transaction, where an
+            # ApprovalRequired could never surface as a 409/change request anyway.
+            update_flag(flag, {"filters": stripped_filters}, team=self.team, user=None)
 
         flag.refresh_from_db()
         experiment.feature_flag = flag
