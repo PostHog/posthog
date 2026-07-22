@@ -43,6 +43,7 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, Cha
 from products.approvals.backend.services import ChangeRequestService
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.api import set_flag_active
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -501,6 +502,18 @@ class TestBypassMatrixControls(FeatureFlagBypassMatrixBase):
         assert response.status_code == 200
         flag.refresh_from_db()
         assert flag.active is True
+        assert ChangeRequest.objects.count() == 0
+
+    def test_system_disable_under_policy_applies_without_change_request(self, _mock_enabled):
+        # System writes (user=None through the facade) are the one sanctioned gate skip:
+        # the change applies directly and no ChangeRequest is created.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        set_flag_active(flag, False, team=self.team, user=None)
+
+        flag.refresh_from_db()
+        assert flag.active is False
         assert ChangeRequest.objects.count() == 0
 
     def test_approving_pending_cr_applies_the_change(self, _mock_enabled):

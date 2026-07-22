@@ -53,7 +53,10 @@ export function ScoutRowCard({
                 !config.enabled && 'opacity-65'
             )}
         >
-            <div className="flex items-center gap-4">
+            {/* On narrow (mobile) widths the row wraps: the run boxes drop to their own
+                full-width line so they can't collide with the name and controls. From `sm`
+                up the row is forced back onto a single line — the original layout. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap">
                 {/* Name + badges on top, cadence/emitted as a muted subtitle below — keeps the
                     metadata off the main row so the sparkline and controls have room to breathe. */}
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -114,10 +117,15 @@ export function ScoutRowCard({
                     </div>
                 </div>
                 {/* The sparkline is the flexible region: it shrinks and clips the oldest runs
-                    off the left so it can never push the controls column off the row. */}
-                <div className="flex min-w-0 overflow-hidden">
-                    <ScoutRunBoxes runs={rollup?.runs ?? []} />
-                </div>
+                    off the left so it can never push the controls column off the row. When the
+                    row wraps (mobile) it goes order-last + full-width so it lands on its own
+                    line; the wrapper is skipped entirely when there are no runs so an empty
+                    scout doesn't reserve a blank wrapped line. */}
+                {(rollup?.runs?.length ?? 0) > 0 ? (
+                    <div className="order-last flex w-full min-w-0 overflow-hidden sm:order-none sm:w-auto">
+                        <ScoutRunBoxes runs={rollup?.runs ?? []} />
+                    </div>
+                ) : null}
                 <div className="flex items-center gap-2 shrink-0">
                     <ScoutEnabledSwitch config={config} onUpdate={onUpdate} />
                     <Tooltip title="Scout settings">

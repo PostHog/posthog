@@ -45,7 +45,7 @@ def _action(team, **overrides) -> VisionAction:
             name=f"scanner-{uuid.uuid4().hex[:8]}",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "x"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
     defaults: dict = {"team": team, "name": "a", "trigger_config": {"rrule": DAILY, "timezone": "UTC"}}
     defaults.update(overrides)
@@ -60,7 +60,7 @@ def _scanner(team) -> ReplayScanner:
         name=f"scanner-{uuid.uuid4().hex[:8]}",
         scanner_type=ScannerType.SUMMARIZER,
         scanner_config={"prompt": "x"},
-        model=ScannerModel.GEMINI_3_FLASH,
+        model=ScannerModel.GEMINI_3_6_FLASH,
     )
 
 
