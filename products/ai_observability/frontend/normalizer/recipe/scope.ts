@@ -28,7 +28,7 @@ function resolveRole(input: unknown, inheritedRole: string): string {
     if (typeof obj.role === 'string') {
         return normalizeRole(obj.role, inheritedRole)
     }
-    if (typeof obj.type === 'string' && Object.hasOwn(roleMap, obj.type)) {
+    if (typeof obj.type === 'string' && Object.prototype.hasOwnProperty.call(roleMap, obj.type)) {
         return normalizeRole(obj.type, inheritedRole)
     }
     return inheritedRole

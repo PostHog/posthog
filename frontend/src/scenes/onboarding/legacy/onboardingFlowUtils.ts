@@ -31,7 +31,7 @@ export const parseProductsParam = (raw: unknown): ProductKey[] => {
     }
     const unique = Array.from(new Set(value.split(',').slice(0, MAX_RAW_PRODUCT_TOKENS)))
     return unique
-        .filter((k: string) => Object.hasOwn(availableOnboardingProducts, k))
+        .filter((k: string) => Object.prototype.hasOwnProperty.call(availableOnboardingProducts, k))
         .slice(0, MAX_WITH_PRODUCTS) as ProductKey[]
 }
 

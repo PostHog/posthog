@@ -1046,7 +1046,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': ({ productKey }, params: Record<string, unknown>) => {
-            if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
+            if (!productKey || !Object.prototype.hasOwnProperty.call(availableOnboardingProducts, productKey)) {
                 return
             }
 

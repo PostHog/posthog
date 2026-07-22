@@ -31,7 +31,7 @@ const BASE_PROPERTIES = BASE_QUERY_PROPERTIES.map(([, property]) => property)
 function pinnedSessionProperties(pinnedProperties: string[]): string[] {
     return pinnedProperties.filter(
         (property) =>
-            Object.hasOwn(CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties, property) &&
+            Object.prototype.hasOwnProperty.call(CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties, property) &&
             !BASE_PROPERTIES.includes(property)
     )
 }
