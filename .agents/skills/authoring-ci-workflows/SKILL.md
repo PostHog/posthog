@@ -16,7 +16,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 - Copy from a canonical file rather than from memory.
   `ci-paths-filter.yml` is the smallest complete example (triggers, concurrency, timeout, app token, Depot runner);
-  `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
+  `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, selective PR runs vs the merge-queue full gate, sharding).
 - Related skills — reach for these instead of duplicating them here:
   - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
   - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
@@ -175,11 +175,13 @@ PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
 Details: `/depot-github-runners`.
 
-## Draft vs ready-for-review
+## Selective PR runs vs the merge-queue full gate
 
-Most commits land before a PR is marked ready, and drafts can't merge — so heavy suites should run a narrowed subset on drafts and the full matrix on `ready_for_review` (the merge gate).
-Add `ready_for_review` to the `pull_request` types, and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
-Foot-gun: if a `select-tests` job is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
+The Trunk merge queue is the merge gate: it tests each queued PR on a `trunk-merge/**` draft PR that runs the full suites, and ejects the PR when they fail.
+Regular PRs (draft or ready) therefore run a narrowed subset for fast feedback — heavy suites should gate their selective path on `!startsWith(github.head_ref, 'trunk-merge/')` and run the full matrix on trunk-merge/**PRs, master pushes, and dispatch.
+Make aggregator "... Tests Pass" jobs treat `skipped` as success so selective runs still report, and keep a force label (`run-ci-backend` / `run-ci-frontend`) so a full run can be demanded on any PR.
+Foot-gun: if a `select-tests` job is cancelled mid-flight, its `mode` output is empty — normalize empty-mode**on a regular PR\*\* to `skip`, or the PR grabs the full matrix and holds the per-branch concurrency slot for ~30 min.
+Note the queue's test PRs are drafts — never use `pull_request.draft` to decide selective vs full; a draft check would give the merge gate the narrowed run.
 
 ## Backwards-compat with unrebased PRs
 
