@@ -1,0 +1,36 @@
+{% extends "email/base.html" %} {% load posthog_assets %}
+{% block heading %}Your email reputation needs attention{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Workflow emails sent from project <b>{{ team }}</b> are bouncing or being marked as spam more often than they should.
+    Over your recent sending, the hard bounce rate is <b>{{ bounce_rate }}</b> and the spam complaint rate is <b>{{ complaint_rate }}</b>.
+</p>
+<p>
+    High rates hurt deliverability for your emails. If they keep climbing past the critical thresholds, email sending for this project may be suspended to protect deliverability.
+</p>
+<p>
+    The Reputation tab shows the rates for each workflow, so you can find the one responsible. Common fixes: remove old or purchased addresses from your lists, and stop sending to recipients who never engage.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri reputation_path %}">View reputation</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri reputation_path %}">{% absolute_uri reputation_path %}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

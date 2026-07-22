@@ -23,6 +23,7 @@ enum NotificationBlock {
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    EmailReputation = 'email-reputation',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -44,6 +45,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
     web_analytics_weekly_digest: true,
+    email_reputation_degraded: true,
 }
 
 function ProjectDigestSelector({
@@ -515,6 +517,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Materialized view sync failures"
                     description="Get notified when a materialized view fails to sync"
                     dataAttr="materialized_view_sync_failed_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.EmailReputation]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="email_reputation_degraded"
+                    label="Email reputation warnings"
+                    description="Get notified when workflow email bounce or spam complaint rates put your email sending at risk"
+                    dataAttr="email_reputation_degraded_enabled"
                 />
             </div>
         ),
