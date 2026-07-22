@@ -65,6 +65,7 @@ from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringR
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.ph_client import ph_scoped_capture
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -657,12 +658,6 @@ class HogQLQueryExecutor:
                 ),
             )
 
-            # Only hand-written HogQL can be unbounded — every compiled runner injects a date range —
-            # so gate on it and skip the detector's AST walk for the (much hotter) compiled queries.
-            if self.query_type == "HogQLQuery" and "events" in hogql_features.tables:
-                with self.timings.measure("capture_unbounded_events_query"):
-                    self._capture_unbounded_events_query()
-
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
@@ -695,6 +690,12 @@ class HogQLQueryExecutor:
                         self.error = "Unknown error"
                 else:
                     raise
+            finally:
+                # Only hand-written HogQL can be unbounded because compiled runners inject a date range.
+                # Capture after the ClickHouse attempt so a worker flush never delays starting the query.
+                if self.query_type == "HogQLQuery" and "events" in hogql_features.tables:
+                    with self.timings.measure("capture_unbounded_events_query"):
+                        self._capture_unbounded_events_query()
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
@@ -754,10 +755,11 @@ class HogQLQueryExecutor:
                 }
                 groups = {"organization": str(tags.org_id)} if tags.org_id else None
 
-                # This runs before ClickHouse execution, including in worker query paths. Capture through
-                # the global client so telemetry stays non-blocking even when the ingestion endpoint is
-                # unavailable; this signal is best-effort and must never delay the query it reports on.
-                posthoganalytics.capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
+                if tags.kind == "request":
+                    posthoganalytics.capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
+                else:
+                    with ph_scoped_capture() as capture:
+                        capture(distinct_id=distinct_id, event=event, properties=properties, groups=groups)
             except Exception as e:
                 capture_exception(e, {"component": "capture_unbounded_events_query", "team_id": self.team.pk})
 
