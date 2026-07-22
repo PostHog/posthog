@@ -43,19 +43,19 @@ BUILT_IN_AGENTS: tuple[BuiltInAgentSpec, ...] = (
         key="support",
         name="Support agent",
         description="Drafts grounded replies and investigates customer support tickets.",
-        handle="svc-posthog-support",
+        handle="posthog-support",
     ),
     BuiltInAgentSpec(
         key="scout",
         name="Scout agent",
         description="Proactively investigates your product and reports useful findings.",
-        handle="svc-posthog-scout",
+        handle="posthog-scout",
     ),
     BuiltInAgentSpec(
         key="posthog_ai",
         name="PostHog AI",
         description="Helps your team analyze data and make changes across PostHog.",
-        handle="svc-posthog-ai",
+        handle="posthog-ai",
     ),
 )
 

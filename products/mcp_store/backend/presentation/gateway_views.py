@@ -135,7 +135,7 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 
     service_account_id = serializers.UUIDField(help_text="Service account granted access.")
     name = serializers.CharField(help_text="Agent display name.")
-    handle = serializers.CharField(help_text="Agent identity handle, e.g. svc-support.")
+    handle = serializers.CharField(help_text="Agent identity handle, e.g. posthog-support.")
     status = serializers.ChoiceField(
         choices=SERVICE_ACCOUNT_STATUS_CHOICES, help_text="active, or paused (all access off)."
     )

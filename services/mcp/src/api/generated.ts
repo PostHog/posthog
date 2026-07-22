@@ -29192,7 +29192,7 @@ export namespace Schemas {
       service_account_id: string;
       /** Agent display name. */
       name: string;
-      /** Agent identity handle, e.g. svc-support. */
+      /** Agent identity handle, e.g. posthog-support. */
       handle: string;
       /** active, or paused (all access off).
        *

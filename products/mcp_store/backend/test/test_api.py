@@ -320,7 +320,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
     def _active_posthog_ai_account(self) -> MCPServiceAccount:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        return next(agent for agent in sync_built_in_agents(self.team) if agent.handle == "svc-posthog-ai")
+        return next(agent for agent in sync_built_in_agents(self.team) if agent.handle == "posthog-ai")
 
     @staticmethod
     def _agent_client(account: MCPServiceAccount, token: str | None = None) -> APIClient:
@@ -363,6 +363,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert [agent["agent_key"] for agent in results] == ["support", "scout", "posthog_ai"]
+        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout", "posthog-ai"]
         assert all(agent["product_enabled"] is False for agent in results)
         assert all(agent["status"] == "paused" for agent in results)
         assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
@@ -455,7 +456,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         mock_is_limited.return_value = False
-        account = next(agent for agent in sync_built_in_agents(self.team) if agent.handle == "svc-posthog-ai")
+        account = next(agent for agent in sync_built_in_agents(self.team) if agent.handle == "posthog-ai")
         token = create_gateway_agent_token(account)
         assert resolve_gateway_agent_token(token) == account
 
