@@ -22,7 +22,7 @@
  *
  * IMPORTANT: the legacy drain worker for the target queue MUST be scaled to 0 before this
  * runs, or the worker and this script can grab the same job (double execution / double
- * send). See the runbook next to this file.
+ * send).
  *
  * Usage:
  *   CYCLOTRON_V1_DATABASE_URL=... CYCLOTRON_V2_DATABASE_URL=... \
@@ -43,7 +43,6 @@ import { CyclotronJobInvocation } from '../types'
 
 // Rows scheduled further out than this are the "corrupt" ones — a delay-overflow bug
 // parked them ~year 29405 so they never come due. They are deleted, never relocated.
-// Kept in sync with the verification SQL in the runbook.
 const CORRUPT_CUTOFF_INTERVAL = "interval '1 year'"
 
 // gzip streams start with `1f 8b 08` (ID1, ID2, CM=deflate). Only vm_state is ever
@@ -51,15 +50,18 @@ const CORRUPT_CUTOFF_INTERVAL = "interval '1 year'"
 // decode defensively so the script is correct regardless of that flag's history.
 const GZIP_MAGIC = [0x1f, 0x8b, 0x08]
 
-interface CliArgs {
+export interface RelocateArgs {
     queue: string
     envLabel: string
     apply: boolean
+}
+
+export interface CliArgs extends RelocateArgs {
     v1Url: string
     v2Url: string
 }
 
-interface V1Row {
+export interface V1Row {
     id: string
     team_id: number
     function_id: string | null
@@ -75,7 +77,36 @@ interface V1Row {
     is_corrupt: boolean
 }
 
-function parseArgs(argv: string[]): CliArgs {
+/** The producer side of the V2 queue this script depends on — narrowed for injection in tests. */
+export type V2Producer = Pick<CyclotronJobQueuePostgresV2, 'startAsProducer' | 'stopProducer' | 'queueInvocations'>
+
+export interface RelocateDeps {
+    /** V1 (legacy postgres) pool — source, gets emptied. */
+    v1: Pick<Pool, 'query'>
+    /** V2 (cyclotron-node) pool — used only to verify writes landed before deleting from V1. */
+    v2Pool: Pick<Pool, 'query'>
+    /** V2 producer — where legit jobs are relocated to. */
+    v2Queue: V2Producer
+    log?: (msg: string) => void
+}
+
+export interface RelocateResult {
+    legitCount: number
+    corruptCount: number
+    /** Ids confirmed present in V2 and therefore deleted from V1. */
+    verifiedIds: string[]
+    /** Legit ids NOT confirmed in V2 — deliberately left in V1. */
+    missingIds: string[]
+    /** Rows actually deleted from V1 for the relocated (verified) set. */
+    relocated: number
+    /** Corrupt rows deleted from V1. */
+    deletedCorrupt: number
+    /** Remaining `available` rows for the queue in V1 after the run (0 when fully drained). */
+    remaining: number
+    applied: boolean
+}
+
+export function parseArgs(argv: string[]): CliArgs {
     const get = (flag: string): string | undefined => {
         const idx = argv.indexOf(flag)
         return idx !== -1 ? argv[idx + 1] : undefined
@@ -101,7 +132,7 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 /** Strip credentials from a postgres URL so it's safe to print. */
-function describeUrl(url: string): string {
+export function describeUrl(url: string): string {
     try {
         const parsed = new URL(url)
         const db = parsed.pathname.replace(/^\//, '') || '(default)'
@@ -112,7 +143,7 @@ function describeUrl(url: string): string {
 }
 
 /** Decode a bytea payload column into an object. Only vm_state may be gzip-compressed. */
-function decodeJsonBytea(
+export function decodeJsonBytea(
     buf: Buffer | null,
     { gzipTolerant = false }: { gzipTolerant?: boolean } = {}
 ): Record<string, any> | null {
@@ -135,7 +166,7 @@ function decodeJsonBytea(
  * the same `cyclotronJobToInvocation` the drain worker uses. This keeps the payload ->
  * invocation conversion identical to production rather than reinventing it.
  */
-function rowToInvocation(row: V1Row): CyclotronJobInvocation {
+export function rowToInvocation(row: V1Row): CyclotronJobInvocation {
     const job: CyclotronJob = {
         id: row.id,
         teamId: row.team_id,
@@ -161,7 +192,7 @@ function rowToInvocation(row: V1Row): CyclotronJobInvocation {
 }
 
 /** Minimal CdpConfig slice CyclotronJobQueuePostgresV2 needs as a producer. */
-function buildV2Config(
+export function buildV2Config(
     v2Url: string
 ): Pick<
     CdpConfig,
@@ -182,7 +213,7 @@ function buildV2Config(
     }
 }
 
-async function fetchRows(v1: Pool, queue: string): Promise<V1Row[]> {
+async function fetchRows(v1: RelocateDeps['v1'], queue: string): Promise<V1Row[]> {
     const result = await v1.query<V1Row>(
         `SELECT id, team_id, function_id, queue_name, priority, parent_run_id,
                 vm_state, metadata, parameters, blob, scheduled,
@@ -196,7 +227,7 @@ async function fetchRows(v1: Pool, queue: string): Promise<V1Row[]> {
 }
 
 /** Which of the given ids currently exist in V2. This is the delete gate. */
-async function fetchExistingV2Ids(v2: Pool, ids: string[]): Promise<Set<string>> {
+async function fetchExistingV2Ids(v2: RelocateDeps['v2Pool'], ids: string[]): Promise<Set<string>> {
     if (ids.length === 0) {
         return new Set()
     }
@@ -205,7 +236,7 @@ async function fetchExistingV2Ids(v2: Pool, ids: string[]): Promise<Set<string>>
 }
 
 /** Delete only rows still `available` on the target queue — never touch anything else. */
-async function deleteFromV1(v1: Pool, ids: string[], queue: string): Promise<number> {
+async function deleteFromV1(v1: RelocateDeps['v1'], ids: string[], queue: string): Promise<number> {
     if (ids.length === 0) {
         return 0
     }
@@ -215,6 +246,14 @@ async function deleteFromV1(v1: Pool, ids: string[], queue: string): Promise<num
         [ids, queue]
     )
     return result.rowCount ?? 0
+}
+
+async function countRemaining(v1: RelocateDeps['v1'], queue: string): Promise<number> {
+    const result = await v1.query<{ count: string }>(
+        `SELECT count(*) AS count FROM cyclotron_jobs WHERE queue_name = $1 AND state = 'available'`,
+        [queue]
+    )
+    return parseInt(result.rows[0].count, 10)
 }
 
 function summarizeSchedule(rows: V1Row[]): string {
@@ -232,6 +271,102 @@ function sampleIds(rows: V1Row[], n = 5): string {
         .join(', ')
 }
 
+/**
+ * Core orchestration, dependency-injected so it can be exercised end-to-end against real V1
+ * and V2 databases (or fakes) without process wiring. See the safety/idempotency notes at
+ * the top of the file — the write -> verify -> delete ordering lives here.
+ */
+export async function relocate(deps: RelocateDeps, args: RelocateArgs): Promise<RelocateResult> {
+    const log = deps.log ?? (() => undefined)
+
+    const rows = await fetchRows(deps.v1, args.queue)
+    const legit = rows.filter((r) => !r.is_corrupt)
+    const corrupt = rows.filter((r) => r.is_corrupt)
+
+    log(`Found ${rows.length} available '${args.queue}' rows in V1:`)
+    log(`  legit (relocate): ${legit.length}  scheduled: ${summarizeSchedule(legit)}`)
+    log(`    sample ids: ${sampleIds(legit) || '(none)'}`)
+    log(`  corrupt (delete): ${corrupt.length}  scheduled: ${summarizeSchedule(corrupt)}`)
+    log(`    sample ids: ${sampleIds(corrupt) || '(none)'}`)
+
+    if (!args.apply) {
+        log(
+            `DRY-RUN: would relocate ${legit.length} row(s) to V2 (preserving id + scheduled), ` +
+                `then delete those verified ids from V1, and delete ${corrupt.length} corrupt row(s).`
+        )
+        return {
+            legitCount: legit.length,
+            corruptCount: corrupt.length,
+            verifiedIds: [],
+            missingIds: [],
+            relocated: 0,
+            deletedCorrupt: 0,
+            remaining: rows.length,
+            applied: false,
+        }
+    }
+
+    await deps.v2Queue.startAsProducer()
+
+    let verifiedIds: string[] = []
+    let missingIds: string[] = []
+    let relocated = 0
+
+    if (legit.length > 0) {
+        const invocations = legit.map(rowToInvocation)
+
+        // (a) Write to V2. overwriteExisting upserts only over terminal rows; an id already
+        // present in an active state throws CyclotronJobConflictError, which here means
+        // "already relocated" — those still pass the verification gate below, so the conflict
+        // is informational, not fatal. Any OTHER error propagates and aborts before any V1
+        // delete, so V1 is never emptied ahead of a confirmed V2 write.
+        try {
+            await deps.v2Queue.queueInvocations(invocations, { overwriteExisting: true })
+        } catch (e) {
+            if (!(e instanceof CyclotronJobConflictError)) {
+                throw e
+            }
+            const ids = Array.isArray(e.conflictingIds) ? e.conflictingIds : [e.conflictingIds]
+            log(`Note: ${ids.length} id(s) already present in V2 (active) — will verify + drain from V1.`)
+        }
+
+        // (b) Verify every id is now present in V2 before deleting anything from V1.
+        const legitIds = legit.map((r) => r.id)
+        const presentInV2 = await fetchExistingV2Ids(deps.v2Pool, legitIds)
+        verifiedIds = legitIds.filter((id) => presentInV2.has(id))
+        missingIds = legitIds.filter((id) => !presentInV2.has(id))
+
+        if (missingIds.length > 0) {
+            log(`WARNING: ${missingIds.length} id(s) not confirmed in V2 — NOT deleting these from V1.`)
+            log(`  sample missing: ${missingIds.slice(0, 5).join(', ')}`)
+        }
+
+        // (c) Only now delete the verified ids from V1.
+        relocated = await deleteFromV1(deps.v1, verifiedIds, args.queue)
+        log(`Relocated ${verifiedIds.length} id(s) to V2, deleted ${relocated} from V1.`)
+    }
+
+    // (d) Separately delete the corrupt rows — never relocated.
+    const deletedCorrupt = await deleteFromV1(
+        deps.v1,
+        corrupt.map((r) => r.id),
+        args.queue
+    )
+
+    const remaining = await countRemaining(deps.v1, args.queue)
+
+    return {
+        legitCount: legit.length,
+        corruptCount: corrupt.length,
+        verifiedIds,
+        missingIds,
+        relocated,
+        deletedCorrupt,
+        remaining,
+        applied: true,
+    }
+}
+
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2))
 
@@ -247,79 +382,20 @@ async function main(): Promise<void> {
     const v2Queue = new CyclotronJobQueuePostgresV2(1, buildV2Config(args.v2Url))
 
     try {
-        const rows = await fetchRows(v1, args.queue)
-        const legit = rows.filter((r) => !r.is_corrupt)
-        const corrupt = rows.filter((r) => r.is_corrupt)
-
-        console.log(`\nFound ${rows.length} available '${args.queue}' rows in V1:`)
-        console.log(`  legit (relocate): ${legit.length}`)
-        console.log(`    scheduled range: ${summarizeSchedule(legit)}`)
-        console.log(`    sample ids:      ${sampleIds(legit) || '(none)'}`)
-        console.log(`  corrupt (delete): ${corrupt.length}`)
-        console.log(`    scheduled range: ${summarizeSchedule(corrupt)}`)
-        console.log(`    sample ids:      ${sampleIds(corrupt) || '(none)'}`)
-
-        if (!args.apply) {
-            console.log(`\nDRY-RUN: would relocate ${legit.length} row(s) to V2 (preserving id + scheduled),`)
-            console.log(`         then delete those verified ids from V1,`)
-            console.log(`         and delete ${corrupt.length} corrupt row(s) from V1.`)
-            console.log(`\nRe-run with --apply to execute.`)
-            return
-        }
-
-        await v2Queue.startAsProducer()
-
-        let relocated = 0
-        if (legit.length > 0) {
-            const invocations = legit.map(rowToInvocation)
-
-            // (a) Write to V2. overwriteExisting upserts only over terminal rows; an id
-            // already present in an active state throws CyclotronJobConflictError, which
-            // here means "already relocated" — those still pass the verification gate below,
-            // so treat the conflict as informational rather than fatal.
-            try {
-                await v2Queue.queueInvocations(invocations, { overwriteExisting: true })
-            } catch (e) {
-                if (!(e instanceof CyclotronJobConflictError)) {
-                    throw e
-                }
-                const ids = Array.isArray(e.conflictingIds) ? e.conflictingIds : [e.conflictingIds]
-                console.log(`\nNote: ${ids.length} id(s) already present in V2 (active) — will verify + drain from V1.`)
-            }
-
-            // (b) Verify every id is now present in V2 before deleting anything from V1.
-            const legitIds = legit.map((r) => r.id)
-            const presentInV2 = await fetchExistingV2Ids(v2Pool, legitIds)
-            const verifiedIds = legitIds.filter((id) => presentInV2.has(id))
-            const missing = legitIds.filter((id) => !presentInV2.has(id))
-
-            if (missing.length > 0) {
-                console.log(`\nWARNING: ${missing.length} id(s) not confirmed in V2 — NOT deleting these from V1.`)
-                console.log(`  sample missing: ${missing.slice(0, 5).join(', ')}`)
-            }
-
-            // (c) Only now delete the verified ids from V1.
-            relocated = await deleteFromV1(v1, verifiedIds, args.queue)
-            console.log(`\nRelocated ${verifiedIds.length} id(s) to V2, deleted ${relocated} from V1.`)
-        }
-
-        // (d) Separately delete the corrupt rows — never relocated.
-        const deletedCorrupt = await deleteFromV1(
-            v1,
-            corrupt.map((r) => r.id),
-            args.queue
-        )
-
-        const remaining = await v1.query<{ count: string }>(
-            `SELECT count(*) AS count FROM cyclotron_jobs WHERE queue_name = $1 AND state = 'available'`,
-            [args.queue]
-        )
+        const result = await relocate({ v1, v2Pool, v2Queue, log: (m) => console.log(m) }, args)
 
         console.log('\n' + '='.repeat(72))
-        console.log('SUMMARY')
-        console.log(`  relocated to V2:            ${relocated}`)
-        console.log(`  deleted corrupt from V1:    ${deletedCorrupt}`)
-        console.log(`  remaining V1 '${args.queue}' available rows: ${remaining.rows[0].count} (expect 0)`)
+        if (!result.applied) {
+            console.log('DRY-RUN complete. Re-run with --apply to execute.')
+        } else {
+            console.log('SUMMARY')
+            console.log(`  relocated to V2:            ${result.relocated}`)
+            console.log(`  deleted corrupt from V1:    ${result.deletedCorrupt}`)
+            console.log(`  remaining V1 '${args.queue}' available rows: ${result.remaining} (expect 0)`)
+            if (result.missingIds.length > 0) {
+                console.log(`  NOT deleted (unconfirmed in V2): ${result.missingIds.length}`)
+            }
+        }
         console.log('='.repeat(72))
     } finally {
         await v2Queue.stopProducer().catch(() => undefined)
@@ -328,9 +404,11 @@ async function main(): Promise<void> {
     }
 }
 
-main()
-    .then(() => process.exit(0))
-    .catch((e) => {
-        console.error('\nrelocate-cyclotron-v1-jobs FAILED:', e)
-        process.exit(1)
-    })
+if (require.main === module) {
+    main()
+        .then(() => process.exit(0))
+        .catch((e) => {
+            console.error('\nrelocate-cyclotron-v1-jobs FAILED:', e)
+            process.exit(1)
+        })
+}
