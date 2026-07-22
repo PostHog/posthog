@@ -34,13 +34,15 @@ export function MemberSelectMultiplePopover({
     const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
 
-    const hasSelection = value.length > 0
+    // Guard against callers handing us a non-array (e.g. a URL param parsed to a bare number).
+    const selectedIds = Array.isArray(value) ? value : []
+    const hasSelection = selectedIds.length > 0
     const currentUserId = me?.user.id
     const members = selectableMembers()
-    const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === currentUserId
+    const isFilteredToCurrentUser = hasSelection && selectedIds.length === 1 && selectedIds[0] === currentUserId
 
     const toggleMember = (userId: number): void => {
-        const selected = new Set(value)
+        const selected = new Set(selectedIds)
         if (selected.has(userId)) {
             selected.delete(userId)
         } else {
@@ -78,7 +80,7 @@ export function MemberSelectMultiplePopover({
                                 member={member}
                                 isYou={member.user.uuid === me?.user.uuid}
                                 onClick={() => toggleMember(member.user.id)}
-                                checked={value.includes(member.user.id)}
+                                checked={selectedIds.includes(member.user.id)}
                             />
                         ))}
                         {membersLoading ? (
@@ -114,7 +116,7 @@ export function MemberSelectMultiplePopover({
                 status={borderless && !hasSelection ? 'alt' : 'default'}
                 active={hasSelection}
             >
-                {isFilteredToCurrentUser ? `${label} you` : hasSelection ? `${label} (${value.length})` : label}
+                {isFilteredToCurrentUser ? `${label} you` : hasSelection ? `${label} (${selectedIds.length})` : label}
             </LemonButton>
         </LemonDropdown>
     )

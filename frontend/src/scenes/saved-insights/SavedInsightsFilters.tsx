@@ -80,7 +80,7 @@ export function SavedInsightsFilters({
                     )}
                     {quickFilterSet.has('createdBy') && (
                         <MemberSelectMultiplePopover
-                            value={createdBy !== 'All users' ? (createdBy as number[]) : []}
+                            value={createdBy !== 'All users' ? createdBy : []}
                             onChange={(ids) => {
                                 const createdByValue = ids.length > 0 ? ids : 'All users'
                                 setFilters({ createdBy: createdByValue })
