@@ -92,8 +92,7 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self.assertEqual(self._reload(self.editor_user).status_code, status.HTTP_403_FORBIDDEN)
 
     def test_table_grant_overrides_restricted_source(self):
-        # Most-specific wins the other way too: an explicit table grant carves one table out of a
-        # restricted source instead of being flattened by a most-restrictive rule.
+        # A table-level editor rule takes precedence over the restricted source.
         self._grant(self.editor_user, "external_data_source", str(self.source.id), "viewer")
         self._grant(self.editor_user, "warehouse_table", str(self.table.id), "editor")
 

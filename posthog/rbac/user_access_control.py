@@ -793,11 +793,9 @@ class UserAccessControl:
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
     def warehouse_table_effective_level(self, table: Optional[Model], source: Model) -> Optional[AccessControlLevel]:
-        """Resolve a warehouse table's access with most-specific-wins: rules on the table itself
-        (`warehouse_table` object rules applying to this user) override the parent source's access,
-        so one table can be granted or restricted inside an otherwise-restricted source. Without
-        table rules the source's level applies. `table` is None before the first sync. Shared by
-        the schema serializer and sync permission so display and enforcement can't drift."""
+        """Effective access level for a synced table: the table's own `warehouse_table` rules if any
+        apply to this user, otherwise the source's level. `table` is None before the first sync.
+        Used by both the schema serializer and WarehouseTableSyncPermission."""
         if table is not None and self._get_access_controls(
             self._access_controls_filters_for_object("warehouse_table", str(table.id))
         ):

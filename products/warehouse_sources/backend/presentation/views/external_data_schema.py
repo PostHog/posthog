@@ -1332,13 +1332,11 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 
 
 class WarehouseTableSyncPermission(BasePermission):
-    """Gate a schema's sync/delete/CRUD on Editor access to its table, most-specific rule first.
+    """Requires editor access to the schema's warehouse table for write actions.
 
-    Rules on the table itself (`warehouse_table`) win; without any, the source's access applies —
-    so restricting a source cascades to its tables, while a table-specific grant carves one out.
-    Layered on top of the source resource-level gate that AccessControlPermission already applies
-    (the viewset's scope_object is "external_data_source"). Reads are left to that gate and to
-    query-time table access."""
+    Table-level rules take precedence; if the table has none, the source's access level applies.
+    Runs on top of AccessControlPermission's source resource-level gate (scope_object is
+    "external_data_source"). Reads are not gated here."""
 
     def has_permission(self, request: Request, view) -> bool:
         return True
