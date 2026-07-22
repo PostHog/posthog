@@ -399,6 +399,23 @@ class ChannelFeedMessageAPITestCase(TestCase):
         response = self.client.post(self._feed_url(channel_id), {"event": "nope"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_list_includes_github_pr_artifact_recorded_from_run(self):
+        from products.tasks.backend.logic.services.living_artifacts import record_github_pr_artifact
+
+        run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact = record_github_pr_artifact(
+            run, "https://github.com/posthog/posthog/pull/42", state="open", title="Fix the login redirect"
+        )
+        assert artifact is not None
+
+        entries = self.author_client.get(self._artifacts_url(self.channel.id)).json()["artifacts"]
+        entry = next(a for a in entries if a["id"] == str(artifact.id))
+        self.assertEqual(entry["artifact_type"], "github_pr")
+        self.assertEqual(entry["location"], {"url": "https://github.com/posthog/posthog/pull/42"})
+        self.assertEqual(entry["metadata"]["state"], "open")
+        self.assertEqual(entry["metadata"]["number"], 42)
+        self.assertEqual(entry["channel_id"], str(self.channel.id))
+
     def test_unknown_channel_is_404(self):
         response = self.client.get(self._feed_url("00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

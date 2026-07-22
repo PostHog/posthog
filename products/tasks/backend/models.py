@@ -21,7 +21,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
-from django.db.models.fields.json import KeyTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -1990,6 +1990,14 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
             models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
             models.Index(fields=["team", "channel", "-updated_at"], name="task_artifact_team_channel_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                models.F("task"),
+                KeyTextTransform("url", "location"),
+                condition=models.Q(artifact_type="github_pr"),
+                name="task_artifact_github_pr_url_uq",
+            ),
         ]
 
     def __str__(self):
