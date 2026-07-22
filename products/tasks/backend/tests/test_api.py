@@ -7950,20 +7950,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_resp.text = json.dumps(body) if isinstance(body, dict) else str(body)
         mock_post.return_value = mock_resp
 
-    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_rejects_pi_task(self, mock_signal_followup):
+    def test_command_rejects_unsupported_acp_method_for_pi_task(self):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "request-1", "optionId": "allow"},
+                "id": "req-1",
+            },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Pi tasks do not support ACP task commands.")
-        mock_signal_followup.assert_not_called()
+        self.assertEqual(response.json()["error"], "permission_response is not supported for Pi tasks.")
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message(self, mock_signal_followup):
@@ -8348,6 +8351,56 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(task_session.pending_sync_id, pending_sync_id)
         self.assertEqual(task_session.pending_object_storage_key, pending_key)
         mock_delete.assert_not_called()
+
+    @patch("posthog.storage.object_storage.get_presigned_post")
+    @patch("posthog.storage.object_storage.delete")
+    def test_stale_finalize_deletes_the_superseded_upload(self, mock_delete, mock_upload):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+        task_session = TaskSession.create_for_task(task)
+        run.active_task_session = task_session
+        run.state = {**run.state, "sandbox_id": "sandbox-1"}
+        run.save(update_fields=["active_task_session", "state"])
+        mock_upload.return_value = {
+            "url": "https://storage.example/upload",
+            "fields": {"key": "pending-session.jsonl"},
+        }
+        prepare_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync_prepare/"
+
+        first_prepare = self.client.post(
+            prepare_url,
+            {"sandbox_id": "sandbox-1", "expected_revision": 0},
+            format="json",
+        )
+        task_session.refresh_from_db()
+        first_pending_key = task_session.pending_object_storage_key
+
+        with self.captureOnCommitCallbacks(execute=True):
+            second_prepare = self.client.post(
+                prepare_url,
+                {"sandbox_id": "sandbox-1", "expected_revision": 0},
+                format="json",
+            )
+        self.assertEqual(second_prepare.status_code, status.HTTP_200_OK)
+        task_session.refresh_from_db()
+        current_sync_id = task_session.pending_sync_id
+        mock_delete.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/task_session_sync/",
+            {
+                "sandbox_id": "sandbox-1",
+                "sync_id": first_prepare.json()["sync_id"],
+                "expected_revision": 0,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "The task session sync is stale")
+        task_session.refresh_from_db()
+        self.assertEqual(task_session.pending_sync_id, current_sync_id)
+        mock_delete.assert_called_once_with(first_pending_key)
 
     @patch("posthog.storage.object_storage.get_presigned_post")
     @patch("posthog.storage.object_storage.head_object", return_value={"ContentLength": 31})
