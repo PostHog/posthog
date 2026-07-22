@@ -83,8 +83,9 @@ describe('action.conditional_branch', () => {
                 action.config.delay_duration = '2h'
                 const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    // Should schedule for 10 minutes from now
-                    scheduledAt: DateTime.utc().plus({ minutes: 10 }),
+                    // With the poll removed, the wait parks once to its full max_wait deadline (2h)
+                    // rather than the old 10-minute cap; the matcher wakes it earlier on a match.
+                    scheduledAt: DateTime.utc().plus({ hours: 2 }),
                 })
             })
 
