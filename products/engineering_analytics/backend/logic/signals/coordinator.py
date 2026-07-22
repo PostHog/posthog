@@ -10,7 +10,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -39,6 +39,9 @@ from products.signals.backend.facade.api import (
 )
 from products.signals.backend.models import SignalEmissionRecord
 
+if TYPE_CHECKING:
+    from posthog.models.user import User
+
 logger = structlog.get_logger(__name__)
 
 TEAM_ACTIVITY_BATCH_SIZE = 10
@@ -51,14 +54,16 @@ class CISignalTarget:
     authorized_by_user_id: int
 
 
-def _rollout_flag_enabled(team: Team) -> bool:
-    # Enrollment and the rollout flag are orthogonal gates; the sweep re-checks the flag per team.
+def _rollout_flag_enabled(team: Team, user: "User") -> bool:
+    # Enrollment and the rollout flag are orthogonal gates; the sweep re-checks the flag per target.
+    # Evaluated as the enabling user, matching every other consumer of this flag: the release
+    # condition is a person cohort, which a synthetic team distinct_id can never satisfy.
     org_id = str(team.organization_id)
     project_id = str(team.id)
     return bool(
         posthoganalytics.feature_enabled(
             ENGINEERING_ANALYTICS_FEATURE_FLAG,
-            str(team.uuid),
+            user.distinct_id or str(user.uuid),
             groups={"organization": org_id, "project": project_id},
             group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
             only_evaluate_locally=False,
@@ -69,21 +74,28 @@ def _rollout_flag_enabled(team: Team) -> bool:
 
 def _discover_targets_for_team(team_id: int) -> list[CISignalTarget]:
     team = Team.objects.filter(id=team_id).first()
-    if team is None or not _rollout_flag_enabled(team):
+    if team is None:
         return []
-    return [
-        CISignalTarget(team_id=team.id, source_id=source.source_id, authorized_by_user_id=source.authorized_by_user_id)
-        for source in list_authorized_ci_signal_sources(team=team)
-    ]
+    targets: list[CISignalTarget] = []
+    for source in list_authorized_ci_signal_sources(team=team):
+        user = resolve_authorizer(team=team, user_id=source.authorized_by_user_id)
+        if user is None or not _rollout_flag_enabled(team, user):
+            continue
+        targets.append(
+            CISignalTarget(
+                team_id=team.id, source_id=source.source_id, authorized_by_user_id=source.authorized_by_user_id
+            )
+        )
+    return targets
 
 
 def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], Team | None]:
     team = Team.objects.filter(id=target.team_id).first()
-    # Re-check the flag and authorizer at detection time — retries can run long after discovery.
-    if team is None or not _rollout_flag_enabled(team):
+    if team is None:
         return [], None
     user = resolve_authorizer(team=team, user_id=target.authorized_by_user_id)
-    if user is None:
+    # Re-check the flag and authorizer at detection time — retries can run long after discovery.
+    if user is None or not _rollout_flag_enabled(team, user):
         return [], None
     access_control = UserAccessControl(user=user, team=team)
     return detect_for_source(team, target.source_id, user_access_control=access_control), team

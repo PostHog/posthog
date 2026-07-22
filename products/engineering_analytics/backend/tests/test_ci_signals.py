@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.logic.signals.coordinator import (
     CISignalTarget,
     _detect_for_target,
     _record_emitted,
+    _rollout_flag_enabled,
     _unemitted,
     detect_and_emit_ci_signals_activity,
 )
@@ -355,6 +356,13 @@ class TestCISignalSourceAuthorization(BaseTest):
         target = CISignalTarget(team_id=self.team.id, source_id=str(first.id), authorized_by_user_id=self.user.id)
         with mock.patch(f"{_COORDINATOR}._rollout_flag_enabled", return_value=True):
             assert _detect_for_target(target) == ([], None)
+
+    def test_rollout_flag_is_evaluated_as_the_enabling_user(self) -> None:
+        # The flag's release condition is a person cohort; evaluating with any synthetic
+        # team-scoped distinct_id can never match it and silently disables the sweep everywhere.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=True) as flag_check:
+            assert _rollout_flag_enabled(self.team, self.user)
+        assert flag_check.call_args.args[1] == (self.user.distinct_id or str(self.user.uuid))
 
     def test_rows_without_a_snapshot_authorize_nothing(self) -> None:
         create_github_source(self.team, prefix="one_", source_id="gh-1")
