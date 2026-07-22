@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0067_signalscoutconfig_run_cron_schedule"),
-    ]
+    dependencies = [("signals", "0068_signalscoutrun_metadata")]
 
     operations = [
         migrations.AddField(
