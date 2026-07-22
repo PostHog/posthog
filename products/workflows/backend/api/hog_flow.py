@@ -1303,6 +1303,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 action_errors = cast(list[Any], action_serializer.errors)
                 raise serializers.ValidationError({"actions": _describe_action_errors(action_errors, instance.actions)})
             actions = action_serializer.validated_data
+            # Re-validation recovers stripped secret inputs back into these actions (mutating the
+            # instance's in place). Route them through validated_data so the write re-strips them into
+            # encrypted_inputs rather than persisting recovered secrets to the live actions blob.
+            data["actions"] = actions
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
@@ -2504,7 +2508,11 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = dict(revision.content)
             locked.draft_updated_at = timezone.now()
-            locked.save(update_fields=["draft", "draft_updated_at"])
+            # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
+            # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
+            # Clear any stale draft secrets from a prior draft so they can't bleed into this one.
+            locked.draft_encrypted_inputs = None
+            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         log_activity_from_viewset(self, locked, activity="revision_restored", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)

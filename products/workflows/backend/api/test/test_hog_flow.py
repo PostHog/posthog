@@ -3551,3 +3551,73 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 if change["field"] in ("encrypted_inputs", "draft_encrypted_inputs"):
                     assert change["before"] in (None, "masked")
                     assert change["after"] in (None, "masked")
+
+    def _publish_confirmed(self, flow_id: str):
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count", side_effect=Exception("down")
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": token},
+        )
+        assert res.status_code == 200, res.json()
+        return res
+
+    @patch(_REVISIONS_FLAG_PATH, return_value=True)
+    def test_activation_keeps_secret_stripped_from_live_actions(self, _flag):
+        # Activating a draft re-validates its actions (recovering secrets); the live actions blob must
+        # stay stripped, with the secret only in encrypted_inputs.
+        flow_id = self._create()
+        assert (
+            self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
+            == 200
+        )
+        flow = HogFlow.objects.get(id=flow_id)
+        db_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
+        assert "api_key" not in db_inputs
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
+    @patch(_REVISIONS_FLAG_PATH, return_value=True)
+    def test_restore_reattaches_live_secret_not_historical(self, _flag):
+        flow_id = self._create()
+        assert (
+            self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
+            == 200
+        )
+
+        # Rotate the secret through a published draft so live becomes ROTATED and revision v1 (the
+        # pre-rotation content, secrets stripped) is snapshotted.
+        rotated = self._flow_payload(api_key="ROTATED")
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": rotated["actions"]},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            ).status_code
+            == 200
+        )
+        self._publish_confirmed(flow_id)
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED"
+
+        # Restore the pre-rotation revision into the draft, then publish it.
+        restore = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1/restore", {})
+        assert restore.status_code == 200, restore.json()
+        flow.refresh_from_db()
+        assert flow.draft_encrypted_inputs is None  # restore clears stale draft secrets
+
+        # The restored revision snapshot never carried the secret in plaintext.
+        revision = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1").json()
+        rev_inputs = next(a for a in revision["content"]["actions"] if a["type"] == "function")["config"]["inputs"]
+        assert "api_key" not in rev_inputs
+
+        self._publish_confirmed(flow_id)
+
+        # The restored graph re-attaches the CURRENT live secret, not the historical one - a rotated
+        # credential is never resurrected from a snapshot.
+        flow.refresh_from_db()
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED"
+        assert flow.draft is None
