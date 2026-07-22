@@ -1153,6 +1153,32 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.run_cron_schedule is None
 
+    def test_partial_update_stamps_schedule_changed_at_only_for_schedule_changes(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        emit_response = self.client.patch(self._detail_url(str(config.id)), data={"emit": False}, format="json")
+
+        assert emit_response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.schedule_changed_at is None
+
+        cron_response = self.client.patch(
+            self._detail_url(str(config.id)), data={"run_cron_schedule": "0 9 * * *"}, format="json"
+        )
+
+        assert cron_response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        first_stamp = config.schedule_changed_at
+        assert first_stamp is not None
+
+        noop_response = self.client.patch(
+            self._detail_url(str(config.id)), data={"run_cron_schedule": "0 9 * * *"}, format="json"
+        )
+
+        assert noop_response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.schedule_changed_at == first_stamp
+
     def test_partial_update_rejects_invalid_cron_schedule(self) -> None:
         # Wiring guard for the serializer-level validation matrix in TestRunCronScheduleValidation.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

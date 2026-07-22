@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from django.utils import timezone
+
 from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
@@ -1622,6 +1624,16 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
+
+    def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
+        # an emit/enabled-only save must not defer an already-overdue scheduled run.
+        schedule_fields = ("run_interval_minutes", "run_cron_schedule")
+        if any(
+            field in validated_data and validated_data[field] != getattr(instance, field) for field in schedule_fields
+        ):
+            validated_data["schedule_changed_at"] = timezone.now()
+        return super().update(instance, validated_data)
 
     class Meta:
         model = SignalScoutConfig

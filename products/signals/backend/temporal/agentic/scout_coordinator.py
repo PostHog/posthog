@@ -394,10 +394,14 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
 def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:
     """Seconds past due, or None if not yet due. Never-run rolling schedules are maximally overdue."""
     if config.run_cron_schedule:
-        # `updated_at` anchors a newly saved schedule so selecting a future slot waits for that
-        # occurrence instead of immediately catching up against a slot from before the edit.
+        # `schedule_changed_at` (stamped only on actual schedule edits — deliberately not
+        # `updated_at`, which every emit/enabled save bumps) anchors a newly saved schedule so
+        # selecting a future slot waits for that occurrence instead of immediately catching up
+        # against a slot from before the edit. `created_at` covers never-edited rows.
         schedule_reference = max(
-            reference for reference in (config.last_run_at, config.updated_at) if reference is not None
+            reference
+            for reference in (config.last_run_at, config.schedule_changed_at, config.created_at)
+            if reference is not None
         )
         local_schedule_reference = schedule_reference.astimezone(project_timezone)
         try:

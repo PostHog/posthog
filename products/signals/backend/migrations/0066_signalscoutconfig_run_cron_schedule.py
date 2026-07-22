@@ -14,4 +14,9 @@ class Migration(migrations.Migration):
             name="run_cron_schedule",
             field=models.CharField(blank=True, max_length=100, null=True),
         ),
+        migrations.AddField(
+            model_name="signalscoutconfig",
+            name="schedule_changed_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
     ]

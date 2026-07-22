@@ -77,8 +77,7 @@ export function ScoutConfigForm({
     deleting,
     updating = false,
 }: ScoutConfigFormProps): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const projectTimezone = currentTeam?.timezone ?? 'UTC'
+    const { timezone: projectTimezone } = useValues(teamLogic)
     const dailyTime = dailyCronToTime(config.run_cron_schedule)
     // A cron the simple time picker can't express (e.g. "0 9 * * 1-5", set via the API) — shown
     // as-is, and never silently overwritten by an untouched picker.

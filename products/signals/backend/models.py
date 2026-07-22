@@ -1126,6 +1126,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Serializer-validated (croniter + a 30-minute minimum gap between occurrences, matching
     # the interval floor) — this field is only written through the config API.
     run_cron_schedule = models.CharField(max_length=100, null=True, blank=True)
+    # Stamped by the config serializers only when a schedule field (`run_interval_minutes`,
+    # `run_cron_schedule`) actually changes. The coordinator anchors the cron due-check on this
+    # (not `updated_at`, which every save bumps) so an unrelated emit/enabled toggle can never
+    # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
+    # `created_at` anchors those.
+    schedule_changed_at = models.DateTimeField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)

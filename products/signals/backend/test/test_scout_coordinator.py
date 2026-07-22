@@ -558,7 +558,7 @@ class TestCronScheduleDueCheck:
         timezone_name: str,
         now_iso: str,
         last_run_iso: str,
-        updated_at_iso: str,
+        schedule_changed_at_iso: str,
         run_cron_schedule: str,
         expected_overdue_seconds: float | None,
     ) -> None:
@@ -566,12 +566,29 @@ class TestCronScheduleDueCheck:
             run_interval_minutes=1440,
             run_cron_schedule=run_cron_schedule,
             last_run_at=datetime.fromisoformat(last_run_iso),
-            updated_at=datetime.fromisoformat(updated_at_iso),
+            schedule_changed_at=datetime.fromisoformat(schedule_changed_at_iso),
         )
 
         overdue_seconds = _overdue_seconds(config, datetime.fromisoformat(now_iso), ZoneInfo(timezone_name))
 
         assert overdue_seconds == expected_overdue_seconds
+
+    def test_unrelated_edit_does_not_defer_overdue_scheduled_run(self) -> None:
+        # An emit/enabled-only save bumps `updated_at` but not `schedule_changed_at` — the
+        # due-check must keep measuring from the missed slot, not re-anchor to the edit.
+        config = SignalScoutConfig(
+            run_interval_minutes=1440,
+            run_cron_schedule="0 9 * * *",
+            last_run_at=datetime.fromisoformat("2026-07-20T13:05:00+00:00"),
+            schedule_changed_at=datetime.fromisoformat("2026-07-19T12:00:00+00:00"),
+            updated_at=datetime.fromisoformat("2026-07-21T14:00:00+00:00"),
+        )
+
+        overdue_seconds = _overdue_seconds(
+            config, datetime.fromisoformat("2026-07-21T15:00:00+00:00"), ZoneInfo("America/Toronto")
+        )
+
+        assert overdue_seconds == 7200.0
 
     def test_invalid_cron_expression_falls_back_to_rolling_interval(self) -> None:
         # Only reachable via out-of-band writes (the API validates on write), but a bad row
@@ -580,7 +597,6 @@ class TestCronScheduleDueCheck:
             run_interval_minutes=1440,
             run_cron_schedule="not a cron",
             last_run_at=datetime.fromisoformat("2026-07-20T12:00:00+00:00"),
-            updated_at=datetime.fromisoformat("2026-07-20T11:00:00+00:00"),
         )
 
         overdue_seconds = _overdue_seconds(

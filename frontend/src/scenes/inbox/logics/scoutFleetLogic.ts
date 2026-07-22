@@ -529,6 +529,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
             if (inFlight.has(configId)) {
+                // The controls disable while a save is in flight, so this only catches the
+                // sub-render race (e.g. blur-save then an immediate click). Say so instead of
+                // silently dropping the change.
+                lemonToast.info('Still saving the previous change. Try again in a moment.')
                 return
             }
             inFlight.add(configId)
@@ -543,6 +547,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 const updated = await signalsScoutConfigUpdate(String(teamId), configId, updates)
                 // Reconcile this one row against the server (preserves concurrent edits to others).
                 actions.patchScoutConfigLocally(configId, updated)
+                if (updates.run_cron_schedule === null && previousConfig?.run_cron_schedule) {
+                    // Clearing the schedule is a valid save, not an error — but it can also come
+                    // from a half-typed time input blurring empty, so never let it pass silently.
+                    lemonToast.info('Scheduled run time cleared. The scout is back on its rolling interval.')
+                }
             } catch (error: any) {
                 if (previousConfig) {
                     actions.patchScoutConfigLocally(configId, previousConfig)
