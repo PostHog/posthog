@@ -377,6 +377,27 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not an org member" in response.json()["error"]
 
+    # --- PUT reviewers (report-level, works with no existing artefact) ---
+
+    def test_reviewers_action_assigns_first_reviewer_when_none_exist(self):
+        # A report that never had a suggested_reviewers artefact must still be assignable: the
+        # report-level PUT creates the first status row from scratch (the artefact PUT couldn't,
+        # since it required an existing artefact to address).
+        member = self._create_org_member("alice@example.com", github_login="AliceCase")
+        report = self._create_report()
+        assert self._reviewers_count(report) == 0
+
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+        response = self.client.put(
+            url,
+            data=json.dumps({"content": [{"user_uuid": str(member.uuid)}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert self._reviewers_count(report) == 1
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alicecase"]
+
     def test_put_user_uuid_not_in_org_returns_400(self):
         # Random UUID not tied to anyone in this org.
         report = self._create_report()
