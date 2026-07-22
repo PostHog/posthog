@@ -201,6 +201,15 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Error message when status is 'error'.",
     )
+    timings = serializers.DictField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text=(
+            "Sandbox-reported phase durations in seconds: input_wait_s (waiting on the data "
+            "plane), download_s (presigned frame downloads), exec_s (kernel cell execution), "
+            "sandbox_total_s (the whole sandbox-side run). Feeds the node-run metrics."
+        ),
+    )
 
 
 class NotebookSQLV2CallbackRequestSerializer(serializers.Serializer):

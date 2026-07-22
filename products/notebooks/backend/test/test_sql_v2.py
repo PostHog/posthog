@@ -17,6 +17,7 @@ from unittest.mock import patch
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -1970,7 +1971,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
                 patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
                 patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
             ):
-                rows, fetched_from = kernel_data_plane.materialize_query_to_file(
+                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "secret-token", "select 1", dest, limit=1000
                 )
             self.assertEqual(rows, 2)
@@ -2021,7 +2022,7 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
                 "urlopen",
                 side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
             ):
-                rows, fetched_from = kernel_data_plane.materialize_query_to_file(
+                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "t", "select 1", dest, limit=1000
                 )
             self.assertEqual(rows, 2)
@@ -2109,3 +2110,179 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
         ):
             kernel_runner.execute_run(payload)
         run_kernel.assert_not_called()
+
+
+class TestSQLV2NodeRunMetrics(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbmet01")
+
+    def _create_run(self, **overrides) -> NotebookNodeRun:
+        with team_scope(self.team.id):
+            return NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                user=self.user,
+                node_id=overrides.pop("node_id", "node-1"),
+                status=overrides.pop("status", NotebookNodeRun.Status.RUNNING),
+                **overrides,
+            )
+
+    def _histogram_count(self, labels: dict[str, str]) -> float:
+        from prometheus_client import REGISTRY
+
+        return REGISTRY.get_sample_value("posthog_notebooks_node_run_seconds_count", labels) or 0.0
+
+    @parameterized.expand(
+        [
+            ("ok", "done"),
+            ("interrupted", "interrupted"),
+            ("error", "failed"),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_callback_reports_the_run_with_its_outcome(self, envelope_status, expected_outcome, mock_report):
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        before = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps(
+                {
+                    "envelope": {
+                        "status": envelope_status,
+                        "row_count": 3,
+                        "timings": {"input_wait_s": 1.5, "exec_s": 0.4, "sandbox_total_s": 2.0},
+                    }
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_report.assert_called_once()
+        event, properties = mock_report.call_args[0]
+        self.assertEqual(event, "notebook node run completed")
+        self.assertEqual(properties["outcome"], expected_outcome)
+        self.assertEqual(properties["notebook_short_id"], "nbmet01")
+        self.assertEqual(properties["node_type"], "hogql")
+        self.assertEqual(properties["row_count"], 3)
+        self.assertEqual(properties["input_wait_seconds"], 1.5)
+        self.assertEqual(properties["exec_seconds"], 0.4)
+        self.assertEqual(properties["sandbox_total_seconds"], 2.0)
+        self.assertGreaterEqual(properties["duration_seconds"], 0)
+        after = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        self.assertEqual(after, before + 1)
+
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_redelivered_callback_reports_the_run_once(self, mock_report):
+        # The callback deliberately upserts on re-delivery; without the was-running guard a
+        # retried POST would double-count every run in the dashboard's headline metric.
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        for _ in range(2):
+            self.client.post(
+                f"/internal/notebooks/runs/{run.id}/result/",
+                data=json.dumps({"envelope": {"status": "ok"}}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(mock_report.call_count, 1)
+
+    @parameterized.expand(
+        [
+            ("done", NotebookNodeRun.Status.DONE, None, "done"),
+            ("failed", NotebookNodeRun.Status.FAILED, None, "failed"),
+            ("watchdog_timeout", NotebookNodeRun.Status.FAILED, "timed_out", "timed_out"),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_direct_lane_finish_reports_the_winning_transition(
+        self, _name, status, outcome_override, expected_outcome, mock_report
+    ):
+        from products.notebooks.backend.sql_v2_direct import _finish_direct_run
+
+        run = self._create_run()
+        _finish_direct_run(run, status, envelope=None, error=None, outcome=outcome_override)
+        mock_report.assert_called_once()
+        event, properties = mock_report.call_args[0]
+        self.assertEqual(event, "notebook node run completed")
+        self.assertEqual(properties["outcome"], expected_outcome)
+
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_direct_lane_finish_does_not_report_a_lost_transition(self, mock_report):
+        # A poller that loses the RUNNING -> terminal race (e.g. to an interrupt) must not
+        # add a second sample for the same run.
+        from products.notebooks.backend.sql_v2_direct import _finish_direct_run
+
+        run = self._create_run(status=NotebookNodeRun.Status.INTERRUPTED)
+        _finish_direct_run(run, NotebookNodeRun.Status.DONE, envelope=None, error=None)
+        mock_report.assert_not_called()
+
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action", side_effect=RuntimeError("boom"))
+    def test_metrics_failure_never_fails_the_callback(self, _mock_report):
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok"}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id).status, NotebookNodeRun.Status.DONE
+        )
+
+
+class TestSQLV2RunReaper(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbreap1")
+
+    def _create_run(self, age: datetime.timedelta, status=NotebookNodeRun.Status.RUNNING) -> NotebookNodeRun:
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                user=self.user,
+                node_id="node-1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=status,
+            )
+        # created_at is auto_now_add; age the row directly.
+        NotebookNodeRun.objects.unscoped().filter(id=run.id).update(created_at=timezone.now() - age)
+        run.refresh_from_db()
+        return run
+
+    def test_reaper_fails_only_stale_running_runs(self):
+        from products.notebooks.backend.sql_v2_reaper import (
+            STALE_RUN_DEADLINE,
+            STALE_RUN_ERROR,
+            mark_stale_node_runs_failed,
+        )
+
+        stale = self._create_run(STALE_RUN_DEADLINE + datetime.timedelta(minutes=1))
+        fresh = self._create_run(datetime.timedelta(minutes=5))
+        old_done = self._create_run(
+            STALE_RUN_DEADLINE + datetime.timedelta(minutes=1), status=NotebookNodeRun.Status.DONE
+        )
+
+        with patch("products.notebooks.backend.sql_v2_reaper.ph_scoped_capture") as mock_scoped:
+            capture = mock_scoped.return_value.__enter__.return_value
+            reaped = mark_stale_node_runs_failed()
+
+        self.assertEqual(reaped, 1)
+        stale.refresh_from_db()
+        fresh.refresh_from_db()
+        old_done.refresh_from_db()
+        self.assertEqual(stale.status, NotebookNodeRun.Status.FAILED)
+        self.assertEqual(stale.error, STALE_RUN_ERROR)
+        self.assertEqual(fresh.status, NotebookNodeRun.Status.RUNNING)
+        self.assertEqual(old_done.status, NotebookNodeRun.Status.DONE)
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "notebook node run completed")
+        self.assertEqual(kwargs["properties"]["outcome"], "timed_out")
+        self.assertEqual(kwargs["properties"]["node_type"], "python")

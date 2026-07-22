@@ -16,6 +16,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
+from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -93,6 +94,7 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         "ok": NotebookNodeRun.Status.DONE,
         "interrupted": NotebookNodeRun.Status.INTERRUPTED,
     }
+    was_running = run.status == NotebookNodeRun.Status.RUNNING
     run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
@@ -100,6 +102,11 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
     _store_frame_snapshot(run, frames, team_id)
+
+    # Only the callback that won the RUNNING -> terminal transition reports: a re-delivered
+    # or late envelope (the deliberate upsert above) must not double-count the run.
+    if was_running:
+        record_node_run_terminal(run, outcome_for_status(run.status))
 
     return JsonResponse({"ok": True})
 

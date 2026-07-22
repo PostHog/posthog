@@ -18,6 +18,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.notebooks.backend.kernel_runtime import get_kernel_runtime
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, dispatch_sql_v2_run
+from products.notebooks.backend.sql_v2_metrics import OUTCOME_FAILED, record_node_run_terminal
 
 
 @dataclass
@@ -77,6 +78,7 @@ def mark_sql_v2_run_failed_activity(input: SQLV2RunInput) -> None:
         run.status = NotebookNodeRun.Status.FAILED
         run.error = "Run failed to dispatch to the kernel."
         run.save(update_fields=["status", "error", "updated_at"])
+        record_node_run_terminal(run, OUTCOME_FAILED)
 
 
 @workflow.defn(name="notebook-sandbox-cmd-run")

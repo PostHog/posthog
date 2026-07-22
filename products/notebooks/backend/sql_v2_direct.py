@@ -25,6 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import envelope as kernel_envelope
 from products.notebooks.backend.sql_v2 import DISPLAY_PAGE_LIMIT, RESULT_CACHE_ROWS
+from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT, outcome_for_status, record_node_run_terminal
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -94,14 +95,20 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
 
 
 def _finish_direct_run(
-    run: NotebookNodeRun, status: NotebookNodeRun.Status, envelope: dict | None, error: str | None
+    run: NotebookNodeRun,
+    status: NotebookNodeRun.Status,
+    envelope: dict | None,
+    error: str | None,
+    outcome: str | None = None,
 ) -> bool:
     """Move a RUNNING run to a terminal state; return whether this call won the transition.
 
     Guarded on the current status so concurrent pollers are idempotent and a completed
     query can never overwrite an interrupt — the opposite of the kernel callback's
     deliberate upsert, because here nothing later holds a truer outcome. Refreshes
-    `run` either way so the caller always sees the row that won.
+    `run` either way so the caller always sees the row that won. The winner reports the
+    run's terminal metrics, labeled `outcome` when the status alone undersells it (the
+    watchdog's expiry is a timeout, not a user error).
     """
     updated = (
         NotebookNodeRun.objects.for_team(run.team_id)
@@ -115,6 +122,8 @@ def _finish_direct_run(
         )
     )
     run.refresh_from_db()
+    if updated:
+        record_node_run_terminal(run, outcome or outcome_for_status(status))
     return bool(updated)
 
 
@@ -144,6 +153,7 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
                 NotebookNodeRun.Status.FAILED,
                 envelope=None,
                 error="The query expired before completing. Re-run it.",
+                outcome=OUTCOME_TIMED_OUT,
             )
         return None
 
