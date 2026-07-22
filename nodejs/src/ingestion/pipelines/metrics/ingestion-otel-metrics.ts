@@ -9,10 +9,12 @@ import { createCounterWithExemplars, swallowing } from '~/common/metrics/instrum
  * aggregate prom counters (no team label) nor the app_metrics2 usage rows (billing
  * store, not queryable as a metric) provide.
  *
- * Names mirror the app_metrics2 usage rows (records_ingested/bytes_ingested =
- * passed quota and rate limiting, headed to storage) rather than the prom
- * *_allowed_total counters, which already reach the metrics product team-less via
- * the scrape bridge — reusing those names would mix two label schemas.
+ * Names mirror the app_metrics2 usage rows (records_ingested/bytes_ingested)
+ * rather than the prom *_allowed_total counters, which already reach the metrics
+ * product team-less via the scrape bridge — reusing those names would mix two
+ * label schemas. The boundary here is stricter than the usage rows: recorded only
+ * after a message is successfully produced to the ClickHouse-bound topic, so
+ * DLQ'd messages never count as ingested.
  *
  * Instruments are acquired lazily on first record: the OTel metrics API has no proxy
  * provider, so instruments created at module load (before initMetrics runs) would be
@@ -31,11 +33,11 @@ function getInstruments(): MetricsIngestionInstruments {
         const meter = metricsApi.getMeter('metrics-ingestion')
         instruments = {
             bytesIngested: createCounterWithExemplars(meter, 'metrics_ingestion_bytes_ingested_total', {
-                description: 'Total uncompressed metric bytes ingested (passed quota and rate limiting), by team',
+                description: 'Total uncompressed metric bytes successfully produced for storage, by team',
                 unit: 'By',
             }),
             recordsIngested: createCounterWithExemplars(meter, 'metrics_ingestion_records_ingested_total', {
-                description: 'Total metric records ingested (passed quota and rate limiting), by team',
+                description: 'Total metric records successfully produced for storage, by team',
             }),
         }
     }

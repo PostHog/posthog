@@ -305,6 +305,9 @@ export class MetricsIngestionConsumer {
                             },
                         },
                     ])
+                    // Only after the ClickHouse-bound produce resolves — messages that
+                    // fail and route to the DLQ must not count as ingested.
+                    recordMetricsIngested(message.teamId, message.bytesUncompressed, message.recordCount)
                 } catch (error) {
                     await this.produceToDlq(message, error)
                     throw error
@@ -358,7 +361,6 @@ export class MetricsIngestionConsumer {
             this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
-            recordMetricsIngested(teamId, stats.bytesAllowed, stats.recordsAllowed)
         }
 
         // Best-effort: don't let metric failures block ingestion
