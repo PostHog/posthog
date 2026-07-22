@@ -11,6 +11,10 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         token = self._get_bearer_token()
         original_api_key = self.team.api_token
 
+        create = self._post_signed_with_bearer(RESOURCES_URL, data={"label_prefix": "Initial"}, token=token)
+        assert create.status_code == 200
+        original_pat = PersonalAPIKey.objects.get(user=self.user)
+
         res = self._post_signed_with_bearer(
             f"{RESOURCES_URL}/{self.team.id}/rotate_credentials", data={"label_prefix": "Rotated"}, token=token
         )
@@ -23,6 +27,8 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         assert self.team.api_token == rotated_api_key
         assert body["complete"]["access_configuration"]["personal_api_key"].startswith("phx_")
         assert PersonalAPIKey.objects.filter(user=self.user, label__startswith="Rotated - ").exists()
+        # Rotation invalidates what it replaces: the earlier provisioned PAT is gone.
+        assert not PersonalAPIKey.objects.filter(id=original_pat.id).exists()
 
     def test_rotate_rejects_invalid_label_prefix_with_resource_id(self):
         token = self._get_bearer_token()

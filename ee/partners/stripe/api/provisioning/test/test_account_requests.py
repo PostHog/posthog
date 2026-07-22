@@ -93,6 +93,27 @@ class TestAccountRequests(StripeProvisioningTestBase):
                 "Account request has expired",
             ),
             (
+                "expired_request_naive_timestamp",
+                _account_request("x@example.com", expires_at="2020-01-01T00:00:00"),
+                400,
+                "expired",
+                "Account request has expired",
+            ),
+            (
+                "malformed_expires_at",
+                _account_request("x@example.com", expires_at="not-a-date"),
+                400,
+                "invalid_request",
+                "expires_at must be a valid ISO 8601 timestamp",
+            ),
+            (
+                "out_of_range_expires_at",
+                _account_request("x@example.com", expires_at="2020-13-01T00:00:00+00:00"),
+                400,
+                "invalid_request",
+                "expires_at must be a valid ISO 8601 timestamp",
+            ),
+            (
                 "missing_stripe_account",
                 _account_request("x@example.com", orchestrator={"type": "stripe", "stripe": {}}),
                 400,

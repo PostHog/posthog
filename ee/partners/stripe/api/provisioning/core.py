@@ -664,9 +664,9 @@ def maybe_create_provisioned_pat(
     if not pat_scopes:
         capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
         return None
-    # TODO: latent bug - every call mints a new PAT without revoking earlier
-    # provisioned ones, so rotate_credentials accumulates live keys instead of
-    # rotating them.
+    # TODO: latent bug - repeated resource creates mint a new PAT each call
+    # without revoking earlier ones; only rotate_credentials revokes (via
+    # revoke_provisioned_pats).
     try:
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
@@ -690,17 +690,34 @@ def maybe_create_provisioned_pat(
         return None
 
 
+def revoke_provisioned_pats(user: User, team: Team, app: OAuthApplication | None) -> None:
+    """Delete the PATs previously minted for this provisioned resource.
+
+    Rotation must invalidate what it replaces - a leaked provisioned PAT must
+    not survive rotate_credentials. Keys carry no provenance marker, so this
+    matches the exact scoping shape ``maybe_create_provisioned_pat`` produces:
+    this user, scoped to exactly this team and its organization. Gated on the
+    same flag as minting so apps that never issue provisioned PATs cannot
+    delete user-created keys.
+    """
+    if not app or not app.provisioning_issues_personal_api_key:
+        return
+    PersonalAPIKey.objects.filter(
+        user=user, scoped_teams=[team.id], scoped_organizations=[str(team.organization_id)]
+    ).delete()
+
+
 # ---------------------------------------------------------------------------
 # Misc helpers
 # ---------------------------------------------------------------------------
 
 
 def get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
-    """Return the user's non-demo teams for inclusion in the token exchange response."""
-    # TODO: latent bug - unlike the scoping paths, this listing skips the
-    # member-level access check (user_can_access_team), so names of restricted
-    # teams in advanced-permissions orgs leak into the response (listing only;
-    # tokens still cannot reach those teams).
+    """Return the user's non-demo teams for inclusion in the token exchange response.
+
+    Applies the same member-level access check as the scoping paths so names of
+    restricted teams in advanced-permissions orgs are not listed.
+    """
     org_ids = list(user.organization_memberships.values_list("organization_id", flat=True))
     teams = Team.objects.filter(organization_id__in=org_ids, is_demo=False).select_related("organization")
     return [
@@ -711,6 +728,7 @@ def get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
             "organization_name": team.organization.name if team.organization else "",
         }
         for team in teams
+        if user_can_access_team(user, team)
     ]
 
 

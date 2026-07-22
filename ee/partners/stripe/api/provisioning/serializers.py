@@ -7,6 +7,7 @@ not DRF's default error shape, so validators raise :class:`SpecError`
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 from django.utils import timezone
@@ -88,12 +89,21 @@ class AccountRequestSerializer(serializers.Serializer):
 
         expires_at_str = attrs.get("expires_at") or ""
         if expires_at_str:
-            # TODO: latent bug - parse_datetime raises ValueError on malformed
-            # values and returns naive datetimes for offset-less ones (the
-            # comparison below then raises TypeError); both surface as 500s
-            # where the spec calls for a 400 invalid_request.
-            expires_at = parse_datetime(expires_at_str)
-            if expires_at and expires_at < timezone.now():
+            # This runs before the signature check, so it must never raise
+            # anything but SpecError: parse_datetime returns None for
+            # non-ISO-8601 input but raises ValueError for well-formed yet
+            # invalid values (e.g. month 13).
+            try:
+                expires_at = parse_datetime(expires_at_str)
+            except ValueError:
+                expires_at = None
+            if expires_at is None:
+                capture_provisioning_event("account_request", "error", error_code="invalid_expires_at")
+                raise SpecError("invalid_request", "expires_at must be a valid ISO 8601 timestamp")
+            if timezone.is_naive(expires_at):
+                # The spec's ISO 8601 permits offset-less values; take them as UTC.
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at < timezone.now():
                 capture_provisioning_event("account_request", "error", error_code="expired")
                 raise SpecError("expired", "Account request has expired")
 

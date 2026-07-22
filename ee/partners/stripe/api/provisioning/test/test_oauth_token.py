@@ -8,9 +8,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthRefreshToken
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_oauth_refresh_token
 
+from ee.models.rbac.access_control import AccessControl
 from ee.partners.stripe.api.provisioning.signature import compute_signature
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, HMAC_SECRET, StripeProvisioningTestBase
 
@@ -124,6 +128,29 @@ class TestOAuthToken(StripeProvisioningTestBase):
             f"{BASE_PATH}/provisioning/resources/{self.team.id}", token=first["access_token"]
         )
         assert detail.status_code == 401
+
+    def test_available_teams_exclude_acl_restricted_teams(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        restricted_team = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, name="Restricted team"
+        )
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+
+        data = self._request_bearer_token().json()
+        team_ids = [team["id"] for team in data["account"]["available_teams"]]
+        assert self.team.id in team_ids
+        assert restricted_team.id not in team_ids
 
     def test_code_bound_to_non_stripe_app_not_redeemable(self):
         other_app = self._create_other_partner_app()
