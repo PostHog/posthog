@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
-import { PipelineContext, PipelineResultWithContext } from './pipeline.interface'
+import { PipelineContext, PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResultType, isDropResult, isOkResult, ok } from './results'
 
 /**
@@ -30,24 +30,35 @@ export type FanInFunction<TElement, TSubOut, TMerged> = (original: TElement, res
 const FAN_OUT_PARENT = Symbol('fanOutParent')
 
 /**
- * Sub-pipelines are context-agnostic: they are typed over the minimal base
- * context, decoupled from the parent pipeline's context type. At runtime each
- * sub-element still carries a copy of the parent context (plus the correlation
- * tag) — the narrower type just doesn't expose it, which makes context-gated
- * builder surface (`teamAware`, `messageAware`, `handleIngestionWarnings`,
- * `handleResults`) uncallable inside a sub-pipeline.
+ * Sub-pipelines are context-agnostic: they are typed over the empty context
+ * shape, decoupled from the parent pipeline's context type. Sub-elements carry
+ * only the minimal context (fresh per-sub arrays plus the correlation tag), and
+ * context-gated builder surface (`teamAware`, `messageAware`,
+ * `handleIngestionWarnings`, `handleResults`) is uncallable inside a
+ * sub-pipeline. `Record<never, never>` (not `Record<string, never>`, whose
+ * never-typed index signature would make the context type uninhabitable).
  */
-type SubPipelineContext = Record<string, never>
+type SubPipelineContext = Record<never, never>
 
 interface PendingParent<TElement, TSubOut, C> {
     original: TElement
-    /** Parent context with its own sideEffects/warnings arrays; sub completions merge into them. */
+    /** The element's context, owned by the stage; sub completions push side effects/warnings into it in place. */
     context: PipelineContext<C>
     outstanding: number
     collected: TSubOut[]
 }
 
-type SubContext<TElement, TSubOut, C> = PipelineContext<C> & {
+/**
+ * What a sub-element's context actually carries: fresh per-sub arrays plus the
+ * correlation tag. Deliberately not derived from the parent's context — sub
+ * pipelines are context-agnostic, nothing reads inherited parent fields from a
+ * sub context, and a minimal literal keeps an inner nested fan-out's subs from
+ * inheriting an outer stage's correlation tag.
+ */
+interface SubContext<TElement, TSubOut, C> {
+    lastStep?: string
+    sideEffects: Promise<unknown>[]
+    warnings: PipelineWarning[]
     [FAN_OUT_PARENT]?: PendingParent<TElement, TSubOut, C>
 }
 
@@ -164,32 +175,26 @@ export class FanOutFanInChunkPipeline<
                 continue
             }
 
+            // Ownership: once pulled, this stage is the element's only holder —
+            // upstream stages build a fresh context object (and arrays) per
+            // step and retain nothing after emitting the chunk. So the parent
+            // keeps the element's context as-is and sub completions push into
+            // its arrays in place; the framework's copy-per-step idiom exists
+            // to isolate steps from each other, which doesn't apply here.
             const parent: PendingParent<TElement, TSubOut, COutput> = {
                 original: element.result.value,
-                // Own copies of the mutable arrays: sub completions push into them.
-                context: {
-                    ...element.context,
-                    sideEffects: [...element.context.sideEffects],
-                    warnings: [...element.context.warnings],
-                },
+                context: element.context,
                 outstanding: subs.length,
                 collected: [],
             }
             this.pendingParents.add(parent)
             for (const sub of subs) {
                 const subContext: SubContext<TElement, TSubOut, COutput> = {
-                    ...element.context,
                     sideEffects: [],
                     warnings: [],
                     [FAN_OUT_PARENT]: parent,
                 }
-                subElements.push({
-                    result: ok(sub),
-                    // The sub-pipeline's static context is the minimal base
-                    // type; the full parent context (with the correlation tag)
-                    // rides along at runtime.
-                    context: subContext as unknown as PipelineContext<SubPipelineContext>,
-                })
+                subElements.push({ result: ok(sub), context: subContext })
             }
         }
 
@@ -239,7 +244,9 @@ export class FanOutFanInChunkPipeline<
     }
 
     private settleSubResult(subResult: PipelineResultWithContext<TSubOut, SubPipelineContext, RSub>): void {
-        const subContext = subResult.context as unknown as SubContext<TElement, TSubOut, COutput>
+        // Recover the correlation tag, which is intentionally absent from the
+        // sub-pipeline's public context type (the key is module-private).
+        const subContext = subResult.context as SubContext<TElement, TSubOut, COutput>
         const parent = subContext[FAN_OUT_PARENT]
         if (!parent) {
             throw new Error(
@@ -249,7 +256,8 @@ export class FanOutFanInChunkPipeline<
         }
 
         // Sub contexts start with fresh arrays, so this merges exactly what the
-        // sub-steps produced — for excluded sub-results too.
+        // sub-steps produced — for excluded sub-results too. The pushes land in
+        // the parent's owned context (see pullAndFanOut).
         parent.context.sideEffects.push(...subResult.context.sideEffects)
         parent.context.warnings.push(...subResult.context.warnings)
 
@@ -282,9 +290,9 @@ export class FanOutFanInChunkPipeline<
         context: PipelineContext<COutput>,
         collected: TSubOut[]
     ): PipelineResultWithContext<TMerged, COutput, RPrev> {
-        return {
-            result: ok(this.fanInFn(original, collected)),
-            context: { ...context, lastStep: this.fanInName },
-        }
+        // Same ownership invariant as in pullAndFanOut: the context is
+        // uniquely held by this stage, so set lastStep in place.
+        context.lastStep = this.fanInName
+        return { result: ok(this.fanInFn(original, collected)), context }
     }
 }

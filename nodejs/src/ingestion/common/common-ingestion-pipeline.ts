@@ -335,8 +335,8 @@ export class CommonPreTeamStage<
  * need into the sub-element value.
  */
 type FanOutViaCallback<TSub, TSubOut, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TSub, TSub, Record<string, never>, Record<string, never>>
-) => ChunkPipelineBuilder<TSub, TSubOut, Record<string, never>, Record<string, never>, ROut>
+    builder: ChunkPipelineBuilder<TSub, TSub, Record<never, never>, Record<never, never>>
+) => ChunkPipelineBuilder<TSub, TSubOut, Record<never, never>, Record<never, never>, ROut>
 
 export class CommonTeamStage<
     TInput extends { message: Message },
