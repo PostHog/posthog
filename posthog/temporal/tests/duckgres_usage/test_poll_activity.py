@@ -407,3 +407,25 @@ async def test_conflicting_rows_withhold_the_ack_and_alert(activity_environment)
     assert not await cursor_exists()  # nothing acked, nothing recorded
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresConflictingRows" in captured
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_storage_conflicting_rows_withhold_the_ack_and_alert(activity_environment) -> None:
+    # Same conflict on the *storage* family: it must withhold the ack too, since the
+    # shared ack deletes both families' buckets at once.
+    conflict_response = UsageResponse(
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+        rows=[],
+        storage_rows=[_storage_row(dt.date(2026, 7, 6), "100"), _storage_row(dt.date(2026, 7, 6), "250")],
+    )
+    is_conf, fetch, cap, log = _patched(conflict_response)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert result.rows_written == 1  # kept the larger storage row, not both
+    assert result.ack_watermark is None  # WITHHELD despite a closed day
+    assert not await cursor_exists()
+    captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
+    assert "DuckgresConflictingRows" in captured

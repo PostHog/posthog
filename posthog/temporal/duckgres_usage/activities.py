@@ -240,7 +240,10 @@ async def capture_duckgres_repoint_failure(inputs: SetDuckgresDefaultTeamInputs)
     failure path so the (fire-and-forget) repoint isn't dark when it persistently
     breaks — matching how hole/parse/out-of-window/orphan all capture."""
     capture_exception(
-        DuckgresRepointFailed(f"failed to repoint org {inputs.org_id} default team to {inputs.team_id} after retries")
+        DuckgresRepointFailed(
+            f"failed to repoint org {inputs.org_id} default team to {inputs.team_id} "
+            "(retries exhausted or a non-retryable error)"
+        )
     )
 
 

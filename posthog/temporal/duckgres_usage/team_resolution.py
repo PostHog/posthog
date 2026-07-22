@@ -12,13 +12,15 @@ team loses its in-flight usage" every product already tolerates). Re-attributing
 and repointing brings it to parity — the only residual is the ~1 day around the
 deletion (see the PR description).
 
-At persist time we re-attribute a non-billable team's rows to a deterministic
-billable team in the same org (lowest id). Managed warehouse bills at the org
-level, so the surrogate is billing-neutral — it only changes per-team display,
-never the org total. "Billable" MUST match the usage gather's definition
-(`billable_teams_queryset`): a demo/internal team the gather won't bill must not
-be elected, or the repoint makes the under-billing permanent. Rows for an org
-with no billable team at all are dropped and surfaced.
+At persist time we re-attribute a *deleted* team's rows (a team_id no longer in the
+Team table) to a deterministic billable team in the same org (lowest id). Managed
+warehouse bills at the org level, so the surrogate is billing-neutral — it only
+changes per-team display, never the org total. A team that still exists but is
+non-billable by design (a demo project, an internal-metrics org) is left alone: the
+gather already excludes it, and remapping it would bill intentionally-free usage. The
+elected surrogate MUST come from the gather's definition (`billable_teams_queryset`),
+or the repoint would make under-billing permanent. Rows for a deleted team with no
+billable team in the org are dropped and surfaced.
 """
 
 import datetime as dt
@@ -78,9 +80,10 @@ def _dedup_raw(
 
     - **exact duplicate** (same key AND identical row): a harmless repeat — keep one.
     - **value conflict** (same key, different measures — e.g. a partial then a
-      corrected total): we can't tell which is right, so keep the larger (by `usage`,
-      erring high) and flag it. The caller withholds the ack so duckgres keeps the
-      source for reconciliation instead of deleting it.
+      corrected total): we can't tell which is right, so keep the row with the larger
+      `usage` tuple — a provisional tie-break (lexicographic, not a per-field max) —
+      and flag it. The caller withholds the ack so duckgres keeps the source for
+      reconciliation instead of deleting it.
 
     Left in, either flavour would crash the mirror's unique insert or double-bill in
     the fold. Returns (deduped rows, exact-duplicate count, conflict count)."""
@@ -102,15 +105,25 @@ def _dedup_raw(
 
 
 def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[StorageRow]) -> ResolvedTeams:
-    """Remap rows under a non-billable team to a billable team in the same org.
+    """Remap rows under a *deleted* team to a billable team in the same org.
 
-    "Billable" is the usage gather's definition (`billable_teams_queryset`) — a team
-    it will actually bill. A deleted team, and also a demo/internal team the gather
-    excludes, count as non-billable here; electing one would silently under-bill.
+    Two notions of "not the right team", kept distinct on purpose:
+
+    - **deleted** — the team_id isn't in the Team table at all (the project was
+      deleted; duckgres keeps emitting the dead id). The gather would drop these, so
+      we remap them to a live billable surrogate and repoint duckgres at the source.
+    - **live but non-billable** — the team exists but is a demo project or in an
+      internal-metrics org, so the gather excludes it *by design*. We leave these rows
+      where they are; remapping would bill intentionally-free usage, and repointing
+      would stomp a live default.
+
+    The elected surrogate is always billable (`billable_teams_queryset`, the gather's
+    own definition) — electing a demo/internal team would silently under-bill.
     """
-    # Lazy import: the resolver's "billable team" set MUST match the usage-report
-    # gather's, or we can elect a team the gather refuses to bill (silent, and — once
-    # repointed — permanent under-billing).
+    # Lazy imports: the elected surrogate MUST come from the usage-report gather's own
+    # "billable team" set, or we could elect a team it refuses to bill (silent, and —
+    # once repointed — permanent under-billing). Team gives us liveness (exists at all).
+    from posthog.models import Team
     from posthog.tasks.usage_report import billable_teams_queryset
 
     # Collapse raw duplicates first (a duckgres contract violation), so the fold below
@@ -130,10 +143,14 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             conflicting_row_count=conflicting_row_count,
         )
 
-    billable = billable_teams_queryset()
-    billable_team_ids = set(billable.filter(id__in=team_ids).values_list("id", flat=True))
-    dead_team_ids = team_ids - billable_team_ids
-    if not dead_team_ids:
+    # "Dead" means *deleted* (absent from the Team table) — NOT merely non-billable. A
+    # live demo/internal team is left alone below; only a genuinely deleted team's rows
+    # get remapped, so we never start billing intentionally-free usage.
+    live_team_ids = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+    deleted_team_ids = team_ids - live_team_ids
+    if not deleted_team_ids:
+        # Every row is under a live team (billable or intentionally non-billable) —
+        # nothing to remap; the gather handles billability from here.
         return ResolvedTeams(
             compute_rows,
             storage_rows,
@@ -142,8 +159,9 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             conflicting_row_count=conflicting_row_count,
         )
 
-    orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in dead_team_ids} | {
-        row.org_id for row in storage_rows if row.team_id in dead_team_ids
+    billable = billable_teams_queryset()
+    orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in deleted_team_ids} | {
+        row.org_id for row in storage_rows if row.team_id in deleted_team_ids
     }
     # Deterministic: the org's lowest-id billable team. The same dead team maps to the
     # same surrogate across pulls, so the mirror stays stable. None = no billable team.
@@ -154,29 +172,29 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     orphaned_org_ids = {org_id for org_id, team_id in elected.items() if team_id is None}
 
     # Which orgs to repoint at the source: those whose rows are *entirely* under
-    # non-billable teams (duckgres is stamping a deleted/unbillable default). If a
-    # billable team already appears for the org, duckgres has — or is mid-switch to — a
-    # billable default, so leave it; the mirror remap below still fixes the residual.
-    # (This can't see a switch to a new default that hasn't produced usage in the
-    # window yet, so we may briefly override it — billing-neutral, self-corrects.)
-    orgs_with_billable_row = {row.org_id for row in compute_rows if row.team_id in billable_team_ids} | {
-        row.org_id for row in storage_rows if row.team_id in billable_team_ids
+    # deleted teams (duckgres is stamping a default that no longer exists). If a live
+    # team already appears for the org, duckgres has — or is mid-switch to — a live
+    # default (billable or not), so leave it; the mirror remap below still fixes the
+    # residual. (This can't see a switch to a new default that hasn't produced usage in
+    # the window yet, so we may briefly override it — billing-neutral, self-corrects.)
+    orgs_with_live_row = {row.org_id for row in compute_rows if row.team_id in live_team_ids} | {
+        row.org_id for row in storage_rows if row.team_id in live_team_ids
     }
     default_team_repoints: dict[str, int] = {}
     for org_id in orgs_to_reattribute:
         elected_team = elected[org_id]
-        if elected_team is not None and org_id not in orgs_with_billable_row:
+        if elected_team is not None and org_id not in orgs_with_live_row:
             default_team_repoints[org_id] = elected_team
 
     def reattribute(rows: list[_Row]) -> list[_Row]:
         out: list[_Row] = []
         for row in rows:
-            if row.team_id in billable_team_ids:
-                out.append(row)
+            if row.team_id in live_team_ids:
+                out.append(row)  # live team (billable or intentionally non-billable) — leave it
                 continue
             surrogate = elected[row.org_id]
             if surrogate is None:
-                continue  # orphaned org — drop (surfaced via orphaned_org_ids)
+                continue  # deleted team, no billable surrogate — orphaned, drop (surfaced below)
             out.append(dataclasses.replace(row, team_id=surrogate))
         return out
 

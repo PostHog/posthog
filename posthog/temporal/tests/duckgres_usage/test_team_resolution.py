@@ -233,15 +233,35 @@ def test_internal_metrics_org_is_orphaned() -> None:
     assert result.default_team_repoints == {}
 
 
-def test_demo_stamped_rows_are_remapped_to_a_billable_team() -> None:
+def test_live_demo_stamped_rows_are_left_untouched() -> None:
+    # duckgres stamped usage with a LIVE demo team that shares the org with a real
+    # team. The demo team is intentionally non-billable but *exists* — remapping its
+    # usage onto the real team would bill what the gather deliberately excludes, and
+    # repointing would stomp a live default. Only *deleted* teams get moved.
     org = Organization.objects.create(name="demo stamped")
     Team.objects.create(id=DEMO, organization=org, name="demo", is_demo=True)
-    real = Team.objects.create(id=REAL, organization=org, name="real")
-    # duckgres stamped usage with the demo team itself — not billable, so treat it as
-    # dead and remap to the real team, else the gather silently drops it.
+    Team.objects.create(id=REAL, organization=org, name="real")
+
     result = resolve_billing_teams([_compute(DEMO, str(org.id))], [])
 
-    assert [r.team_id for r in result.compute_rows] == [real.id]
+    assert [r.team_id for r in result.compute_rows] == [DEMO]  # left under the demo team, not remapped
+    assert result.default_team_repoints == {}  # live default not stomped
+    assert result.orphaned_org_ids == set()  # kept, not dropped
+
+
+def test_live_internal_org_team_rows_are_left_untouched() -> None:
+    # A live team in a for_internal_metrics org — unbilled by design, but it exists.
+    # Its rows stay put (the gather excludes them anyway); not remapped, and the org is
+    # not "orphaned" — nothing was deleted.
+    org = Organization.objects.create(name="internal", for_internal_metrics=True)
+    internal_team = Team.objects.create(id=88_800_009, organization=org, name="internal")
+    Team.objects.create(id=88_800_010, organization=org, name="internal 2")
+
+    result = resolve_billing_teams([_compute(internal_team.id, str(org.id))], [])
+
+    assert [r.team_id for r in result.compute_rows] == [internal_team.id]  # left alone
+    assert result.orphaned_org_ids == set()  # not deleted → not orphaned
+    assert result.default_team_repoints == {}
 
 
 def test_raw_duplicate_rows_are_deduped_not_summed() -> None:
@@ -283,6 +303,20 @@ def test_same_key_conflicting_values_keep_max_and_flag() -> None:
     assert result.compute_rows[0].cpu_seconds == 250  # kept the max, not the first
     assert result.conflicting_row_count == 1
     assert result.duplicate_row_count == 0
+
+
+def test_conflicting_values_keep_max_when_larger_comes_first() -> None:
+    # keep-max must not depend on order: when the larger row arrives first, the smaller
+    # one that follows must NOT overwrite it (exercises the "don't replace" else-branch).
+    org, (t0, _) = _org_with_teams()
+    larger = _compute(t0.id, str(org.id), cpu_seconds=250)
+    smaller = _compute(t0.id, str(org.id), cpu_seconds=100)
+
+    result = resolve_billing_teams([larger, smaller], [])
+
+    assert len(result.compute_rows) == 1
+    assert result.compute_rows[0].cpu_seconds == 250  # kept the max even though it came first
+    assert result.conflicting_row_count == 1
 
 
 def test_storage_exact_duplicate_is_deduped() -> None:
