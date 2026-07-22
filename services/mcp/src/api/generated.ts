@@ -15164,7 +15164,7 @@ export namespace Schemas {
       email_config_id: string;
       /**
          * Message content in markdown.
-         * @maxLength 50000
+         * @maxLength 5000
          */
       message: string;
       /** TipTap rich content JSON for formatted messages. */
@@ -68121,7 +68121,7 @@ export namespace Schemas {
     export interface TicketReplyRequest {
       /**
          * Reply content in markdown.
-         * @maxLength 50000
+         * @maxLength 5000
          */
       message: string;
       /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
