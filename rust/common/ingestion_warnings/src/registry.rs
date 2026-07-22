@@ -60,11 +60,13 @@ mod tests {
         // allowlist, carried through the artifact). Skew fails silently in
         // production in either direction — a flagged type without an arm is
         // never emitted; an arm without the flag is emitted and then
-        // rejected at the consumer's trust check.
+        // rejected at the consumer's trust check. Comparing the variant
+        // itself (not just presence) also pins each arm to the right type,
+        // so a mis-mapped tag can't hide behind an unrelated `Some`.
         for warning in WarningType::ALL {
             assert_eq!(
-                WarningType::from_tag(warning.as_str()).is_some(),
-                warning.capture_produced(),
+                WarningType::from_tag(warning.as_str()),
+                warning.capture_produced().then_some(warning),
                 "{}: from_tag arm and captureProduced flag disagree — add the missing side",
                 warning.as_str()
             );

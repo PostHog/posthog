@@ -10,7 +10,7 @@
 //! | Lane | public event stream (attacker-writable namespace) | ACL-guarded warnings topic |
 //! | Addressing | API token (consumer resolves the team) | `team_id` |
 //! | Classification | absent — the Node consumer re-judges the message (trust allowlist, consumer-stamped category/severity) | producer-stamped from the registry |
-//! | Injected details | `count`, the source's `pipelineStep` | `teamId`, `category`, `severity` |
+//! | Injected details | `count`, the source's `pipelineStep` | `teamId`, `category`, `severity`, the source's `pipelineStep` |
 //! | Timestamp | RFC 3339 envelope fields | ClickHouse-format `timestamp` field |
 //!
 //! The asymmetry is the security design, enforced by the type: classification
@@ -153,20 +153,23 @@ impl Warning {
     /// the ACL-guarded warnings topic, addressed by `team_id`.
     ///
     /// Classification is producer-stamped here — the registry's
-    /// `category()`/`severity()`, and the row's own `teamId`, are inserted
-    /// over the caller's details so a stray key can never override them or
-    /// disagree with the addressing — and the `timestamp` uses the
-    /// ClickHouse format the v2 table materializes columns from.
-    pub fn into_row(self, team_id: i64, source: &str) -> Value {
+    /// `category()`/`severity()`, the row's own `teamId`, and the source's
+    /// `pipelineStep` (which the v2 table materializes its `pipeline_step`
+    /// column from) are inserted over the caller's details so a stray key
+    /// can never override them or disagree with the addressing — and the
+    /// `timestamp` uses the ClickHouse format the v2 table materializes
+    /// columns from.
+    pub fn into_row(self, team_id: i64, source: WarningSource) -> Value {
         let mut details = self.details;
         details.insert("teamId".to_string(), Value::from(team_id));
         details.insert("category".to_string(), Value::from(self.warning.category()));
         details.insert("severity".to_string(), Value::from(self.warning.severity()));
+        details.insert("pipelineStep".to_string(), json!(source.pipeline_step));
         let details = Value::Object(details);
         json!({
             "team_id": team_id,
             "type": self.warning.as_str(),
-            "source": source,
+            "source": source.service,
             "details": details.to_string(),
             "timestamp": Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         })
@@ -256,12 +259,18 @@ mod tests {
         assert_eq!(details["pipelineStep"], "batch_import_validation");
     }
 
+    const TEST_ROW_SOURCE: WarningSource = WarningSource {
+        service: "personhog-test",
+        path: "test_path",
+        pipeline_step: "personhog_test_step",
+    };
+
     #[test]
     fn rows_carry_registry_types_and_classifications() {
         for warning in WarningType::ALL {
             let payload = Warning::new(warning)
                 .with_detail("personId", "uuid-ish")
-                .into_row(7, "personhog-test");
+                .into_row(7, TEST_ROW_SOURCE);
 
             assert_eq!(payload["team_id"], 7);
             assert_eq!(payload["type"], warning.as_str());
@@ -271,6 +280,7 @@ mod tests {
             assert_eq!(details["category"], warning.category());
             assert_eq!(details["severity"], warning.severity());
             assert_eq!(details["teamId"], 7, "teamId is injected from addressing");
+            assert_eq!(details["pipelineStep"], "personhog_test_step");
             assert_eq!(details["personId"], "uuid-ish");
             let timestamp = payload["timestamp"].as_str().unwrap();
             assert_eq!(timestamp.len(), 23);
@@ -283,9 +293,11 @@ mod tests {
         let payload = Warning::new(WarningType::PersonPropertiesSizeViolation)
             .with_detail("category", "spoofed")
             .with_detail("teamId", 999)
-            .into_row(1, "s");
+            .with_detail("pipelineStep", "spoofed")
+            .into_row(1, TEST_ROW_SOURCE);
         let details: Value = serde_json::from_str(payload["details"].as_str().unwrap()).unwrap();
         assert_eq!(details["category"], "size");
         assert_eq!(details["teamId"], 1);
+        assert_eq!(details["pipelineStep"], "personhog_test_step");
     }
 }
