@@ -174,6 +174,7 @@ export function ScoutConfigForm({
                 integrations={slackIntegrations ?? []}
                 loading={integrationsLoading && slackIntegrations === undefined}
                 updating={updating}
+                disabledReason={controlsDisabledReason}
             />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
@@ -205,7 +206,12 @@ function ScoutSlackDestination({
     integrations,
     loading,
     updating = false,
-}: ScoutConfigControlsProps & { integrations: IntegrationType[]; loading: boolean }): JSX.Element {
+    disabledReason,
+}: ScoutConfigControlsProps & {
+    integrations: IntegrationType[]
+    loading: boolean
+    disabledReason?: string
+}): JSX.Element {
     const destination = config.output_destinations?.slack
     const configuredIntegration = destination
         ? integrations.find((integration) => integration.id === destination.integration_id)
@@ -254,7 +260,7 @@ function ScoutSlackDestination({
                             }))}
                             onChange={(integrationId) => integrationId != null && selectWorkspace(integrationId)}
                             placeholder="Select workspace"
-                            disabledReason={updating ? 'Saving…' : undefined}
+                            disabledReason={disabledReason ?? (updating ? 'Saving…' : undefined)}
                         />
                     ) : null}
                     {selectedIntegration ? (
@@ -262,7 +268,7 @@ function ScoutSlackDestination({
                             integration={selectedIntegration}
                             value={configuredIntegration ? (destination?.channel ?? undefined) : undefined}
                             onChange={selectChannel}
-                            disabled={updating}
+                            disabled={updating || disabledReason !== undefined}
                         />
                     ) : null}
                     <span className="text-[11.5px] text-muted">
