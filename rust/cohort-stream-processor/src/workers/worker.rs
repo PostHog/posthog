@@ -38,7 +38,7 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::single_leaf_transition_register_writes;
+use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
 use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
@@ -811,14 +811,15 @@ async fn handle_sweep(
             }
             if let Some(transition) = &result.transition {
                 if let Some(filters) = snapshot.team(transition.team_id) {
-                    for write in single_leaf_transition_register_writes(
-                        filters,
-                        partition_id,
-                        transition,
-                        due_before_ms,
-                    ) {
-                        staged.put_stage2(&write.key, &write.state.encode());
-                    }
+                    stage_register_writes(
+                        &mut staged,
+                        single_leaf_transition_register_writes(
+                            filters,
+                            partition_id,
+                            transition,
+                            due_before_ms,
+                        ),
+                    );
                 }
             }
         }

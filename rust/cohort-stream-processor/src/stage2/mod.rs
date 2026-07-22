@@ -8,6 +8,7 @@ pub use cohort_core::eligibility;
 pub use eligibility::{classify, CohortEligibility, CohortParseFlags, ExcludedReason};
 pub use evaluator::{evaluate_tree, leaf_membership};
 pub(crate) use register::{
-    single_leaf_register_writes, single_leaf_transition_register_writes, MembershipRegisterSource,
+    single_leaf_register_writes, single_leaf_transition_register_writes, stage_register_writes,
+    MembershipRegisterSource,
 };
 pub use state::Stage2State;

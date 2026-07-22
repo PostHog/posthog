@@ -39,7 +39,9 @@ use crate::stage1::pick_state::{EvictionWindow, PredicateOp};
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::{leaf_membership, single_leaf_register_writes, MembershipRegisterSource};
+use crate::stage2::{
+    leaf_membership, single_leaf_register_writes, stage_register_writes, MembershipRegisterSource,
+};
 use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
@@ -815,9 +817,10 @@ fn stage_seed_membership_registers(
     now_ms: i64,
 ) {
     let in_cohort = leaf_membership(Some(state), meta);
-    for write in single_leaf_register_writes(filters, source, in_cohort, now_ms) {
-        staged.put_stage2(&write.key, &write.state.encode());
-    }
+    stage_register_writes(
+        staged,
+        single_leaf_register_writes(filters, source, in_cohort, now_ms),
+    );
 }
 
 fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {

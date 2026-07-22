@@ -45,7 +45,7 @@ use crate::stage1::state::{
 };
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::single_leaf_transition_register_writes;
+use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
 use crate::store::{
     Behavioral, BehavioralKey, CohortStore, EventSnapshotRaw, PersonPrefix, PersonRecords,
     StagedBatch, StoreError, StoreHandle,
@@ -540,14 +540,15 @@ pub(crate) fn fold_event(
         staged.put::<PersonRecords>(&prefix.record_key(), &bytes);
     }
     for transition in &transitions {
-        for write in single_leaf_transition_register_writes(
-            filters,
-            prefix.partition_id,
-            transition,
-            event_ms,
-        ) {
-            staged.put_stage2(&write.key, &write.state.encode());
-        }
+        stage_register_writes(
+            &mut staged,
+            single_leaf_transition_register_writes(
+                filters,
+                prefix.partition_id,
+                transition,
+                event_ms,
+            ),
+        );
     }
 
     FoldResult::Folded(FoldOutput {

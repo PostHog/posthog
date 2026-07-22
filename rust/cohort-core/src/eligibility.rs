@@ -84,12 +84,12 @@ impl CohortEligibility {
         matches!(self, Self::Stage2Composable | Self::Stage2ComposableRef)
     }
 
-    /// Whether this class persists membership in `cf_stage2`. Single-leaf cohorts register their
-    /// leaf membership directly; composable cohorts persist the result of Boolean composition.
+    /// Whether this class persists membership in `cf_stage2`. Broader than [`Self::writes_cf_stage2`],
+    /// which covers the composable classes only: single-leaf cohorts also register a row here, holding
+    /// their own leaf's membership bit rather than a composition result.
     ///
-    /// Enumerated positively — the reconcile scan domain and the orphan-GC keep-predicate both read
-    /// this, so a new eligibility variant must opt in here rather than default into membership
-    /// registration and reconcile emission.
+    /// Enumerated positively so a new eligibility variant must opt in here rather than silently start
+    /// registering membership; the orphan-GC keep-predicate reads it.
     pub fn registers_membership(self) -> bool {
         matches!(
             self,

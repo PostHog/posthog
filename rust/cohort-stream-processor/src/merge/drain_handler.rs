@@ -10,9 +10,10 @@
 //!   the transfer for the caller to produce.
 //!
 //! The drain emits no `Left` for P_old — it silently reclaims P_old's `cf_behavioral` slice with one
-//! range delete over its person prefix. P_old's `cf_stage2` keys are built from the catalog; existing
-//! membership rows ride the cross-partition transfer so a no-op merge or catalog refresh cannot
-//! strand the survivor outside the reconcile scan domain.
+//! range delete over its person prefix. P_old's `cf_stage2` keys are built from the catalog; when
+//! register transfer is enabled ([`MembershipRegisterTransferMode`]) the existing membership rows
+//! ride the cross-partition transfer so a no-op merge or catalog refresh cannot strand the survivor's
+//! membership row. While it is disabled the drain ships leaves only.
 
 use std::collections::BTreeMap;
 
@@ -60,10 +61,6 @@ pub enum DrainOutcome {
         transfer: MergeStateTransfer,
         effects: QueueEffects,
     },
-    /// A cross-partition merge owns Stage 2 register rows, but transfer emission is still disabled
-    /// for the receiver-first rollout. Nothing was mutated; the caller must retain the source
-    /// offset and retry after the gate is enabled.
-    AwaitingRegisterTransferEnablement,
     /// Idempotence hit — already drained. The caller re-produces any still-staged pending transfer.
     AlreadyDrained,
     /// Skipped before any state change (validation failure).
@@ -75,18 +72,17 @@ pub enum DrainSkip {
     SamePerson,
 }
 
-/// Whether a cross-partition drain may emit the additive membership-register payload.
+/// Whether a cross-partition drain emits the additive membership-register payload.
 ///
-/// Local register writes and receiver application are unconditional; only the sender is gated.
-/// While the gate is off, a register-owning cross-partition merge never ships a transfer — it
-/// fail-stops via [`DrainOutcome::AwaitingRegisterTransferEnablement`] (sticky hold, zero mutation)
-/// — so a receiver that cannot apply the payload never acks a transfer and deletes the sole copy of
-/// its reconcile scan domain.
+/// Local register writes and receiver application are unconditional; only the sender is gated. While
+/// the gate is off the drain carries no register bits: it transfers leaves only and never holds, so a
+/// receiver that cannot apply the payload never sees one and merge consumption never stalls. P_new
+/// re-derives its single-leaf registers locally from the transferred leaves; composable membership
+/// falls back to lazy recompose on the survivor.
 ///
 /// Once the gate is on the sender emits, and a receiver that does not understand `membership_registers`
-/// (no `deny_unknown_fields`) silently drops it, deleting the survivor's only register row. The gate
-/// alone therefore does not make a mixed-version fleet safe: enable the sender only once every pod
-/// can apply the transfer, and disable it before rolling the image back.
+/// (no `deny_unknown_fields`) silently drops it, deleting the survivor's only register row. So enable
+/// the sender only once every pod can apply the transfer, and disable it before rolling the image back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MembershipRegisterTransferMode {
     Disabled,
@@ -218,45 +214,7 @@ pub(crate) fn handle_merge_event_with_transfer_mode(
         .iter()
         .map(|(key, _value)| *key)
         .collect();
-    let mut registering_cohorts: BTreeMap<CohortId, DrainRegisterSource> =
-        membership_registering_cohorts(filters)
-            .map(|(cohort_id, kind)| {
-                (
-                    cohort_id,
-                    DrainRegisterSource {
-                        catalog_kind: Some(kind),
-                        provenance: None,
-                    },
-                )
-            })
-            .collect();
-    for (key, value) in &transferred_inventory {
-        let Ok(cohort_id) = i32::try_from(key.stage2_key().cohort_id) else {
-            counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "register_inventory_cohort")
-                .increment(1);
-            continue;
-        };
-        let source =
-            registering_cohorts
-                .entry(CohortId(cohort_id))
-                .or_insert(DrainRegisterSource {
-                    catalog_kind: None,
-                    provenance: None,
-                });
-        match TransferredRegisterProvenance::decode(value) {
-            Some(provenance) => source.provenance = Some(provenance),
-            None => {
-                counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "register_inventory_decode")
-                    .increment(1);
-                // The person-first key still proves that a register exists. Composable is the
-                // conservative kind when neither the inventory value nor the catalog can name it.
-                source
-                    .catalog_kind
-                    .get_or_insert(TransferMembershipRegisterKind::Composable);
-            }
-        }
-    }
-    let registering_cohorts: Vec<_> = registering_cohorts.into_iter().collect();
+    let registering_cohorts = collect_registering_cohorts(filters, &transferred_inventory);
     let old_stage2_keys: Vec<Stage2Key> = registering_cohorts
         .iter()
         .map(|(cohort_id, _source)| Stage2Key {
@@ -266,8 +224,13 @@ pub(crate) fn handle_merge_event_with_transfer_mode(
             person_id: old_person,
         })
         .collect();
-    let old_membership_registers =
-        read_membership_registers(store, &registering_cohorts, &old_stage2_keys)?;
+    // Gate off ⇒ carry no register bits (see [`MembershipRegisterTransferMode`]): the drain still
+    // reclaims P_old's own register rows below but ships leaves only, so the read is skipped.
+    let old_membership_registers = if register_transfer_mode.is_enabled() {
+        read_membership_registers(store, &registering_cohorts, &old_stage2_keys)?
+    } else {
+        Vec::new()
+    };
 
     // Same-slice assist: if P_new is itself tombstoned in *this* slice, drain straight to the live
     // survivor, skipping a hop the apply-side resolution would otherwise take. Only the routing/apply
@@ -307,10 +270,6 @@ pub(crate) fn handle_merge_event_with_transfer_mode(
             &present_leaves,
             person_dedup.as_ref(),
         );
-    }
-
-    if !register_transfer_mode.is_enabled() && !old_membership_registers.is_empty() {
-        return Ok(DrainOutcome::AwaitingRegisterTransferEnablement);
     }
 
     slow_path(
@@ -527,6 +486,54 @@ struct DrainRegisterSource {
     provenance: Option<TransferredRegisterProvenance>,
 }
 
+/// Assemble the cohorts whose `cf_stage2` register P_old may carry across the merge: the team's
+/// catalog-declared registering cohorts, unioned with any transferred-register inventory keyed on
+/// P_old (which survives a stale or missing catalog). Decoded provenance refines each source; an
+/// undecodable inventory row still proves a register exists, defaulting to the conservative
+/// composable kind when neither the value nor the catalog can name it.
+fn collect_registering_cohorts(
+    filters: &TeamFilters,
+    transferred_inventory: &[(Stage2TransferredRegisterKey, Vec<u8>)],
+) -> Vec<(CohortId, DrainRegisterSource)> {
+    let mut registering_cohorts: BTreeMap<CohortId, DrainRegisterSource> =
+        membership_registering_cohorts(filters)
+            .map(|(cohort_id, kind)| {
+                (
+                    cohort_id,
+                    DrainRegisterSource {
+                        catalog_kind: Some(kind),
+                        provenance: None,
+                    },
+                )
+            })
+            .collect();
+    for (key, value) in transferred_inventory {
+        let Ok(cohort_id) = i32::try_from(key.stage2_key().cohort_id) else {
+            counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "register_inventory_cohort")
+                .increment(1);
+            continue;
+        };
+        let source =
+            registering_cohorts
+                .entry(CohortId(cohort_id))
+                .or_insert(DrainRegisterSource {
+                    catalog_kind: None,
+                    provenance: None,
+                });
+        match TransferredRegisterProvenance::decode(value) {
+            Some(provenance) => source.provenance = Some(provenance),
+            None => {
+                counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "register_inventory_decode")
+                    .increment(1);
+                source
+                    .catalog_kind
+                    .get_or_insert(TransferMembershipRegisterKind::Composable);
+            }
+        }
+    }
+    registering_cohorts.into_iter().collect()
+}
+
 #[allow(clippy::disallowed_methods)]
 fn read_membership_registers(
     store: &CohortStore,
@@ -675,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_register_transfer_retains_the_cross_partition_merge_for_retry() {
+    fn disabled_register_transfer_drains_leaves_only_and_carries_no_register_bits() {
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(CohortId(1), TeamId(7), &cohort(vec![behavioral(7)]))
@@ -731,10 +738,16 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(outcome, DrainOutcome::AwaitingRegisterTransferEnablement);
+        let DrainOutcome::Drained { transfer, .. } = outcome else {
+            panic!("a disabled cross-partition merge drains like the pre-register pipeline");
+        };
         assert!(
-            store.get_stage2(&register_key).unwrap().is_some(),
-            "the source register remains until a compatible receiver can accept it",
+            transfer.membership_registers.is_empty(),
+            "gate off ships no register bits, so an old receiver never sees a payload it can't apply",
+        );
+        assert!(
+            store.get_stage2(&register_key).unwrap().is_none(),
+            "P_old's register row is reclaimed by the drain, like the pre-register pipeline",
         );
     }
 
@@ -987,7 +1000,7 @@ mod tests {
     }
 
     #[test]
-    fn catalogless_register_survives_disabled_sender_and_a_second_transfer_hop() {
+    fn catalogless_register_survives_a_stale_catalog_and_transfers_on_the_next_hop() {
         let middle_person = Uuid::from_u128(1);
         let middle_partition =
             partition_of(TeamId(7), &middle_person, COHORT_PARTITION_COUNT) as u16;
@@ -1129,23 +1142,6 @@ mod tests {
             merged_at_ms: 2,
             schema_version: crate::merge::transfer::MERGE_EVENT_SCHEMA_VERSION,
         };
-        let second = handle_merge_event_with_transfer_mode(
-            middle_partition,
-            &store,
-            &empty_filters,
-            &second_event,
-            (middle_partition.into(), 6),
-            COHORT_PARTITION_COUNT,
-            MembershipRegisterTransferMode::Disabled,
-        )
-        .unwrap();
-
-        assert_eq!(second, DrainOutcome::AwaitingRegisterTransferEnablement);
-        assert!(
-            store.get_stage2(&register_key).unwrap().is_some(),
-            "a disabled second sender retains the register that its receiver understood",
-        );
-
         let drained = handle_merge_event_with_transfer_mode(
             middle_partition,
             &store,

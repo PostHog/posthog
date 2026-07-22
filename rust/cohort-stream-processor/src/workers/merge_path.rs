@@ -23,9 +23,8 @@ use crate::merge::transfer::{MergeStateTransfer, PendingTransfer, PersonMergeEve
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
     MERGE_DRAIN_DURATION_SECONDS, MERGE_HELD_OFFSET_GAUGE, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL,
-    MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL,
-    MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL, MERGE_TRANSFER_FORWARDS_TOTAL,
-    MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
+    MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL,
+    MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
@@ -130,9 +129,9 @@ pub struct MergeWorkerDeps {
     pub seed_tracker: Arc<OffsetTracker>,
     /// Fold-frontier watermarks the seed fence reads; the worker advances them post-mark.
     pub live_watermarks: Arc<LiveWatermarks>,
-    /// Whether cross-partition merge drains may ship the additive membership-register payload.
-    /// Keep `false` until every pod in the fleet can apply the transfer; the reconcile snapshot's
-    /// rollout gate will own this switch.
+    /// Whether cross-partition merge drains ship the additive membership-register payload. Keep
+    /// `false` until every pod in the fleet can apply the transfer; while off the drain ships leaves
+    /// only and never holds. Wired from `COHORT_REGISTER_TRANSFER_ENABLED`.
     pub register_transfer_enabled: bool,
 }
 
@@ -271,21 +270,6 @@ pub(crate) async fn handle_merge(
                 return;
             }
             produce_and_settle(partition_id, handle, merge, &transfer, &pending_key, offset).await;
-        }
-        Ok(DrainOutcome::AwaitingRegisterTransferEnablement) => {
-            // A cross-partition merge of a person that owns membership-register rows cannot ship its
-            // register payload until register transfer is enabled, so it sticky-holds — a visible
-            // commit-stall in place of silent register loss. Register transfer must be enabled before
-            // the merge producer (`PERSON_MERGE_EVENTS_ENABLED`), or merge consumption on this
-            // partition wedges for the tenure.
-            counter!(MERGE_TRANSFERS_HELD_AWAITING_ENABLEMENT_TOTAL).increment(1);
-            warn!(
-                partition_id,
-                team_id = event.team_id,
-                old_person = %event.old_person_uuid,
-                "cross-partition merge retained until membership-register transfer is enabled",
-            );
-            hold(&merge.merge_tracker, partition_id, offset);
         }
         Ok(DrainOutcome::AlreadyDrained) => {
             match handle.get_pending_transfer(&pending_key).await {
@@ -749,13 +733,18 @@ fn empty_team_filters() -> TeamFilters {
 mod tests {
     use super::*;
     use envconfig::Envconfig;
+    use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use crate::merge::transfer::TransferLeaf;
+    use crate::filters::{CohortId, FilterCatalog};
+    use crate::merge::transfer::{TransferLeaf, MERGE_EVENT_SCHEMA_VERSION};
+    use crate::partitions::partitioner::partition_of;
+    use crate::producer::CaptureSink;
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
-    use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig};
+    use crate::stage2::Stage2State;
+    use crate::store::{CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig};
 
     /// Wrap a test store in the `All` operating point so `handle_redrive` runs on the blocking pool.
     fn handle(store: &CohortStore) -> StoreHandle {
@@ -1197,6 +1186,98 @@ mod tests {
             deps.transfer_tracker.committable_offsets().get(&(P as i32)),
             Some(&41),
             "the later success must NOT advance committable past the held offset 41",
+        );
+    }
+
+    /// With `register_transfer_enabled` false, a cross-partition merge of a person that owns a
+    /// single-leaf register row must drain and advance its offset (never hold and wedge the partition)
+    /// and reclaim P_old's register row. Guards against reintroducing a gate-off hold.
+    #[tokio::test]
+    async fn disabled_register_transfer_drains_the_cross_partition_merge_without_holding() {
+        const K: i64 = 50;
+
+        let cohort = json!({
+            "properties": {
+                "type": "AND",
+                "values": [{
+                    "type": "behavioral", "key": "$pageview", "value": "performed_event",
+                    "time_value": 7, "time_interval": "day",
+                    "conditionHash": "0123456789abcdef",
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+                }]
+            }
+        });
+        let mut builder = TeamFiltersBuilder::default();
+        builder.add_cohort(CohortId(1), TeamId(7), &cohort).unwrap();
+        let filters = builder.freeze(UTC);
+        let catalog =
+            CatalogHandle::from_catalog(FilterCatalog::from_teams([(TeamId(7), filters)]));
+
+        let old_person = Uuid::from_u128(1);
+        let old_partition = partition_of(TeamId(7), &old_person, COHORT_PARTITION_COUNT) as u16;
+        let new_person = (2u128..)
+            .map(Uuid::from_u128)
+            .find(|person| {
+                partition_of(TeamId(7), person, COHORT_PARTITION_COUNT) as u16 != old_partition
+            })
+            .unwrap();
+        let register_key = Stage2Key {
+            partition_id: old_partition,
+            team_id: 7,
+            cohort_id: 1,
+            person_id: old_person,
+        };
+
+        let (_dir, store) = temp_store();
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(
+                    &register_key,
+                    &Stage2State {
+                        in_cohort: true,
+                        last_evaluated_at_ms: 1,
+                    }
+                    .encode(),
+                );
+            })
+            .unwrap();
+
+        // `capture_deps` builds with `register_transfer_enabled: false`.
+        let deps = capture_deps(CaptureTransferSink::new());
+        deps.merge_tracker
+            .mark_dispatched(old_partition as i32, K + 1);
+
+        let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
+        let mut queue: EvictionQueue<BehavioralKey> = EvictionQueue::new();
+        handle_merge(
+            old_partition,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            &mut queue,
+            "1",
+            &PersonMergeEvent {
+                team_id: 7,
+                old_person_uuid: old_person,
+                new_person_uuid: new_person,
+                merged_at_ms: 2,
+                schema_version: MERGE_EVENT_SCHEMA_VERSION,
+            },
+            K,
+        )
+        .await;
+
+        assert_eq!(
+            deps.merge_tracker
+                .committable_offsets()
+                .get(&(old_partition as i32)),
+            Some(&(K + 1)),
+            "the disabled-transfer merge drains and advances past its offset rather than holding",
+        );
+        assert!(
+            store.get_stage2(&register_key).unwrap().is_none(),
+            "P_old's register row is reclaimed by the drain, like the pre-register pipeline",
         );
     }
 }
