@@ -60,7 +60,9 @@ def reconcile_github_repositories(
     if new_repositories == old_repositories:
         return
 
-    source_schemas = source.get_schemas(new_config, team.pk)
+    source_schemas = source.get_schemas(
+        new_config, team.pk, api_version=source.resolve_api_version(source_model.api_version)
+    )
     sync_old_schemas_with_new_schemas(
         {schema.name: schema.label for schema in source_schemas},
         source_id=str(source_model.id),

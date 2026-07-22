@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.presentation.serializers import (
+from products.engineering_analytics.backend.presentation.serializers.pull_requests import (
     BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
@@ -16,8 +16,8 @@ from products.engineering_analytics.backend.presentation.serializers import (
     PRLifecycleSerializer,
     PullRequestListSerializer,
     WorkflowCostSerializer,
-    WorkflowRunDetailSerializer,
 )
+from products.engineering_analytics.backend.presentation.serializers.workflows import WorkflowRunDetailSerializer
 from products.engineering_analytics.backend.presentation.views._base import (
     _DATE_FROM,
     _DATE_TO,
