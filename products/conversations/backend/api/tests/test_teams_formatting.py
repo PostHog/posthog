@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.conversations.backend.teams_formatting import (
+    append_teams_attribution,
     rich_content_to_teams_html,
     teams_html_to_content_and_rich_content,
 )
@@ -264,3 +265,18 @@ class TestRichContentToTeamsHtml(SimpleTestCase):
         }
         result = rich_content_to_teams_html(rich)
         assert result == "<p><i><b>wow</b></i></p>"
+
+
+class TestAppendTeamsAttribution(SimpleTestCase):
+    def test_appends_italic_footer(self):
+        assert append_teams_attribution("<p>Hello</p>", "Xander Jones") == (
+            "<p>Hello</p><p><i>Xander Jones via SupportHog</i></p>"
+        )
+
+    def test_no_author_leaves_reply_untouched(self):
+        assert append_teams_attribution("<p>Hello</p>", "") == "<p>Hello</p>"
+
+    def test_escapes_author_name(self):
+        result = append_teams_attribution("<p>Hello</p>", "<script>alert(1)</script>")
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result

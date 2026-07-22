@@ -86,6 +86,20 @@ def rich_content_to_teams_html(rich_content: JSON | None, fallback_content: str 
     return "".join(parts) or html_mod.escape(fallback_content)
 
 
+def append_teams_attribution(reply_html: str, author_name: str) -> str:
+    """Append a subtle "{name} via SupportHog" footer to an outbound Teams reply.
+
+    A Teams bot's display name is fixed in the app manifest, so every reply otherwise
+    shows up from a nameless "SupportHog" and customers can't tell which agent answered.
+    The footer makes the sender clear. Both outbound paths (bot connector and Graph)
+    render the common inline HTML tags, so the same italic markup works for each.
+    """
+    if not author_name:
+        return reply_html
+    footer = f"<p><i>{html_mod.escape(author_name)} via SupportHog</i></p>"
+    return f"{reply_html}{footer}"
+
+
 def _render_node(node: JSON) -> str:
     node_type = node.get("type", "")
 
