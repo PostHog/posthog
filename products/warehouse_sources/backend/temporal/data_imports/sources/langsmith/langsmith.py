@@ -323,6 +323,42 @@ def _fetch_page(
         return json.loads(raw) if raw else None
 
 
+def _list_session_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    base_url: str,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    """Collect every tracing-project (session) id in the workspace.
+
+    runs/query rejects a request that doesn't scope to at least one of session/id/parent_run/
+    trace/reference_example; this sync pulls runs across every project, so it scopes by every
+    session id in the workspace instead of narrowing to one.
+    """
+    config = LANGSMITH_ENDPOINTS["projects"]
+    ids: list[str] = []
+    offset = 0
+    pages = 0
+    while True:
+        url = f"{base_url}{config.path}?{urlencode({'limit': config.page_size, 'offset': offset})}"
+        data = _fetch_page(session, url, headers, logger)
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            break
+        ids.extend(row["id"] for row in rows if row.get("id"))
+        if len(rows) < config.page_size:
+            break
+        offset += config.page_size
+        # Same hostile-host guard as the other paginators: a host returning a full page forever
+        # must not hold the worker until the activity timeout.
+        pages += 1
+        if pages >= MAX_PAGES_PER_RUN:
+            raise LangSmithPageLimitError(
+                f"LangSmith session listing hit the {MAX_PAGES_PER_RUN}-page limit while scoping the runs query"
+            )
+    return ids
+
+
 def _get_runs_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -350,6 +386,13 @@ def _get_runs_rows(
         start = _resolve_window_start(config, should_use_incremental_field, db_incremental_field_last_value)
         window_start = _format_datetime(start) if start is not None else None
 
+    # runs/query requires at least one of session/id/parent_run/trace/reference_example in the
+    # body (a 400 otherwise) — there's no such thing as an unscoped query across a workspace.
+    session_ids = _list_session_ids(session, headers, base_url, logger)
+    if not session_ids:
+        logger.debug("LangSmith: no tracing projects in workspace, nothing to sync for runs")
+        return
+
     body: dict[str, Any] = {
         "limit": config.page_size,
         "select": RUNS_SELECT_FIELDS,
@@ -357,6 +400,7 @@ def _get_runs_rows(
         # window bound. The watermark still only persists at job end (sort_mode="desc") since we
         # can't verify the ordering guarantee across every LangSmith deployment.
         "order": "asc",
+        "session": session_ids,
     }
     if window_start:
         body["start_time"] = window_start
