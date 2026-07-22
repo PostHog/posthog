@@ -84,7 +84,10 @@ export interface inboxOnboardingLogicActions {
 export interface inboxOnboardingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isSelfDrivingSetUp: (enabledSourcesCount: number, enabledScoutsCount: number) => boolean
-        isSetupLoaded: (sourceConfigs: SignalSourceConfig[] | null, scoutConfigs: SignalScoutConfig[] | null) => boolean
+        isSetupLoaded: (
+            sourceConfigs: SignalSourceConfig[] | null,
+            scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+        ) => boolean
         areCountsResolved: (
             pullsCount: number | null,
             reportsCount: number | null,

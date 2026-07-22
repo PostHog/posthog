@@ -51420,7 +51420,7 @@ export namespace Schemas {
 
     export interface SignalScoutSlackDestination {
       /**
-         * ID of the Slack integration whose bot posts this scout's findings.
+         * ID of the Slack integration whose bot posts this scout's findings and reports.
          * @minimum 1
          */
       integration_id: number;
@@ -51433,7 +51433,7 @@ export namespace Schemas {
     }
 
     export interface SignalScoutOutputDestinations {
-      /** Slack destination for each emitted scout finding. Null or omitted disables Slack delivery. */
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
       slack?: SignalScoutSlackDestination | null;
     }
 
@@ -51448,7 +51448,7 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
-      /** Destinations that receive each finding this scout emits. Pass an empty object to disable delivery. */
+      /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
       output_destinations?: SignalScoutOutputDestinations;
     }
 
@@ -60876,7 +60876,7 @@ export namespace Schemas {
       readonly emit: boolean;
       /** Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run. */
       readonly run_interval_minutes: number;
-      /** Destinations that receive each finding this scout emits. Empty when no destination is configured. */
+      /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
       readonly output_destinations: SignalScoutOutputDestinations;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
@@ -60908,7 +60908,7 @@ export namespace Schemas {
          * @maximum 43200
          */
       run_interval_minutes?: number;
-      /** Destinations that receive each finding this scout emits. Empty by default. */
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
       output_destinations?: SignalScoutOutputDestinations;
     }
 

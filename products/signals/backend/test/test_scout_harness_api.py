@@ -1109,7 +1109,13 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.output_destinations == {}
 
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        integration = Integration.objects.create(team=child_team, kind=Integration.IntegrationKind.SLACK)
         destination = {"slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings"}}
         response = self.client.patch(
             self._detail_url(str(config.id)),

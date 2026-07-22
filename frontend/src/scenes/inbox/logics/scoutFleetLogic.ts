@@ -20,6 +20,10 @@ import {
 import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 
+import type {
+    PatchedSignalScoutConfigUpdateApi,
+    SignalScoutConfigApi,
+} from '../../../../../products/signals/frontend/generated/api.schemas'
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
     computeFleetSummary,
@@ -133,10 +137,10 @@ export interface scoutFleetLogicActions {
         errorObject?: any
     }
     loadScoutConfigsSuccess: (
-        scoutConfigs: SignalScoutConfig[],
+        scoutConfigs: SignalScoutConfigApi[],
         payload?: any
     ) => {
-        scoutConfigs: SignalScoutConfig[]
+        scoutConfigs: SignalScoutConfigApi[]
         payload?: any
     }
     loadScoutMetadata: () => any
@@ -159,7 +163,7 @@ export interface scoutFleetLogicActions {
         updates: SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: SignalScoutConfigUpdate
+        updates: PatchedSignalScoutConfigUpdateApi
     }
     removeScoutConfigLocally: (configId: string) => {
         configId: string
@@ -196,7 +200,7 @@ export interface scoutFleetLogicActions {
         updates: SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: SignalScoutConfigUpdate
+        updates: PatchedSignalScoutConfigUpdateApi
     }
     updateScoutConfigFinished: (configId: string) => {
         configId: string
@@ -209,12 +213,12 @@ export interface scoutFleetLogicMeta {
         scoutBannerMessage: (scoutMetadata: ScoutMetadataApi | null) => string | null
         rollups: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => Map<string, ScoutRollup>
         fleetSummary: (
-            scoutConfigs: SignalScoutConfig[] | null,
+            scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
         ) => FleetSummary | null
-        enabledCount: (scoutConfigs: SignalScoutConfig[] | null) => number
-        lastRunAt: (scoutConfigs: SignalScoutConfig[] | null) => string | null
-        visibleConfigs: (scoutConfigs: SignalScoutConfig[] | null, hideDisabled: boolean) => SignalScoutConfig[]
+        enabledCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
+        lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
+        visibleConfigs: (scoutConfigs: SignalScoutConfigApi[] | null, hideDisabled: boolean) => SignalScoutConfig[]
         runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
@@ -223,7 +227,7 @@ export interface scoutFleetLogicMeta {
             latestAt: string | null
             scoutCount: number
         }
-        customScoutCount: (scoutConfigs: SignalScoutConfig[] | null) => number
+        customScoutCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
     }
 }
 

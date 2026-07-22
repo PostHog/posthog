@@ -8,9 +8,10 @@ from django.conf import settings
 from celery.exceptions import Retry
 from slack_sdk.errors import SlackApiError
 
+from posthog.models import Team
 from posthog.models.integration import Integration
 
-from products.signals.backend.models import SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
     post_scout_emission_to_slack,
@@ -53,11 +54,17 @@ class TestScoutSlackDelivery(BaseTest):
             source_id=f"run:{run.id}:finding:checkout-500s",
         )
 
-    def test_posts_safe_slack_mrkdwn_with_stable_delivery_id(self) -> None:
+    def test_posts_safe_slack_mrkdwn_through_project_integration_with_stable_delivery_id(self) -> None:
         emission = self._make_emission(
             "**Checkout** failures [trace](https://example.com/trace) <!channel> [ping](!here)"
         )
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        integration = Integration.objects.create(team=child_team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
@@ -81,6 +88,42 @@ class TestScoutSlackDelivery(BaseTest):
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
 
+    def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="**Checkout** failed for <!channel> [trace](https://example.com/trace)",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        call = fake_client.chat_postMessage.call_args.kwargs
+        assert call["channel"] == "CSCOUTS"
+        assert call["client_msg_id"] == delivery_id
+        section = call["blocks"][2]["text"]["text"]
+        assert "*Checkout*" in section
+        assert "<!channel>" not in section
+        assert "&lt;!channel&gt;" in section
+        assert "<https://example.com/trace|trace>" in section
+        assert call["blocks"][-1]["elements"][0]["url"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+        )
+
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()
         error = SlackApiError(
@@ -94,7 +137,15 @@ class TestScoutSlackDelivery(BaseTest):
         ):
             with pytest.raises(Retry) as retry:
                 deliver_scout_slack_output.apply(
-                    args=(self.team.id, str(emission.id), 1, "CSCOUTS|#scout-findings"),
+                    args=(
+                        self.team.id,
+                        "finding",
+                        str(emission.id),
+                        str(emission.scout_run_id),
+                        str(emission.id),
+                        1,
+                        "CSCOUTS|#scout-findings",
+                    ),
                     throw=True,
                 )
 
@@ -108,13 +159,23 @@ class TestScoutSlackDelivery(BaseTest):
             patch("products.signals.backend.tasks.post_scout_emission_to_slack", side_effect=error),
             patch("products.signals.backend.tasks.capture_exception") as capture,
         ):
-            deliver_scout_slack_output.run(self.team.id, str(emission.id), 9, "CMISSING|#missing")
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "finding",
+                str(emission.id),
+                str(emission.scout_run_id),
+                str(emission.id),
+                9,
+                "CMISSING|#missing",
+            )
 
         capture.assert_called_once_with(
             error,
             {
                 "team_id": self.team.id,
-                "emission_id": str(emission.id),
+                "output_type": "finding",
+                "output_id": str(emission.id),
+                "run_id": str(emission.scout_run_id),
                 "integration_id": 9,
                 "error_code": "channel_not_found",
             },
@@ -129,7 +190,15 @@ class TestScoutSlackDelivery(BaseTest):
             patch("products.signals.backend.tasks.capture_exception") as capture,
         ):
             result = deliver_scout_slack_output.apply(
-                args=(self.team.id, str(emission.id), 9, "CSCOUTS|#scout-findings"),
+                args=(
+                    self.team.id,
+                    "finding",
+                    str(emission.id),
+                    str(emission.scout_run_id),
+                    str(emission.id),
+                    9,
+                    "CSCOUTS|#scout-findings",
+                ),
                 retries=5,
                 throw=True,
             )
@@ -139,7 +208,9 @@ class TestScoutSlackDelivery(BaseTest):
             error,
             {
                 "team_id": self.team.id,
-                "emission_id": str(emission.id),
+                "output_type": "finding",
+                "output_id": str(emission.id),
+                "run_id": str(emission.scout_run_id),
                 "integration_id": 9,
                 "error_code": None,
                 "attempts": 6,
@@ -155,7 +226,10 @@ class TestScoutSlackDelivery(BaseTest):
         ):
             enqueue_scout_slack_delivery(
                 team_id=self.team.id,
-                emission_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
                 integration_id=9,
                 channel="CSCOUTS|#scout-findings",
             )
@@ -164,7 +238,9 @@ class TestScoutSlackDelivery(BaseTest):
             error,
             {
                 "team_id": self.team.id,
-                "emission_id": "ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                "output_type": "report",
+                "output_id": "ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                "run_id": "e3865391-bc89-44e6-86f7-2d4405627daf",
                 "integration_id": 9,
             },
         )

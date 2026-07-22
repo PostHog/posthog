@@ -29,7 +29,6 @@ import re
 import uuid
 import logging
 from dataclasses import asdict, dataclass
-from functools import partial
 from typing import Any
 
 from django.db import transaction
@@ -38,8 +37,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
-from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
-from products.signals.backend.tasks import enqueue_scout_slack_delivery
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
@@ -458,12 +456,7 @@ def _record_emit(
     `team`/`run` ownership and emit can run with no team scope set (Temporal activity)."""
     try:
         with transaction.atomic():
-            run = (
-                SignalScoutRun.all_teams.select_for_update(of=("self",))
-                .select_related("scout_config")
-                .filter(pk=run_id)
-                .first()
-            )
+            run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run_id).first()
             if run is None:
                 logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
                 return
@@ -482,20 +475,12 @@ def _record_emit(
                 source_id=source_id,
                 tags=tags or [],
             )
-            destination = get_scout_slack_destination(
-                run.scout_config.output_destinations if run.scout_config is not None else None
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="finding",
+                output_id=str(emission.id),
+                delivery_id=str(emission.id),
             )
-            if destination is not None:
-                transaction.on_commit(
-                    partial(
-                        enqueue_scout_slack_delivery,
-                        team_id=run.team_id,
-                        emission_id=str(emission.id),
-                        integration_id=destination.integration_id,
-                        channel=destination.channel,
-                    ),
-                    robust=True,
-                )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on
         # so the emit call returns success rather than a false failure the caller might retry.

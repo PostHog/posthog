@@ -440,7 +440,9 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                             integration_id: zod
                                 .number()
                                 .min(1)
-                                .describe("ID of the Slack integration whose bot posts this scout's findings."),
+                                .describe(
+                                    "ID of the Slack integration whose bot posts this scout's findings and reports."
+                                ),
                             channel: zod
                                 .string()
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax)
@@ -453,11 +455,11 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                     ])
                     .optional()
                     .describe(
-                        'Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.'
+                        'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
                     ),
             })
             .optional()
-            .describe('Destinations that receive each finding this scout emits. Empty by default.'),
+            .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
@@ -504,7 +506,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod.object({
                         integration_id: zod
                             .number()
                             .min(1)
-                            .describe("ID of the Slack integration whose bot posts this scout's findings."),
+                            .describe("ID of the Slack integration whose bot posts this scout's findings and reports."),
                         channel: zod
                             .string()
                             .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax)
@@ -516,10 +518,14 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod.object({
                     zod.null(),
                 ])
                 .optional()
-                .describe('Slack destination for each emitted scout finding. Null or omitted disables Slack delivery.'),
+                .describe(
+                    'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                ),
         })
         .optional()
-        .describe('Destinations that receive each finding this scout emits. Pass an empty object to disable delivery.'),
+        .describe(
+            'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+        ),
 })
 
 /**

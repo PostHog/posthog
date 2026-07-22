@@ -95,7 +95,9 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             skill_version=1,
         )
 
-        with patch("products.signals.backend.scout_harness.tools.emit.enqueue_scout_slack_delivery") as enqueue:
+        with patch(
+            "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
+        ) as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
                 _record_emit(
                     run_id=run.id,
@@ -111,7 +113,10 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         emission = run.emissions.get(finding_id="finding-1")
         enqueue.assert_called_once_with(
             team_id=self.team.id,
-            emission_id=str(emission.id),
+            output_type="finding",
+            output_id=str(emission.id),
+            run_id=str(run.id),
+            delivery_id=str(emission.id),
             integration_id=17,
             channel="CSCOUTS|#scout-findings",
         )

@@ -47,6 +47,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
@@ -765,6 +766,11 @@ async def emit_report(
         run=run,
     )
     if surfaced:
+        await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
+            run_id=run.id,
+            output_type="report",
+            output_id=persisted.report_id,
+        )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
     forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
@@ -865,6 +871,11 @@ def emit_report_sync(
         run=run,
     )
     if surfaced:
+        queue_configured_scout_slack_delivery(
+            run_id=run.id,
+            output_type="report",
+            output_id=persisted.report_id,
+        )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
     forward = _capture_report_emitted(
@@ -982,6 +993,11 @@ def _do_edit_report(
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
+        queue_configured_scout_slack_delivery(
+            run_id=run.id,
+            output_type="report",
+            output_id=report_id,
+        )
     return result
 
 

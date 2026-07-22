@@ -90,6 +90,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
   scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
   write-scoped config `create` endpoint instead (reads stay side-effect free).
+- `slack_delivery.py` / `slack_delivery_queue.py`
+  Best-effort direct Slack delivery for configured scout outputs. Finding emissions and surfaced
+  report emits/edits snapshot the run config's destination after their database write commits, then
+  enqueue the shared retrying Celery worker. Integrations are project-scoped, so a workspace connected
+  from any environment in the project can receive the canonical parent team's scout output.
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`

@@ -16,10 +16,12 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
-from products.signals.backend.models import SignalReportRefund, SignalScoutEmission
+from products.signals.backend.models import SignalReport, SignalReportRefund, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
+    ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
     post_scout_emission_to_slack,
+    post_scout_report_to_slack,
     slack_api_error_code,
 )
 
@@ -92,26 +94,51 @@ def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
 def deliver_scout_slack_output(
     self,
     team_id: int,
-    emission_id: str,
+    output_type: ScoutSlackOutputType,
+    output_id: str,
+    run_id: str,
+    delivery_id: str,
     integration_id: int,
     channel: str,
 ) -> None:
-    emission = SignalScoutEmission.objects.select_related("scout_run").filter(id=emission_id).first()
-    if emission is None:
-        logger.warning(
-            "signals_scout.slack_delivery_emission_missing",
-            team_id=team_id,
-            emission_id=emission_id,
-        )
-        return
-
     context = {
         "team_id": team_id,
-        "emission_id": emission_id,
+        "output_type": output_type,
+        "output_id": output_id,
+        "run_id": run_id,
         "integration_id": integration_id,
     }
     try:
-        post_scout_emission_to_slack(emission, integration_id=integration_id, channel=channel)
+        if output_type == "finding":
+            emission = (
+                SignalScoutEmission.objects.select_related("scout_run", "team")
+                .filter(id=output_id, team_id=team_id, scout_run_id=run_id)
+                .first()
+            )
+            if emission is None:
+                logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                return
+            post_scout_emission_to_slack(
+                emission,
+                integration_id=integration_id,
+                channel=channel,
+            )
+        elif output_type == "report":
+            report = SignalReport.objects.select_related("team").filter(id=output_id, team_id=team_id).first()
+            run = SignalScoutRun.objects.select_related("team").filter(id=run_id, team_id=team_id).first()
+            if report is None or run is None:
+                logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                return
+            post_scout_report_to_slack(
+                report,
+                run,
+                delivery_id=delivery_id,
+                integration_id=integration_id,
+                channel=channel,
+            )
+        else:
+            logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
+            return
     except ScoutSlackPermanentDeliveryError as exc:
         capture_exception(exc, {**context, "error_code": exc.error_code})
         logger.warning(
@@ -153,26 +180,41 @@ def deliver_scout_slack_output(
 def enqueue_scout_slack_delivery(
     *,
     team_id: int,
-    emission_id: str,
+    output_type: ScoutSlackOutputType,
+    output_id: str,
+    run_id: str,
+    delivery_id: str,
     integration_id: int,
     channel: str,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     try:
-        deliver_scout_slack_output.delay(team_id, emission_id, integration_id, channel)
+        deliver_scout_slack_output.delay(
+            team_id,
+            output_type,
+            output_id,
+            run_id,
+            delivery_id,
+            integration_id,
+            channel,
+        )
     except Exception as exc:
         capture_exception(
             exc,
             {
                 "team_id": team_id,
-                "emission_id": emission_id,
+                "output_type": output_type,
+                "output_id": output_id,
+                "run_id": run_id,
                 "integration_id": integration_id,
             },
         )
         logger.exception(
             "signals_scout.slack_delivery_enqueue_failed",
             team_id=team_id,
-            emission_id=emission_id,
+            output_type=output_type,
+            output_id=output_id,
+            run_id=run_id,
             integration_id=integration_id,
         )
 

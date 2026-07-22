@@ -1119,7 +1119,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
-    # Optional destinations for each finding this scout emits. Kept as a typed JSON object at
+    # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
