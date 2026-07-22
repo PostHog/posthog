@@ -42,8 +42,17 @@ const PREFERS_DARK_MEDIA_QUERY = '(prefers-color-scheme: dark)'
 
 function subscribeToColorSchemeChanges(onChange: () => void): () => void {
     const media = window.matchMedia?.(PREFERS_DARK_MEDIA_QUERY)
-    media?.addEventListener('change', onChange)
-    return () => media?.removeEventListener('change', onChange)
+    if (!media) {
+        return () => {}
+    }
+    // Shared/embedded pages are viewed from browsers we don't control; old WebKit (Safari < 14)
+    // only implements the legacy listener API, and throwing here would crash the whole page
+    if (typeof media.addEventListener !== 'function') {
+        media.addListener(onChange)
+        return () => media.removeListener(onChange)
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
 }
 
 function getSystemPrefersDark(): boolean {
