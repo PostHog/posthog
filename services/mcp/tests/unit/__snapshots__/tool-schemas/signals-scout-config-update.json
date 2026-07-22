@@ -14,7 +14,7 @@
             "type": "string"
         },
         "output_destinations": {
-            "description": "Destinations that receive each finding this scout emits. Pass an empty object to disable delivery.",
+            "description": "Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
             "properties": {
                 "slack": {
                     "anyOf": [
@@ -33,7 +33,7 @@
                                     "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 },
                                 "integration_id": {
-                                    "description": "ID of the Slack integration whose bot posts this scout's findings.",
+                                    "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
                                     "minimum": 1,
                                     "type": "number"
                                 }
@@ -45,7 +45,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Slack destination for each emitted scout finding. Null or omitted disables Slack delivery."
+                    "description": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery."
                 }
             },
             "type": "object"
