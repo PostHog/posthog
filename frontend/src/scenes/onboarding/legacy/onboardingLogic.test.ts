@@ -493,7 +493,10 @@ describe('onboardingLogic — flow composition', () => {
     describe('completeOnboarding — conversations enablement', () => {
         // Conversations has no onboarding steps, so enablement rides on completion. It must
         // fire for BOTH slots: as primary, and as a secondary (where the visited-step credit
-        // can never cover it because it contributes no steps to visit).
+        // can never cover it because it contributes no steps to visit). The enable must also be
+        // part of the SAME team PATCH as the completion fields: the team endpoint saves the full
+        // row from a possibly-stale instance, so a separately-dispatched enable is silently
+        // reverted whenever the completion PATCH commits after it.
         it.each([
             ['primary', (): void => logic.actions.setProductKey(ProductKey.CONVERSATIONS)],
             [
@@ -503,14 +506,22 @@ describe('onboardingLogic — flow composition', () => {
                     logic.actions.setSecondaryProductKeys([ProductKey.CONVERSATIONS])
                 },
             ],
-        ])('enables conversations on completion when selected as %s', async (_slot, setup) => {
+        ])('enables conversations atomically with completion when selected as %s', async (_slot, setup) => {
             setup()
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toDispatchActions([
-                (action) =>
-                    action.type === logic.actionTypes.updateCurrentTeam &&
-                    (action.payload as Record<string, unknown>)?.conversations_enabled === true,
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    const payload = action.payload as Record<string, unknown>
+                    return (
+                        payload?.conversations_enabled === true &&
+                        payload?.completed_snippet_onboarding === true &&
+                        !!payload?.has_completed_onboarding_for
+                    )
+                },
             ])
         })
 

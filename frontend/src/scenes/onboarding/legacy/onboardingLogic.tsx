@@ -731,23 +731,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // but don't fire an additional `onboarding completed` analytics event.
             eventUsageLogic.actions.reportOnboardingCompleted(primary)
             props.onCompleteOnboarding?.(primary)
-            // Error Tracking has a side-effect tied to onboarding completion (set up in the
-            // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
-            if (primary === ProductKey.ERROR_TRACKING) {
-                teamLogic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
-            }
-            // Support has no onboarding screen; enable the product on completion so it's live
-            // on arrival. Selecting it in either slot is the consent signal: its provider emits
-            // zero steps, so the visited-step crediting below can never cover it and a secondary
-            // selection would otherwise be dropped entirely. The field is project-admin-gated
-            // server-side, so for non-admins this PATCH is rejected (onboarding is effectively
-            // always driven by an owner or an admin-level delegation invite).
-            if (
-                primary === ProductKey.CONVERSATIONS ||
-                values.secondaryProductKeys.includes(ProductKey.CONVERSATIONS)
-            ) {
-                teamLogic.actions.updateCurrentTeam({ conversations_enabled: true })
-            }
             // Only mark a product as fully onboarded when the user actually visited at
             // least one of its steps. Without this guard, a hand-crafted URL with an
             // arbitrary `?with=...` list would silently flip every secondary's flag on
@@ -793,9 +776,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     tickedTaskIds.add(id)
                 }
             }
-            if (setup && tickedTaskIds.size > 0) {
-                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
-            }
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
@@ -804,17 +784,44 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
+            // Every completion-time team change rides in ONE PATCH. The team endpoint saves the
+            // full row from the instance it read, so concurrent team PATCHes silently revert each
+            // other's fields — a separately-dispatched enable loses whenever this PATCH commits
+            // last. Keep both completion signals in sync so every bootstrapped team shape prevents
+            // sceneLogic from redirecting a completed user back into onboarding after refresh.
+            const completionPatch: Partial<TeamType> = {
+                completed_snippet_onboarding: true,
+                has_completed_onboarding_for: completedMap,
+            }
+            // Error Tracking has a side-effect tied to onboarding completion (set up in the
+            // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
+            if (primary === ProductKey.ERROR_TRACKING) {
+                completionPatch.autocapture_exceptions_opt_in = true
+            }
+            // Support has no onboarding screen; enable the product on completion so it's live
+            // on arrival. Selecting it in either slot is the consent signal: its provider emits
+            // zero steps, so the visited-step crediting above can never cover it and a secondary
+            // selection would otherwise be dropped entirely. The field is project-admin-gated
+            // server-side, so for non-admins this PATCH is rejected (onboarding is effectively
+            // always driven by an owner or an admin-level delegation invite).
+            if (
+                primary === ProductKey.CONVERSATIONS ||
+                values.secondaryProductKeys.includes(ProductKey.CONVERSATIONS)
+            ) {
+                completionPatch.conversations_enabled = true
+            }
             try {
-                // Keep both completion signals in sync so every bootstrapped team shape prevents
-                // sceneLogic from redirecting a completed user back into onboarding after refresh.
-                await teamLogic.asyncActions.updateCurrentTeam({
-                    completed_snippet_onboarding: true,
-                    has_completed_onboarding_for: completedMap,
-                })
+                await teamLogic.asyncActions.updateCurrentTeam(completionPatch)
                 setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
             } catch {
                 // The completion update failed, so leave the user's homepage untouched
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            }
+            // Tick setup tasks only after the completion PATCH settles: the tick issues its own
+            // team PATCH (onboarding_tasks), and firing it concurrently makes it read a stale row
+            // and wipe the fields written above.
+            if (setup && tickedTaskIds.size > 0) {
+                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
             }
         },
         completeContextOnboarding: async () => {
