@@ -31,8 +31,10 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -55,7 +57,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -1047,25 +1049,37 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError(detail=self._cohort_error_message(exc))
 
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
-        self._validate_warehouse_access(raw)
         return raw
 
-    def _validate_warehouse_access(self, filters: dict) -> None:
-        """Background recalculation executes the cohort without warehouse access control (the
-        definition is team-owned), so access is enforced here instead: the member saving the
-        filters must be able to read every warehouse table they resolve through."""
+    def _validate_warehouse_access(self, attrs: dict) -> None:
+        """Background execution runs the cohort without warehouse access control (the definition
+        is team-owned), so access is enforced here instead: the member saving the definition must
+        be able to read every warehouse table it resolves through. Covers every way a definition
+        can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
         team = self.context.get("get_team", lambda: None)()
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if team is None or user is None or not getattr(user, "is_authenticated", False):
             return
+
+        properties: Optional[dict] = None
+        if attrs.get("filters"):
+            properties = attrs["filters"].get("properties")
+        elif attrs.get("groups"):
+            properties = Cohort(team=team, filters=None, groups=deepcopy(attrs["groups"])).properties.to_dict()
+
         try:
-            HogQLCohortQuery(
-                filter=Filter(data={"properties": filters["properties"]}, team=team), team=team
-            ).get_query_executor(user=user).generate_clickhouse_sql()
+            if properties:
+                HogQLCohortQuery(
+                    filter=Filter(data={"properties": properties}, team=team), team=team
+                ).get_query_executor(user=user).generate_clickhouse_sql()
+            if attrs.get("query"):
+                context = HogQLContext(team_id=team.pk, team=team, user=user, enable_select_queries=True)
+                query = get_query_runner(attrs["query"], team=team, limit_context=LimitContext.COHORT_CALCULATION)
+                prepare_ast_for_printing(query.to_query(), context=context, dialect="clickhouse")
         except TableAccessDeniedError as e:
             raise ValidationError(
-                f"Can't save this cohort: you don't have access to table `{e.table_name}`, which its filters use."
+                f"Can't save this cohort: you don't have access to table `{e.table_name}`, which its definition uses."
             )
         except Exception:
             # Only access denials gate saving; other compile problems surface elsewhere.
@@ -1076,6 +1090,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        self._validate_warehouse_access(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs

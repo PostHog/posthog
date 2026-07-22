@@ -89,8 +89,11 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
             {"name": "warehouse cohort", "filters": WAREHOUSE_FILTERS},
         )
 
-    def test_denied_member_cannot_save_warehouse_cohort(self):
+    def _deny_warehouse(self):
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def test_denied_member_cannot_save_warehouse_cohort(self):
+        self._deny_warehouse()
 
         response = self._save_cohort()
 
@@ -102,3 +105,32 @@ class TestCohortSaveWarehouseAccessControl(APIBaseTest):
         response = self._save_cohort()
 
         assert response.status_code == 201, response.content
+
+    def test_denied_member_cannot_save_query_cohort_over_warehouse_table(self):
+        self._deny_warehouse()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "query cohort",
+                "is_static": True,
+                "query": {"kind": "HogQLQuery", "query": "SELECT string_prop FROM extended_properties"},
+            },
+        )
+
+        assert response.status_code == 400, response.content
+        assert "extended_properties" in str(response.json())
+
+    def test_denied_member_cannot_update_via_legacy_groups(self):
+        cohort = Cohort.objects.create(team=self.team, name="plain cohort")
+        self._deny_warehouse()
+
+        # Legacy `groups` writes skip field-level validate_filters - the object-level gate must
+        # still catch a warehouse reference smuggled in through them.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/",
+            {"groups": [{"properties": WAREHOUSE_FILTERS["properties"]["values"]}]},
+        )
+
+        assert response.status_code == 400, response.content
+        assert "extended_properties" in str(response.json())
