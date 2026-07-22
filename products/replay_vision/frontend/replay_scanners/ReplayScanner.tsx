@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -16,11 +15,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCredits } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
@@ -47,7 +46,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
     const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
-    const qualityTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -78,32 +76,28 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {qualityTabEnabled && activeTab !== ReplayScannerTab.Quality && (
+                        {activeTab !== ReplayScannerTab.Quality && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply AI prompt recommendations in the Quality tab"
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Quality tab"
                                 onClick={() => setActiveTab(ReplayScannerTab.Quality)}
                                 data-attr="replay-vision-open-quality-tab"
                             >
-                                Improve scanner prompt
+                                Improve scanner
                             </LemonButton>
                         )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.replayVisionScannerConfigure(scannerId)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                            data-attr="vision-scanner-edit"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={urls.replayVisionScannerConfigure(scannerId)}
-                                data-attr="vision-scanner-edit"
-                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                            >
-                                Edit scanner
-                            </LemonButton>
-                        </AccessControlAction>
+                            Edit scanner
+                        </LemonButton>
                         <ReplayVisionFeedbackButton />
                     </>
                 }
@@ -144,7 +138,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
-                    qualityTabEnabled && {
+                    {
                         key: ReplayScannerTab.Quality,
                         label: 'Quality',
                         content: <ScannerQualityTab scannerId={scannerId} />,
@@ -152,7 +146,12 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
                         label: 'Summaries and alerts',
-                        content: <VisionActionsTab scannerId={scannerId} />,
+                        content: (
+                            <VisionActionsTab
+                                scannerId={scannerId}
+                                scannerUserAccessLevel={scanner.user_access_level}
+                            />
+                        ),
                     },
                 ]}
             />

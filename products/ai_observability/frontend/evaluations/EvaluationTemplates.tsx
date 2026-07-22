@@ -1,15 +1,31 @@
 import { useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
-import { IconArrowLeft, IconCode, IconEye, IconPlus, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    IconArrowLeft,
+    IconCode,
+    IconEmoji,
+    IconEye,
+    IconPlus,
+    IconSearch,
+    IconSparkles,
+    IconTarget,
+    IconThumbsUp,
+    IconWarning,
+    IconWrench,
+} from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
+import { useOpenAi } from '~/scenes/max/useOpenAi'
+
+import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
 
 const HedgehogJudge = pngHoggie(judgePng)
@@ -18,7 +34,7 @@ export const scene: SceneExport = {
     component: EvaluationTemplatesScene,
 }
 
-interface TemplateCardProps {
+interface TemplateRowProps {
     template: EvaluationTemplate | 'blank'
 }
 
@@ -35,6 +51,12 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
             return <IconWarning className={iconClass} />
         case 'code':
             return <IconCode className={iconClass} />
+        case 'search':
+            return <IconSearch className={iconClass} />
+        case 'wrench':
+            return <IconWrench className={iconClass} />
+        case 'emoji':
+            return <IconEmoji className={iconClass} />
         default: {
             const exhaustiveCheck: never = icon
             return exhaustiveCheck
@@ -42,8 +64,64 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
     }
 }
 
-function TemplateCard({ template }: TemplateCardProps): JSX.Element {
+function getTemplateTypeTag(evaluationType: EvaluationTemplate['evaluation_type']): {
+    label: string
+    type: LemonTagType
+} {
+    switch (evaluationType) {
+        case 'hog':
+            return { label: 'Hog', type: 'option' }
+        case 'sentiment':
+            return { label: 'Sentiment', type: 'success' }
+        case 'llm_judge':
+            return { label: 'LLM judge', type: 'caution' }
+        default: {
+            const exhaustiveCheck: never = evaluationType
+            return exhaustiveCheck
+        }
+    }
+}
+
+interface PickerRowProps {
+    dataAttr: string
+    description: string
+    icon: JSX.Element
+    onClick: () => void
+    tag?: {
+        label: string
+        type: LemonTagType
+    }
+    title: string
+}
+
+function PickerRow({ dataAttr, description, icon, onClick, tag, title }: PickerRowProps): JSX.Element {
+    return (
+        <button
+            className="flex items-center gap-4 w-full text-left px-4 py-3 hover:bg-fill-highlight-50 focus:bg-fill-highlight-50 focus:outline-none transition-colors cursor-pointer"
+            data-attr={dataAttr}
+            onClick={onClick}
+        >
+            <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-10 flex items-center justify-center">
+                {icon}
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-base font-semibold text-default mb-0">{title}</h3>
+                    {tag && (
+                        <LemonTag type={tag.type} size="small">
+                            {tag.label}
+                        </LemonTag>
+                    )}
+                </div>
+                <p className="text-sm text-secondary mb-0">{description}</p>
+            </div>
+        </button>
+    )
+}
+
+function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     const isBlank = template === 'blank'
+    const typeTag = isBlank ? null : getTemplateTypeTag(template.evaluation_type)
     const { searchParams } = useValues(router)
 
     const handleClick = (): void => {
@@ -51,50 +129,44 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
             template_key: isBlank ? 'blank' : template.key,
         })
 
-        if (isBlank) {
-            router.actions.push(combineUrl(urls.aiObservabilityEvaluation('new'), searchParams).url)
-        } else {
-            const url = combineUrl(urls.aiObservabilityEvaluation('new'), {
-                ...searchParams,
-                template: template.key,
-            }).url
-            router.actions.push(url)
-        }
+        router.actions.push(getEvaluationTemplateSelectionUrl(searchParams, isBlank ? undefined : template.key))
     }
 
     return (
-        <button
-            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
-            data-attr={isBlank ? 'blank-evaluation-template' : `evaluation-template-${template.key}`}
+        <PickerRow
+            dataAttr={isBlank ? 'blank-evaluation-template' : `evaluation-template-${template.key}`}
+            description={isBlank ? 'Build a custom evaluation with your own configuration' : template.description}
+            icon={isBlank ? <IconPlus className="w-5 h-5 text-primary-3000" /> : getTemplateIcon(template.icon)}
             onClick={handleClick}
-        >
-            <div className="flex flex-col items-center text-center gap-4 h-full">
-                <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
-                    {isBlank ? <IconPlus className="w-6 h-6 text-primary-3000" /> : getTemplateIcon(template.icon)}
-                </div>
-                <div className="flex-1 flex flex-col justify-start">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                        <h3 className="text-base font-semibold text-default mb-0">
-                            {isBlank ? 'Create from scratch' : template.name}
-                        </h3>
-                        {!isBlank && (
-                            <LemonTag type={template.evaluation_type === 'hog' ? 'option' : 'caution'} size="small">
-                                {template.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
-                            </LemonTag>
-                        )}
-                    </div>
-                    <p className="text-sm text-secondary leading-relaxed">
-                        {isBlank
-                            ? 'Build a custom evaluation with your own prompt and configuration'
-                            : template.description}
-                    </p>
-                </div>
-            </div>
-        </button>
+            tag={typeTag ?? undefined}
+            title={isBlank ? 'Create from scratch' : template.name}
+        />
     )
 }
 
-interface TemplateGridProps {
+function StartWithAiRow(): JSX.Element {
+    const { openAi } = useOpenAi()
+
+    const handleClick = (): void => {
+        posthog.capture('llm evaluation template selected', { template_key: 'start_with_ai' })
+        openAi(
+            'Create an online evaluation for me. First explore my recent AI traces to find failure modes worth evaluating, then set one up to catch the most important one.'
+        )
+    }
+
+    return (
+        <PickerRow
+            dataAttr="start-with-ai-evaluation-template"
+            description="Let PostHog AI explore your traces and build an evaluation for you"
+            icon={<IconSparkles className="w-5 h-5 text-primary-3000" />}
+            onClick={handleClick}
+            tag={{ label: 'Beta', type: 'completion' }}
+            title="Start with AI"
+        />
+    )
+}
+
+interface TemplatePickerProps {
     title: string
     description: string
     showBackButton?: boolean
@@ -102,14 +174,16 @@ interface TemplateGridProps {
     minHeight?: '60vh' | '80vh'
 }
 
-function TemplateGrid({
+function TemplatePicker({
     title,
     description,
     showBackButton = false,
     learnMoreUrl,
     minHeight = '60vh',
-}: TemplateGridProps): JSX.Element {
+}: TemplatePickerProps): JSX.Element {
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showStartWithAi = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]
 
     return (
         <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
@@ -119,9 +193,7 @@ function TemplateGrid({
                         <LemonButton
                             type="secondary"
                             icon={<IconArrowLeft />}
-                            onClick={() =>
-                                router.actions.push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
-                            }
+                            onClick={() => router.actions.push(getEvaluationBackTarget(false, searchParams).path)}
                             size="small"
                         >
                             Back to Evaluations
@@ -147,10 +219,11 @@ function TemplateGrid({
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <TemplateCard template="blank" />
+                    <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
+                        {showStartWithAi && <StartWithAiRow />}
+                        <TemplateRow template="blank" />
                         {defaultEvaluationTemplates.map((template) => (
-                            <TemplateCard key={template.key} template={template} />
+                            <TemplateRow key={template.key} template={template} />
                         ))}
                     </div>
                 </div>
@@ -161,7 +234,7 @@ function TemplateGrid({
 
 export function EvaluationTemplatesScene(): JSX.Element {
     return (
-        <TemplateGrid
+        <TemplatePicker
             title="Choose an evaluation template"
             description="Select a pre-configured template to get started quickly, or create your own from scratch"
             showBackButton
@@ -172,7 +245,7 @@ export function EvaluationTemplatesScene(): JSX.Element {
 
 export function EvaluationTemplatesEmptyState(): JSX.Element {
     return (
-        <TemplateGrid
+        <TemplatePicker
             title="Create your first evaluation"
             description="Select a pre-configured template to get started quickly, or create your own from scratch."
             showBackButton={false}

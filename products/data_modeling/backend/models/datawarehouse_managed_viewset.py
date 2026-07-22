@@ -21,7 +21,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
-from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -74,6 +73,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Deletes views that are no longer referenced.
         Materializes views by default.
         """
+        # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
+        from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
+        from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
 
         provider = get_expected_views_provider(self.kind)
         if provider is None:
@@ -197,7 +199,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
             for saved_query in saved_queries_to_schedule:
                 try:
-                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+                    # reconcile once after both loops, not once per view
+                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True, reconcile=False)
                     # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
                     # unless something there still depends on it (don't orphan a dependent).
                     for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
@@ -214,7 +217,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         for saved_query in saved_queries_to_schedule:
             try:
-                saved_query.schedule_materialization()
+                saved_query.schedule_materialization(reconcile=False)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(
@@ -223,6 +226,9 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     view_name=saved_query.name,
                     error=str(e),
                 )
+
+        if saved_queries_to_schedule:
+            maybe_reconcile_dag(managed_dag)
 
         views_deleted = 0
         for orphaned_view in orphaned_views_to_revert:

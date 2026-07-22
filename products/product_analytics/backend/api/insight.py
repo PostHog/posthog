@@ -91,12 +91,8 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.hogql_queries.query_runner import (
-    BLOCKING_EXECUTION_MODES,
-    ExecutionMode,
-    execution_mode_from_refresh,
-    shared_insights_execution_mode,
-)
+from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import Filter, User
 from posthog.models.activity_logging.activity_log import (
@@ -556,7 +552,7 @@ class InsightFilterOverrideContext(BaseModel):
     dashboard: schema.DashboardFilter | None = PydanticField(
         default=None, description="Dashboard filters that remain active after applying tile precedence."
     )
-    tile: schema.DashboardFilter | None = PydanticField(
+    tile: schema.TileFilters | None = PydanticField(
         default=None, description="Tile filters applied above the dashboard filters."
     )
     overridden_dashboard: schema.DashboardFilter | None = PydanticField(
@@ -1281,8 +1277,11 @@ class InsightSerializer(InsightBasicSerializer):
         with upgrade_query(insight):
             try:
                 is_shared = self.context.get("is_shared", False)
-                refresh_requested = refresh_requested_by_client(self.context["request"])
-                execution_mode = execution_mode_from_refresh(refresh_requested)
+                execution_mode, shared_cache_age_seconds = resolve_execution_mode(
+                    self.context["request"],
+                    surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
+                    is_shared=is_shared,
+                )
                 filters_override = filters_override_requested_by_client(
                     self.context["request"], dashboard, is_shared=is_shared
                 )
@@ -1294,10 +1293,6 @@ class InsightSerializer(InsightBasicSerializer):
                 tile_filters_override = tile_filters_override_requested_by_client(
                     self.context["request"], dashboard_tile, is_shared=is_shared
                 )
-
-                shared_cache_age_seconds: int | None = None
-                if is_shared:
-                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
@@ -1752,6 +1747,9 @@ class InsightViewSet(
             # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
             context["shared_link_user"] = self.request.user
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        context["compute_surface"] = (
+            ComputeSurface.INSIGHT_LIST if self.action == "list" else ComputeSurface.INSIGHT_DETAIL
+        )
 
         return context
 
@@ -2177,6 +2175,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     "dashboard_access_method": dashboard_access_method(
                         request, is_shared=serializer_context["is_shared"]
                     ),
+                    "compute_surface": ComputeSurface.DASHBOARD_TILE,
                 }
             )
 

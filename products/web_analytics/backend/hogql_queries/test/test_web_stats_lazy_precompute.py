@@ -23,6 +23,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -173,6 +174,13 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run(self, query: WebStatsTableQuery):
+        # Serve-live-warm-behind: user-facing reads never insert inline, so warm
+        # eligible shapes first under a background trigger (inline inserts allowed
+        # there), then assert on the converged user-facing read. Fall-through
+        # shapes ignore the warm pass and take the live path as before.
+        if query.useWebAnalyticsPrecompute:
+            with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+                WebStatsTableQueryRunner(team=self.team, query=query).calculate()
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
 
     @staticmethod
@@ -481,8 +489,10 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
+        # Direct user-facing calculate (no warm pass): warming triggers bypass the
+        # org flag by design, so the helper's warm pre-pass would create jobs here.
         self._seed()
-        self._run(self._build_query(opt_in_precompute=True))
+        WebStatsTableQueryRunner(team=self.team, query=self._build_query(opt_in_precompute=True)).calculate()
 
         assert self._job_count() == 0
 

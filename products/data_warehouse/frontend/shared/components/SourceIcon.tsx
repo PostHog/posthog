@@ -13,6 +13,7 @@ import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconDuckDB from 'public/services/duckdb.svg'
+import IconFileUpload from 'public/services/file-upload.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
@@ -86,6 +87,8 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     'google-cloud': IconGoogleCloudStorage,
     'cloudflare-r2': IconCloudflare,
     azure: Iconazure,
+    // File upload has no backend SourceConfig (its `iconPath`), so map its icon here directly.
+    FileUpload: IconFileUpload,
     BlushingHog: BlushingHog, // fallback, we don't know what this is
     PostHog: IconPostHog,
 }

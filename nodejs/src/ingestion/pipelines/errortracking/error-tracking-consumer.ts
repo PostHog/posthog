@@ -20,6 +20,7 @@ import { MainLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/m
 import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
+import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -143,8 +144,13 @@ export class ErrorTrackingConsumer {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: config.statefulOverflowLocalCacheTTLSeconds,
-                bucketCapacity: config.overflowBucketCapacity,
-                replenishRate: config.overflowBucketReplenishRate,
+                strategies: [
+                    {
+                        ...eventRateStrategy(),
+                        bucketCapacity: config.overflowBucketCapacity,
+                        replenishRate: config.overflowBucketReplenishRate,
+                    },
+                ],
                 overflowType: 'errortracking',
             })
         }
