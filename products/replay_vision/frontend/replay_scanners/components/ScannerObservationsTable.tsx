@@ -3,19 +3,19 @@ import { useActions, useValues } from 'kea'
 import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from '~/types'
+import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -169,20 +169,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 <div className="flex items-center gap-1">
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
                     {obs.status === 'failed' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconRefresh />}
-                                onClick={() => retryObservation(obs.id)}
-                                loading={retryingObservationIds.includes(obs.id)}
-                                tooltip="Retry scan"
-                                data-attr="vision-observation-retry"
-                            />
-                        </AccessControlAction>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => retryObservation(obs.id)}
+                            loading={retryingObservationIds.includes(obs.id)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+                            tooltip="Retry scan"
+                            data-attr="vision-observation-retry"
+                        />
                     )}
                 </div>
             ),
