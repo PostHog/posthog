@@ -2,13 +2,20 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDivider, LemonDropdown, Popover } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonDivider,
+    LemonDropdown,
+    LemonSegmentedButton,
+    Popover,
+} from '@posthog/lemon-ui'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+import { ActionFilter, EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
@@ -22,7 +29,7 @@ import {
 } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
-import { isEditableFilter, isEventFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEventFilter } from './utils'
 
 export type UniversalFiltersProps = {
     rootKey: string
@@ -92,6 +99,7 @@ const Value = ({
     metadataSource,
     className,
     operatorAllowlist,
+    allowEntityNegation = false,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -101,14 +109,32 @@ const Value = ({
     metadataSource?: AnyDataNode
     className?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
+    allowEntityNegation?: boolean
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
 
     const isEvent = isEventFilter(filter)
+    const isAction = isActionFilter(filter)
     const isEditable = isEditableFilter(filter)
 
     const [open, setOpen] = useState<boolean>(isEditable && initiallyOpen)
     const [changingEvent, setChangingEvent] = useState<boolean>(false)
+
+    const negationSelect =
+        allowEntityNegation && (isEvent || isAction) ? (
+            <div className="px-2 py-1">
+                <LemonSegmentedButton
+                    size="xsmall"
+                    value={(filter as ActionFilter).negation ? 'exclude' : 'include'}
+                    onChange={(value) => onChange({ ...filter, negation: value === 'exclude' } as UniversalFilterValue)}
+                    options={[
+                        { value: 'include', label: 'Performed' },
+                        { value: 'exclude', label: 'Did not perform' },
+                    ]}
+                    data-attr="universal-filters-entity-negation"
+                />
+            </div>
+        ) : null
 
     const pageKey = `${rootKey}.filter_${index}`
 
@@ -157,6 +183,7 @@ const Value = ({
                             />
                         ) : (
                             <>
+                                {negationSelect}
                                 <div className="px-2 py-1">
                                     <LemonButton size="xsmall" type="secondary" onClick={() => setChangingEvent(true)}>
                                         Change event
@@ -190,6 +217,8 @@ const Value = ({
                         operatorAllowlist={operatorAllowlist}
                         endpointFilters={endpointFilters}
                     />
+                ) : isAction && negationSelect ? (
+                    <div>{negationSelect}</div>
                 ) : null
             }
         >
@@ -198,6 +227,7 @@ const Value = ({
                 onClose={onRemove}
                 filter={filter}
                 className={className}
+                clickable={isAction && !!negationSelect}
             />
         </Popover>
     )
