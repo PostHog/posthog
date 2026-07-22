@@ -552,15 +552,15 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_o
 
 # ---------- CLI ----------
 
-# Every configured project receives the same spans; deterministic trace IDs make the copies
-# identical per project. The extra token dual-emits while CI telemetry moves projects.
+# Each token receives an identical copy of the spans (trace IDs are deterministic) —
+# transitional dual emission while CI telemetry moves projects.
 TOKEN_ENV_VARS = ("POSTHOG_DEVEX_PROJECT_API_TOKEN", "POSTHOG_CI_TRACES_EXTRA_TOKEN")
 
 
-def emission_tokens(env: Mapping[str, str] | None = None) -> list[str]:
+def emission_tokens(env: Mapping[str, str]) -> list[str]:
     """Distinct project API tokens to emit to, in ``TOKEN_ENV_VARS`` order."""
-    resolved = os.environ if env is None else env
-    return list(dict.fromkeys(token for var in TOKEN_ENV_VARS if (token := resolved.get(var, ""))))
+    tokens = (env.get(var, "") for var in TOKEN_ENV_VARS)
+    return list(dict.fromkeys(token for token in tokens if token))
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -621,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
-    tokens = emission_tokens()
+    tokens = emission_tokens(os.environ)
     if not tokens:
         logger.warning("none of %s set; skipping emit", ", ".join(TOKEN_ENV_VARS))
         return 0
