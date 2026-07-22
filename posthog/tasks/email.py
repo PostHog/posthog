@@ -363,11 +363,6 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         fallback="",
         context={"task": "send_member_join", "field": "invitee_last_name", **log_context},
     )
-    invitee_email = sanitize_display_name(
-        invitee.email,
-        fallback="",
-        context={"task": "send_member_join", "field": "invitee_email", **log_context},
-    )
     organization_name = sanitize_display_name(
         organization.name,
         fallback="your organization",
@@ -385,7 +380,6 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
             "organization": organization,
             "invitee_first_name": invitee_first_name,
             "invitee_last_name": invitee_last_name,
-            "invitee_email": invitee_email,
             "organization_name": organization_name,
         },
     )
