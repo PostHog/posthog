@@ -7,6 +7,7 @@ import pytest
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     CLAIM_ELIGIBILITY_INTERVAL,
@@ -1044,6 +1045,79 @@ class TestStateDualWrite:
         assert failed == 2
         assert (await _batch_state(conn, first))[0] == "failed"
         assert (await _batch_state(conn, second))[0] == "failed"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUpdateStatusUnlessFailed:
+    """'failed' must be absorbing: a consumer's newer executing/succeeded rows
+    would otherwise win the monotonic dual-write over a fail_run."""
+
+    @pytest.mark.parametrize("job_state", ["executing", "succeeded", "waiting_retry"])
+    @pytest.mark.asyncio
+    async def test_refuses_lifecycle_writes_over_failed(self, conn, job_state):
+        bid = await _insert_batch(conn, run_uuid="run-guard")
+        await BatchQueue.fail_run(conn, run_uuid="run-guard", team_id=1, schema_id="schema-1", reason="cancelled")
+
+        written = await BatchQueue.update_status_unless_failed(
+            conn,
+            batch_id=bid,
+            job_state=job_state,
+            attempt=1,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+        )
+
+        assert written is False
+        assert (await _batch_state(conn, bid))[0] == "failed"
+        cur = await conn.execute(f"SELECT count(*) FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None and row[0] == 1  # only fail_run's row; nothing appended over it
+
+    @pytest.mark.asyncio
+    async def test_normal_lifecycle_writes_pass_and_dual_write(self, conn):
+        bid = await _insert_batch(conn)
+        cur = await conn.execute(f"SELECT created_at FROM {BATCH_TABLE} WHERE id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None
+
+        assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
+        assert await BatchQueue.update_status_unless_failed(
+            conn, batch_id=bid, job_state="succeeded", attempt=1, batch_created_at=row[0]
+        )
+
+        state, attempt, _ = await _batch_state(conn, bid)
+        assert (state, attempt) == ("succeeded", 1)
+
+    @pytest.mark.asyncio
+    async def test_takeover_failed_batch_stays_supersedable(self, conn, sync_conn):
+        # Takeover deliberately lets an in-flight consumer finish: only its exact
+        # sentinel error stays writable (twin of the _is_job_dead exemption).
+        bid = await _insert_batch(conn, job_id="job-tko")
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        BatchQueue.fail_batches_for_job_sync(sync_conn, job_id="job-tko", reason=LOCK_TAKEOVER_LATEST_ERROR)
+
+        written = await BatchQueue.update_status_unless_failed(
+            conn,
+            batch_id=bid,
+            job_state="succeeded",
+            attempt=1,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+        )
+
+        assert written is True
+        assert (await _batch_state(conn, bid))[0] == "succeeded"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_reinsert_reports_written_not_refused(self, conn):
+        # A heartbeat re-insert (designed 0-row column no-op) must not read as a
+        # refusal, or every long batch would be abandoned mid-apply.
+        bid = await _insert_batch(conn)
+        assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
+
+        assert await BatchQueue.update_status_unless_failed(conn, batch_id=bid, job_state="executing", attempt=1)
+
+        cur = await conn.execute(f"SELECT count(*) FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None and row[0] == 2  # the log still grows
 
 
 @pytest.mark.django_db(transaction=True)
