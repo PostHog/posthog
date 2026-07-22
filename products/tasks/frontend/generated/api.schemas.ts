@@ -1114,19 +1114,6 @@ export const BundleFormatEnumApi = {
     Zip: 'zip',
 } as const
 
-/**
- * * `explicit` - explicit
- * * `always` - always
- * * `dependency` - dependency
- */
-export type ActivationEnumApi = (typeof ActivationEnumApi)[keyof typeof ActivationEnumApi]
-
-export const ActivationEnumApi = {
-    Explicit: 'explicit',
-    Always: 'always',
-    Dependency: 'dependency',
-} as const
-
 export interface TaskRunArtifactMetadataApi {
     /**
      * Name of the local skill included in a skill_bundle artifact.
@@ -1154,17 +1141,8 @@ export interface TaskRunArtifactMetadataApi {
      * @minimum 1
      */
     schema_version: number
-    /** How the agent should activate the uploaded skill bundle.
-     *
-     * * `explicit` - explicit
-     * * `always` - always
-     * * `dependency` - dependency */
-    activation?: ActivationEnumApi
-    /**
-     * Stable ordering for automatically activated skill bundles.
-     * @minimum 0
-     */
-    activation_order?: number
+    /** Whether the agent should apply the uploaded skill bundle for the entire session. */
+    always_on?: boolean
 }
 
 export interface TaskRunArtifactResponseApi {
