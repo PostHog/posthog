@@ -1,5 +1,8 @@
+import json
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from typing import Any
 
 from django.conf import settings
 
@@ -12,13 +15,19 @@ from posthog.redis import get_client
 logger = structlog.get_logger(__name__)
 
 LOCK_KEY_PREFIX = "v3_pipeline_lock"
+# Holder metadata lives in a second key because the lock value must stay a bare
+# run-id token — every release path compares it byte-for-byte.
+LOCK_META_KEY_PREFIX = "v3_pipeline_lock_meta"
 LOCK_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days, matching max workflow duration
 
 # Atomic check-and-delete: prevents a race where workflow A's expired lock is
 # acquired by workflow B, then A's delayed consumer releases B's lock.
 # Replaceable with DELEX once we upgrade to Redis >= 8.4.
+# Meta is deleted in the same script so it can't outlive its lock; readers must
+# still ignore mismatched-run_id meta (old pods release without deleting it).
 _RELEASE_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
+    redis.call("del", KEYS[2])
     return redis.call("del", KEYS[1])
 end
 return 0
@@ -27,6 +36,10 @@ return 0
 
 def _lock_key(team_id: int, schema_id: str) -> str:
     return f"{LOCK_KEY_PREFIX}:{team_id}:{schema_id}"
+
+
+def _lock_meta_key(team_id: int, schema_id: str) -> str:
+    return f"{LOCK_META_KEY_PREFIX}:{team_id}:{schema_id}"
 
 
 @contextmanager
@@ -76,6 +89,47 @@ def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
             return False
 
 
+def write_v3_pipeline_lock_meta(team_id: int, schema_id: str, run_id: str, workflow_id: str) -> None:
+    """Write the companion metadata for the current lock holder. Best-effort: never raises."""
+    with _get_redis_client() as client:
+        if client is None:
+            return
+
+        try:
+            payload = json.dumps(
+                {
+                    "run_id": run_id,
+                    "workflow_id": workflow_id,
+                    "acquired_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            client.set(_lock_meta_key(team_id, schema_id), payload, ex=LOCK_TTL_SECONDS)
+        except Exception as e:
+            logger.warning("v3_pipeline_lock_meta_write_error", error=str(e), team_id=team_id, schema_id=schema_id)
+            capture_exception(e)
+
+
+def get_v3_pipeline_lock_meta(team_id: int, schema_id: str) -> dict[str, Any] | None:
+    """Read the companion lock metadata; None when absent, unparseable, or Redis is down.
+    Can be stale (not atomic with the lock) — callers must check run_id matches the holder."""
+    with _get_redis_client() as client:
+        if client is None:
+            return None
+
+        try:
+            raw = client.get(_lock_meta_key(team_id, schema_id))
+            if raw is None:
+                return None
+            parsed = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+            if not isinstance(parsed, dict):
+                return None
+            return parsed
+        except Exception as e:
+            logger.warning("v3_pipeline_lock_meta_read_error", error=str(e), team_id=team_id, schema_id=schema_id)
+            capture_exception(e)
+            return None
+
+
 def get_v3_pipeline_lock_holder(team_id: int, schema_id: str) -> str | None:
     """Return the token currently holding the lock, or None if unheld or Redis is unavailable."""
     with _get_redis_client() as client:
@@ -100,7 +154,9 @@ def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
             return False
 
         try:
-            result = client.eval(_RELEASE_LOCK_SCRIPT, 1, _lock_key(team_id, schema_id), token)
+            result = client.eval(
+                _RELEASE_LOCK_SCRIPT, 2, _lock_key(team_id, schema_id), _lock_meta_key(team_id, schema_id), token
+            )
             return bool(result)
         except Exception as e:
             logger.warning("v3_pipeline_lock_release_error", error=str(e), team_id=team_id, schema_id=schema_id)

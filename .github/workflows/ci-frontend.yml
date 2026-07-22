@@ -409,6 +409,15 @@ jobs:
             - name: Check toolbar graph stays inside its module boundary
               run: pnpm --filter=@posthog/frontend check-toolbar-graph
 
+            # Keep the PR-side poster available after the base reset below. This is especially
+            # important on the PR that introduces or updates the poster itself.
+            - name: Preserve PR toolbar report poster
+              if: github.event_name == 'pull_request'
+              run: |
+                  if [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
+                      cp frontend/bin/post-toolbar-size-comment.mjs frontend/bin/post-toolbar-size-comment-pr.mjs
+                  fi
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
@@ -476,6 +485,19 @@ jobs:
                       node frontend/bin/post-dist-size-comment.mjs
                   else
                       echo "Skipping dist size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — toolbar bundle
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-toolbar-size-comment-pr.mjs ]; then
+                      node frontend/bin/post-toolbar-size-comment-pr.mjs
+                  elif [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
+                      node frontend/bin/post-toolbar-size-comment.mjs
+                  else
+                      echo "Skipping toolbar bundle section — script not present on this checkout"
                   fi
 
             - name: Check eager graph budgets (warn only)
