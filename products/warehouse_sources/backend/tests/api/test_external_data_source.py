@@ -2667,7 +2667,9 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.delete_discover_schemas_schedule")
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.delete_discover_schemas_schedule"
+    )
     def test_delete_external_data_source_tears_down_discovery_schedule(self, mock_delete_discover):
         source = self._create_external_data_source()
         self._create_external_data_schema(source.pk)
@@ -9988,7 +9990,9 @@ class TestEnableCDC(APIBaseTest):
         "products.warehouse_sources.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule"
+    )
     def test_enable_cdc_posthog_managed_success(
         self,
         mock_ensure_cleanup,
@@ -10060,7 +10064,9 @@ class TestEnableCDC(APIBaseTest):
         "products.warehouse_sources.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule"
+    )
     def test_enable_cdc_succeeds_for_supabase(
         self,
         _mock_ensure_cleanup,
@@ -10093,7 +10099,9 @@ class TestEnableCDC(APIBaseTest):
         "products.warehouse_sources.backend.presentation.views.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources"
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.ensure_cdc_slot_cleanup_schedule"
+    )
     def test_enable_cdc_self_managed_passes_publication_name(
         self,
         _mock_ensure_cleanup,

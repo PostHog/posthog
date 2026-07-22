@@ -88,6 +88,7 @@ def __getattr__(name: str):
 
     return getattr(importlib.import_module(f"products.warehouse_sources.backend.{module}"), name)
 
+
 # --- Mappers (ORM -> contract) ---
 
 
