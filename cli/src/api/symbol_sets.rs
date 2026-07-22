@@ -16,7 +16,7 @@ use crate::{
     utils::{files::content_hash, raise_for_err},
 };
 
-const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
+pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 const FINISH_UPLOAD_ERROR_MESSAGE: &str =
     "Failed to finalize symbol upload; maps were not attached";
 pub const DEFAULT_UPLOAD_CONCURRENCY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
