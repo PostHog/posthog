@@ -1,7 +1,10 @@
+use std::sync::OnceLock;
+
 use axum::http::HeaderMap;
+use bytes::Bytes;
 
 use crate::{
-    api::errors::FlagError,
+    api::{errors::FlagError, types::FlagsQueryParams},
     flags::{flag_request::FlagRequest, flag_service::FlagService},
     team::team_models::Team,
 };
@@ -11,23 +14,40 @@ use super::{
     types::{Library, RequestContext},
 };
 
-pub async fn parse_and_authenticate(
-    context: &RequestContext,
-    flag_service: &FlagService,
-) -> Result<(Option<String>, Team, FlagRequest, Option<Library>), FlagError> {
-    let (request, decoded_body) =
-        decoding::decode_request(&context.headers, context.body.clone(), &context.meta)?;
+fn decode_and_stamp_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    meta: &FlagsQueryParams,
+    decoded_body_for_logging: Option<&OnceLock<Bytes>>,
+    metrics_library: &mut Library,
+) -> Result<FlagRequest, FlagError> {
+    let (request, decoded_body) = decoding::decode_request(headers, body, meta)?;
 
     // Hand the decoded body to the body-log side channel if one is installed.
     // `set` is a no-op once filled, which can't happen here because each
     // request has its own OnceLock — but this future-proofs against a
     // hypothetical retry that calls `parse_and_authenticate` twice.
-    if let Some(slot) = context.decoded_body_for_logging.as_ref() {
+    if let Some(slot) = decoded_body_for_logging {
         slot.set(decoded_body).ok();
     }
 
-    let body_library = super::stamp_body_sdk_info(&request);
+    super::stamp_body_sdk_info(&request, metrics_library);
 
+    Ok(request)
+}
+
+pub async fn parse_and_authenticate(
+    context: &RequestContext,
+    flag_service: &FlagService,
+    metrics_library: &mut Library,
+) -> Result<(Option<String>, Team, FlagRequest), FlagError> {
+    let request = decode_and_stamp_request(
+        &context.headers,
+        context.body.clone(),
+        &context.meta,
+        context.decoded_body_for_logging.as_deref(),
+        metrics_library,
+    )?;
     let token = request.extract_token()?;
     let team = flag_service.verify_token_and_get_team(&token).await?;
 
@@ -38,7 +58,51 @@ pub async fn parse_and_authenticate(
         Some(request.extract_distinct_id()?)
     };
 
-    Ok((distinct_id, team, request, body_library))
+    Ok((distinct_id, team, request))
+}
+
+#[cfg(test)]
+mod sdk_info_tests {
+    use serde_json::json;
+
+    use crate::handler::{run_with_canonical_log, FlagsCanonicalLogLine};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn body_sdk_info_is_preserved_when_token_is_missing() {
+        let mut metrics_library = Library::PosthogNode;
+        let log = FlagsCanonicalLogLine {
+            lib: Some("posthog-node".to_string()),
+            lib_version: Some("fallback-1.0".to_string()),
+            ..Default::default()
+        };
+
+        let (result, final_log) = run_with_canonical_log(log, async {
+            let request = decode_and_stamp_request(
+                &HeaderMap::new(),
+                Bytes::from(
+                    json!({
+                        "distinct_id": "user123",
+                        "$lib": "web",
+                        "$lib_version": "body-1.0"
+                    })
+                    .to_string(),
+                ),
+                &FlagsQueryParams::default(),
+                None,
+                &mut metrics_library,
+            )?;
+
+            request.extract_token()
+        })
+        .await;
+
+        assert!(matches!(result, Err(FlagError::NoTokenError)));
+        assert_eq!(metrics_library, Library::PosthogJs);
+        assert_eq!(final_log.lib.as_deref(), Some("web"));
+        assert_eq!(final_log.lib_version.as_deref(), Some("body-1.0"));
+    }
 }
 
 /// Checks if the request is an internal request.

@@ -62,10 +62,16 @@ struct MetricsData {
     evaluation_type: Option<EvaluationType>,
 }
 
-fn stamp_body_sdk_info(request: &crate::flags::flag_request::FlagRequest) -> Option<Library> {
+fn stamp_body_sdk_info(
+    request: &crate::flags::flag_request::FlagRequest,
+    metrics_library: &mut Library,
+) {
     let lib = request.extract_lib();
     let lib_version = request.extract_lib_version();
-    let metrics_library = lib.as_deref().map(Library::from_sdk_name);
+
+    if let Some(lib) = lib.as_deref() {
+        *metrics_library = Library::from_sdk_name(lib);
+    }
 
     if lib.is_some() || lib_version.is_some() {
         with_canonical_log(|log| {
@@ -77,8 +83,6 @@ fn stamp_body_sdk_info(request: &crate::flags::flag_request::FlagRequest) -> Opt
             }
         });
     }
-
-    metrics_library
 }
 
 fn record_metrics(
@@ -151,23 +155,24 @@ async fn process_request_inner(
             *context.state.config.skip_pg_team_fallback,
         );
 
-        let (original_distinct_id, team, request, body_library) = {
+        let (original_distinct_id, team, request) = {
             // Phase boundary: covers token decoding, team verification
             // (HyperCache → Redis → S3 → PG fallback), and distinct-id
             // extraction. Drop records elapsed time into the canonical
             // log; histogram emission is deferred to `emit_phase_metrics`
             // so the metric carries a `team_id` label.
             let _phase = PhaseGuard::enter(Phase::Auth);
-            authentication::parse_and_authenticate(&context, &flag_service).await?
+            authentication::parse_and_authenticate(
+                &context,
+                &flag_service,
+                &mut metrics_data.library,
+            )
+            .await?
         };
 
         let distinct_id_for_logging = original_distinct_id
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
-
-        if let Some(body_library) = body_library {
-            metrics_data.library = body_library;
-        }
 
         // Populate canonical log with distinct_id, device_id, and anon_distinct_id
         // anon_distinct_id uses same precedence as hash_key_override: top-level > person_properties
@@ -369,12 +374,13 @@ mod sdk_info_tests {
             ..Default::default()
         };
 
+        let mut metrics_library = Library::PosthogNode;
         let (_, final_log) = run_with_canonical_log(log, async {
-            let metrics_library = stamp_body_sdk_info(&request);
-            assert_eq!(metrics_library, Some(Library::PosthogJs));
+            stamp_body_sdk_info(&request, &mut metrics_library);
         })
         .await;
 
+        assert_eq!(metrics_library, Library::PosthogJs);
         assert_eq!(final_log.lib.as_deref(), Some("web"));
         assert_eq!(final_log.lib_version.as_deref(), Some("body-1.0"));
     }
@@ -395,12 +401,13 @@ mod sdk_info_tests {
             ..Default::default()
         };
 
+        let mut metrics_library = Library::PosthogJs;
         let (_, final_log) = run_with_canonical_log(log, async {
-            let metrics_library = stamp_body_sdk_info(&request);
-            assert_eq!(metrics_library, None);
+            stamp_body_sdk_info(&request, &mut metrics_library);
         })
         .await;
 
+        assert_eq!(metrics_library, Library::PosthogJs);
         assert_eq!(final_log.lib.as_deref(), Some("web"));
         assert_eq!(final_log.lib_version.as_deref(), Some("fallback-1.0"));
     }
