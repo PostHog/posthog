@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AsanaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asana import AsanaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -128,6 +128,8 @@ Grant these read scopes so every table can sync:
         return asana_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Asana endpoint is full refresh
         )

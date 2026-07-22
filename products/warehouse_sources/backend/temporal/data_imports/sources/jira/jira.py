@@ -1,24 +1,26 @@
 import re
 import base64
 import dataclasses
-from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-import requests
+from requests import Response
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.jira.settings import (
-    JIRA_ENDPOINTS,
-    JiraEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
-
-REQUEST_TIMEOUT = 60
-MAX_RETRIES = 5
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.jira.settings import JIRA_ENDPOINTS
 
 # JQL only understands minute precision in this exact layout — it rejects ISO 8601 with seconds or a Z suffix.
 JQL_DATETIME_FORMAT = "%Y-%m-%d %H:%M"
@@ -27,11 +29,12 @@ JQL_DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 # Re-scan a day on every incremental run so a timezone offset can't open a gap; merge dedupes the overlap.
 INCREMENTAL_LOOKBACK = timedelta(days=1)
 
+# The enhanced ``/search/jql`` endpoint rejects unbounded queries (400 "Unbounded JQL queries are not
+# allowed here"). On a full sync there's no watermark, so anchor to an epoch floor to keep the query bounded
+# while still scanning every issue.
+JQL_FLOOR_DATETIME = "1970-01-01 00:00"
+
 _VALID_SUBDOMAIN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
-
-
-class JiraRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -65,24 +68,10 @@ def _format_jql_datetime(value: Any) -> str:
     return (dt - INCREMENTAL_LOOKBACK).strftime(JQL_DATETIME_FORMAT)
 
 
-# The enhanced ``/search/jql`` endpoint rejects unbounded queries (400 "Unbounded JQL queries are not
-# allowed here"). On a full sync there's no watermark, so anchor to an epoch floor to keep the query bounded
-# while still scanning every issue.
-JQL_FLOOR_DATETIME = "1970-01-01 00:00"
-
-
 def _build_issues_jql(incremental_field: str | None, last_value: Any) -> str:
     field = incremental_field or "updated"
     since = _format_jql_datetime(last_value) if last_value else JQL_FLOOR_DATETIME
     return f'{field} >= "{since}" ORDER BY {field} ASC'
-
-
-def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and data_key:
-        return data.get(data_key) or []
-    return []
 
 
 def _normalize_issue(issue: dict[str, Any]) -> dict[str, Any]:
@@ -97,106 +86,50 @@ def _normalize_issue(issue: dict[str, Any]) -> dict[str, Any]:
     return issue
 
 
+class JiraTokenPaginator(JSONResponseCursorPaginator):
+    """Enhanced ``/search/jql`` cursor pagination. Like the base cursor paginator (opaque
+    ``nextPageToken`` echoed back on the next request), but also honors Jira's ``isLast`` flag so
+    the final page ends the walk even if a token is still present in the body."""
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="nextPageToken", cursor_param="nextPageToken")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page:
+            try:
+                body = response.json()
+            except Exception:
+                return
+            if isinstance(body, dict) and body.get("isLast"):
+                self._has_next_page = False
+
+
+class JiraOffsetPaginator(OffsetPaginator):
+    """Classic ``startAt`` / ``maxResults`` paging that also stops on Jira's ``isLast`` flag, so a
+    final page that happens to be exactly ``maxResults`` long doesn't cost one extra empty request."""
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page:
+            try:
+                body = response.json()
+            except Exception:
+                return
+            if isinstance(body, dict) and body.get("isLast"):
+                self._has_next_page = False
+
+
 def validate_credentials(subdomain: str, email: str, api_token: str) -> tuple[bool, int | None]:
     """Probe ``/myself`` to confirm the token is genuine. Returns ``(ok, status_code)``."""
     if not is_valid_subdomain(subdomain):
         return False, None
 
-    url = f"{base_url(subdomain)}/rest/api/3/myself"
-    try:
-        response = make_tracked_session(headers=_auth_headers(email, api_token)).get(url, timeout=10)
-    except Exception:
-        return False, None
-
-    return response.status_code == 200, response.status_code
-
-
-def get_rows(
-    config: JiraEndpointConfig,
-    subdomain: str,
-    email: str,
-    api_token: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[JiraResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    session = make_tracked_session(headers=_auth_headers(email, api_token), redact_values=(api_token,))
-    url = f"{base_url(subdomain)}{config.path}"
-
-    @retry(
-        retry=retry_if_exception_type((JiraRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    return validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{base_url(subdomain)}/rest/api/3/myself",
+        headers=_auth_headers(email, api_token),
     )
-    def fetch_page(params: dict[str, Any]) -> Any:
-        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise JiraRetryableError(f"Jira API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"Jira API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    if config.pagination == "none":
-        items = _extract_items(fetch_page({}), config.data_key)
-        if items:
-            yield items
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    if config.pagination == "token":
-        last_value = db_incremental_field_last_value if should_use_incremental_field else None
-        jql = _build_issues_jql(incremental_field, last_value)
-
-        # The JQL moves between runs as the watermark advances. Dropping a stale token is safe:
-        # issues are scanned in incremental-field ASC order, so the watermark query resumes from
-        # where the interrupted run got to (modulo the lookback overlap, which merge dedupes).
-        next_page_token = resume.next_page_token if resume and resume.jql == jql else None
-        if resume and resume.next_page_token and not next_page_token:
-            logger.info(
-                f"Discarding Jira resume token minted for a different JQL: saved={resume.jql!r}, current={jql!r}"
-            )
-
-        while True:
-            params: dict[str, Any] = {"jql": jql, "maxResults": config.page_size, "fields": "*all"}
-            if next_page_token:
-                params["nextPageToken"] = next_page_token
-
-            data = fetch_page(params)
-            rows = [_normalize_issue(issue) for issue in data.get("issues", [])]
-            if rows:
-                yield rows
-
-            next_page_token = data.get("nextPageToken")
-            if not next_page_token or data.get("isLast"):
-                break
-
-            resumable_source_manager.save_state(JiraResumeConfig(next_page_token=next_page_token, jql=jql))
-        return
-
-    # offset pagination (startAt / maxResults)
-    start_at = resume.start_at if resume and resume.start_at is not None else 0
-    while True:
-        data = fetch_page({"startAt": start_at, "maxResults": config.page_size})
-        items = _extract_items(data, config.data_key)
-        if not items:
-            break
-
-        yield items
-
-        start_at += len(items)
-        is_last = data.get("isLast") if isinstance(data, dict) else None
-        if is_last or len(items) < config.page_size:
-            break
-
-        resumable_source_manager.save_state(JiraResumeConfig(start_at=start_at))
 
 
 def jira_source(
@@ -204,6 +137,8 @@ def jira_source(
     email: str,
     api_token: str,
     endpoint: str,
+    team_id: int,
+    job_id: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[JiraResumeConfig],
     should_use_incremental_field: bool = False,
@@ -212,19 +147,92 @@ def jira_source(
 ) -> SourceResponse:
     config = JIRA_ENDPOINTS[endpoint]
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_paginator_state: Optional[dict[str, Any]] = None
+
+    params: dict[str, Any] = {}
+    # The JQL the token walk was minted for, captured for the resume checkpoint (token endpoint only).
+    issues_jql: Optional[str] = None
+    paginator: SinglePagePaginator | JiraTokenPaginator | JiraOffsetPaginator
+
+    if config.pagination == "none":
+        paginator = SinglePagePaginator()
+    elif config.pagination == "token":
+        last_value = db_incremental_field_last_value if should_use_incremental_field else None
+        issues_jql = _build_issues_jql(incremental_field, last_value)
+        params = {"jql": issues_jql, "maxResults": config.page_size, "fields": "*all"}
+        paginator = JiraTokenPaginator()
+
+        # The JQL moves between runs as the watermark advances. A token minted for a different JQL is a
+        # 400, so drop it: issues are scanned in incremental-field ASC order, so the watermark query
+        # resumes from where the interrupted run got to (modulo the lookback overlap, which merge dedupes).
+        if resume and resume.next_page_token and resume.jql == issues_jql:
+            initial_paginator_state = {"cursor": resume.next_page_token}
+        elif resume and resume.next_page_token:
+            logger.info(
+                f"Discarding Jira resume token minted for a different JQL: saved={resume.jql!r}, current={issues_jql!r}"
+            )
+    else:  # offset
+        paginator = JiraOffsetPaginator(
+            limit=config.page_size,
+            offset_param="startAt",
+            limit_param="maxResults",
+            total_path=None,
+        )
+        if resume and resume.start_at is not None:
+            initial_paginator_state = {"offset": resume.start_at}
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(subdomain),
+            # Auth (Basic) is supplied via the framework auth config so the api_token is redacted from
+            # logs and raised error messages; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "http_basic", "username": email, "password": api_token},
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # ``None`` (bare-array endpoints) means the whole body is the row list.
+                    "data_selector": config.data_key,
+                    "paginator": paginator,
+                },
+                # Issues nest the partition/cursor timestamps inside ``fields``; lift them to the root.
+                **({"data_map": _normalize_issue} if endpoint == "issues" else {}),
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded (only when a next page remains) so a crash re-yields the last
+        # page — merge dedupes — rather than skipping it.
+        if not state:
+            return
+        if config.pagination == "token":
+            cursor = state.get("cursor")
+            if cursor is not None:
+                resumable_source_manager.save_state(JiraResumeConfig(next_page_token=cursor, jql=issues_jql))
+        elif config.pagination == "offset":
+            offset = state.get("offset")
+            if offset is not None:
+                resumable_source_manager.save_state(JiraResumeConfig(start_at=int(offset)))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            config=config,
-            subdomain=subdomain,
-            email=email,
-            api_token=api_token,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_key,
         partition_count=1,
         partition_size=1,

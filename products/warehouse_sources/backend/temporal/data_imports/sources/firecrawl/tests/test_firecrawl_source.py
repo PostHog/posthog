@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import FirecrawlResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source import FirecrawlSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FirecrawlSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
+    FirecrawlSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

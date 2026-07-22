@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { HealthIssueKind, KIND_LABELS } from 'scenes/health/healthCategories'
+import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -15,6 +16,8 @@ import {
 import {
     CyclotronJobFiltersType,
     CyclotronJobInputType,
+    CyclotronJobInvocationGlobals,
+    HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -63,6 +66,9 @@ export interface AlertWizardLogicProps {
     // to one or more health-check kinds. Pass an empty array to mean "all kinds"
     // explicitly; omit the prop to leave filters untouched.
     presetTriggerKinds?: string[]
+    // When set, the "Test" button populates the test event via the matching
+    // SAMPLE_GLOBALS_CONTEXTS loader (real product data) instead of a stub event.
+    contextId?: HogFunctionConfigurationContextId
     onAlertCreated?: () => void
 }
 
@@ -636,12 +642,14 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 hog: selectedTemplate.code,
             }
 
-            const globals = {
+            let globals: CyclotronJobInvocationGlobals = {
                 event: {
                     uuid: 'test-event-uuid',
                     distinct_id: 'test-distinct-id',
                     timestamp: new Date().toISOString(),
                     event: subTemplate.filters?.events?.[0]?.id || triggerKey,
+                    elements_chain: '',
+                    url: '',
                     properties: {
                         name: 'Test issue',
                         description: 'This is a test alert from PostHog',
@@ -656,6 +664,15 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     name: 'Alert wizard',
                     url: window.location.href,
                 },
+            }
+
+            const sampleGlobalsLoader = logicProps.contextId ? SAMPLE_GLOBALS_CONTEXTS[logicProps.contextId] : undefined
+            if (sampleGlobalsLoader) {
+                try {
+                    globals = await sampleGlobalsLoader(globals)
+                } catch {
+                    // Fall back to the stub test event
+                }
             }
 
             try {

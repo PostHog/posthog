@@ -269,46 +269,15 @@ def _mysql_job_inputs(mysql_config: dict) -> dict[str, str | dict[str, str]]:
 
 @pytest.fixture
 def mock_paddle_client():
-    response_data: dict[str, Any] = {"items": []}
-
-    class MockResponse:
-        def __init__(self, json_data):
-            self.json_data = json_data
-            self.status_code = 200
-
-        def json(self):
-            return self.json_data
-
-        def raise_for_status(self):
-            pass
-
+    # Paddle now flows through the shared REST framework, so pagination is mocked by
+    # `_execute_run`'s `PostHogRESTClient.paginate` patch. This fixture only bypasses
+    # credential validation; `set_response` is a no-op kept for call-site compatibility.
     def set_response(items: Any) -> None:
-        response_data["items"] = items
+        pass
 
-    def mock_paddle_request(
-        session: Any,
-        method: str,
-        url: str,
-        headers: Optional[dict[str, Any]] = None,
-        params: Optional[dict[str, Any]] = None,
-        **kwargs,
-    ):
-        return MockResponse(
-            {
-                "data": response_data["items"],
-                "meta": {"pagination": {"next": None}},
-            }
-        )
-
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.paddle_request",
-            side_effect=mock_paddle_request,
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
-            return_value=True,
-        ),
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
+        return_value=True,
     ):
         yield set_response
 
@@ -582,6 +551,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_malformed_retryable: bool = False,
     ):
         return iter(mock_data_response)
 
@@ -598,6 +568,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_malformed_retryable: bool = False,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.

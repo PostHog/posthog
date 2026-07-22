@@ -28,6 +28,7 @@ class ExperimentVisitor(
         "status",
         "conclusion",
         "conclusion_comment",
+        "flag_cleanup_task_id",
         "created_at",
         "updated_at",
     ],

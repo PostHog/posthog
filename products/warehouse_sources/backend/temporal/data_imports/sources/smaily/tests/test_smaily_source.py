@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SmailySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.smaily import SmailyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource

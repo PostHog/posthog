@@ -83,3 +83,61 @@ pub async fn create_temp_bucket_store(config: &Config) -> Result<Arc<dyn ObjectS
         config.temp_bucket_max_concurrent_requests,
     )))
 }
+
+/// Build the `object_store` client for the trial output bucket. Same credential
+/// priority and non-eager-validation rationale as [`create_temp_bucket_store`];
+/// timeout/retry/concurrency knobs are shared with the temp bucket since both
+/// are internal buckets with the same infrastructure profile, and trial pages
+/// are far smaller than staged parts.
+pub async fn create_trial_output_store(config: &Config) -> Result<Arc<dyn ObjectStore>> {
+    anyhow::ensure!(
+        !config.trial_bucket_name.trim().is_empty(),
+        "TRIAL_BUCKET_NAME is not set; trial jobs are disabled on this worker"
+    );
+
+    let mut builder = AmazonS3Builder::from_env()
+        .with_bucket_name(&config.trial_bucket_name)
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout(Duration::from_secs(config.temp_bucket_attempt_timeout_secs)),
+        )
+        .with_retry(object_store::RetryConfig {
+            max_retries: config.temp_bucket_max_retries,
+            retry_timeout: Duration::from_secs(config.temp_bucket_operation_timeout_secs),
+            ..Default::default()
+        });
+
+    if let Some(region) = config.trial_bucket_region() {
+        builder = builder.with_region(region);
+    }
+
+    if let Some(endpoint) = config.trial_bucket_endpoint() {
+        builder = builder.with_endpoint(endpoint);
+        if endpoint.starts_with("http://") {
+            builder = builder.with_allow_http(true);
+        }
+    }
+
+    if let Some((access_key, secret_key)) = config.trial_bucket_credentials() {
+        info!("Trial bucket: using explicit S3 credentials from config");
+        builder = builder
+            .with_access_key_id(access_key)
+            .with_secret_access_key(secret_key);
+    }
+
+    if config.trial_bucket_force_path_style {
+        builder = builder.with_virtual_hosted_style_request(false);
+    }
+
+    let store = builder.build().with_context(|| {
+        format!(
+            "Failed to build trial-output S3 client for bucket '{}'",
+            config.trial_bucket_name
+        )
+    })?;
+
+    Ok(Arc::new(LimitStore::new(
+        store,
+        config.temp_bucket_max_concurrent_requests,
+    )))
+}

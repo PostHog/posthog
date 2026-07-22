@@ -9,7 +9,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntruderSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
+    IntruderSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import IntruderResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import ENDPOINTS

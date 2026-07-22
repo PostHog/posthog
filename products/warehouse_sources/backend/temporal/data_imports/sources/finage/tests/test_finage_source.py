@@ -11,7 +11,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import source as finage_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.source import FinageSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
