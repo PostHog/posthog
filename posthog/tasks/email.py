@@ -583,6 +583,72 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     message.send()
 
 
+def _get_members_with_project_access(team: Team) -> list[OrganizationMembership]:
+    # Like get_members_to_notify, but with no notification-setting gate: used for operational
+    # notices (e.g. email sending suspension) that members must not be able to mute.
+    memberships_to_email = []
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id
+    )
+    for membership in memberships:
+        team_permissions = UserPermissions(membership.user).team(team)
+        if (
+            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ):
+            memberships_to_email.append(membership)
+    return memberships_to_email
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -> None:
+    """
+    Tell a team's members that staff suspended workflow email sending for their project.
+    Deliberately not gated by notification settings — sends are failing until they act.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_members_with_project_access(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_suspended_{team_id}_{suspended_at}",
+        subject=f"[Action required] Email sending has been suspended for project '{team}'",
+        template_name="email_sending_suspended",
+        template_context={
+            "team": team,
+            "reason": reason,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_members_with_project_access(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_unsuspended_{team_id}_{unsuspended_at}",
+        subject=f"Email sending has been re-enabled for project '{team}'",
+        template_name="email_sending_unsuspended",
+        template_context={
+            "team": team,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
     failure_rate: float = 1.0,

@@ -93,6 +93,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -956,6 +957,15 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         help_text=(
             "Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows."
         ),
+    )
+    email_sending_suspended = serializers.BooleanField(
+        read_only=True,
+        help_text="True while workflow email sending is suspended for this project to protect deliverability.",
+    )
+    email_sending_suspended_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When email sending was suspended; null while sending is enabled.",
     )
 
 
@@ -2754,11 +2764,21 @@ class HogFlowViewSet(
         )
         workflow_snapshots = workflow_snapshots[: self.WORKFLOW_REPUTATION_LIMIT]
 
+        # Shown to every project member regardless of per-object grants: a suspension stops
+        # everyone's email, so hiding it would just leave silent send failures unexplained.
+        suspended_at = (
+            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
+            .values_list("email_sending_suspended_at", flat=True)
+            .first()
+        )
+
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
                     "reputation": latest,
                     "workflows": workflow_snapshots,
+                    "email_sending_suspended": suspended_at is not None,
+                    "email_sending_suspended_at": suspended_at,
                 },
                 context={"workflow_history": history_by_flow},
             ).data
