@@ -45,6 +45,7 @@ import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
+import { GENERATED_TOOLS as review_hog } from './review_hog'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as stamphog } from './stamphog'
@@ -103,6 +104,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...reminders,
     ...replay,
     ...replay_vision,
+    ...review_hog,
     ...signals,
     ...skills,
     ...stamphog,
