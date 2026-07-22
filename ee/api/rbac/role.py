@@ -100,7 +100,7 @@ class RoleSerializer(serializers.ModelSerializer):
     )
     def get_members(self, role: Role):
         # role.roles are the memberships; reuse RoleViewSet's prefetch instead of re-querying per role.
-        memberships = role.roles.all()
+        memberships = list(role.roles.all())
         visible_membership_ids = self.context.get("visible_membership_ids")
         if visible_membership_ids is not None:
             memberships = [
