@@ -893,6 +893,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         openReviewDetailById: ({ reviewId }) => {
             actions.loadReviewDetail(reviewId)
         },
+        loadReviewDetailFailure: () => {
+            // Only the deep-link path has no list row keeping the drawer meaningful — a failed
+            // load there (stale link, deleted report) would strand an open drawer of skeletons.
+            if (values.reviewDrawerOpen && !values.openedReview) {
+                lemonToast.error("That review couldn't be opened. The link may be stale, or the review deleted.")
+                actions.closeReviewDrawer()
+            }
+        },
         submitTriggerReview: async () => {
             if (values.triggeringReview) {
                 // A request is already in flight — the disabled button can't stop an Enter keypress
@@ -1001,6 +1009,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             const reviewParam = searchParams.review
             if (typeof reviewParam === 'string' && reviewParam && reviewParam !== values.openedReviewId) {
                 actions.openReviewDetailById(reviewParam)
+            } else if (!reviewParam && values.reviewDrawerOpen) {
+                // Navigation that drops the param (back/forward, a pasted URL without it) closes
+                // the drawer — otherwise the URL and the visible report disagree.
+                actions.closeReviewDrawer()
             }
         },
     })),

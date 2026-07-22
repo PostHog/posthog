@@ -4,6 +4,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
@@ -60,6 +62,10 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
         _review_posted(marker, [{"body": f"pasted: {marker}", "user": {"login": "prankster", "type": "User"}}]) is False
     )
     assert _review_posted(marker, [{"body": f"no user field: {marker}"}]) is False
+    # With the app's bot login configured, another installed bot's pasted marker must not match either.
+    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]"):
+        assert _review_posted(marker, [{"body": marker, **bot}]) is True
+        assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
 
 
 def test_review_already_posted_proceeds_when_readback_fails() -> None:

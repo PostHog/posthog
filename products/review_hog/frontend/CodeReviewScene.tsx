@@ -972,8 +972,10 @@ function ReviewDetailDrawer(): JSX.Element {
                         {
                             key: 'published',
                             // "Published" is a claim about the PR — only make it when the review
-                            // actually posted; findings a store-only run kept above the bar read "Kept".
-                            label: `${reviewDetail?.published ? 'Published' : 'Kept'}${
+                            // actually posted; findings a store-only run kept above the bar read
+                            // "Kept". `review` falls back to the list row, so a published review
+                            // doesn't flash "Kept" while its detail loads.
+                            label: `${review?.published ? 'Published' : 'Kept'}${
                                 reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
                             }`,
                             content: <DrawerPublishedTab />,

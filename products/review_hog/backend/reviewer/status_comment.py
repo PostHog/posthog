@@ -36,6 +36,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
+    is_app_bot_author,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,9 +227,10 @@ def _find_marker_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
     ):
-        # Adopt only app-bot comments: anyone can paste the marker on a public repo, and the
-        # returned id gets PATCHed — matching a stranger's comment would overwrite it.
-        if (comment.get("user") or {}).get("type") != "Bot":
+        # Adopt only our own app-bot's comments (`is_app_bot_author`): anyone can paste the marker
+        # on a public repo, and the returned id gets PATCHed — matching a stranger's comment would
+        # overwrite it.
+        if not is_app_bot_author(comment.get("user")):
             continue
         if marker in (comment.get("body") or ""):
             return comment.get("id")

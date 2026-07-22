@@ -130,7 +130,6 @@ async def _run_full_review_pr_workflow(
     async def resolve_acting_user(input) -> ResolveActingUserResult:
         # Non-default threshold and resolved_from, so the threading asserts can't pass on the
         # dataclass defaults.
-        # A non-default threshold, so the threading asserts can't pass on the dataclass defaults.
         return ResolveActingUserResult(
             acting_user_id=acting_user_id,
             review_labeled_prs=review_labeled_prs,

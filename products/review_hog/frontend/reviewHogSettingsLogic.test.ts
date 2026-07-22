@@ -327,6 +327,34 @@ describe('reviewHogSettingsLogic', () => {
         logic.actions.closeReviewDrawer()
         expect(logic.values.reviewDrawerOpen).toBe(false)
         expect(router.values.searchParams.review).toBeUndefined()
+
+        // And navigation that drops the param closes an open drawer — the URL and the visible
+        // report must never disagree.
+        router.actions.push(urls.codeReview(), { review: 'r-9' })
+        await expectLogic(logic).toDispatchActions(['openReviewDetailById'])
+        router.actions.push(urls.codeReview(), {})
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+    })
+
+    it('closes a deep-linked drawer when the review fails to load', async () => {
+        // A stale ?review= link (deleted report, wrong project) has no list row to fall back on —
+        // without the failure path the drawer would sit open on skeletons forever.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-gone/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess'])
+
+        router.actions.push(urls.codeReview(), { review: 'r-gone' })
+        await expectLogic(logic).toDispatchActions([
+            'openReviewDetailById',
+            'loadReviewDetailFailure',
+            'closeReviewDrawer',
+        ])
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+        expect(router.values.searchParams.review).toBeUndefined()
     })
 
     it('stops "Show more" at the API\'s maximum limit', async () => {
