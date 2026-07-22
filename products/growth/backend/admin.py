@@ -277,14 +277,104 @@ def _config_has_results(config: EnrichmentPromptConfig) -> bool:
     return EnrichmentLabelResult.objects.filter(label_name=config.name, prompt_version=config.version).exists()
 
 
+# Runtime constraints only (the model keeps plain fields): curated gateway models and the
+# archived-Harmonic payload paths worth feeding a prompt. Extend freely; stored rows with
+# values outside these lists still render (choices are unioned with the instance's values).
+GATEWAY_MODEL_CHOICES = [
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1-mini",
+    "claude-haiku-4-5",
+    "claude-sonnet-5",
+]
+
+HARMONIC_INPUT_FIELD_CHOICES = [
+    ("name", "Company name"),
+    ("description", "Description"),
+    ("website.url", "Website URL"),
+    ("companyType", "Company type"),
+    ("headcount", "Headcount"),
+    ("tagsV2", "Tags (tagsV2)"),
+    ("funding.fundingStage", "Funding stage"),
+    ("funding.fundingTotal", "Total funding"),
+    ("funding.lastFundingAt", "Last funding date"),
+    ("funding.investors", "Investors"),
+    ("location.country", "Country"),
+    ("foundingDate.date", "Founding date"),
+]
+
+
+class EnrichmentPromptConfigForm(forms.ModelForm):
+    """Label-owner-facing form: dropdowns and checkboxes instead of free text, so a new
+    version is a guided copy-and-tweak rather than hand-typed JSON."""
+
+    class Meta:
+        model = EnrichmentPromptConfig
+        fields = "__all__"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        instance: EnrichmentPromptConfig | None = self.instance if self.instance.pk else None
+        if "model" in self.fields:
+            models_list = list(GATEWAY_MODEL_CHOICES)
+            if instance and instance.model and instance.model not in models_list:
+                models_list.append(instance.model)
+            self.fields["model"] = forms.ChoiceField(
+                choices=[(m, m) for m in models_list],
+                help_text="Routed through the internal LLM gateway. gpt-5 models only accept temperature 1.",
+            )
+        if "input_fields" in self.fields:
+            paths = list(HARMONIC_INPUT_FIELD_CHOICES)
+            if instance:
+                known = {value for value, _ in paths}
+                paths += [(p, p) for p in instance.input_fields if p not in known]
+            self.fields["input_fields"] = forms.MultipleChoiceField(
+                choices=paths,
+                widget=forms.CheckboxSelectMultiple,
+                required=False,
+                label="Input fields",
+                help_text="Archived Harmonic payload fields passed to the prompt as the Company data block.",
+            )
+        if "version" in self.fields:
+            self.fields["version"].help_text = (
+                "Immutable once the batch runner stores results. Iterating = add a new row "
+                "with a new version, e.g. ai-pilled-v2."
+            )
+        if "prompt_text" in self.fields:
+            self.fields["prompt_text"].help_text = (
+                "{email} is replaced with the signup email at runtime. The JSON output "
+                "instruction is appended automatically - describe only the judgment."
+            )
+        if "is_active" in self.fields:
+            self.fields["is_active"].help_text = "The version the batch runner computes. One active version per label."
+
+
 @admin.register(EnrichmentPromptConfig)
 class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
+    form = EnrichmentPromptConfigForm
     list_display = ("name", "version", "model", "temperature", "is_active", "created_by", "created_at")
     list_filter = ("name", "is_active")
     search_fields = ("name", "version")
     ordering = ("-created_at",)
     show_full_result_count = False
     list_select_related = ("created_by",)
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
+        # A new version is almost always a tweak of the newest one: prefill everything
+        # except the version string, which the owner must choose.
+        initial = super().get_changeform_initial_data(request)
+        latest = EnrichmentPromptConfig.objects.order_by("-created_at").first()
+        if latest is not None and "name" not in initial:
+            initial.update(
+                {
+                    "name": latest.name,
+                    "prompt_text": latest.prompt_text,
+                    "model": latest.model,
+                    "temperature": latest.temperature,
+                    "input_fields": latest.input_fields,
+                }
+            )
+        return initial
 
     def get_readonly_fields(self, request: HttpRequest, obj: EnrichmentPromptConfig | None = None) -> tuple[str, ...]:
         readonly: tuple[str, ...] = ("id", "created_by", "created_at")
