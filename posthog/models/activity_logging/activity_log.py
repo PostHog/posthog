@@ -277,6 +277,10 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # Full content snapshot including action inputs (auth headers, API keys) — record that a
         # draft was staged/published/discarded, never its contents.
         "draft",
+        # Encrypted secret function inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
+        "encrypted_inputs",
+        "draft_encrypted_inputs",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
